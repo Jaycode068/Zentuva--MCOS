@@ -1,0 +1,39 @@
+{
+  "name": "@zentuva/web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Zentuva MCOS frontend — Next.js desktop and mobile experiences",
+  "scripts": {
+    "build": "next build",
+    "dev": "next dev",
+    "start": "next start",
+    "lint": "next lint",
+    "type-check": "tsc --noEmit",
+    "test": "echo \"no tests yet\" && exit 0",
+    "clean": "rm -rf .next"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.59.20",
+    "@zentuva/types": "workspace:*",
+    "@zentuva/ui": "workspace:*",
+    "@zentuva/utils": "workspace:*",
+    "@zentuva/validation": "workspace:*",
+    "next": "14.2.16",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@tanstack/react-query-devtools": "^5.59.20",
+    "@types/node": "^22.9.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@zentuva/config": "workspace:*",
+    "autoprefixer": "^10.4.20",
+    "eslint": "^8.57.0",
+    "eslint-config-next": "14.2.16",
+    "postcss": "^8.4.47",
+    "tailwindcss": "^3.4.14",
+    "tailwindcss-animate": "^1.0.7",
+    "typescript": "^5.6.3"
+  }
+}

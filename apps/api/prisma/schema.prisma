@@ -1,0 +1,23 @@
+// Zentuva MCOS — Prisma schema
+// This is the foundation schema. Domain modules (Identity, Organisation, Product
+// Catalogue, Procurement, Inventory, Production, Sales, Distribution, Finance) will
+// add their own models here as they are built. No business models exist yet.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// Technical-only model, not a business entity. Prisma requires at least one model to
+/// generate a client; this exists solely so PrismaService can connect and the /api/health
+/// endpoint can verify DB connectivity. Remove once the first real domain model is added.
+model HealthCheck {
+  id        Int      @id @default(autoincrement())
+  checkedAt DateTime @default(now())
+
+  @@map("_health_check")
+}

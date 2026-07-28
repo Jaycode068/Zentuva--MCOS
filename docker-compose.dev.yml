@@ -1,0 +1,38 @@
+name: zentuva-dev
+
+# Infra-only compose file for local development: run `docker compose -f docker-compose.dev.yml up`
+# then run apps/api and apps/web directly on the host with `pnpm dev` for fast iteration.
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-zentuva}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-zentuva}
+      POSTGRES_DB: ${POSTGRES_DB:-zentuva}
+    ports:
+      - '${POSTGRES_PORT:-5432}:5432'
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-zentuva}']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - '${REDIS_PORT:-6379}:6379'
+    volumes:
+      - redis_dev_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres_dev_data:
+  redis_dev_data:
