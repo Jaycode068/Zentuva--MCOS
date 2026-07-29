@@ -1,72 +1,59 @@
 # Getting Started
 
+Quick-start version. For the full guide — Prisma migrations, Prisma Studio, VS Code debugging,
+troubleshooting — see [Local Development Guide](../development/local-development.md).
+
 ## Prerequisites
 
 - Node.js ≥ 20
 - [pnpm](https://pnpm.io) ≥ 9 (enable via `corepack enable && corepack prepare pnpm@9 --activate`
   if you don't have it)
-- Docker + Docker Compose (for Postgres/Redis, or full-stack runs)
+- Docker + Docker Compose (used for Postgres/Redis only — see
+  [development philosophy](../development/local-development.md#development-philosophy))
 
-## 1. Install dependencies
+## Setup
 
 ```bash
 pnpm install
-```
-
-## 2. Configure environment variables
-
-```bash
-cp .env.example .env
 cp apps/api/.env.example apps/api/.env
 cp apps/web/.env.example apps/web/.env.local
+pnpm infra:up
+pnpm db:generate
+pnpm db:migrate
 ```
 
-Adjust values as needed. See [configuration reference](../database/README.md) and each app's
-`.env.example` for what every variable does.
-
-## 3. Start infrastructure (Postgres + Redis)
-
-```bash
-docker compose -f docker-compose.dev.yml up -d
-```
-
-## 4. Generate the Prisma client
-
-```bash
-pnpm --filter @zentuva/api run prisma:generate
-```
-
-## 5. Run the apps
+## Run
 
 ```bash
 pnpm dev
 ```
 
-This runs `apps/web` (http://localhost:3000) and `apps/api` (http://localhost:4000) in parallel
-via Turborepo. Check the API health endpoint:
+Runs `apps/web` (http://localhost:3000) and `apps/api` (http://localhost:4000) on the host with
+hot reload. Check the API:
 
 ```bash
 curl http://localhost:4000/api/health
 ```
 
-## Alternative: full stack in Docker
+## When you're done
 
 ```bash
-cp .env.example .env
-cp apps/api/.env.example apps/api/.env
-cp apps/web/.env.example apps/web/.env
-docker compose up --build
+pnpm infra:down
 ```
 
 ## Common scripts (run from the repo root)
 
-| Command           | Description                            |
-| ----------------- | -------------------------------------- |
-| `pnpm dev`        | Run all apps in dev mode (Turborepo)   |
-| `pnpm build`      | Build all apps and packages            |
-| `pnpm lint`       | Lint all apps and packages             |
-| `pnpm format`     | Format the repo with Prettier          |
-| `pnpm type-check` | Type-check all apps and packages       |
-| `pnpm test`       | Run tests across all apps and packages |
+| Command           | Description                                 |
+| ----------------- | ------------------------------------------- |
+| `pnpm infra:up`   | Start Postgres + Redis (Docker, background) |
+| `pnpm dev`        | Run all apps in dev mode, with hot reload   |
+| `pnpm infra:down` | Stop Postgres + Redis                       |
+| `pnpm build`      | Build all apps and packages                 |
+| `pnpm lint`       | Lint all apps and packages                  |
+| `pnpm type-check` | Type-check all apps and packages            |
+| `pnpm test`       | Run tests across all apps and packages      |
+| `pnpm db:studio`  | Open Prisma Studio                          |
 
-See [development-workflow.md](development-workflow.md) for day-to-day conventions.
+See the [Local Development Guide](../development/local-development.md) for the complete command
+reference, migrations, debugging, and troubleshooting; and
+[development-workflow.md](development-workflow.md) for day-to-day engineering conventions.

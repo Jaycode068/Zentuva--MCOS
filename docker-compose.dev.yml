@@ -1,7 +1,19 @@
 name: zentuva-dev
 
-# Infra-only compose file for local development: run `docker compose -f docker-compose.dev.yml up`
-# then run apps/api and apps/web directly on the host with `pnpm dev` for fast iteration.
+# Infra-only compose file for local development. Starts ONLY postgres + redis — never
+# apps/web or apps/api, which always run directly on the host during development for
+# fast hot reload and unrestricted VS Code debugging (see Development Philosophy in
+# docs/development/local-development.md).
+#
+# Use the root package scripts instead of calling docker compose directly:
+#   pnpm infra:up       start postgres + redis
+#   pnpm infra:down     stop them
+#   pnpm infra:restart  restart them
+#   pnpm infra:logs     tail their logs
+#   pnpm infra:reset    wipe all data and start fresh
+#
+# For the full containerized stack (including apps/web and apps/api as Docker images),
+# see docker-compose.production.yml — that is NOT the daily development workflow.
 services:
   postgres:
     image: postgres:16-alpine

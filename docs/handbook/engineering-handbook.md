@@ -1,6 +1,6 @@
 # Zentuva Engineering Handbook
 
-- **Version:** 0.1 (Living Document)
+- **Version:** 0.2 (Living Document)
 - **Project:** Zentuva
 - **Product Type:** Manufacturing & Commerce Operating System (MCOS)
 - **Status:** Active Development
@@ -92,6 +92,16 @@ deterministic even without AI.
 
 **Principle 9 — Build for Growth, Release for Today.** Architect for the future. Implement only
 what today's business requires. Every release should be simple enough to deploy confidently.
+
+**Principle 10 — Developer Experience Is a Feature.** Every architectural decision should be
+evaluated not only for correctness but also for how it affects the daily productivity of
+developers. If a solution is technically sound but makes local development slower, more fragile,
+or harder to understand, prefer the simpler approach unless there is a compelling production
+requirement. This is especially valuable when relying on AI coding assistants and iterating
+rapidly — a confusing or fragile local setup slows down human and AI contributors alike. See the
+[Local Development Guide](../development/local-development.md) for how this principle is applied
+in practice (infra-only Docker, host-run apps, a small set of `pnpm` scripts instead of raw
+`docker compose` commands).
 
 ## 6. Core Design Goals
 

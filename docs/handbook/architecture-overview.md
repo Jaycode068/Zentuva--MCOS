@@ -48,10 +48,16 @@ Turborepo monorepo managed with pnpm workspaces. See
 
 - DigitalOcean Spaces (S3-compatible) — planned, not yet configured in this foundation.
 
-### Deployment
+### Deployment & local development
 
-- Docker + Docker Compose (`docker-compose.yml` for full-stack, `docker-compose.dev.yml` for
-  infra-only local development)
+- **`docker-compose.dev.yml`** — infra only (Postgres + Redis). This is what local development
+  uses, via `pnpm infra:up`/`pnpm infra:down`. `apps/web` and `apps/api` always run directly on
+  the host during development, not in containers, so hot reload stays fast and VS Code can debug
+  them without attaching to a container. See the
+  [Local Development Guide](../development/local-development.md).
+- **`docker-compose.production.yml`** — full stack (Postgres, Redis, `apps/api`, `apps/web`, all
+  containerized). Not the daily development workflow — this exists for production-like full-stack
+  verification and as the basis for a future production deployment.
 
 ## Shared packages
 

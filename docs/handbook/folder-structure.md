@@ -21,7 +21,8 @@ zentuva/
 │       │   ├── app.module.ts
 │       │   └── main.ts
 │       ├── prisma/
-│       │   └── schema.prisma      Database schema (no models yet)
+│       │   ├── schema.prisma      Database schema (no business models yet)
+│       │   └── seed.ts            Seed script (placeholder until domains exist)
 │       ├── nest-cli.json
 │       └── Dockerfile
 │
@@ -34,6 +35,7 @@ zentuva/
 │
 ├── docs/
 │   ├── handbook/                 Engineering handbook, coding standards, architecture, workflow
+│   ├── development/              Local Development Guide
 │   ├── domains/                  Per-domain documentation (populated as domains are built)
 │   ├── adr/                      Architecture Decision Records
 │   ├── api/                      API documentation (populated as endpoints are built)
@@ -41,11 +43,12 @@ zentuva/
 │   ├── changelog.md
 │   └── roadmap.md
 │
-├── docker-compose.yml            Full stack (postgres, redis, api, web)
-├── docker-compose.dev.yml        Infra-only (postgres, redis) for local `pnpm dev`
+├── .vscode/                      Shared launch.json (debugging), extensions.json, settings.json
+├── docker-compose.dev.yml        Infra-only (postgres, redis) — the daily dev workflow
+├── docker-compose.production.yml Full stack (postgres, redis, api, web) — not for daily dev
 ├── turbo.json                    Turborepo task pipeline
 ├── pnpm-workspace.yaml
-└── package.json                  Root scripts (build, dev, lint, test, format)
+└── package.json                  Root scripts (infra:*, db:*, dev, build, lint, test, format)
 ```
 
 ## Where things go

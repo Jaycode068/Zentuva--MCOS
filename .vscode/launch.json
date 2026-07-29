@@ -1,0 +1,35 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "node",
+      "request": "attach",
+      "name": "Attach: API (NestJS)",
+      "port": 9229,
+      "restart": true,
+      "autoAttachChildProcesses": true,
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "type": "node-terminal",
+      "request": "launch",
+      "name": "Debug: Web (Next.js server-side)",
+      "command": "pnpm --filter @zentuva/web run dev",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "type": "chrome",
+      "request": "launch",
+      "name": "Debug: Web (Chrome client-side)",
+      "url": "http://localhost:3000",
+      "webRoot": "${workspaceFolder}/apps/web"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Debug: API + Web",
+      "configurations": ["Attach: API (NestJS)", "Debug: Web (Next.js server-side)"],
+      "stopAll": true
+    }
+  ]
+}

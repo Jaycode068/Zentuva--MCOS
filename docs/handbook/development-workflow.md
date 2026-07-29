@@ -1,5 +1,23 @@
 # Development Workflow
 
+## Daily local development
+
+```bash
+pnpm infra:up   # start Postgres + Redis (Docker, background)
+pnpm dev        # run apps/web and apps/api on the host, with hot reload
+```
+
+and when you're done:
+
+```bash
+pnpm infra:down
+```
+
+Docker is used for infrastructure only — Next.js, NestJS, and Prisma all run directly on the host
+for fast hot reload and native VS Code debugging. See the
+[Local Development Guide](../development/local-development.md) for the full command reference,
+migrations, Prisma Studio, debugging, and troubleshooting.
+
 ## Branching
 
 - `main` is always deployable.

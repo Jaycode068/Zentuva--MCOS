@@ -1,5 +1,16 @@
 name: zentuva
 
+# Full-stack compose file: builds and runs postgres, redis, api, AND web as containers.
+#
+# This is NOT the day-to-day development workflow. For local development, run
+#   pnpm infra:up   (starts only postgres + redis via docker-compose.dev.yml)
+#   pnpm dev        (runs apps/web and apps/api directly on the host, with hot reload)
+# See docs/development/local-development.md.
+#
+# This file exists for production-like full-stack verification (e.g. "does the Docker
+# image actually build and run correctly") and, longer-term, as the basis for a real
+# production deployment. Building apps/web and apps/api into containers is slow and has
+# no hot reload, which is why it's kept separate from the infra-only dev compose file.
 services:
   postgres:
     image: postgres:16-alpine

@@ -27,22 +27,37 @@ packages/
   config/       Shared ESLint, TypeScript, and Tailwind configuration
   utils/        Shared framework-agnostic utilities
   validation/   Shared Zod validation schemas
-docs/           Handbook, domain docs, ADRs, API/database docs, changelog, roadmap
+docs/           Handbook, local dev guide, domain docs, ADRs, API/database docs, changelog, roadmap
 ```
 
 ## Getting Started
 
-See [docs/handbook/getting-started.md](docs/handbook/getting-started.md).
+```bash
+pnpm install
+cp apps/api/.env.example apps/api/.env
+cp apps/web/.env.example apps/web/.env.local
+pnpm infra:up    # Postgres + Redis in Docker
+pnpm db:generate && pnpm db:migrate
+pnpm dev         # apps/web + apps/api on the host, with hot reload
+```
+
+Docker is used for infrastructure only (Postgres + Redis) — the apps themselves always run
+directly on the host for fast hot reload. See
+[docs/handbook/getting-started.md](docs/handbook/getting-started.md) for the quick-start, or the
+[Local Development Guide](docs/development/local-development.md) for the full guide (migrations,
+Prisma Studio, VS Code debugging, troubleshooting).
 
 ## Documentation
 
 - [Engineering Handbook](docs/handbook/engineering-handbook.md)
 - [Architecture Overview](docs/handbook/architecture-overview.md)
 - [Development Workflow](docs/handbook/development-workflow.md)
+- [Local Development Guide](docs/development/local-development.md)
 - [Folder Structure](docs/handbook/folder-structure.md)
 - [Architecture Decision Records](docs/adr/)
 - [Changelog](docs/changelog.md)
 - [Roadmap](docs/roadmap.md)
+- [Sprint 0 Completion Report](docs/sprint-0-completion-report.md)
 
 ## License
 

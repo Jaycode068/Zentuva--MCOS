@@ -2,7 +2,10 @@
 #
 # Builds and runs @zentuva/web. Build context must be the monorepo root, e.g.:
 #   docker build -f apps/web/Dockerfile .
-# (docker-compose.yml already does this.)
+# (docker-compose.production.yml already does this.)
+#
+# Not used in day-to-day development — apps/web runs directly on the host via `pnpm dev`.
+# See docs/development/local-development.md.
 
 FROM node:20-alpine AS base
 RUN corepack enable
