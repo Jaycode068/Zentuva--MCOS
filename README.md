@@ -8,11 +8,12 @@ single intelligent platform.
 The first tenant is **Boby Bites**, the pilot implementation that validates the platform. Every
 feature is built configurably so it can be reused by future tenants without code changes.
 
-> This repository currently contains the **engineering foundation only**. No business modules
-> (identity, catalogue, procurement, inventory, production, sales, distribution, finance) have
-> been implemented yet. The Identity Domain has been fully designed (not implemented) — see
-> [docs/domains/identity.md](docs/domains/identity.md). See [docs/roadmap.md](docs/roadmap.md) for
-> the full build order.
+> This repository currently contains the **engineering foundation** plus the **Identity Domain's
+> database & domain layer** (schema, migrations, seed data, repositories, service skeletons — no
+> auth logic, controllers, or frontend yet). No other business modules (catalogue, procurement,
+> inventory, production, sales, distribution, finance) have been implemented. See
+> [docs/domains/identity.md](docs/domains/identity.md) for the design and
+> [docs/roadmap.md](docs/roadmap.md) for the full build order.
 
 ## Repository Structure
 
@@ -62,6 +63,7 @@ Prisma Studio, VS Code debugging, troubleshooting).
 - [Domain Docs](docs/domains/) — start with [Identity](docs/domains/identity.md)
 - [Sprint 0 Completion Report](docs/sprint-0-completion-report.md)
 - [Sprint 1A Identity Design Report](docs/sprint-1A-identity-design-report.md)
+- [Sprint 1B.1 Completion Report](docs/sprint-1B.1-completion-report.md)
 
 ## License
 

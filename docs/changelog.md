@@ -7,6 +7,40 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 1B.1 Identity Domain Implementation] - 2026-07-29
+
+### Added
+
+- `apps/api/prisma/schema.prisma` — implemented the full Identity Domain schema (11 models, 3
+  enums) exactly per `docs/domains/identity.md` §9. Removed the Sprint 0 placeholder `HealthCheck`
+  model.
+- Migration `20260729182400_init_identity_domain` — drops `_health_check`, creates all 11 Identity
+  tables. Applied and verified against a live Postgres database.
+- `apps/api/prisma/seed.ts` — seeds the "Boby Bites" organisation, system roles (Owner,
+  Administrator, Member), the full permission catalog, and the first admin user. Admin
+  email/password come from required environment variables — no hardcoded credentials.
+- `apps/api/src/identity/` — six repositories (Organisation, User, Role, Invitation, Session,
+  Audit) with real, tenant-scoped Prisma access, and six matching domain services wired into a new
+  `IdentityModule` (imported into `AppModule`, no controllers yet). Verified the full provider
+  graph resolves via NestJS dependency injection at runtime.
+- `packages/validation/src/identity.ts` — Zod schemas for every documented Identity API contract
+  (registration, login, profile updates, invitations, roles, etc.), not yet wired into any
+  controller.
+- `argon2` added as an `apps/api` dependency, used only to hash the seeded admin user's password.
+- `docs/sprint-1B.1-completion-report.md`.
+
+### Changed
+
+- `docs/domains/identity.md` — renamed the system role "Admin" to "Administrator" throughout
+  (prose, tables, sequence diagrams), matching the Sprint 1B.1 brief and resolving an existing
+  inconsistency with the doc's own "Administrator Name"/"Administrator Email" registration fields.
+  Label rename only — no schema or behavioural change.
+- `docs/database/README.md` — documented the real Identity Domain models, migrations, and seed
+  data (previously a stub).
+
+No authentication, JWT, login, controllers, guards, Swagger, or frontend work was done — per the
+Sprint 1B.1 brief, this was Database & Domain Layer only.
+
 ## [Sprint 1A.1 Identity Design Refinements] - 2026-07-29
 
 ### Changed

@@ -1,7 +1,14 @@
 // Zentuva MCOS — Prisma schema
-// This is the foundation schema. Domain modules (Identity, Organisation, Product
-// Catalogue, Procurement, Inventory, Production, Sales, Distribution, Finance) will
-// add their own models here as they are built. No business models exist yet.
+//
+// Identity Domain (Sprint 1B.1) — implemented exactly per the approved design in
+// docs/domains/identity.md §9, as refined in Sprint 1A.1 (organisationCode, employeeCode,
+// UserStatus.LOCKED). This is the persistent foundation every future domain module
+// (Product Catalogue, Procurement, Inventory, Production, Sales, Distribution, Finance)
+// will depend on for tenant scoping and authorization — see identity.md §1.
+//
+// Database & Domain Layer only (Sprint 1B.1): no authentication, JWT, login, or permission
+// evaluation logic has been implemented against this schema yet. See
+// docs/sprint-1B.1-completion-report.md.
 
 generator client {
   provider = "prisma-client-js"
@@ -12,12 +19,276 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-/// Technical-only model, not a business entity. Prisma requires at least one model to
-/// generate a client; this exists solely so PrismaService can connect and the /api/health
-/// endpoint can verify DB connectivity. Remove once the first real domain model is added.
-model HealthCheck {
-  id        Int      @id @default(autoincrement())
-  checkedAt DateTime @default(now())
+enum OrganisationStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+  CLOSED
+}
 
-  @@map("_health_check")
+enum UserStatus {
+  INVITED
+  ACTIVE
+  LOCKED
+  SUSPENDED
+  DEACTIVATED
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  EXPIRED
+  REVOKED
+}
+
+/// The tenant boundary — see identity.md §2 ("What is a Tenant?"). Every tenant-scoped
+/// table in every domain carries an `organisationId` foreign key pointing here.
+model Organisation {
+  id               String             @id @default(cuid())
+  name             String
+  slug             String             @unique
+  /// Immutable, human-readable identifier (e.g. "BBT-0001"). See identity.md §3
+  /// "Organisation Code" — never exposed on any update path.
+  organisationCode String             @unique
+  businessEmail    String
+  country          String
+  status           OrganisationStatus @default(PENDING)
+
+  // Profile fields — see identity.md §3 "Organisation Profile". All optional; filled in
+  // after registration.
+  logoUrl         String?
+  description     String?
+  industry        String?
+  businessType    String?
+  phone           String?
+  website         String?
+  supportEmail    String?
+  addressLine1    String?
+  addressLine2    String?
+  city            String?
+  state           String?
+  postalCode      String?
+  currency        String  @default("USD")
+  timeZone        String  @default("UTC")
+  fiscalYearStart Int     @default(1)
+  dateFormat      String  @default("YYYY-MM-DD")
+  settings        Json    @default("{}")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users       User[]
+  roles       Role[]
+  invitations Invitation[]
+  auditLogs   AuditLog[]
+  sessions    Session[]
+  userRoles   UserRole[]
+
+  @@map("organisations")
+}
+
+/// A single human's login identity within one Organisation. MVP: one Organisation per
+/// User (see identity.md §2 "Can users belong to multiple organisations?").
+model User {
+  id              String     @id @default(cuid())
+  organisationId  String
+  email           String     @unique
+  /// Optional — future HR-module / staff-identification use case. No generation logic
+  /// or uniqueness constraint in MVP (identity.md §4, added Sprint 1A.1).
+  employeeCode    String?
+  firstName       String
+  lastName        String
+  passwordHash    String
+  status          UserStatus @default(INVITED)
+  emailVerifiedAt DateTime?
+  lastLoginAt     DateTime?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  organisation    Organisation         @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  userRoles       UserRole[]
+  sessions        Session[]
+  sentInvitations Invitation[]         @relation("InvitedBy")
+  passwordResets  PasswordResetToken[]
+
+  @@index([organisationId])
+  @@map("users")
+}
+
+/// A named, organisation-scoped bundle of permissions. Three system roles (Owner, Admin,
+/// Member) are seeded per-organisation; see identity.md §6.
+model Role {
+  id             String   @id @default(cuid())
+  organisationId String
+  name           String
+  description    String?
+  /// System roles (Owner/Admin/Member) cannot be renamed or deleted — enforced at the
+  /// application layer (RoleRepository/RoleService), not the database.
+  isSystem       Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organisation    Organisation     @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  userRoles       UserRole[]
+  rolePermissions RolePermission[]
+  invitations     Invitation[]
+
+  @@unique([organisationId, name])
+  @@index([organisationId])
+  @@map("roles")
+}
+
+/// A single granular capability (e.g. "identity.users.invite"). The only genuinely
+/// global (non-tenant-scoped) table in the domain — see identity.md §7.
+model Permission {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  domain      String
+  description String?
+  createdAt   DateTime @default(now())
+
+  rolePermissions RolePermission[]
+
+  @@index([domain])
+  @@map("permissions")
+}
+
+/// Join: "this user has this role." `organisationId` is denormalised (derivable via
+/// `role.organisationId`) so tenant-isolation queries never need to join through Role —
+/// see identity.md §7.
+model UserRole {
+  id             String   @id @default(cuid())
+  userId         String
+  roleId         String
+  organisationId String
+  assignedById   String?
+  assignedAt     DateTime @default(now())
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role         Role         @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, roleId])
+  @@index([organisationId])
+  @@map("user_roles")
+}
+
+/// Join: "this role grants this capability." Not applicable to the `Owner` role, which
+/// bypasses this table entirely — see identity.md §6.
+model RolePermission {
+  id           String   @id @default(cuid())
+  roleId       String
+  permissionId String
+  createdAt    DateTime @default(now())
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+/// A pending offer for someone to join an Organisation with a specific Role. See
+/// identity.md §4/§5 for the full lifecycle and acceptance flow.
+model Invitation {
+  id             String           @id @default(cuid())
+  organisationId String
+  email          String
+  roleId         String
+  invitedById    String
+  /// Only the hash is ever stored — the raw token exists only in the email link at
+  /// issuance time. See identity.md §9 "Token storage".
+  tokenHash      String           @unique
+  status         InvitationStatus @default(PENDING)
+  expiresAt      DateTime
+  acceptedAt     DateTime?
+  createdAt      DateTime         @default(now())
+
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  role         Role         @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  invitedBy    User         @relation("InvitedBy", fields: [invitedById], references: [id], onDelete: Restrict)
+
+  @@index([organisationId, email])
+  @@map("invitations")
+}
+
+/// One logged-in device/browser for one User. The parent record RefreshTokens rotate
+/// underneath — see identity.md §4/§5. No login/logout logic writes to this table yet
+/// (Sprint 1B.1 is schema-only for this entity).
+model Session {
+  id             String    @id @default(cuid())
+  userId         String
+  organisationId String
+  userAgent      String?
+  ipAddress      String?
+  createdAt      DateTime  @default(now())
+  lastUsedAt     DateTime  @default(now())
+  revokedAt      DateTime?
+
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organisation  Organisation   @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  refreshTokens RefreshToken[]
+
+  @@index([userId])
+  @@index([organisationId])
+  @@map("sessions")
+}
+
+/// The rotating credential material for a Session. `replacedByTokenId` forms a rotation
+/// chain used for reuse/theft detection — see identity.md §5/§9. No refresh-token logic
+/// writes to this table yet (Sprint 1B.1 is schema-only for this entity).
+model RefreshToken {
+  id                String    @id @default(cuid())
+  sessionId         String
+  tokenHash         String    @unique
+  createdAt         DateTime  @default(now())
+  expiresAt         DateTime
+  revokedAt         DateTime?
+  replacedByTokenId String?   @unique
+
+  session         Session       @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  replacedByToken RefreshToken? @relation("TokenRotation", fields: [replacedByTokenId], references: [id])
+  replacesToken   RefreshToken? @relation("TokenRotation")
+
+  @@index([sessionId])
+  @@map("refresh_tokens")
+}
+
+/// A single-use, time-limited credential for the forgot-password flow. Included per the
+/// full documented schema (identity.md §9), even though the Sprint 1B.1 brief's Required
+/// Entities list omits it — see docs/sprint-1B.1-completion-report.md "Deviations". No
+/// password-reset logic writes to this table yet.
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("password_reset_tokens")
+}
+
+/// An immutable, insert-only record of a significant event — see identity.md §8. Every
+/// future domain is expected to write into this table directly.
+model AuditLog {
+  id             String   @id @default(cuid())
+  organisationId String?
+  actorUserId    String?
+  action         String
+  entityType     String
+  entityId       String?
+  metadata       Json     @default("{}")
+  ipAddress      String?
+  userAgent      String?
+  createdAt      DateTime @default(now())
+
+  organisation Organisation? @relation(fields: [organisationId], references: [id], onDelete: SetNull)
+
+  @@index([organisationId, createdAt])
+  @@index([entityType, entityId])
+  @@map("audit_logs")
 }

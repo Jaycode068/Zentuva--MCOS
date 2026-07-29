@@ -18,11 +18,15 @@ zentuva/
 │       │   ├── config/            Configuration loading + env validation
 │       │   ├── health/            Health check module (Terminus)
 │       │   ├── prisma/            PrismaService/PrismaModule (global)
+│       │   ├── identity/          Identity Domain — repositories + service skeletons, no controllers yet
+│       │   │   ├── organisation/  ├── user/  ├── role/  ├── invitation/  ├── session/  ├── audit/
+│       │   │   ├── common/        Shared helpers (e.g. not-implemented stub marker)
+│       │   │   └── identity.module.ts
 │       │   ├── app.module.ts
 │       │   └── main.ts
 │       ├── prisma/
-│       │   ├── schema.prisma      Database schema (no business models yet)
-│       │   └── seed.ts            Seed script (placeholder until domains exist)
+│       │   ├── schema.prisma      Identity Domain schema (docs/domains/identity.md §9)
+│       │   └── seed.ts            Seeds Boby Bites org, system roles, permission catalog
 │       ├── nest-cli.json
 │       └── Dockerfile
 │

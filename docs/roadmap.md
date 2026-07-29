@@ -16,10 +16,11 @@ This roadmap tracks the intended build order. It is not a commitment to dates �
 ## Phase 1 — Identity & Organisation
 
 - [x] Domain design (Sprint 1A) — see [`docs/domains/identity.md`](domains/identity.md)
-- [ ] Tenant model + tenant resolution
-- [ ] Authentication
-- [ ] User management
-- [ ] Organisation/company structure
+- [x] Database & domain layer (Sprint 1B.1) — schema, migrations, seed data, repositories, service
+      skeletons — see [`docs/sprint-1B.1-completion-report.md`](sprint-1B.1-completion-report.md)
+- [ ] Authentication layer (JWT, login/logout, sessions, refresh tokens)
+- [ ] Controllers/API surface + permission-evaluation guards
+- [ ] Tenant resolution middleware
 
 ## Phase 2 — Core Manufacturing & Commerce Domains
 

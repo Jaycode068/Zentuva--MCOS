@@ -92,12 +92,12 @@ There is no platform-admin approval step in MVP.
 ### Who can invite users?
 
 Any User holding a role with the `identity.invitations.create` permission — by default, `Owner`
-and `Admin` (§6). Invitations are always scoped to the inviter's own organisation; there is no
+and `Administrator` (§6). Invitations are always scoped to the inviter's own organisation; there is no
 mechanism to invite a user into an organisation you don't belong to.
 
 ### Who manages permissions?
 
-Any User holding the `identity.roles.manage` permission — by default, `Owner` only, with `Admin`
+Any User holding the `identity.roles.manage` permission — by default, `Owner` only, with `Administrator`
 able to manage non-system roles. The single system `Owner` role itself cannot be edited, renamed,
 or deleted, and every organisation must always have at least one active User with the `Owner`
 role (enforced at the application layer, not the database — see §4, `Role.isSystem`).
@@ -247,7 +247,7 @@ section covers responsibility, ownership, and lifecycle.
 | `INVITED`     | Invitation created but not yet accepted — no password set yet, cannot log in.                                                                                                                                                                                                                                                                                       |
 | `ACTIVE`      | Normal state. Can log in and use the product.                                                                                                                                                                                                                                                                                                                       |
 | `LOCKED`      | Temporarily blocked from logging in — e.g. suspicious activity or repeated failed login attempts. Distinct from `SUSPENDED`: typically transient and may resolve without an admin action (e.g. a password reset), rather than being a deliberate administrative decision. Exact triggering/unlocking rules are a Sprint 1B implementation detail, not decided here. |
-| `SUSPENDED`   | Deliberately disabled by an Admin/Owner (e.g. temporary offboarding). Reversible by an Admin/Owner.                                                                                                                                                                                                                                                                 |
+| `SUSPENDED`   | Deliberately disabled by an Administrator/Owner (e.g. temporary offboarding). Reversible by an Administrator/Owner.                                                                                                                                                                                                                                                 |
 | `DEACTIVATED` | Terminal — permanently offboarded. Not reversible in MVP.                                                                                                                                                                                                                                                                                                           |
 
 ### Role
@@ -255,7 +255,7 @@ section covers responsibility, ownership, and lifecycle.
 - **Responsibility:** a named, organisation-scoped bundle of permissions.
 - **Ownership:** owned by Identity, but the permissions a role _can_ be given (the `Permission`
   catalog) are contributed by every domain, not just Identity — see §6.
-- **Lifecycle:** three system roles (`Owner`, `Admin`, `Member`) are seeded automatically when an
+- **Lifecycle:** three system roles (`Owner`, `Administrator`, `Member`) are seeded automatically when an
   Organisation is created (`isSystem = true`, cannot be renamed or deleted). Custom roles can be
   created, edited, and deleted freely by anyone with `identity.roles.manage`, as long as no User
   is left with zero roles as a result (enforced at the application layer).
@@ -372,7 +372,7 @@ old password may have been compromised).
 
 ### Invitation Flow
 
-See [diagram](#user-invitation). An Admin/Owner creates an `Invitation` (email + role) → API
+See [diagram](#user-invitation). An Administrator/Owner creates an `Invitation` (email + role) → API
 emails a link containing the raw token (only the hash is stored) → invitee opens the link, the API
 validates the token and returns which organisation/role they're joining (so the frontend can show
 context before the invitee commits) → invitee sets a password → API creates the `User`
@@ -429,17 +429,17 @@ permissions mean, only that they exist.
 Seeded automatically for every new Organisation at registration, marked `isSystem = true`
 (cannot be renamed, edited, or deleted):
 
-| Role     | Intent                                                                                                                                                                                                                    |
-| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Owner`  | Full control. Exactly one Organisation-creating User starts as Owner. Bypasses `RolePermission` entirely — see below. Cannot be removed if it would leave the organisation with zero Owners.                              |
-| `Admin`  | Day-to-day organisation management: invite/manage users, manage non-system roles, view audit logs. Cannot manage billing (future) or the `Owner` role.                                                                    |
-| `Member` | Baseline authenticated user with no special permissions beyond reading their own profile. The default role for anyone whose actual access should come entirely from custom, domain-specific roles added in later sprints. |
+| Role            | Intent                                                                                                                                                                                                                    |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Owner`         | Full control. Exactly one Organisation-creating User starts as Owner. Bypasses `RolePermission` entirely — see below. Cannot be removed if it would leave the organisation with zero Owners.                              |
+| `Administrator` | Day-to-day organisation management: invite/manage users, manage non-system roles, view audit logs. Cannot manage billing (future) or the `Owner` role.                                                                    |
+| `Member`        | Baseline authenticated user with no special permissions beyond reading their own profile. The default role for anyone whose actual access should come entirely from custom, domain-specific roles added in later sprints. |
 
 **Why `Owner` bypasses `RolePermission`:** requiring every single permission ever registered by
 every future domain to be explicitly granted to `Owner` would mean every new domain module has to
 remember to also grant its permissions to `Owner`, which will eventually be forgotten. Instead,
 authorisation checks treat "has the `Owner` role" as an automatic pass, independent of the
-`RolePermission` table. `Admin` and `Member` (and all custom roles) are ordinary explicit grants.
+`RolePermission` table. `Administrator` and `Member` (and all custom roles) are ordinary explicit grants.
 
 ### Custom roles
 
@@ -448,11 +448,11 @@ domains those roles need permissions from exist. Identity does not predefine the
 violate [Handbook Principle 2 (Configuration Over Customisation)](../handbook/engineering-handbook.md#5-product-principles):
 Boby Bites' operational roles are Boby Bites' configuration, not Identity's schema. Identity only
 provides the mechanism (Role, Permission, RolePermission) and the seeded starting point (Owner,
-Admin, Member).
+Administrator, Member).
 
 ### Permission inheritance
 
-**None in MVP.** No "Admin inherits everything Member has" hierarchy — each role's permissions
+**None in MVP.** No "Administrator inherits everything Member has" hierarchy — each role's permissions
 are its explicit `RolePermission` rows (with `Owner` as the sole, special "implicitly has
 everything" exception above). This is simpler to audit ("what can this role do?" is one query,
 not a graph walk) at the cost of some duplication when roles overlap. Flagged as a candidate
@@ -917,7 +917,7 @@ except registration and the pre-login auth routes.
 
 ```mermaid
 sequenceDiagram
-    actor Founder as Prospective Admin
+    actor Founder as Prospective Administrator
     participant Web as apps/web
     participant API as apps/api (Identity)
     participant DB as PostgreSQL
@@ -928,7 +928,7 @@ sequenceDiagram
     API->>DB: Check slug/email uniqueness
     API->>DB: BEGIN transaction
     API->>DB: INSERT Organisation (status=PENDING)
-    API->>DB: INSERT default Roles (Owner, Admin, Member)
+    API->>DB: INSERT default Roles (Owner, Administrator, Member)
     API->>DB: INSERT User (status=ACTIVE, passwordHash)
     API->>DB: INSERT UserRole (User -> Owner)
     API->>DB: INSERT AuditLog (organisation.created, user.created)
@@ -942,14 +942,14 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    actor Admin
+    actor Administrator
     participant Web as apps/web
     participant API as apps/api (Identity)
     participant DB as PostgreSQL
     participant Mail as Email Provider
     actor Invitee
 
-    Admin->>Web: Fill invite form (email, role)
+    Administrator->>Web: Fill invite form (email, role)
     Web->>API: POST /invitations
     API->>API: authz check: identity.invitations.create
     API->>DB: INSERT Invitation (tokenHash, status=PENDING)
@@ -1050,12 +1050,12 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    actor Admin
+    actor Administrator
     participant Web as apps/web
     participant API as apps/api (Identity)
     participant DB as PostgreSQL
 
-    Admin->>Web: Select user, choose role
+    Administrator->>Web: Select user, choose role
     Web->>API: POST /users/:id/roles
     API->>API: authz check: identity.roles.assign
     API->>DB: Verify role.organisationId == actor.organisationId

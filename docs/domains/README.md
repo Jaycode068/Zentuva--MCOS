@@ -5,11 +5,11 @@ workflows, key entities, and how it integrates with other domains.
 
 ## Status
 
-| Domain                                                                              | Status                                                                                 |
-| ----------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| [Identity](identity.md)                                                             | Designed (Sprint 1A) — not yet implemented                                             |
-| Organisation                                                                        | Folded into [Identity](identity.md) — see its "What is an Organisation?" business rule |
-| Product Catalogue, Procurement, Inventory, Production, Sales, Distribution, Finance | Not started                                                                            |
+| Domain                                                                              | Status                                                                                                 |
+| ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| [Identity](identity.md)                                                             | Designed (Sprint 1A/1A.1); database & domain layer implemented (Sprint 1B.1) — no auth/controllers yet |
+| Organisation                                                                        | Folded into [Identity](identity.md) — see its "What is an Organisation?" business rule                 |
+| Product Catalogue, Procurement, Inventory, Production, Sales, Distribution, Finance | Not started                                                                                            |
 
 As each domain is designed/built, add a `<domain>.md` here covering:
 
