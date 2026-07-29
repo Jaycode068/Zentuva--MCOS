@@ -7,6 +7,22 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 1A.1 Identity Design Refinements] - 2026-07-29
+
+### Changed
+
+- `docs/domains/identity.md` — post-review MVP refinements to the Identity Domain design
+  (documentation only, no code/schema/migrations touched): added immutable
+  `Organisation.organisationCode`, added optional `User.employeeCode`, expanded `UserStatus` with
+  a `LOCKED` state, and added two intentionally-deferred items (Organisation Type, Feature
+  flags/module enablement) to the Risks & Future Expansion table.
+- `docs/sprint-1A-identity-design-report.md` — added a "Post-Review Refinements" section
+  summarising what changed, why, what was deferred, and re-confirming Sprint 1B approval.
+
+The Prisma schema changes were re-validated with `prisma validate`/`prisma format` against a
+scratch file, same as the original Sprint 1A schema — still not written into
+`apps/api/prisma/schema.prisma`.
+
 ## [Sprint 1A Identity Design] - 2026-07-29
 
 ### Added

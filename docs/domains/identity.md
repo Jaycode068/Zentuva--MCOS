@@ -1,9 +1,10 @@
 # Identity Domain — Design
 
-- **Status:** Design only. No API, frontend, or authentication logic has been implemented.
-- **Sprint:** 1A (Identity Domain Design)
+- **Status:** Design only, **approved for Sprint 1B implementation**. No API, frontend, or
+  authentication logic has been implemented.
+- **Sprint:** 1A (Identity Domain Design), refined in 1A.1 (post-review, MVP refinements)
 - **Depends on:** [ADR-003 — Multi-Tenancy](../adr/ADR-003-multi-tenancy.md), [ADR-002 — Modular Monolith](../adr/ADR-002-modular-monolith.md)
-- **See also:** [Sprint 1A Design Report](../sprint-1A-identity-design-report.md) for decisions, assumptions, and open questions behind this design.
+- **See also:** [Sprint 1A Design Report](../sprint-1A-identity-design-report.md) — decisions, assumptions, and open questions behind this design, including the [Post-Review Refinements](../sprint-1A-identity-design-report.md#post-review-refinements) made in Sprint 1A.1.
 
 ## 1. Domain Overview
 
@@ -132,6 +133,27 @@ Nothing else is collected at registration. Every other Organisation Profile fiel
 optional and filled in later — this keeps time-to-first-value short, per
 [Handbook Principle 1 (MVP First)](../handbook/engineering-handbook.md#5-product-principles).
 
+### Organisation Code
+
+_Added post-review (Sprint 1A.1) — see [Post-Review Refinements](../sprint-1A-identity-design-report.md#post-review-refinements)._
+
+Every Organisation also gets an immutable, human-readable `organisationCode` (e.g. `BBT-0001`,
+`ZEN-0002`), distinct from both its editable `name` and its URL-facing `slug`.
+
+- **Purpose:** a stable identifier for internal reference, integrations, and support
+  conversations — something a human can read over the phone or quote in a support ticket that
+  never changes, even if the Organisation's name does.
+- **Generation strategy (high level):** a short prefix (derived from the Organisation name, or
+  assigned) plus a zero-padded sequence number, assigned once at registration. Exact
+  prefix-derivation and collision-handling rules are a Sprint 1B implementation detail, not
+  decided here.
+- **Why immutable:** an Organisation's `name` can legitimately change (rebrand, legal name
+  change), but anything referencing it externally — integrations, support history, internal
+  reporting — needs a code that never changes underneath it. `organisationCode` is set once at
+  creation and is never exposed as an editable field on `PATCH /organisations/me` (§10) —
+  immutability is enforced at the application layer (no update path exists for it), the same
+  pattern already used for `Role.isSystem` (§4).
+
 ### Organisation Profile
 
 The full profile an Organisation can configure after registration:
@@ -194,6 +216,9 @@ section covers responsibility, ownership, and lifecycle.
 - **Responsibility:** the tenant boundary. Owns its profile (§3) and is the root that every
   tenant-scoped row (in every domain, not just Identity) ultimately points back to.
 - **Ownership:** owned by Identity. No other domain should ever write to this table.
+- **Identifiers:** `id` (internal PK), `slug` (URL-facing), and `organisationCode` (immutable,
+  human-readable — see [§3](#organisation-code)). Three identifiers, three purposes: none of them
+  are interchangeable.
 - **Lifecycle:** created via self-service registration (`PENDING` → `ACTIVE` once the admin's
   email is verified, see §5). Can move to `SUSPENDED` (platform-initiated, e.g. non-payment —
   billing itself is future scope, §12) or `CLOSED` (terminal). Never hard-deleted in MVP — closing
@@ -204,10 +229,26 @@ section covers responsibility, ownership, and lifecycle.
 - **Responsibility:** a single human's login identity within one Organisation.
 - **Ownership:** owned by Identity. Other domains reference `User.id` (e.g. "who created this
   purchase order") but never write to the `users` table.
+- **Identifiers:** `id` (internal PK) and `email` (login identifier, globally unique, §2). Also
+  carries an optional `employeeCode` (free text, no uniqueness constraint or generation logic in
+  MVP), added post-review for future HR-module and staff-identification use cases — manufacturing
+  businesses often identify staff by an employee number rather than an email address. See
+  [Post-Review Refinements](../sprint-1A-identity-design-report.md#post-review-refinements).
 - **Lifecycle:** created either at Organisation registration (as `Owner`, status `ACTIVE`
-  immediately) or via Invitation acceptance (status `INVITED` → `ACTIVE` on accept). Can be
-  `SUSPENDED` (temporary, reversible, e.g. by an Admin) or `DEACTIVATED` (terminal, e.g. offboarded
-  employee). Never hard-deleted in MVP, for the same audit/history reasons as Organisation.
+  immediately) or via Invitation acceptance (status `INVITED` → `ACTIVE` on accept). See
+  **Status values** below for the full set and when each applies. Never hard-deleted in MVP, for
+  the same audit/history reasons as Organisation.
+
+**Status values** (`UserStatus`, expanded post-review — see
+[Post-Review Refinements](../sprint-1A-identity-design-report.md#post-review-refinements)):
+
+| Status        | Used when                                                                                                                                                                                                                                                                                                                                                           |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `INVITED`     | Invitation created but not yet accepted — no password set yet, cannot log in.                                                                                                                                                                                                                                                                                       |
+| `ACTIVE`      | Normal state. Can log in and use the product.                                                                                                                                                                                                                                                                                                                       |
+| `LOCKED`      | Temporarily blocked from logging in — e.g. suspicious activity or repeated failed login attempts. Distinct from `SUSPENDED`: typically transient and may resolve without an admin action (e.g. a password reset), rather than being a deliberate administrative decision. Exact triggering/unlocking rules are a Sprint 1B implementation detail, not decided here. |
+| `SUSPENDED`   | Deliberately disabled by an Admin/Owner (e.g. temporary offboarding). Reversible by an Admin/Owner.                                                                                                                                                                                                                                                                 |
+| `DEACTIVATED` | Terminal — permanently offboarded. Not reversible in MVP.                                                                                                                                                                                                                                                                                                           |
 
 ### Role
 
@@ -308,8 +349,9 @@ tokens.
 See [diagram](#login). User submits email + password → API verifies the password hash → on
 success, creates a `Session` + first `RefreshToken`, issues a JWT access token, updates
 `User.lastLoginAt`, and writes an `AuditLog` entry. Failures (wrong password, unknown email,
-suspended user) are indistinguishable in the response body (generic "invalid credentials") to
-avoid user enumeration, but are distinguishable in the `AuditLog` for security review.
+locked/suspended/deactivated user) are indistinguishable in the response body (generic "invalid
+credentials") to avoid user enumeration, but are distinguishable in the `AuditLog` for security
+review.
 
 ### Logout Flow
 
@@ -548,6 +590,14 @@ is necessary to validate the design"). Implementing it for real is Sprint 1B's j
   FK — modelling "this token was replaced by that one" as an explicit one-to-one link, which is
   what makes reuse detection in §5 possible (if a client presents a token that already has a
   `replacedByTokenId`, it's a reused/stolen token).
+- **`Organisation.organisationCode`** _(post-review addition)_: `String`, `@unique`, required.
+  Immutability is enforced at the application layer only (no `PATCH` field for it, §3/§10) — there
+  is no database-level "write-once" constraint, consistent with how `Role.isSystem` is already
+  enforced the same way rather than via a DB trigger.
+- **`User.employeeCode`** _(post-review addition)_: `String?`, optional, no uniqueness constraint
+  and no generation logic in MVP, per the Sprint 1A.1 brief.
+- **`UserStatus`** _(post-review change)_: gained a `LOCKED` value between `ACTIVE` and
+  `SUSPENDED` — see the User entity's Status values table in §4.
 
 ### Schema
 
@@ -562,6 +612,7 @@ enum OrganisationStatus {
 enum UserStatus {
   INVITED
   ACTIVE
+  LOCKED
   SUSPENDED
   DEACTIVATED
 }
@@ -574,12 +625,13 @@ enum InvitationStatus {
 }
 
 model Organisation {
-  id            String             @id @default(cuid())
-  name          String
-  slug          String             @unique
-  businessEmail String
-  country       String
-  status        OrganisationStatus @default(PENDING)
+  id               String             @id @default(cuid())
+  name             String
+  slug             String             @unique
+  organisationCode String             @unique
+  businessEmail    String
+  country          String
+  status           OrganisationStatus @default(PENDING)
 
   logoUrl         String?
   description     String?
@@ -616,6 +668,7 @@ model User {
   id              String     @id @default(cuid())
   organisationId  String
   email           String     @unique
+  employeeCode    String?
   firstName       String
   lastName        String
   passwordHash    String
@@ -815,12 +868,12 @@ except registration and the pre-login auth routes.
 
 ### Users
 
-| Endpoint                  | Input                                                  | Output                                                                                                                       |
-| ------------------------- | ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
-| `GET /users`              | Query: pagination, `status` filter                     | `200 { items: User[], page, pageSize, total }` (see [`packages/types`](../../packages/types/src/api.ts) `PaginatedResponse`) |
-| `GET /users/:id`          | —                                                      | `200 { user, roles[] }`                                                                                                      |
-| `PATCH /users/:id`        | Partial `{ firstName, lastName }`                      | `200 { user }`                                                                                                               |
-| `PATCH /users/:id/status` | `{ status: "SUSPENDED" \| "ACTIVE" \| "DEACTIVATED" }` | `200 { user }`                                                                                                               |
+| Endpoint                  | Input                                                              | Output                                                                                                                       |
+| ------------------------- | ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| `GET /users`              | Query: pagination, `status` filter                                 | `200 { items: User[], page, pageSize, total }` (see [`packages/types`](../../packages/types/src/api.ts) `PaginatedResponse`) |
+| `GET /users/:id`          | —                                                                  | `200 { user, roles[] }`                                                                                                      |
+| `PATCH /users/:id`        | Partial `{ firstName, lastName, employeeCode }`                    | `200 { user }`                                                                                                               |
+| `PATCH /users/:id/status` | `{ status: "ACTIVE" \| "LOCKED" \| "SUSPENDED" \| "DEACTIVATED" }` | `200 { user }` (`INVITED` is not settable via this endpoint — only reached via invitation)                                   |
 
 ### Invitations
 
@@ -1017,15 +1070,17 @@ The following are **explicitly future capabilities, not MVP requirements**. Each
 the current design doesn't accidentally foreclose them, without building them now
 ([Handbook Principle 9 — Build for Growth, Release for Today](../handbook/engineering-handbook.md#5-product-principles)).
 
-| Capability                                   | Note on today's design                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Social login** (Google/Microsoft OAuth)    | `User.passwordHash` would need to become optional, and a new `AuthProvider`-style table would map external identities to Users. Doesn't conflict with anything modeled here.                                                                                                                                                                                                                                                                                           |
-| **SSO (SAML/OIDC for enterprise customers)** | Likely an `Organisation`-level setting (§3 `settings` JSON, or a first-class field once real) plus a new flow alongside Login. No structural blocker.                                                                                                                                                                                                                                                                                                                  |
-| **Multi-organisation users**                 | The biggest deferred decision (§2). Migration path: introduce a `Membership` join table between `User` and `Organisation` (replacing `User.organisationId`), backfill one `Membership` per existing user, and change `TenantContext` resolution to depend on "which org is currently active" rather than "the user's one org." Choosing a globally-unique `User.email` now (§2) is what keeps this migration additive rather than requiring a data-deduplication pass. |
-| **Subscription plans / billing**             | Not modeled at all yet. Would likely be its own domain (a future `Billing` module) that reads `Organisation.status` and can transition it to `SUSPENDED`, rather than living inside Identity.                                                                                                                                                                                                                                                                          |
-| **MFA (TOTP/SMS)**                           | Additive: a new `MfaMethod` table keyed on `User`, plus a step in the Login flow. Doesn't change anything modeled here.                                                                                                                                                                                                                                                                                                                                                |
-| **API keys**                                 | Would need a new entity (e.g. `ApiKey`) distinct from `Session`/`RefreshToken`, since API keys are long-lived and not tied to a browser session. Same `organisationId` isolation model would apply.                                                                                                                                                                                                                                                                    |
-| **Service accounts**                         | A `User`-like entity without a human behind it, for machine-to-machine access — likely a `type: HUMAN \| SERVICE` discriminator on `User`, or a parallel entity, once there's a concrete need (e.g. a future integration).                                                                                                                                                                                                                                             |
+| Capability                                                                                                                         | Note on today's design                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ---------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Organisation Type** (Manufacturer / Distributor / Wholesaler / Retailer / Logistics Provider) _(added post-review)_              | Intentionally deferred — every initial Zentuva customer is treated as a manufacturer during the MVP, so there is no immediate need for a controlled `organisationType` value. `Organisation.businessType` (§3) already exists as a free-text MVP placeholder; a proper enum/taxonomy here is future work once a second business type is actually onboarded.                                                                                                            |
+| **Feature flags / module enablement** (Procurement, Inventory, Manufacturing, CRM, Consumer Engagement, ...) _(added post-review)_ | Intentionally deferred — letting an Organisation enable/disable specific Zentuva modules is part of future subscription and product management, not the Identity Domain, and is explicitly outside MVP scope. When it exists, it likely lives alongside the future Billing/subscription-plan capability below, not inside Identity.                                                                                                                                    |
+| **Social login** (Google/Microsoft OAuth)                                                                                          | `User.passwordHash` would need to become optional, and a new `AuthProvider`-style table would map external identities to Users. Doesn't conflict with anything modeled here.                                                                                                                                                                                                                                                                                           |
+| **SSO (SAML/OIDC for enterprise customers)**                                                                                       | Likely an `Organisation`-level setting (§3 `settings` JSON, or a first-class field once real) plus a new flow alongside Login. No structural blocker.                                                                                                                                                                                                                                                                                                                  |
+| **Multi-organisation users**                                                                                                       | The biggest deferred decision (§2). Migration path: introduce a `Membership` join table between `User` and `Organisation` (replacing `User.organisationId`), backfill one `Membership` per existing user, and change `TenantContext` resolution to depend on "which org is currently active" rather than "the user's one org." Choosing a globally-unique `User.email` now (§2) is what keeps this migration additive rather than requiring a data-deduplication pass. |
+| **Subscription plans / billing**                                                                                                   | Not modeled at all yet. Would likely be its own domain (a future `Billing` module) that reads `Organisation.status` and can transition it to `SUSPENDED`, rather than living inside Identity.                                                                                                                                                                                                                                                                          |
+| **MFA (TOTP/SMS)**                                                                                                                 | Additive: a new `MfaMethod` table keyed on `User`, plus a step in the Login flow. Doesn't change anything modeled here.                                                                                                                                                                                                                                                                                                                                                |
+| **API keys**                                                                                                                       | Would need a new entity (e.g. `ApiKey`) distinct from `Session`/`RefreshToken`, since API keys are long-lived and not tied to a browser session. Same `organisationId` isolation model would apply.                                                                                                                                                                                                                                                                    |
+| **Service accounts**                                                                                                               | A `User`-like entity without a human behind it, for machine-to-machine access — likely a `type: HUMAN \| SERVICE` discriminator on `User`, or a parallel entity, once there's a concrete need (e.g. a future integration).                                                                                                                                                                                                                                             |
 
 None of the above are required to make the MVP Identity Domain (this document) implementable and
 correct — they are recorded so implementation decisions in Sprint 1B don't have to be revisited

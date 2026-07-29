@@ -1,9 +1,11 @@
 # Sprint 1A Completion Report — Identity Domain Design
 
-**Sprint:** 1A — Identity Domain Design
+**Sprint:** 1A — Identity Domain Design (refined in 1A.1 — see
+[Post-Review Refinements](#post-review-refinements))
 **Date:** 2026-07-29
 **Scope:** Design and documentation only. No API, frontend, authentication logic, or migrations
 were implemented — per the Sprint 1A brief.
+**Status:** Reviewed, refined, and **approved for Sprint 1B implementation**.
 
 ## Summary
 
@@ -135,3 +137,68 @@ real, per the brief's "no migrations unless needed to validate the design" allow
    [Handbook Principle 7](handbook/engineering-handbook.md#5-product-principles), if
    implementation reveals the design needs to change, update the design doc in the same PR, don't
    let them drift apart.
+
+## Post-Review Refinements
+
+Sprint 1A was reviewed and approved. Sprint 1A.1 made a small, low-cost set of refinements
+identified in that review — **this was explicitly not a redesign**: no entity was added or
+removed, the permission model and tenant isolation strategy are untouched, and nothing outside
+`docs/domains/identity.md` and this report changed.
+
+### What changed
+
+1. **`Organisation.organisationCode`** — a new, immutable, human-readable identifier (e.g.
+   `BBT-0001`), distinct from `slug` and `name`. Documented in the domain doc's new
+   [Organisation Code](domains/identity.md#organisation-code) subsection (§3), the `Organisation`
+   entity section (§4), the design notes and schema (§9), and confirmed not exposed on
+   `PATCH /organisations/me` (§10).
+2. **`User.employeeCode`** — a new, optional, unconstrained field for future HR-module and
+   staff-identification use cases. Added to the `User` entity section (§4), schema (§9), and the
+   `PATCH /users/:id` contract (§10). No generation logic, no uniqueness constraint — exactly as
+   scoped.
+3. **`UserStatus` gained `LOCKED`**, between `ACTIVE` and `SUSPENDED`. A new Status values table in
+   §4 documents when each of the five states applies; the `PATCH /users/:id/status` contract (§10)
+   was updated to match.
+4. **Two new deferred items added to the Risks & Future Expansion table (§12)**: Organisation Type
+   and Feature Flags/Module Enablement — see "Intentionally deferred" below.
+
+Both schema changes (`organisationCode`, `employeeCode`, and the expanded `UserStatus` enum) were
+re-validated with `prisma validate`/`prisma format` against a scratch file, the same way the
+original schema was — still not written into `apps/api/prisma/schema.prisma`.
+
+### Why these were accepted into the MVP
+
+All three are additive, low-cost, and specifically prevent a future redesign:
+
+- `organisationCode` is far cheaper to add now, before any organisation exists, than to backfill
+  later once real organisations (and anything referencing them by ID/slug) already exist.
+- `employeeCode` is a single optional column with zero behavioural implications today — there was
+  no reason to defer it and force a migration later purely to add one nullable field.
+- `LOCKED` fills a real gap in the original three-state-plus-invited model: without it, any future
+  "temporarily block this login" mechanism (e.g. brute-force protection) would have had to awkwardly
+  reuse `SUSPENDED`, conflating a security-driven, often-transient state with a deliberate
+  administrative one.
+
+None of the three required touching the permission model, tenant isolation strategy, or any entity
+relationship — which is exactly why they were judged low-cost enough for a refinement pass rather
+than a new design sprint.
+
+### Intentionally deferred
+
+Per the Sprint 1A.1 brief, both of the following were added **only** as rows in the domain doc's
+Risks & Future Expansion table (§12) — documentation only, nothing implemented or scaffolded:
+
+- **Organisation Type** (Manufacturer / Distributor / Wholesaler / Retailer / Logistics Provider)
+  — deferred because every initial Zentuva customer is treated as a manufacturer during the MVP.
+- **Feature flags / module enablement** (Procurement, Inventory, Manufacturing, CRM, Consumer
+  Engagement, ...) — deferred as part of future subscription and product management, explicitly
+  outside MVP and outside the Identity Domain's own responsibility.
+
+The [open questions](#open-questions) from the original Sprint 1A report are unchanged by this
+refinement pass — they remain open and should still be resolved before Sprint 1B, per
+recommendation #3 above.
+
+### Confirmation
+
+The Identity Domain design — as refined here — **remains approved for Sprint 1B
+implementation**. No further design work is planned before implementation begins.
