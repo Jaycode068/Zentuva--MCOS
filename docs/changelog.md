@@ -7,6 +7,25 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 1A Identity Design] - 2026-07-29
+
+### Added
+
+- `docs/domains/identity.md` — complete Identity Domain design: business rules, Organisation
+  Registration/Profile split, entity design for all ten entities (Organisation, User, Role,
+  Permission, UserRole, RolePermission, Invitation, Session, RefreshToken, PasswordResetToken,
+  AuditLog), authentication and authorisation design, tenant isolation strategy, audit strategy,
+  a Prisma schema (validated via `prisma validate`/`format` against a scratch file, not yet
+  implemented in `apps/api/prisma/schema.prisma`), an API contract sketch, six Mermaid sequence
+  diagrams, and a risks/future-expansion table.
+- `docs/sprint-1A-identity-design-report.md` — design decisions, assumptions, open questions, and
+  recommendations before Sprint 1B implementation.
+- `docs/domains/README.md` — added a domain status table.
+- `docs/roadmap.md` — checked off Identity domain design under Phase 1.
+
+No API, frontend, authentication logic, or real migrations were implemented — this sprint was
+design-and-documentation only, per the Sprint 1A brief.
+
 ## [Sprint 0 Finalisation] - 2026-07-29
 
 ### Added

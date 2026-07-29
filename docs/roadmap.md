@@ -15,6 +15,7 @@ This roadmap tracks the intended build order. It is not a commitment to dates �
 
 ## Phase 1 — Identity & Organisation
 
+- [x] Domain design (Sprint 1A) — see [`docs/domains/identity.md`](domains/identity.md)
 - [ ] Tenant model + tenant resolution
 - [ ] Authentication
 - [ ] User management

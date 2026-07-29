@@ -10,7 +10,9 @@ feature is built configurably so it can be reused by future tenants without code
 
 > This repository currently contains the **engineering foundation only**. No business modules
 > (identity, catalogue, procurement, inventory, production, sales, distribution, finance) have
-> been implemented yet. See [docs/roadmap.md](docs/roadmap.md).
+> been implemented yet. The Identity Domain has been fully designed (not implemented) — see
+> [docs/domains/identity.md](docs/domains/identity.md). See [docs/roadmap.md](docs/roadmap.md) for
+> the full build order.
 
 ## Repository Structure
 
@@ -57,7 +59,9 @@ Prisma Studio, VS Code debugging, troubleshooting).
 - [Architecture Decision Records](docs/adr/)
 - [Changelog](docs/changelog.md)
 - [Roadmap](docs/roadmap.md)
+- [Domain Docs](docs/domains/) — start with [Identity](docs/domains/identity.md)
 - [Sprint 0 Completion Report](docs/sprint-0-completion-report.md)
+- [Sprint 1A Identity Design Report](docs/sprint-1A-identity-design-report.md)
 
 ## License
 
