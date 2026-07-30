@@ -7,6 +7,18 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 1B.3 Product Backlog] - 2026-07-30
+
+### Added
+
+- `docs/backlog.md` — the single source of truth for Zentuva's long-term product roadmap:
+  purpose, product vision, guiding principles, a 13-Epic roadmap (Epic 0 Engineering
+  Foundation through Epic 12 AI Platform), current sprint status, a "Future Ideas (Not
+  Prioritised Yet)" list, and backlog-maintenance guidance.
+
+Documentation only — no application code, schema, packages, APIs, UI, tests, migrations,
+or configuration were touched, per the Sprint 1B.3 brief.
+
 ## [Sprint 1B.1 Identity Domain Implementation] - 2026-07-29
 
 ### Added
