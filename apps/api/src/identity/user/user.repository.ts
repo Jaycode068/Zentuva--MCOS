@@ -78,6 +78,19 @@ export class UserRepository {
     return this.prisma.user.update({ where: { id }, data: { lastLoginAt: at } });
   }
 
+  /** Atomic increment — safe under concurrent failed-login attempts (identity.md §4
+   *  User Status values; mechanism added Sprint 1B.2, see User.failedLoginAttempts). */
+  incrementFailedLoginAttempts(id: string): Promise<User> {
+    return this.prisma.user.update({
+      where: { id },
+      data: { failedLoginAttempts: { increment: 1 } },
+    });
+  }
+
+  resetFailedLoginAttempts(id: string): Promise<User> {
+    return this.prisma.user.update({ where: { id }, data: { failedLoginAttempts: 0 } });
+  }
+
   private async updateScoped(
     organisationId: string,
     id: string,

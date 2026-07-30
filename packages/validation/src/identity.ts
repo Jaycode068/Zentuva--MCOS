@@ -109,6 +109,22 @@ export const acceptInvitationSchema = z.object({
 });
 export type AcceptInvitationInput = z.infer<typeof acceptInvitationSchema>;
 
+/**
+ * `POST /auth/invitations/accept` (Sprint 1B.2 brief — flat endpoint, token in the body
+ * rather than the URL). Extends {@link acceptInvitationSchema} rather than duplicating it.
+ *
+ * Adds `token` (identity.md's version took it from the URL path) and `firstName`/
+ * `lastName`: identity.md's `Invitation` entity carries only `email` + `roleId`, with no
+ * name fields, so the new User row (which requires them, §9) has nowhere else to get them
+ * from — see docs/sprint-1B.2-completion-report.md "Deviations".
+ */
+export const acceptInvitationWithTokenSchema = acceptInvitationSchema.extend({
+  token: z.string().min(1),
+  firstName: z.string().trim().min(1).max(100),
+  lastName: z.string().trim().min(1).max(100),
+});
+export type AcceptInvitationWithTokenInput = z.infer<typeof acceptInvitationWithTokenSchema>;
+
 /** `POST /roles` (identity.md §10). */
 export const createRoleSchema = z.object({
   name: z.string().trim().min(1).max(100),

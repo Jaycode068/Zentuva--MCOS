@@ -19,6 +19,58 @@ _Nothing yet._
 Documentation only — no application code, schema, packages, APIs, UI, tests, migrations,
 or configuration were touched, per the Sprint 1B.3 brief.
 
+## [Sprint 1B.2 Identity Domain Implementation — Authentication Layer] - 2026-07-30
+
+### Added
+
+- `apps/api/src/identity/auth/` — the Authentication Layer: `AuthService` (login, refresh
+  token rotation with reuse detection, logout/logout-all, password reset, invitation
+  acceptance, account locking), `AuthController` exposing the 8 `/auth/*` endpoints,
+  `JwtAuthGuard` + `@CurrentUser()` (pure authentication, no RBAC), `ZodValidationPipe`, and
+  the three brief-required ports behind interfaces: `PasswordHasher` (bcrypt),
+  `TokenService` (JWT via `@nestjs/jwt`), `SessionStore` (database-backed, wraps
+  `SessionRepository`).
+- `apps/api/src/identity/crypto/` — `CryptoModule` providing `PASSWORD_HASHER`, split out
+  from `AuthModule`/`IdentityModule` to avoid a circular dependency (`UserService` needs it
+  too).
+- `apps/api/src/identity/password-reset/` — `PasswordResetRepository` + `PasswordResetService`
+  (not built in Sprint 1B.1 since nothing called them yet).
+- `User.failedLoginAttempts` column (migration
+  `20260730173455_add_user_failed_login_attempts`) — the mechanism `UserStatus.LOCKED`
+  (added 1A.1) deliberately left as "a Sprint 1B implementation detail."
+- `RoleRepository.assignToUser` / `RoleService.assignRoleToUser` — invitation acceptance
+  needs to create a `UserRole` row; this capability didn't exist after Sprint 1B.1.
+- New environment variables: `BCRYPT_SALT_ROUNDS`, `JWT_ACCESS_SECRET`,
+  `JWT_REFRESH_SECRET`, `JWT_ACCESS_EXPIRES_IN`, `JWT_REFRESH_EXPIRES_IN`,
+  `MAX_LOGIN_ATTEMPTS` — validated at boot (non-empty, ≥32 chars for JWT secrets, access ≠
+  refresh secret).
+- `packages/validation/src/identity.ts`: `acceptInvitationWithTokenSchema`, extending the
+  existing `acceptInvitationSchema` with `token`/`firstName`/`lastName`.
+- 47 unit tests across 4 new spec files, covering every test target the brief lists
+  (password hashing, JWT generation, login, refresh, logout, password reset, invitation
+  acceptance, account locking, session management, token rotation).
+- `docs/sprint-1B.2-completion-report.md`.
+
+### Changed
+
+- `apps/api/prisma/seed.ts` — switched from `argon2` to `bcrypt` for the seeded admin
+  user's password, matching the Authentication Layer's chosen hasher (the `argon2` choice
+  in Sprint 1B.1 predated this sprint settling the question; without this change the
+  seeded user could never log in). The `argon2` dependency was removed.
+- `docs/domains/identity.md` — updated where implementation revealed genuine discrepancies:
+  password hashing is bcrypt (not the earlier unconfirmed argon2id assumption); the refresh
+  token is a JWT with its own secret (per this sprint's brief) while remaining hashed,
+  rotated, and reuse-detected exactly as originally designed; invitation acceptance now
+  collects `firstName`/`lastName` (not carried by the `Invitation` entity); `User.status
+LOCKED`'s triggering mechanism is now specified; four audit action strings were added to
+  §8's event table (`auth.logout_all`, `auth.password.reset_requested`,
+  `auth.session.revoked`, `user.locked`). See the completion report's "Deviations" for full
+  reasoning on each.
+
+No RBAC evaluation, permission guards, role/organisation/user-management APIs, email
+delivery, MFA, OAuth, or SSO were implemented — per the Sprint 1B.2 brief, this was the
+Authentication Layer only.
+
 ## [Sprint 1B.1 Identity Domain Implementation] - 2026-07-29
 
 ### Added

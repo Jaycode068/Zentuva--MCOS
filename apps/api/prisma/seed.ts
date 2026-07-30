@@ -1,5 +1,5 @@
 /**
- * Identity Domain seed script (Sprint 1B.1).
+ * Identity Domain seed script.
  *
  * Seeds the "Boby Bites" pilot organisation, its three system roles (Owner,
  * Administrator, Member — identity.md §6), the full permission catalog (identity.md §6),
@@ -7,16 +7,23 @@
  *
  * Runs as a plain Node script via ts-node (`prisma db seed`), outside the NestJS DI
  * container — the standard Prisma seeding pattern. It talks to Prisma directly rather
- * than through the Identity domain services, because the relevant service methods
- * (OrganisationService.register, UserService.createFromRegistration, ...) are
- * intentionally left as stubs this sprint (no password hashing/auth logic yet) — see
- * docs/sprint-1B.1-completion-report.md.
+ * than through the Identity domain services, because most of them (OrganisationService.
+ * register, ...) are still stubs — see docs/sprint-1B.1-completion-report.md.
+ *
+ * Password hashing uses `bcrypt` directly (not the `PasswordHasher` port from
+ * apps/api/src/identity/crypto/ — this script runs outside the Nest DI container, so it
+ * can't inject it), matching the Authentication Layer's chosen hasher (Sprint 1B.2) so
+ * the seeded admin user can actually log in. Originally seeded with `argon2` in Sprint
+ * 1B.1, before the Authentication Layer settled on bcrypt — see
+ * docs/sprint-1B.2-completion-report.md "Deviations".
  *
  * No credentials are hardcoded: the admin email and password come from required
  * environment variables and the script fails loudly if they're missing.
  */
-import * as argon2 from 'argon2';
+import * as bcrypt from 'bcrypt';
 import { PrismaClient } from '@prisma/client';
+
+const BCRYPT_SALT_ROUNDS = parseInt(process.env.BCRYPT_SALT_ROUNDS ?? '12', 10);
 
 const prisma = new PrismaClient();
 
@@ -146,7 +153,7 @@ async function main(): Promise<void> {
   });
 
   console.log('Seeding organisation admin user...');
-  const passwordHash = await argon2.hash(adminPassword);
+  const passwordHash = await bcrypt.hash(adminPassword, BCRYPT_SALT_ROUNDS);
   const adminUser = await prisma.user.upsert({
     where: { email: adminEmail },
     update: {},

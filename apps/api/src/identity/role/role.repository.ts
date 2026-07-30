@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Permission, Prisma, Role } from '@prisma/client';
+import { Permission, Prisma, Role, UserRole } from '@prisma/client';
 import { AppError } from '@zentuva/utils';
 
 import { PrismaService } from '../../prisma/prisma.service';
@@ -91,5 +91,25 @@ export class RoleRepository {
 
   findPermissionsByKeys(keys: string[]): Promise<Permission[]> {
     return this.prisma.permission.findMany({ where: { key: { in: keys } } });
+  }
+
+  // --- UserRole ---
+  // Added Sprint 1B.2: invitation acceptance (identity.md §5) assigns the invited Role to
+  // the newly-created User — this capability didn't exist yet after Sprint 1B.1.
+
+  assignToUser(
+    organisationId: string,
+    userId: string,
+    roleId: string,
+    assignedById?: string,
+  ): Promise<UserRole> {
+    return this.prisma.userRole.create({
+      data: {
+        organisation: { connect: { id: organisationId } },
+        user: { connect: { id: userId } },
+        role: { connect: { id: roleId } },
+        ...(assignedById ? { assignedById } : {}),
+      },
+    });
   }
 }

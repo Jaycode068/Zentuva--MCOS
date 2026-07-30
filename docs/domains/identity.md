@@ -1,10 +1,16 @@
 # Identity Domain — Design
 
-- **Status:** Design only, **approved for Sprint 1B implementation**. No API, frontend, or
-  authentication logic has been implemented.
-- **Sprint:** 1A (Identity Domain Design), refined in 1A.1 (post-review, MVP refinements)
+- **Status:** Database & Domain Layer (Sprint 1B.1) and Authentication Layer (Sprint 1B.2)
+  are implemented against this design. No RBAC evaluation, permission guards, role/
+  organisation/user-management APIs, or frontend exist yet.
+- **Sprint:** 1A (design), refined 1A.1 (post-review), implemented 1B.1 (database & domain
+  layer) and 1B.2 (authentication layer)
 - **Depends on:** [ADR-003 — Multi-Tenancy](../adr/ADR-003-multi-tenancy.md), [ADR-002 — Modular Monolith](../adr/ADR-002-modular-monolith.md)
-- **See also:** [Sprint 1A Design Report](../sprint-1A-identity-design-report.md) — decisions, assumptions, and open questions behind this design, including the [Post-Review Refinements](../sprint-1A-identity-design-report.md#post-review-refinements) made in Sprint 1A.1.
+- **See also:** [Sprint 1A Design Report](../sprint-1A-identity-design-report.md) (decisions,
+  assumptions, open questions, and the [Post-Review Refinements](../sprint-1A-identity-design-report.md#post-review-refinements)
+  from 1A.1), [Sprint 1B.1 Completion Report](../sprint-1B.1-completion-report.md), and
+  [Sprint 1B.2 Completion Report](../sprint-1B.2-completion-report.md) for what changed
+  during implementation and why.
 
 ## 1. Domain Overview
 
@@ -238,17 +244,19 @@ section covers responsibility, ownership, and lifecycle.
   immediately) or via Invitation acceptance (status `INVITED` → `ACTIVE` on accept). See
   **Status values** below for the full set and when each applies. Never hard-deleted in MVP, for
   the same audit/history reasons as Organisation.
+- **`failedLoginAttempts`** _(added Sprint 1B.2)_: consecutive failed logins since the last
+  success; reset to 0 on success; drives the automatic `LOCKED` transition above. See §9.
 
 **Status values** (`UserStatus`, expanded post-review — see
 [Post-Review Refinements](../sprint-1A-identity-design-report.md#post-review-refinements)):
 
-| Status        | Used when                                                                                                                                                                                                                                                                                                                                                           |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `INVITED`     | Invitation created but not yet accepted — no password set yet, cannot log in.                                                                                                                                                                                                                                                                                       |
-| `ACTIVE`      | Normal state. Can log in and use the product.                                                                                                                                                                                                                                                                                                                       |
-| `LOCKED`      | Temporarily blocked from logging in — e.g. suspicious activity or repeated failed login attempts. Distinct from `SUSPENDED`: typically transient and may resolve without an admin action (e.g. a password reset), rather than being a deliberate administrative decision. Exact triggering/unlocking rules are a Sprint 1B implementation detail, not decided here. |
-| `SUSPENDED`   | Deliberately disabled by an Administrator/Owner (e.g. temporary offboarding). Reversible by an Administrator/Owner.                                                                                                                                                                                                                                                 |
-| `DEACTIVATED` | Terminal — permanently offboarded. Not reversible in MVP.                                                                                                                                                                                                                                                                                                           |
+| Status        | Used when                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `INVITED`     | Invitation created but not yet accepted — no password set yet, cannot log in.                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `ACTIVE`      | Normal state. Can log in and use the product.                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `LOCKED`      | Temporarily blocked from logging in — triggered automatically once `User.failedLoginAttempts` reaches `MAX_LOGIN_ATTEMPTS` (env-configured; implemented Sprint 1B.2, resolving the "Sprint 1B implementation detail" this row previously deferred). Distinct from `SUSPENDED`: security-triggered rather than a deliberate administrative decision. No unlock endpoint exists yet — see [Sprint 1B.2 completion report](../sprint-1B.2-completion-report.md) "Known limitations". |
+| `SUSPENDED`   | Deliberately disabled by an Administrator/Owner (e.g. temporary offboarding). Reversible by an Administrator/Owner.                                                                                                                                                                                                                                                                                                                                                               |
+| `DEACTIVATED` | Terminal — permanently offboarded. Not reversible in MVP.                                                                                                                                                                                                                                                                                                                                                                                                                         |
 
 ### Role
 
@@ -338,11 +346,21 @@ All flows are described step-by-step here; the corresponding Mermaid sequence di
 [§11](#11-sequence-diagrams) (kept together there per the Sprint 1A brief's structure — each flow
 below links to its diagram).
 
-Passwords are hashed with **argon2id** (preferred over bcrypt for new systems; no legacy
-constraint here since there's no existing user base). Access tokens are short-lived **JWTs**
-(not stored server-side); refresh tokens are long-lived, opaque, single-use-then-rotated, and
-stored **hashed** (never plaintext) — the same pattern applied to invitation and password-reset
-tokens.
+Passwords are hashed with **bcrypt** (configurable salt rounds via `BCRYPT_SALT_ROUNDS`).
+_Updated Sprint 1B.2 — this design originally assumed argon2id (an unconfirmed assumption
+per the [Sprint 1A report](../sprint-1A-identity-design-report.md#assumptions)); the Sprint
+1B.2 brief explicitly specified bcrypt, which is what was implemented, behind a
+`PasswordHasher` interface so the choice can change later without touching call sites._
+Access tokens are short-lived **JWTs** (not stored server-side, verified by signature).
+Refresh tokens are **also JWTs** (`JWT_REFRESH_SECRET`, separate from the access token's
+secret) — _updated Sprint 1B.2: originally documented as opaque random strings; the Sprint
+1B.2 brief explicitly required a JWT refresh token with its own secret/expiry env vars.
+The properties that actually matter for security are unchanged: the raw refresh
+token is still long-lived, single-use-then-rotated, and stored **hashed** (never
+plaintext) — being a JWT only changes what the raw value looks like before it's hashed,
+not how it's persisted or revoked._ The same hashed-storage pattern applies to invitation
+and password-reset tokens, which remain opaque random strings (no reason for those to be
+JWTs — nothing ever needs to verify their signature independently of a database lookup).
 
 ### Login Flow
 
@@ -375,7 +393,9 @@ old password may have been compromised).
 See [diagram](#user-invitation). An Administrator/Owner creates an `Invitation` (email + role) → API
 emails a link containing the raw token (only the hash is stored) → invitee opens the link, the API
 validates the token and returns which organisation/role they're joining (so the frontend can show
-context before the invitee commits) → invitee sets a password → API creates the `User`
+context before the invitee commits) → invitee sets a password (and, _updated Sprint 1B.2_, their
+first/last name — `Invitation` only ever carried `email` + `roleId`, so acceptance is where `User`'s
+required `firstName`/`lastName` are actually collected; see §10) → API creates the `User`
 (status `ACTIVE`), the `UserRole`, marks the `Invitation` `ACCEPTED`, and logs them in immediately
 (issues a Session, same as Login).
 
@@ -515,21 +535,25 @@ through a parent table to discover which tenant a row belongs to.
 
 ### Events to capture (Identity domain's own events; future domains add their own)
 
-| Action                                          | When                                          |
-| ----------------------------------------------- | --------------------------------------------- |
-| `organisation.created`                          | Self-service registration completes           |
-| `organisation.updated`                          | Profile fields changed                        |
-| `organisation.status_changed`                   | Suspended/reactivated/closed                  |
-| `user.created`                                  | Via registration or invitation acceptance     |
-| `user.updated`                                  | Profile changed                               |
-| `user.status_changed`                           | Suspended/reactivated/deactivated             |
-| `auth.login.success` / `.failure`               | Every login attempt, success or failure       |
-| `auth.logout`                                   | Explicit logout                               |
-| `auth.password.reset`                           | Password successfully reset                   |
-| `auth.refresh.reuse_detected`                   | Refresh token reuse (possible theft) — see §5 |
-| `invitation.created` / `.revoked` / `.accepted` | Full invitation lifecycle                     |
-| `role.created` / `.updated` / `.deleted`        | Custom role changes                           |
-| `role.assigned` / `.unassigned`                 | A user's role membership changes              |
+| Action                                          | When                                                                                                     |
+| ----------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `organisation.created`                          | Self-service registration completes                                                                      |
+| `organisation.updated`                          | Profile fields changed                                                                                   |
+| `organisation.status_changed`                   | Suspended/reactivated/closed                                                                             |
+| `user.created`                                  | Via registration or invitation acceptance                                                                |
+| `user.updated`                                  | Profile changed                                                                                          |
+| `user.status_changed`                           | Suspended/reactivated/deactivated                                                                        |
+| `auth.login.success` / `.failure`               | Every login attempt, success or failure                                                                  |
+| `auth.logout`                                   | Explicit logout (single session)                                                                         |
+| `auth.logout_all` _(added 1B.2)_                | "Log out all devices"                                                                                    |
+| `auth.password.reset_requested` _(added 1B.2)_  | Reset requested (distinct from the completed change below)                                               |
+| `auth.password.reset`                           | Password successfully reset                                                                              |
+| `auth.refresh.reuse_detected`                   | Refresh token reuse (possible theft) — see §5                                                            |
+| `auth.session.revoked` _(added 1B.2)_           | A session was force-revoked outside a normal single-session logout (refresh-token reuse, password reset) |
+| `user.locked` _(added 1B.2)_                    | Account locked after `MAX_LOGIN_ATTEMPTS` failed logins — see §4                                         |
+| `invitation.created` / `.revoked` / `.accepted` | Full invitation lifecycle                                                                                |
+| `role.created` / `.updated` / `.deleted`        | Custom role changes                                                                                      |
+| `role.assigned` / `.unassigned`                 | A user's role membership changes                                                                         |
 
 ### Data stored per event
 
@@ -598,6 +622,10 @@ is necessary to validate the design"). Implementing it for real is Sprint 1B's j
   and no generation logic in MVP, per the Sprint 1A.1 brief.
 - **`UserStatus`** _(post-review change)_: gained a `LOCKED` value between `ACTIVE` and
   `SUSPENDED` — see the User entity's Status values table in §4.
+- **`User.failedLoginAttempts`** _(Sprint 1B.2 addition)_: `Int`, `@default(0)`, required. This
+  is the "exact triggering rule" the `LOCKED` status (added 1A.1) deliberately left open —
+  implementing account locking (a required Sprint 1B.2 capability) needed a counter to trigger
+  it, and none existed. Incremented atomically per failed login, reset to 0 on success.
 
 ### Schema
 
@@ -665,18 +693,20 @@ model Organisation {
 }
 
 model User {
-  id              String     @id @default(cuid())
-  organisationId  String
-  email           String     @unique
-  employeeCode    String?
-  firstName       String
-  lastName        String
-  passwordHash    String
-  status          UserStatus @default(INVITED)
-  emailVerifiedAt DateTime?
-  lastLoginAt     DateTime?
-  createdAt       DateTime   @default(now())
-  updatedAt       DateTime   @updatedAt
+  id                  String     @id @default(cuid())
+  organisationId      String
+  email               String     @unique
+  employeeCode        String?
+  firstName           String
+  lastName            String
+  passwordHash        String
+  status              UserStatus @default(INVITED)
+  /// Added Sprint 1B.2 — see §4 "failedLoginAttempts".
+  failedLoginAttempts Int        @default(0)
+  emailVerifiedAt     DateTime?
+  lastLoginAt         DateTime?
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
 
   organisation    Organisation         @relation(fields: [organisationId], references: [id], onDelete: Cascade)
   userRoles       UserRole[]
@@ -877,13 +907,18 @@ except registration and the pre-login auth routes.
 
 ### Invitations
 
-| Endpoint                          | Input                  | Output                                      |
-| --------------------------------- | ---------------------- | ------------------------------------------- |
-| `POST /invitations`               | `{ email, roleId }`    | `201 { invitation }`                        |
-| `GET /invitations`                | Query: `status` filter | `200 { items: Invitation[] }`               |
-| `DELETE /invitations/:id`         | —                      | `204`                                       |
-| `GET /invitations/:token`         | — (unauthenticated)    | `200 { organisationName, email, roleName }` |
-| `POST /invitations/:token/accept` | `{ password }`         | `200 { user, accessToken, refreshToken }`   |
+| Endpoint                          | Input                                                                                          | Output                                      |
+| --------------------------------- | ---------------------------------------------------------------------------------------------- | ------------------------------------------- |
+| `POST /invitations`               | `{ email, roleId }`                                                                            | `201 { invitation }`                        |
+| `GET /invitations`                | Query: `status` filter                                                                         | `200 { items: Invitation[] }`               |
+| `DELETE /invitations/:id`         | —                                                                                              | `204`                                       |
+| `GET /invitations/:token`         | — (unauthenticated)                                                                            | `200 { organisationName, email, roleName }` |
+| `POST /invitations/:token/accept` | `{ password, firstName, lastName }` _(name fields added Sprint 1B.2 — see §5 Invitation Flow)_ | `200 { user, accessToken, refreshToken }`   |
+
+Sprint 1B.2 implemented this as `POST /auth/invitations/accept` instead (token in the body
+alongside `password`/`firstName`/`lastName`, not the URL) — the Authentication Layer groups
+every auth-related route under `/auth/*`, per that sprint's brief. Both shapes carry the
+same fields; only where the token lives differs.
 
 ### Roles & Permissions
 

@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Permission, Role } from '@prisma/client';
+import { Permission, Role, UserRole } from '@prisma/client';
 import { AppError } from '@zentuva/utils';
 
 import { RoleRepository } from './role.repository';
@@ -91,6 +91,18 @@ export class RoleService {
 
   listAllPermissions(): Promise<Permission[]> {
     return this.roleRepository.findAllPermissions();
+  }
+
+  /** Assigns a Role to a User (identity.md §5 Invitation Flow "INSERT UserRole"; §10
+   *  `POST /users/:id/roles`). Added Sprint 1B.2 — invitation acceptance needs it and it
+   *  didn't exist after Sprint 1B.1. Pure data management, not permission evaluation. */
+  assignRoleToUser(
+    organisationId: string,
+    userId: string,
+    roleId: string,
+    assignedById?: string,
+  ): Promise<UserRole> {
+    return this.roleRepository.assignToUser(organisationId, userId, roleId, assignedById);
   }
 }
 

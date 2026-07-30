@@ -90,20 +90,26 @@ model Organisation {
 /// A single human's login identity within one Organisation. MVP: one Organisation per
 /// User (see identity.md §2 "Can users belong to multiple organisations?").
 model User {
-  id              String     @id @default(cuid())
-  organisationId  String
-  email           String     @unique
+  id                  String     @id @default(cuid())
+  organisationId      String
+  email               String     @unique
   /// Optional — future HR-module / staff-identification use case. No generation logic
   /// or uniqueness constraint in MVP (identity.md §4, added Sprint 1A.1).
-  employeeCode    String?
-  firstName       String
-  lastName        String
-  passwordHash    String
-  status          UserStatus @default(INVITED)
-  emailVerifiedAt DateTime?
-  lastLoginAt     DateTime?
-  createdAt       DateTime   @default(now())
-  updatedAt       DateTime   @updatedAt
+  employeeCode        String?
+  firstName           String
+  lastName            String
+  passwordHash        String
+  status              UserStatus @default(INVITED)
+  /// Consecutive failed login attempts since the last success. Reset to 0 on successful
+  /// login; reaching MAX_LOGIN_ATTEMPTS (env-configured) transitions status to LOCKED.
+  /// Added Sprint 1B.2 — identity.md's LOCKED status (§4, added 1A.1) deliberately left
+  /// "exact triggering/unlocking rules" as a Sprint 1B implementation detail; this is
+  /// that detail, not a redesign.
+  failedLoginAttempts Int        @default(0)
+  emailVerifiedAt     DateTime?
+  lastLoginAt         DateTime?
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
 
   organisation    Organisation         @relation(fields: [organisationId], references: [id], onDelete: Cascade)
   userRoles       UserRole[]
@@ -115,15 +121,15 @@ model User {
   @@map("users")
 }
 
-/// A named, organisation-scoped bundle of permissions. Three system roles (Owner, Admin,
-/// Member) are seeded per-organisation; see identity.md §6.
+/// A named, organisation-scoped bundle of permissions. Three system roles (Owner,
+/// Administrator, Member) are seeded per-organisation; see identity.md §6.
 model Role {
   id             String   @id @default(cuid())
   organisationId String
   name           String
   description    String?
-  /// System roles (Owner/Admin/Member) cannot be renamed or deleted — enforced at the
-  /// application layer (RoleRepository/RoleService), not the database.
+  /// System roles (Owner/Administrator/Member) cannot be renamed or deleted — enforced at
+  /// the application layer (RoleRepository/RoleService), not the database.
   isSystem       Boolean  @default(false)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt

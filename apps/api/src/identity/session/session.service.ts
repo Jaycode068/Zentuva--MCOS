@@ -7,11 +7,12 @@ import { SessionRepository } from './session.repository';
 /**
  * Domain service for the Session aggregate (Session, RefreshToken).
  *
- * Sprint 1B.1 scope note: listing a user's own sessions is a pure read, implemented for
- * real. Every write here (create/revoke/rotate) *is* login/logout/refresh-token
- * mechanics — explicitly out of scope this sprint (see docs/domains/identity.md §5) — so
- * every write method is a stub, unlike the other services where only auth-adjacent
- * writes are stubbed.
+ * Sprint 1B.2 note: `revoke`/`revokeAllForUser` are pure session-revocation (no token
+ * material involved) and are now implemented for real. `create`/`rotateRefreshToken`
+ * inherently involve generating/hashing token material, which is deliberately kept in the
+ * auth layer's `SessionStore` port (`DatabaseSessionStore`), not the general domain
+ * service — see docs/sprint-1B.2-completion-report.md "Security decisions". AuthService
+ * depends on `SessionStore`, not this service, for those operations.
  */
 @Injectable()
 export class SessionService {
@@ -25,27 +26,26 @@ export class SessionService {
     return this.sessionRepository.findById(organisationId, id);
   }
 
-  /** Issues a new Session + first RefreshToken on successful login or invitation
-   *  acceptance (identity.md §5). Deferred. */
+  async revoke(organisationId: string, id: string): Promise<void> {
+    await this.sessionRepository.revoke(organisationId, id);
+  }
+
+  async revokeAllForUser(organisationId: string, userId: string): Promise<void> {
+    await this.sessionRepository.revokeAllForUser(organisationId, userId);
+  }
+
+  /** Issuing a session + first refresh token is auth-layer token-material generation —
+   *  see AuthService / SessionStore (Sprint 1B.2). */
   create(_input: CreateSessionInput): Promise<never> {
-    return notImplemented('SessionService.create');
+    return notImplemented('SessionService.create — use SessionStore (auth layer) instead');
   }
 
-  /** Revokes a single session (identity.md §5 Logout Flow). Deferred. */
-  revoke(_organisationId: string, _id: string): Promise<never> {
-    return notImplemented('SessionService.revoke');
-  }
-
-  /** Revokes every session for a user (password reset, "log out everywhere").
-   *  Deferred. */
-  revokeAllForUser(_organisationId: string, _userId: string): Promise<never> {
-    return notImplemented('SessionService.revokeAllForUser');
-  }
-
-  /** Exchanges a refresh token for a new access+refresh pair, with reuse detection
-   *  (identity.md §5 Refresh Token Flow). Deferred. */
+  /** Rotating a refresh token is auth-layer token-material generation — see AuthService /
+   *  SessionStore (Sprint 1B.2). */
   rotateRefreshToken(_rawRefreshToken: string): Promise<never> {
-    return notImplemented('SessionService.rotateRefreshToken');
+    return notImplemented(
+      'SessionService.rotateRefreshToken — use SessionStore (auth layer) instead',
+    );
   }
 }
 

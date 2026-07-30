@@ -25,16 +25,23 @@ The old placeholder `HealthCheck` model has been removed — with 11 real models
 longer needs a placeholder to generate a client. `GET /api/health` is unaffected; it verifies
 connectivity with a raw `SELECT 1`, not a model query.
 
-No API, authentication, or authorization logic reads/writes these tables yet — see
-[`docs/sprint-1B.1-completion-report.md`](../sprint-1B.1-completion-report.md) for exactly what
-was and wasn't implemented this sprint.
+`User` also carries `failedLoginAttempts` (`Int`, default `0`), added in Sprint 1B.2 to drive
+automatic account locking — see [identity.md §4](../domains/identity.md#user).
+
+Authentication (login, JWT, refresh rotation, logout, password reset, invitation acceptance,
+account locking) is implemented as of Sprint 1B.2 — no RBAC evaluation, permission guards, or
+role/organisation/user-management APIs exist yet. See
+[`docs/sprint-1B.1-completion-report.md`](../sprint-1B.1-completion-report.md) and
+[`docs/sprint-1B.2-completion-report.md`](../sprint-1B.2-completion-report.md) for exactly what
+was and wasn't implemented in each sprint.
 
 ### Migrations
 
-| Migration                             | What it did                                                                  |
-| ------------------------------------- | ---------------------------------------------------------------------------- |
-| `20260728195709_init`                 | Created the placeholder `_health_check` table (Sprint 0)                     |
-| `20260729182400_init_identity_domain` | Dropped `_health_check`; created all 11 Identity Domain tables (Sprint 1B.1) |
+| Migration                                       | What it did                                                                  |
+| ----------------------------------------------- | ---------------------------------------------------------------------------- |
+| `20260728195709_init`                           | Created the placeholder `_health_check` table (Sprint 0)                     |
+| `20260729182400_init_identity_domain`           | Dropped `_health_check`; created all 11 Identity Domain tables (Sprint 1B.1) |
+| `20260730173455_add_user_failed_login_attempts` | Added `User.failedLoginAttempts` for account locking (Sprint 1B.2)           |
 
 ### Seed data
 
