@@ -38,6 +38,14 @@ module.exports = {
           DEFAULT: 'hsl(var(--card))',
           foreground: 'hsl(var(--card-foreground))',
         },
+        lavender: {
+          DEFAULT: 'hsl(var(--lavender))',
+          foreground: 'hsl(var(--lavender-foreground))',
+        },
+        accentPink: {
+          DEFAULT: 'hsl(var(--accent-pink))',
+          foreground: 'hsl(var(--accent-pink-foreground))',
+        },
       },
       borderRadius: {
         lg: 'var(--radius)',

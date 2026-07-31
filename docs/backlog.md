@@ -144,6 +144,15 @@ delivered roughly in order, but later Epics may be reordered as priorities evolv
   Suggestions, Production Optimisation, AI Assistant.
 - **Status:** Not started.
 
+### Epic 13 — Public Website & Marketing
+
+- **Objective:** communicate the Zentuva vision, establish trust, and create entry points
+  for onboarding — the unauthenticated, public-facing side of the product.
+- **Includes:** Landing page, product positioning and marketing copy, brand identity,
+  demo/early-access capture, future content (blog, docs site, careers).
+- **Status:** In progress — landing page (`/`) shipped in Sprint 3.1. Demo/early-access
+  form capture and any additional public pages remain.
+
 ## 5. Current Sprint Status
 
 **Completed:**
@@ -155,9 +164,10 @@ delivered roughly in order, but later Epics may be reordered as priorities evolv
 - ✓ Sprint 1B.2 — Identity Domain Implementation (Authentication Layer)
 - ✓ Sprint 2.1 — Organisation Management (Organisation Profile)
 - ✓ Sprint 2.2 — Organisation Management (User Management)
+- ✓ Sprint 3.1 — Public Marketing Website (Landing Page)
 
-**Current focus:** Epic 2 — Organisation Management, continued (Invitation & Onboarding
-next, per Sprint 2.3).
+**Current focus:** Sprint 3.2 — authentication UI (sign-in/sign-up), explicitly not started
+in Sprint 3.1.
 
 ## 6. Future Ideas (Not Prioritised Yet)
 

@@ -7,6 +7,40 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 3.1 Public Marketing Website — Landing Page] - 2026-07-31
+
+### Added
+
+- Public landing page at `/` (`apps/web/src/app/page.tsx`): Navbar, Hero, Trusted By,
+  Problem, What is Zentuva, Platform Modules, Why Zentuva, Retail Intelligence, AI,
+  Platform Vision Timeline, CTA, and Footer sections — replaces the Sprint 0 placeholder
+  page. No authentication, no backend integration, per the brief.
+- `apps/web/src/components/marketing/`: 13 new components (`navbar`, `hero`,
+  `trusted-by`, `problem-section`, `what-is-zentuva`, `platform-modules`, `why-zentuva`,
+  `retail-intelligence`, `ai-section`, `vision-timeline`, `cta-section`, `footer`,
+  `logo`, `container`, `icons`) — all reusable, no lorem ipsum, all copy original.
+- Repositioned the product: "The Operating System for African Manufacturing," not an ERP
+  or SaaS product — reflected in `layout.tsx` metadata and throughout the page copy.
+- **Rebrand**: `packages/ui/src/styles.css`'s `--primary` changed from green to a deep
+  purple, plus two new brand tokens (`--lavender`, `--accent-pink`) registered in
+  `packages/config/tailwind/preset.js`. This is a shared design-system change — it also
+  restyles the existing `/settings/organisation` and `/settings/users` pages, which is
+  intentional (one consistent brand, not a marketing-only skin).
+- `buttonVariants` now exported from `packages/ui` (was previously internal to
+  `Button`) — needed to style `<a>` elements as buttons (nav links, CTAs) without adding
+  a Radix `Slot`/`asChild` dependency.
+
+### Known limitations
+
+- **No real logo file.** The brief said to use an attached logo; no image file was ever
+  placed in the repo (only shared as an inline chat image mid-session). `ZentuvaMark`
+  (`apps/web/src/components/marketing/logo.tsx`) is a best-effort geometric recreation of
+  the "Z" mark in the same colors, not the literal source asset. See
+  `docs/sprint-3.1-completion-report.md` "Known limitations."
+- "Get Started," "Book a Demo," "Request Demo," "Join Early Access," and "Sign In" are all
+  static links with no form or backend behind them yet — explicitly out of scope (Sprint
+  3.2 covers authentication UI).
+
 ## [Sprint 2.2 Organisation Management — User Management] - 2026-07-31
 
 ### Added

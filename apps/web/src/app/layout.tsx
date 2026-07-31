@@ -5,8 +5,9 @@ import { QueryProvider } from '@/providers/query-provider';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Zentuva',
-  description: 'Manufacturing & Commerce Operating System for Africa',
+  title: 'Zentuva — The Operating System for African Manufacturing',
+  description:
+    'Zentuva connects production, inventory, procurement, distribution, sales, people and intelligence into one unified operating system — helping manufacturers scale with confidence.',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

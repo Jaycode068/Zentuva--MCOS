@@ -1,13 +1,33 @@
-import { Button } from '@zentuva/ui';
+import { AiSection } from '@/components/marketing/ai-section';
+import { CtaSection } from '@/components/marketing/cta-section';
+import { Footer } from '@/components/marketing/footer';
+import { Hero } from '@/components/marketing/hero';
+import { Navbar } from '@/components/marketing/navbar';
+import { PlatformModules } from '@/components/marketing/platform-modules';
+import { ProblemSection } from '@/components/marketing/problem-section';
+import { RetailIntelligence } from '@/components/marketing/retail-intelligence';
+import { TrustedBy } from '@/components/marketing/trusted-by';
+import { VisionTimeline } from '@/components/marketing/vision-timeline';
+import { WhatIsZentuva } from '@/components/marketing/what-is-zentuva';
+import { WhyZentuva } from '@/components/marketing/why-zentuva';
 
 export default function Home() {
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-24">
-      <h1 className="text-3xl font-bold">Zentuva</h1>
-      <p className="text-muted-foreground">
-        Manufacturing &amp; Commerce Operating System — engineering foundation.
-      </p>
-      <Button>Foundation Ready</Button>
-    </main>
+    <>
+      <Navbar />
+      <main>
+        <Hero />
+        <TrustedBy />
+        <ProblemSection />
+        <WhatIsZentuva />
+        <PlatformModules />
+        <WhyZentuva />
+        <RetailIntelligence />
+        <AiSection />
+        <VisionTimeline />
+        <CtaSection />
+      </main>
+      <Footer />
+    </>
   );
 }
