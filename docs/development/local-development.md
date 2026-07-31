@@ -114,13 +114,23 @@ All commands run from the repo root.
 
 ### Database (Prisma)
 
-| Command            | Description                                                               |
-| ------------------ | ------------------------------------------------------------------------- |
-| `pnpm db:generate` | Regenerate the Prisma client from `apps/api/prisma/schema.prisma`         |
-| `pnpm db:migrate`  | Create/apply a migration in dev mode (`prisma migrate dev`)               |
-| `pnpm db:studio`   | Open Prisma Studio, a GUI for browsing/editing the database               |
-| `pnpm db:seed`     | Run the seed script (`apps/api/prisma/seed.ts` — currently a placeholder) |
-| `pnpm db:reset`    | Drop the database, reapply all migrations, and reseed                     |
+| Command            | Description                                                       |
+| ------------------ | ----------------------------------------------------------------- |
+| `pnpm db:generate` | Regenerate the Prisma client from `apps/api/prisma/schema.prisma` |
+| `pnpm db:migrate`  | Create/apply a migration in dev mode (`prisma migrate dev`)       |
+| `pnpm db:studio`   | Open Prisma Studio, a GUI for browsing/editing the database       |
+| `pnpm db:seed`     | Run the seed script (`apps/api/prisma/seed.ts`)                   |
+| `pnpm db:reset`    | Drop the database, reapply all migrations, and reseed             |
+
+`pnpm db:seed` creates the "Boby Bites" pilot organisation and one development account per
+system role, using the credentials in `apps/api/.env.example` (copy it to `.env` as-is to
+get working logins — these are local-only, not real secrets):
+
+| Role          | Email                    | Password                             |
+| ------------- | ------------------------ | ------------------------------------ |
+| Owner         | `owner@bobybites.local`  | `local-dev-only-not-a-real-password` |
+| Administrator | `admin@bobybites.local`  | `local-dev-only-not-a-real-password` |
+| Member        | `member@bobybites.local` | `local-dev-only-not-a-real-password` |
 
 ### Quality checks
 

@@ -7,6 +7,55 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 2.2 Organisation Management — User Management] - 2026-07-31
+
+### Added
+
+- `apps/api/src/identity/user/user.controller.ts` + `user.module.ts` — the User
+  Management HTTP surface: `GET /api/users` (list), `GET /api/users/:id` (view), both any
+  authenticated user; `POST /api/users` (create) and `PATCH /api/users/:id` (combined
+  profile/role/status update), both Owner/Administrator only via the same `RolesGuard`
+  introduced in Sprint 2.1.
+- `UserRepository.findManyWithRolesByOrganisation` / `findByIdWithRoles` /
+  `createWithRole`, and `RoleRepository.replaceUserRole` — a user's role assignment is
+  treated as "exactly one" for this sprint's MVP model (even though `UserRole` technically
+  permits many), resolved by system role _name_ rather than `roleId` (no role-listing
+  endpoint exists yet).
+- `createUserSchema` / `updateUserSchema` / `userManagementStatusSchema` /
+  `systemRoleNameSchema` (`packages/validation/src/identity.ts`) — the wire contract for
+  this sprint's endpoints, including the 3-value `ACTIVE`/`INACTIVE`/`LOCKED` status view
+  mapped onto the DB's 5-value `UserStatus` enum (`INACTIVE` → `SUSPENDED`).
+- `user.activated` / `user.deactivated` audit actions (`user-audit-actions.ts`), alongside
+  the existing `user.created`/`user.updated`, recorded on every `POST`/`PATCH` via the
+  existing `AuditService`.
+- `packages/ui`: `Dialog`/`DialogHeader`/`DialogTitle`/`DialogFooter` (hand-rolled, no new
+  dependency), `Select`, `Badge`.
+- `apps/web/src/app/settings/users/` — the Users settings page: a table (Name, Email,
+  Employee Code, Role, Status), a Create User dialog, an Edit User dialog, and one-click
+  Activate/Deactivate per row. No pagination/search/filter/sort, per the brief.
+- Seed script (`apps/api/prisma/seed.ts`) now seeds Administrator and Member development
+  accounts alongside the existing Owner, via a new `seedUser` helper — same
+  "no hardcoded credentials, required env vars" pattern. `apps/api/.env.example`'s
+  `SEED_ADMIN_*` placeholder values were also replaced with the actual predictable
+  local-development credentials (previously only present in the untracked `.env`), plus
+  new `SEED_ADMINISTRATOR_*`/`SEED_MEMBER_*` vars.
+
+### Fixed
+
+- Discovered (not introduced by this sprint) that this app has no global exception filter
+  converting the shared `AppError` class into an HTTP response — a `@zentuva/utils`
+  `AppError` thrown inside a request handler silently becomes a generic `500`, losing its
+  intended status code. `UserService` uses NestJS's own `ConflictException`/
+  `NotFoundException` instead (matching `AuthService`'s existing convention), and
+  `updateUser` checks the target exists up front so it never reaches
+  `UserRepository`'s `AppError`-throwing path. The underlying gap (no filter) is
+  pre-existing and unchanged; flagged for a future sprint.
+
+Documentation: `docs/domains/identity.md` reconciled with the shipped User Management API
+(§10 Users table, §6 RolesGuard note, §8 audit events table), plus `docs/roadmap.md` and
+`docs/database/README.md` swept for the same staleness — see
+`docs/sprint-2.2-completion-report.md` §9 for the full list.
+
 ## [Sprint 2.1 Organisation Management — Organisation Profile] - 2026-07-30
 
 ### Added

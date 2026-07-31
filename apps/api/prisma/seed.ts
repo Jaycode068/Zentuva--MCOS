@@ -3,7 +3,9 @@
  *
  * Seeds the "Boby Bites" pilot organisation, its three system roles (Owner,
  * Administrator, Member — identity.md §6), the full permission catalog (identity.md §6),
- * and the organisation's first (Owner) user.
+ * and one development account per system role — Owner, Administrator, and Member (the
+ * latter two added Sprint 2.2 for User Management testing: role-based authorisation needs
+ * a real Administrator and a real Member to test against, not just the Owner).
  *
  * Runs as a plain Node script via ts-node (`prisma db seed`), outside the NestJS DI
  * container — the standard Prisma seeding pattern. It talks to Prisma directly rather
@@ -17,8 +19,10 @@
  * 1B.1, before the Authentication Layer settled on bcrypt — see
  * docs/sprint-1B.2-completion-report.md "Deviations".
  *
- * No credentials are hardcoded: the admin email and password come from required
- * environment variables and the script fails loudly if they're missing.
+ * No credentials are hardcoded: every account's email and password come from required
+ * environment variables and the script fails loudly if they're missing — see
+ * apps/api/.env.example for the predictable local-development values (Sprint 2.2 brief:
+ * "documented development passwords").
  */
 import * as bcrypt from 'bcrypt';
 import { PrismaClient } from '@prisma/client';
@@ -77,11 +81,52 @@ function requireEnv(name: string): string {
   return value;
 }
 
+/** Seeds one development account (email/password from required env vars) and assigns it
+ *  the given role. Added Sprint 2.2 to seed Administrator and Member accounts alongside
+ *  the existing Owner, using the same "no hardcoded credentials" pattern. */
+async function seedUser(params: {
+  organisationId: string;
+  roleId: string;
+  emailEnvVar: string;
+  passwordEnvVar: string;
+  firstNameEnvVar: string;
+  lastNameEnvVar: string;
+  defaultFirstName: string;
+  defaultLastName: string;
+}) {
+  const email = requireEnv(params.emailEnvVar);
+  const password = requireEnv(params.passwordEnvVar);
+  const firstName = process.env[params.firstNameEnvVar] ?? params.defaultFirstName;
+  const lastName = process.env[params.lastNameEnvVar] ?? params.defaultLastName;
+
+  const passwordHash = await bcrypt.hash(password, BCRYPT_SALT_ROUNDS);
+  const user = await prisma.user.upsert({
+    where: { email },
+    update: {},
+    create: {
+      organisationId: params.organisationId,
+      email,
+      firstName,
+      lastName,
+      passwordHash,
+      status: 'ACTIVE',
+      emailVerifiedAt: new Date(),
+    },
+  });
+
+  await prisma.userRole.upsert({
+    where: { userId_roleId: { userId: user.id, roleId: params.roleId } },
+    update: {},
+    create: { userId: user.id, roleId: params.roleId, organisationId: params.organisationId },
+  });
+
+  return user;
+}
+
 async function main(): Promise<void> {
+  // Read early (rather than inside `seedUser`) because the organisation's `businessEmail`
+  // needs it before any user is created.
   const adminEmail = requireEnv('SEED_ADMIN_EMAIL');
-  const adminPassword = requireEnv('SEED_ADMIN_PASSWORD');
-  const adminFirstName = process.env.SEED_ADMIN_FIRST_NAME ?? 'Organisation';
-  const adminLastName = process.env.SEED_ADMIN_LAST_NAME ?? 'Owner';
 
   console.log('Seeding permission catalog...');
   const permissions = await Promise.all(
@@ -129,7 +174,7 @@ async function main(): Promise<void> {
       isSystem: true,
     },
   });
-  await prisma.role.upsert({
+  const memberRole = await prisma.role.upsert({
     where: { organisationId_name: { organisationId: organisation.id, name: 'Member' } },
     update: {},
     create: {
@@ -152,38 +197,43 @@ async function main(): Promise<void> {
     skipDuplicates: true,
   });
 
-  console.log('Seeding organisation admin user...');
-  const passwordHash = await bcrypt.hash(adminPassword, BCRYPT_SALT_ROUNDS);
-  const adminUser = await prisma.user.upsert({
-    where: { email: adminEmail },
-    update: {},
-    create: {
-      organisationId: organisation.id,
-      email: adminEmail,
-      firstName: adminFirstName,
-      lastName: adminLastName,
-      passwordHash,
-      status: 'ACTIVE',
-      emailVerifiedAt: new Date(),
-    },
+  console.log('Seeding development accounts (Owner, Administrator, Member)...');
+  const ownerUser = await seedUser({
+    organisationId: organisation.id,
+    roleId: ownerRole.id,
+    emailEnvVar: 'SEED_ADMIN_EMAIL',
+    passwordEnvVar: 'SEED_ADMIN_PASSWORD',
+    firstNameEnvVar: 'SEED_ADMIN_FIRST_NAME',
+    lastNameEnvVar: 'SEED_ADMIN_LAST_NAME',
+    defaultFirstName: 'Organisation',
+    defaultLastName: 'Owner',
   });
-
-  console.log('Assigning the Owner role to the admin user...');
-  await prisma.userRole.upsert({
-    where: { userId_roleId: { userId: adminUser.id, roleId: ownerRole.id } },
-    update: {},
-    create: {
-      userId: adminUser.id,
-      roleId: ownerRole.id,
-      organisationId: organisation.id,
-    },
+  const administratorUser = await seedUser({
+    organisationId: organisation.id,
+    roleId: administratorRole.id,
+    emailEnvVar: 'SEED_ADMINISTRATOR_EMAIL',
+    passwordEnvVar: 'SEED_ADMINISTRATOR_PASSWORD',
+    firstNameEnvVar: 'SEED_ADMINISTRATOR_FIRST_NAME',
+    lastNameEnvVar: 'SEED_ADMINISTRATOR_LAST_NAME',
+    defaultFirstName: 'Boby',
+    defaultLastName: 'Admin',
+  });
+  const memberUser = await seedUser({
+    organisationId: organisation.id,
+    roleId: memberRole.id,
+    emailEnvVar: 'SEED_MEMBER_EMAIL',
+    passwordEnvVar: 'SEED_MEMBER_PASSWORD',
+    firstNameEnvVar: 'SEED_MEMBER_FIRST_NAME',
+    lastNameEnvVar: 'SEED_MEMBER_LAST_NAME',
+    defaultFirstName: 'Boby',
+    defaultLastName: 'Member',
   });
 
   console.log('Recording an audit log entry for this seed run...');
   await prisma.auditLog.create({
     data: {
       organisationId: organisation.id,
-      actorUserId: adminUser.id,
+      actorUserId: ownerUser.id,
       action: 'organisation.seeded',
       entityType: 'Organisation',
       entityId: organisation.id,
@@ -194,7 +244,9 @@ async function main(): Promise<void> {
   console.log('Seed complete:', {
     organisation: organisation.slug,
     organisationCode: organisation.organisationCode,
-    adminEmail: adminUser.email,
+    ownerEmail: ownerUser.email,
+    administratorEmail: administratorUser.email,
+    memberEmail: memberUser.email,
     permissionsSeeded: permissions.length,
   });
 }

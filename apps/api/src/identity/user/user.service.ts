@@ -1,9 +1,11 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { User, UserStatus } from '@prisma/client';
+import { CreateUserInput, UpdateUserInput, UserManagementStatusInput } from '@zentuva/validation';
 
 import { notImplemented } from '../common/not-implemented';
 import { PASSWORD_HASHER, PasswordHasher } from '../crypto/password-hasher.port';
-import { ListUsersParams, UserRepository } from './user.repository';
+import { RoleService } from '../role/role.service';
+import { ListUsersParams, UserRepository, UserWithRoles } from './user.repository';
 
 /**
  * Domain service for the User aggregate.
@@ -18,6 +20,7 @@ import { ListUsersParams, UserRepository } from './user.repository';
 export class UserService {
   constructor(
     private readonly userRepository: UserRepository,
+    private readonly roleService: RoleService,
     @Inject(PASSWORD_HASHER) private readonly passwordHasher: PasswordHasher,
   ) {}
 
@@ -31,6 +34,94 @@ export class UserService {
 
   listByOrganisation(organisationId: string, params?: ListUsersParams): Promise<User[]> {
     return this.userRepository.findManyByOrganisation(organisationId, params);
+  }
+
+  /** Sprint 2.2 (User Management): list/detail views need each user's role, so these
+   *  variants include it (via a single query — see `UserRepository`) rather than making
+   *  the caller resolve it per-user. */
+  listWithRoles(organisationId: string): Promise<UserWithRoles[]> {
+    return this.userRepository.findManyWithRolesByOrganisation(organisationId);
+  }
+
+  getByIdWithRoles(organisationId: string, id: string): Promise<UserWithRoles | null> {
+    return this.userRepository.findByIdWithRoles(organisationId, id);
+  }
+
+  /**
+   * Direct user creation (Sprint 2.2 User Management brief): the creator picks a
+   * temporary password and a system role — no invitation email, no self-service
+   * onboarding (both explicitly deferred to Sprint 2.3). The new user is `ACTIVE`
+   * immediately, since they already have a working password.
+   *
+   * Role resolution happens here (not the controller) because it needs `RoleService` —
+   * unlike Sprint 2.1's purely-syntactic wire-to-domain field renaming, this mapping
+   * requires a database lookup, so it belongs with the rest of the orchestration.
+   */
+  async createUser(organisationId: string, input: CreateUserInput): Promise<UserWithRoles> {
+    const emailTaken = await this.userRepository.existsByEmail(input.email);
+    if (emailTaken) {
+      throw new ConflictException(`Email "${input.email}" is already in use`);
+    }
+    const role = await this.roleService.getByName(organisationId, input.role);
+    if (!role) {
+      throw new NotFoundException(`Role "${input.role}" does not exist in this organisation`);
+    }
+    const passwordHash = await this.passwordHasher.hash(input.temporaryPassword);
+    return this.userRepository.createWithRole(
+      {
+        organisation: { connect: { id: organisationId } },
+        email: input.email,
+        firstName: input.firstName,
+        lastName: input.lastName,
+        employeeCode: input.employeeCode,
+        passwordHash,
+        status: UserStatus.ACTIVE,
+        emailVerifiedAt: new Date(),
+      },
+      organisationId,
+      role.id,
+    );
+  }
+
+  /** Combined profile/role/status update — one `PATCH` (Sprint 2.2 brief), not the two
+   *  endpoints identity.md §10 originally sketched. Only touches the aggregates implied
+   *  by whichever fields are present in `input`. */
+  async updateUser(
+    organisationId: string,
+    id: string,
+    input: UpdateUserInput,
+  ): Promise<UserWithRoles> {
+    // Checked up front (rather than letting UserRepository's tenant-scoped `updateMany`
+    // calls fail silently) so a nonexistent id — or a cross-tenant one — reliably 404s
+    // here instead of reaching a lower-level `AppError` this app has no filter for.
+    const existing = await this.userRepository.findByIdWithRoles(organisationId, id);
+    if (!existing) {
+      throw new NotFoundException('User not found');
+    }
+
+    if (
+      input.firstName !== undefined ||
+      input.lastName !== undefined ||
+      input.employeeCode !== undefined
+    ) {
+      await this.userRepository.updateProfile(organisationId, id, {
+        firstName: input.firstName,
+        lastName: input.lastName,
+        employeeCode: input.employeeCode,
+      });
+    }
+    if (input.status !== undefined) {
+      await this.userRepository.updateStatus(organisationId, id, toDbStatus(input.status));
+    }
+    if (input.role !== undefined) {
+      const role = await this.roleService.getByName(organisationId, input.role);
+      if (!role) {
+        throw new NotFoundException(`Role "${input.role}" does not exist in this organisation`);
+      }
+      await this.roleService.replaceUserRole(organisationId, id, role.id);
+    }
+
+    return (await this.userRepository.findByIdWithRoles(organisationId, id)) ?? existing;
   }
 
   updateProfile(organisationId: string, id: string, input: UpdateUserProfileInput): Promise<User> {
@@ -91,6 +182,37 @@ export class UserService {
       status: UserStatus.ACTIVE,
       emailVerifiedAt: new Date(),
     });
+  }
+}
+
+/** Wire (`UserManagementStatusInput`) -> DB (`UserStatus`) mapping — see
+ *  `@zentuva/validation`'s `userManagementStatusSchema` for the reasoning. */
+function toDbStatus(status: UserManagementStatusInput): UserStatus {
+  switch (status) {
+    case 'ACTIVE':
+      return UserStatus.ACTIVE;
+    case 'INACTIVE':
+      return UserStatus.SUSPENDED;
+    case 'LOCKED':
+      return UserStatus.LOCKED;
+  }
+}
+
+/** The inverse of {@link toDbStatus}, exported for `UserController`'s response mapping.
+ *  `INVITED`/`DEACTIVATED` aren't reachable through this sprint's endpoints, but are
+ *  mapped defensively (to `INACTIVE`) rather than left to throw, since existing rows in
+ *  those statuses could still be listed. */
+export function toWireStatus(status: UserStatus): UserManagementStatusInput {
+  switch (status) {
+    case UserStatus.ACTIVE:
+      return 'ACTIVE';
+    case UserStatus.LOCKED:
+      return 'LOCKED';
+    case UserStatus.SUSPENDED:
+    case UserStatus.INVITED:
+    case UserStatus.DEACTIVATED:
+    default:
+      return 'INACTIVE';
   }
 }
 

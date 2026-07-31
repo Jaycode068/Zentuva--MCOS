@@ -1,18 +1,19 @@
 # Identity Domain — Design
 
-- **Status:** Database & Domain Layer (Sprint 1B.1), Authentication Layer (Sprint 1B.2), and
-  the Organisation Profile API + frontend (Sprint 2.1) are implemented against this design.
-  Full RBAC evaluation (the `Permission`/`RolePermission` engine in §6 — Sprint 2.1 added
-  only a narrower role-name check scoped to the Organisation Profile endpoint) and the
-  remaining role/user-management APIs (Users, Invitations, Roles) still don't exist.
+- **Status:** Database & Domain Layer (Sprint 1B.1), Authentication Layer (Sprint 1B.2), the
+  Organisation Profile API + frontend (Sprint 2.1), and the User Management API + frontend
+  (Sprint 2.2) are implemented against this design. Full RBAC evaluation (the
+  `Permission`/`RolePermission` engine in §6 — Sprints 2.1/2.2 added only a role-name check,
+  reused across both) and the remaining APIs (Invitations, Roles) still don't exist.
 - **Sprint:** 1A (design), refined 1A.1 (post-review), implemented 1B.1 (database & domain
-  layer), 1B.2 (authentication layer), and 2.1 (Organisation Profile)
+  layer), 1B.2 (authentication layer), 2.1 (Organisation Profile), and 2.2 (User Management)
 - **Depends on:** [ADR-003 — Multi-Tenancy](../adr/ADR-003-multi-tenancy.md), [ADR-002 — Modular Monolith](../adr/ADR-002-modular-monolith.md)
 - **See also:** [Sprint 1A Design Report](../sprint-1A-identity-design-report.md) (decisions,
   assumptions, open questions, and the [Post-Review Refinements](../sprint-1A-identity-design-report.md#post-review-refinements)
   from 1A.1), [Sprint 1B.1 Completion Report](../sprint-1B.1-completion-report.md),
-  [Sprint 1B.2 Completion Report](../sprint-1B.2-completion-report.md), and
-  [Sprint 2.1 Completion Report](../sprint-2.1-completion-report.md) for what changed during
+  [Sprint 1B.2 Completion Report](../sprint-1B.2-completion-report.md),
+  [Sprint 2.1 Completion Report](../sprint-2.1-completion-report.md), and
+  [Sprint 2.2 Completion Report](../sprint-2.2-completion-report.md) for what changed during
   implementation and why.
 
 ## 1. Domain Overview
@@ -421,13 +422,16 @@ authorisation check is "does any of this user's roles grant this permission?" Th
 hierarchy or inheritance between roles** in MVP (see below) — this keeps the mental model and the
 query simple: one join from user → roles → permissions.
 
-**Sprint 2.1 implemented a deliberately narrower first step**, not this full design: a
-`RolesGuard` on `PATCH /api/organisation/me` (§10) checks the caller's role _names_ directly
-(`Owner`/`Administrator`) rather than evaluating `Permission`/`RolePermission` grants, and does
-not special-case `Owner`'s "bypasses `RolePermission`" behaviour below (`Owner` is just one of
-the two allowed role names). The permission-key evaluation engine described in this section
-remains unbuilt — see the
-[Sprint 2.1 completion report](../sprint-2.1-completion-report.md) "Deviations from Design."
+**Sprints 2.1 and 2.2 implemented a deliberately narrower first step**, not this full
+design: the same `RolesGuard` — introduced in 2.1 for `PATCH /api/organisation/me`, reused
+unchanged in 2.2 for `POST /api/users` and `PATCH /api/users/:id` — checks the caller's role
+_names_ directly (`Owner`/`Administrator`) rather than evaluating `Permission`/
+`RolePermission` grants, and does not special-case `Owner`'s "bypasses `RolePermission`"
+behaviour below (`Owner` is just one of the two allowed role names). The permission-key
+evaluation engine described in this section remains unbuilt — see the
+[Sprint 2.1](../sprint-2.1-completion-report.md) and
+[Sprint 2.2](../sprint-2.2-completion-report.md) completion reports' "Deviations from
+Design."
 
 ### Permission naming convention
 
@@ -547,25 +551,26 @@ through a parent table to discover which tenant a row belongs to.
 
 ### Events to capture (Identity domain's own events; future domains add their own)
 
-| Action                                          | When                                                                                                     |
-| ----------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `organisation.created`                          | Self-service registration completes                                                                      |
-| `organisation.updated`                          | Profile fields changed                                                                                   |
-| `organisation.status_changed`                   | Suspended/reactivated/closed                                                                             |
-| `user.created`                                  | Via registration or invitation acceptance                                                                |
-| `user.updated`                                  | Profile changed                                                                                          |
-| `user.status_changed`                           | Suspended/reactivated/deactivated                                                                        |
-| `auth.login.success` / `.failure`               | Every login attempt, success or failure                                                                  |
-| `auth.logout`                                   | Explicit logout (single session)                                                                         |
-| `auth.logout_all` _(added 1B.2)_                | "Log out all devices"                                                                                    |
-| `auth.password.reset_requested` _(added 1B.2)_  | Reset requested (distinct from the completed change below)                                               |
-| `auth.password.reset`                           | Password successfully reset                                                                              |
-| `auth.refresh.reuse_detected`                   | Refresh token reuse (possible theft) — see §5                                                            |
-| `auth.session.revoked` _(added 1B.2)_           | A session was force-revoked outside a normal single-session logout (refresh-token reuse, password reset) |
-| `user.locked` _(added 1B.2)_                    | Account locked after `MAX_LOGIN_ATTEMPTS` failed logins — see §4                                         |
-| `invitation.created` / `.revoked` / `.accepted` | Full invitation lifecycle                                                                                |
-| `role.created` / `.updated` / `.deleted`        | Custom role changes                                                                                      |
-| `role.assigned` / `.unassigned`                 | A user's role membership changes                                                                         |
+| Action                                              | When                                                                                                                                                                                                              |
+| --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `organisation.created`                              | Self-service registration completes                                                                                                                                                                               |
+| `organisation.updated`                              | Profile fields changed                                                                                                                                                                                            |
+| `organisation.status_changed`                       | Suspended/reactivated/closed                                                                                                                                                                                      |
+| `user.created`                                      | Via registration, invitation acceptance, or direct creation (Sprint 2.2)                                                                                                                                          |
+| `user.updated`                                      | Profile or role changed                                                                                                                                                                                           |
+| `user.status_changed`                               | Suspended/reactivated/deactivated                                                                                                                                                                                 |
+| `user.activated` / `user.deactivated` _(added 2.2)_ | More granular than `user.status_changed` above — Sprint 2.2's User Management brief asked for these as distinct events; `user.status_changed` remains documented here but isn't emitted by Sprint 2.2's endpoints |
+| `auth.login.success` / `.failure`                   | Every login attempt, success or failure                                                                                                                                                                           |
+| `auth.logout`                                       | Explicit logout (single session)                                                                                                                                                                                  |
+| `auth.logout_all` _(added 1B.2)_                    | "Log out all devices"                                                                                                                                                                                             |
+| `auth.password.reset_requested` _(added 1B.2)_      | Reset requested (distinct from the completed change below)                                                                                                                                                        |
+| `auth.password.reset`                               | Password successfully reset                                                                                                                                                                                       |
+| `auth.refresh.reuse_detected`                       | Refresh token reuse (possible theft) — see §5                                                                                                                                                                     |
+| `auth.session.revoked` _(added 1B.2)_               | A session was force-revoked outside a normal single-session logout (refresh-token reuse, password reset)                                                                                                          |
+| `user.locked` _(added 1B.2)_                        | Account locked after `MAX_LOGIN_ATTEMPTS` failed logins — see §4                                                                                                                                                  |
+| `invitation.created` / `.revoked` / `.accepted`     | Full invitation lifecycle                                                                                                                                                                                         |
+| `role.created` / `.updated` / `.deleted`            | Custom role changes                                                                                                                                                                                               |
+| `role.assigned` / `.unassigned`                     | A user's role membership changes                                                                                                                                                                                  |
 
 ### Data stored per event
 
@@ -924,12 +929,35 @@ documented scope reduction for this sprint.
 
 ### Users
 
-| Endpoint                  | Input                                                              | Output                                                                                                                       |
-| ------------------------- | ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
-| `GET /users`              | Query: pagination, `status` filter                                 | `200 { items: User[], page, pageSize, total }` (see [`packages/types`](../../packages/types/src/api.ts) `PaginatedResponse`) |
-| `GET /users/:id`          | —                                                                  | `200 { user, roles[] }`                                                                                                      |
-| `PATCH /users/:id`        | Partial `{ firstName, lastName, employeeCode }`                    | `200 { user }`                                                                                                               |
-| `PATCH /users/:id/status` | `{ status: "ACTIVE" \| "LOCKED" \| "SUSPENDED" \| "DEACTIVATED" }` | `200 { user }` (`INVITED` is not settable via this endpoint — only reached via invitation)                                   |
+Implemented as of Sprint 2.2 — like Organisations above, this section reflects the actual
+shipped endpoints, not an illustrative sketch. No pagination/search/filter/sort on `GET
+/api/users` — explicitly out of scope for the MVP brief.
+
+| Endpoint               | Auth                                           | Input                                                                                             | Output                                                                          |
+| ---------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `GET /api/users`       | Any authenticated user                         | —                                                                                                 | `200 { items: User[] }` (all users in the caller's organisation, no pagination) |
+| `GET /api/users/:id`   | Any authenticated user                         | —                                                                                                 | `200 { user }` (404 if the id belongs to another organisation)                  |
+| `POST /api/users`      | Owner or Administrator only (`403` for Member) | `{ firstName, lastName, email, employeeCode?, role, temporaryPassword }`                          | `201 { user }`                                                                  |
+| `PATCH /api/users/:id` | Owner or Administrator only (`403` for Member) | Partial `{ firstName, lastName, employeeCode, role, status: "ACTIVE" \| "INACTIVE" \| "LOCKED" }` | `200 { user }`                                                                  |
+
+Deviations from the sketch above (see the
+[Sprint 2.2 completion report](../sprint-2.2-completion-report.md) "Deviations from Design"
+for the full reasoning):
+
+- One combined `PATCH /api/users/:id` (profile + role + status together), not the separate
+  `PATCH /users/:id` / `PATCH /users/:id/status` pair sketched originally.
+- `role` is a system role **name** (`Owner`/`Administrator`/`Member`), not a `roleId` — no
+  role-listing endpoint exists yet, and Sprint 2.2 only needs the three seeded system roles.
+  Every user has exactly one role in this model, even though `UserRole` technically permits
+  many (§4) — the "one role per user" simplification is enforced at the application layer,
+  not the database.
+- Wire status values (`ACTIVE`/`INACTIVE`/`LOCKED`) are a simplified 3-value view over the
+  DB's 5-value `UserStatus` enum — `INACTIVE` maps to `SUSPENDED` (reversible, matching this
+  section's own status-values table above), not `DEACTIVATED` (documented there as
+  terminal/irreversible). `INVITED`/`DEACTIVATED` aren't reachable through these endpoints.
+- User creation is direct (creator sets a temporary password, no invitation email) — the new
+  user is `ACTIVE` immediately, skipping `INVITED` entirely. The `POST /invitations` flow
+  below remains the alternative, not-yet-implemented path.
 
 ### Invitations
 

@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma, User, UserStatus } from '@prisma/client';
+import { Prisma, Role, User, UserRole, UserStatus } from '@prisma/client';
 import { AppError } from '@zentuva/utils';
 
 import { PrismaService } from '../../prisma/prisma.service';
@@ -9,6 +9,8 @@ export interface ListUsersParams {
   skip?: number;
   take?: number;
 }
+
+export type UserWithRoles = User & { userRoles: (UserRole & { role: Role })[] };
 
 /**
  * Thin Prisma access for the User aggregate. No business logic — see UserService and
@@ -49,6 +51,41 @@ export class UserRepository {
       skip: params.skip,
       take: params.take,
       orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  /** Same as {@link findManyByOrganisation}, plus each user's role assignments — added
+   *  Sprint 2.2 (User Management) so the list/detail endpoints can display a `role` column
+   *  without an N+1 query per user. */
+  findManyWithRolesByOrganisation(organisationId: string): Promise<UserWithRoles[]> {
+    return this.prisma.user.findMany({
+      where: { organisationId },
+      include: { userRoles: { include: { role: true } } },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  findByIdWithRoles(organisationId: string, id: string): Promise<UserWithRoles | null> {
+    return this.prisma.user.findFirst({
+      where: { id, organisationId },
+      include: { userRoles: { include: { role: true } } },
+    });
+  }
+
+  /** Creates a User and assigns its single initial Role atomically (Sprint 2.2 User
+   *  Management: direct creation with a chosen role, no invitation flow). */
+  createWithRole(
+    data: Prisma.UserCreateInput,
+    organisationId: string,
+    roleId: string,
+  ): Promise<UserWithRoles> {
+    return this.prisma.$transaction(async (tx) => {
+      const user = await tx.user.create({ data });
+      await tx.userRole.create({ data: { organisationId, userId: user.id, roleId } });
+      return tx.user.findUniqueOrThrow({
+        where: { id: user.id },
+        include: { userRoles: { include: { role: true } } },
+      });
     });
   }
 

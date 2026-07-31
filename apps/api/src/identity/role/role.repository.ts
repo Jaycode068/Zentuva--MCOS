@@ -122,4 +122,15 @@ export class RoleRepository {
     });
     return userRoles.map((userRole) => userRole.role.name);
   }
+
+  /** Replaces a user's role assignment with a single new one. Added Sprint 2.2 — User
+   *  Management treats "one role per user" as the MVP mental model (the brief's `role`
+   *  field is singular), even though `UserRole` technically permits many. Transactional so
+   *  a user is never briefly left with zero roles. */
+  replaceUserRole(organisationId: string, userId: string, roleId: string): Promise<UserRole> {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.userRole.deleteMany({ where: { organisationId, userId } });
+      return tx.userRole.create({ data: { organisationId, userId, roleId } });
+    });
+  }
 }

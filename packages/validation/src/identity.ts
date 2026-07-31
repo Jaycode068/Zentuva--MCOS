@@ -98,6 +98,47 @@ export const updateUserStatusSchema = z.object({
 });
 export type UpdateUserStatusInput = z.infer<typeof updateUserStatusSchema>;
 
+/** Wire-level status values for User Management (Sprint 2.2) — a simplified 3-value view
+ *  over the DB's 5-value `UserStatus` enum. The controller maps `ACTIVE` -> `ACTIVE`,
+ *  `INACTIVE` -> `SUSPENDED` (reversible deactivation — matches identity.md §4's
+ *  `SUSPENDED` semantics, unlike `DEACTIVATED` which is documented as terminal/
+ *  irreversible there), `LOCKED` -> `LOCKED`. `INVITED`/`DEACTIVATED` aren't reachable
+ *  through this sprint's endpoints. */
+export const userManagementStatusSchema = z.enum(['ACTIVE', 'INACTIVE', 'LOCKED']);
+export type UserManagementStatusInput = z.infer<typeof userManagementStatusSchema>;
+
+/** System role names assignable via User Management (Sprint 2.2). Custom roles are out of
+ *  scope this sprint (no role-listing endpoint exists yet either), so `role` is
+ *  constrained to the three seeded system roles rather than an arbitrary `roleId`. */
+export const systemRoleNameSchema = z.enum(['Owner', 'Administrator', 'Member']);
+export type SystemRoleNameInput = z.infer<typeof systemRoleNameSchema>;
+
+/** `POST /api/users` (Sprint 2.2). */
+export const createUserSchema = z.object({
+  firstName: z.string().trim().min(1).max(100),
+  lastName: z.string().trim().min(1).max(100),
+  email: z.string().trim().email(),
+  employeeCode: z.string().trim().max(50).optional(),
+  role: systemRoleNameSchema,
+  temporaryPassword: z.string().min(8).max(200),
+});
+export type CreateUserInput = z.infer<typeof createUserSchema>;
+
+/**
+ * `PATCH /api/users/:id` (Sprint 2.2) — one combined endpoint for profile, role, and
+ * status, unlike identity.md §10's original two-endpoint sketch (`PATCH /users/:id` +
+ * `PATCH /users/:id/status`). Immutable fields (`id`, `email`, `organisationId`) are
+ * deliberately absent.
+ */
+export const updateUserSchema = z.object({
+  firstName: z.string().trim().min(1).max(100).optional(),
+  lastName: z.string().trim().min(1).max(100).optional(),
+  employeeCode: z.string().trim().max(50).optional(),
+  role: systemRoleNameSchema.optional(),
+  status: userManagementStatusSchema.optional(),
+});
+export type UpdateUserInput = z.infer<typeof updateUserSchema>;
+
 /** `POST /invitations` (identity.md §10). */
 export const createInvitationSchema = z.object({
   email: z.string().trim().email(),

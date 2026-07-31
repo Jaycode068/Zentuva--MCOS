@@ -33,12 +33,15 @@ Organisation Profile feature — see [identity.md §3](../domains/identity.md#or
 
 Authentication (login, JWT, refresh rotation, logout, password reset, invitation acceptance,
 account locking) is implemented as of Sprint 1B.2. Sprint 2.1 added the Organisation Profile
-API (`GET`/`PATCH /api/organisation/me`) and a minimal role-name authorization check scoped to
-that endpoint — full RBAC evaluation (the `Permission`/`RolePermission` engine in identity.md
-§6) and the rest of the role/user-management API surface still don't exist. See
+API (`GET`/`PATCH /api/organisation/me`) and Sprint 2.2 added the User Management API
+(`GET`/`POST /api/users`, `GET`/`PATCH /api/users/:id`), both behind the same minimal
+role-name authorization check (`RolesGuard`) — full RBAC evaluation (the
+`Permission`/`RolePermission` engine in identity.md §6) and Invitations/Role Management
+still don't exist. See
 [`docs/sprint-1B.1-completion-report.md`](../sprint-1B.1-completion-report.md),
-[`docs/sprint-1B.2-completion-report.md`](../sprint-1B.2-completion-report.md), and
-[`docs/sprint-2.1-completion-report.md`](../sprint-2.1-completion-report.md) for exactly what
+[`docs/sprint-1B.2-completion-report.md`](../sprint-1B.2-completion-report.md),
+[`docs/sprint-2.1-completion-report.md`](../sprint-2.1-completion-report.md), and
+[`docs/sprint-2.2-completion-report.md`](../sprint-2.2-completion-report.md) for exactly what
 was and wasn't implemented in each sprint.
 
 ### Migrations
@@ -52,11 +55,14 @@ was and wasn't implemented in each sprint.
 
 ### Seed data
 
-`apps/api/prisma/seed.ts` (`pnpm db:seed`) seeds the "Boby Bites" pilot organisation, its three
-system roles (Owner, Administrator, Member), the full Identity permission catalog, and the
-organisation's first (Owner) user. Admin email/password come from required environment variables
-(`SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD` — see `apps/api/.env.example`); the script fails loudly
-if they're not set rather than falling back to a hardcoded credential.
+`apps/api/prisma/seed.ts` (`pnpm db:seed`) seeds the "Boby Bites" pilot organisation, its
+three system roles (Owner, Administrator, Member), the full Identity permission catalog, and
+one development account per system role (the Administrator and Member accounts added
+Sprint 2.2 — see [local-development.md](../development/local-development.md) for the
+predictable credentials). Every account's email/password come from required environment
+variables (`SEED_ADMIN_*`, `SEED_ADMINISTRATOR_*`, `SEED_MEMBER_*` — see
+`apps/api/.env.example`); the script fails loudly if they're not set rather than falling back
+to a hardcoded credential.
 
 ## Conventions for when models are added
 

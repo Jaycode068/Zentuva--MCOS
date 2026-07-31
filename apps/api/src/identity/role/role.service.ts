@@ -111,6 +111,18 @@ export class RoleService {
   getRoleNamesForUser(organisationId: string, userId: string): Promise<string[]> {
     return this.roleRepository.findRoleNamesForUser(organisationId, userId);
   }
+
+  /** Looks up a system role by name (Sprint 2.2 User Management: `role` on create/update
+   *  is a system role name, not a `roleId` — see `@zentuva/validation`'s
+   *  `systemRoleNameSchema`). */
+  getByName(organisationId: string, name: string): Promise<Role | null> {
+    return this.roleRepository.findByName(organisationId, name);
+  }
+
+  /** Replaces a user's role assignment with a single new one (Sprint 2.2). */
+  replaceUserRole(organisationId: string, userId: string, roleId: string): Promise<UserRole> {
+    return this.roleRepository.replaceUserRole(organisationId, userId, roleId);
+  }
 }
 
 export interface CreateRoleInput {

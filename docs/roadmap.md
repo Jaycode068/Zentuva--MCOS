@@ -24,10 +24,13 @@ This roadmap tracks the intended build order. It is not a commitment to dates �
 - [x] Organisation Profile API (Sprint 2.1) — `GET`/`PATCH /api/organisation/me`, minimal
       role-name authorization (Owner/Administrator write, Member read-only) — see
       [`docs/sprint-2.1-completion-report.md`](sprint-2.1-completion-report.md)
-- [ ] RBAC evaluation + permission guards (Sprint 2.1 added only a narrower role-name check
-      scoped to the Organisation Profile endpoint, not the full permission-key engine)
-- [ ] Role/organisation/user-management API surface (Organisation Profile shipped in
-      Sprint 2.1; User Management, Invitations, and Role Management remain — see
+- [x] User Management API (Sprint 2.2) — list/view/create/update/activate/deactivate users,
+      same role-name authorization pattern — see
+      [`docs/sprint-2.2-completion-report.md`](sprint-2.2-completion-report.md)
+- [ ] RBAC evaluation + permission guards (Sprints 2.1/2.2 added only a narrower role-name
+      check, reused across both — not the full permission-key engine)
+- [ ] Role/organisation/user-management API surface (Organisation Profile and User
+      Management shipped in Sprints 2.1/2.2; Invitations and Role Management remain — see
       [`docs/backlog.md`](backlog.md) Epic 2)
 - [ ] Tenant resolution middleware (Prisma Client Extension, identity.md §7)
 
