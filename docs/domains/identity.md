@@ -1,16 +1,19 @@
 # Identity Domain — Design
 
-- **Status:** Database & Domain Layer (Sprint 1B.1) and Authentication Layer (Sprint 1B.2)
-  are implemented against this design. No RBAC evaluation, permission guards, role/
-  organisation/user-management APIs, or frontend exist yet.
+- **Status:** Database & Domain Layer (Sprint 1B.1), Authentication Layer (Sprint 1B.2), and
+  the Organisation Profile API + frontend (Sprint 2.1) are implemented against this design.
+  Full RBAC evaluation (the `Permission`/`RolePermission` engine in §6 — Sprint 2.1 added
+  only a narrower role-name check scoped to the Organisation Profile endpoint) and the
+  remaining role/user-management APIs (Users, Invitations, Roles) still don't exist.
 - **Sprint:** 1A (design), refined 1A.1 (post-review), implemented 1B.1 (database & domain
-  layer) and 1B.2 (authentication layer)
+  layer), 1B.2 (authentication layer), and 2.1 (Organisation Profile)
 - **Depends on:** [ADR-003 — Multi-Tenancy](../adr/ADR-003-multi-tenancy.md), [ADR-002 — Modular Monolith](../adr/ADR-002-modular-monolith.md)
 - **See also:** [Sprint 1A Design Report](../sprint-1A-identity-design-report.md) (decisions,
   assumptions, open questions, and the [Post-Review Refinements](../sprint-1A-identity-design-report.md#post-review-refinements)
-  from 1A.1), [Sprint 1B.1 Completion Report](../sprint-1B.1-completion-report.md), and
-  [Sprint 1B.2 Completion Report](../sprint-1B.2-completion-report.md) for what changed
-  during implementation and why.
+  from 1A.1), [Sprint 1B.1 Completion Report](../sprint-1B.1-completion-report.md),
+  [Sprint 1B.2 Completion Report](../sprint-1B.2-completion-report.md), and
+  [Sprint 2.1 Completion Report](../sprint-2.1-completion-report.md) for what changed during
+  implementation and why.
 
 ## 1. Domain Overview
 
@@ -156,7 +159,7 @@ Every Organisation also gets an immutable, human-readable `organisationCode` (e.
 - **Why immutable:** an Organisation's `name` can legitimately change (rebrand, legal name
   change), but anything referencing it externally — integrations, support history, internal
   reporting — needs a code that never changes underneath it. `organisationCode` is set once at
-  creation and is never exposed as an editable field on `PATCH /organisations/me` (§10) —
+  creation and is never exposed as an editable field on `PATCH /api/organisation/me` (§10) —
   immutability is enforced at the application layer (no update path exists for it), the same
   pattern already used for `Role.isSystem` (§4).
 
@@ -164,26 +167,27 @@ Every Organisation also gets an immutable, human-readable `organisationCode` (e.
 
 The full profile an Organisation can configure after registration:
 
-| Field                                                  | MVP?   | Notes                                                                                                                                                               |
-| ------------------------------------------------------ | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Logo                                                   | MVP    | Stored as a URL (DigitalOcean Spaces, per the [architecture overview](../handbook/architecture-overview.md)); upload flow is future frontend work, not this sprint. |
-| Company Description                                    | MVP    | Free text.                                                                                                                                                          |
-| Industry                                               | MVP    | Free text in MVP; a controlled vocabulary is a future enhancement.                                                                                                  |
-| Business Type                                          | MVP    | Free text in MVP (e.g. "Manufacturer", "Distributor"); same note as Industry.                                                                                       |
-| Phone                                                  | MVP    | Free text (no format validation beyond basic sanity in MVP).                                                                                                        |
-| Website                                                | MVP    | Free text URL.                                                                                                                                                      |
-| Support Email                                          | MVP    | Distinct from Business Email — where customers reach this org's support.                                                                                            |
-| Address                                                | MVP    | Modelled as discrete fields (line 1/2, city, state, postal code) rather than one free-text block, so future domains (e.g. Distribution) can use it structurally.    |
-| Currency                                               | MVP    | Defaults to `USD`; free-text ISO code in MVP, not validated against a currency table.                                                                               |
-| Time Zone                                              | MVP    | Defaults to `UTC`; free-text IANA identifier in MVP.                                                                                                                |
-| Fiscal Year                                            | MVP    | Modelled as `fiscalYearStart` (month 1–12); "fiscal year" as a full accounting-period concept is Finance domain's concern, not Identity's.                          |
-| Date Format                                            | MVP    | Defaults to `YYYY-MM-DD`. Purely a display preference.                                                                                                              |
-| Settings                                               | MVP    | A single `Json` bucket for low-stakes, non-relational preferences (see note below).                                                                                 |
-| Status                                                 | MVP    | Enum — see §4 `Organisation.status`.                                                                                                                                |
-| **Future:** structured Industry/Business Type taxonomy | Future | Controlled vocabularies, likely their own reference tables once real reporting needs exist.                                                                         |
-| **Future:** Currency/locale validation                 | Future | Validate against ISO 4217 / IANA timezone lists once a second country is onboarded.                                                                                 |
-| **Future:** Multiple locations/addresses               | Future | MVP models one address per organisation; multi-branch is a Distribution-domain-adjacent concern.                                                                    |
-| **Future:** Billing/subscription plan                  | Future | Explicitly out of scope — see §12.                                                                                                                                  |
+| Field                                                  | MVP?   | Notes                                                                                                                                                                                                 |
+| ------------------------------------------------------ | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Display Name                                           | MVP    | _Added Sprint 2.1._ Shorter/friendlier public-facing name, distinct from the legal Organisation Name — introduced by the Sprint 2.1 Organisation Profile brief, not part of the original design here. |
+| Logo                                                   | MVP    | Stored as a URL (DigitalOcean Spaces, per the [architecture overview](../handbook/architecture-overview.md)); upload flow is future frontend work, not this sprint.                                   |
+| Company Description                                    | MVP    | Free text.                                                                                                                                                                                            |
+| Industry                                               | MVP    | Free text in MVP; a controlled vocabulary is a future enhancement.                                                                                                                                    |
+| Business Type                                          | MVP    | Free text in MVP (e.g. "Manufacturer", "Distributor"); same note as Industry.                                                                                                                         |
+| Phone                                                  | MVP    | Free text (no format validation beyond basic sanity in MVP).                                                                                                                                          |
+| Website                                                | MVP    | Free text URL.                                                                                                                                                                                        |
+| Support Email                                          | MVP    | Distinct from Business Email — where customers reach this org's support.                                                                                                                              |
+| Address                                                | MVP    | Modelled as discrete fields (line 1/2, city, state, postal code) rather than one free-text block, so future domains (e.g. Distribution) can use it structurally.                                      |
+| Currency                                               | MVP    | Defaults to `USD`; free-text ISO code in MVP, not validated against a currency table.                                                                                                                 |
+| Time Zone                                              | MVP    | Defaults to `UTC`; free-text IANA identifier in MVP.                                                                                                                                                  |
+| Fiscal Year                                            | MVP    | Modelled as `fiscalYearStart` (month 1–12); "fiscal year" as a full accounting-period concept is Finance domain's concern, not Identity's.                                                            |
+| Date Format                                            | MVP    | Defaults to `YYYY-MM-DD`. Purely a display preference.                                                                                                                                                |
+| Settings                                               | MVP    | A single `Json` bucket for low-stakes, non-relational preferences (see note below).                                                                                                                   |
+| Status                                                 | MVP    | Enum — see §4 `Organisation.status`.                                                                                                                                                                  |
+| **Future:** structured Industry/Business Type taxonomy | Future | Controlled vocabularies, likely their own reference tables once real reporting needs exist.                                                                                                           |
+| **Future:** Currency/locale validation                 | Future | Validate against ISO 4217 / IANA timezone lists once a second country is onboarded.                                                                                                                   |
+| **Future:** Multiple locations/addresses               | Future | MVP models one address per organisation; multi-branch is a Distribution-domain-adjacent concern.                                                                                                      |
+| **Future:** Billing/subscription plan                  | Future | Explicitly out of scope — see §12.                                                                                                                                                                    |
 
 **Why a `settings: Json` field exists:** Not every future per-organisation toggle deserves a
 first-class column and a migration (e.g. "show currency symbol before or after amount"). `Json`
@@ -416,6 +420,14 @@ Flat role-based access control, organisation-scoped: a `User` has one or more `R
 authorisation check is "does any of this user's roles grant this permission?" There is **no
 hierarchy or inheritance between roles** in MVP (see below) — this keeps the mental model and the
 query simple: one join from user → roles → permissions.
+
+**Sprint 2.1 implemented a deliberately narrower first step**, not this full design: a
+`RolesGuard` on `PATCH /api/organisation/me` (§10) checks the caller's role _names_ directly
+(`Owner`/`Administrator`) rather than evaluating `Permission`/`RolePermission` grants, and does
+not special-case `Owner`'s "bypasses `RolePermission`" behaviour below (`Owner` is just one of
+the two allowed role names). The permission-key evaluation engine described in this section
+remains unbuilt — see the
+[Sprint 2.1 completion report](../sprint-2.1-completion-report.md) "Deviations from Design."
 
 ### Permission naming convention
 
@@ -661,6 +673,7 @@ model Organisation {
   country          String
   status           OrganisationStatus @default(PENDING)
 
+  displayName     String? // added Sprint 2.1
   logoUrl         String?
   description     String?
   industry        String?
@@ -891,10 +904,23 @@ except registration and the pre-login auth routes.
 
 ### Organisations
 
-| Endpoint                  | Input                                 | Output                                    |
-| ------------------------- | ------------------------------------- | ----------------------------------------- |
-| `GET /organisations/me`   | —                                     | `200 { organisation }` (full profile, §3) |
-| `PATCH /organisations/me` | Partial `Organisation` profile fields | `200 { organisation }`                    |
+Implemented as of Sprint 2.1 — unlike the rest of §10, this section reflects the actual
+shipped endpoints, not an illustrative sketch.
+
+| Endpoint                     | Auth                                           | Input                                                                                                                                                  | Output                                                                                                                |
+| ---------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/organisation/me`   | Any authenticated user                         | —                                                                                                                                                      | `200 { organisation }` (MVP profile fields, §3; `id`/`organisationCode`/`slug`/`createdAt`/`updatedAt` are read-only) |
+| `PATCH /api/organisation/me` | Owner or Administrator only (`403` for Member) | Partial `{ organisationName, displayName, description, email, phoneNumber, website, country, state, city, addressLine, industry, currency, timezone }` | `200 { organisation }`                                                                                                |
+
+Sprint 2.1 implemented this as the singular `/api/organisation/me` (not the plural
+`/organisations/me` sketched above when this doc was originally written) and with wire-level
+field names distinct from the underlying Prisma columns (`organisationName` → `name`,
+`phoneNumber` → `phone`, `addressLine` → `addressLine1`, `timezone` → `timeZone`, `email` →
+`businessEmail`) — see
+[the Sprint 2.1 completion report](../sprint-2.1-completion-report.md) for the full field
+mapping and the reasoning. The `PATCH` authorization is a minimal role-name check (see §6),
+not the full permission-key evaluation this doc otherwise describes — also a deliberate,
+documented scope reduction for this sprint.
 
 ### Users
 

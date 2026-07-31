@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Organisation, Prisma } from '@prisma/client';
+import { Organisation } from '@prisma/client';
 
 import { notImplemented } from '../common/not-implemented';
 import { OrganisationRepository } from './organisation.repository';
@@ -26,10 +26,7 @@ export class OrganisationService {
   }
 
   updateProfile(id: string, input: UpdateOrganisationProfileInput): Promise<Organisation> {
-    return this.organisationRepository.updateProfile(id, {
-      ...input,
-      settings: input.settings as Prisma.InputJsonValue | undefined,
-    });
+    return this.organisationRepository.updateProfile(id, input);
   }
 
   suspend(id: string): Promise<Organisation> {
@@ -55,25 +52,27 @@ export class OrganisationService {
   }
 }
 
+/**
+ * Domain-layer shape (Prisma column names) for a profile update — see
+ * {@link OrganisationController} for the mapping from the wire-level DTO
+ * (`updateOrganisationProfileSchema`, which uses `organisationName`/`phoneNumber`/
+ * `addressLine`/`timezone`) to this shape. Sprint 2.1 MVP fields only — see
+ * docs/sprint-2.1-completion-report.md.
+ */
 export interface UpdateOrganisationProfileInput {
   name?: string;
-  logoUrl?: string;
+  displayName?: string;
   description?: string;
-  industry?: string;
-  businessType?: string;
+  businessEmail?: string;
   phone?: string;
   website?: string;
-  supportEmail?: string;
-  addressLine1?: string;
-  addressLine2?: string;
-  city?: string;
+  country?: string;
   state?: string;
-  postalCode?: string;
+  city?: string;
+  addressLine1?: string;
+  industry?: string;
   currency?: string;
   timeZone?: string;
-  fiscalYearStart?: number;
-  dateFormat?: string;
-  settings?: Record<string, unknown>;
 }
 
 export interface RegisterOrganisationInput {

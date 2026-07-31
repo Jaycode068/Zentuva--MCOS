@@ -74,7 +74,8 @@ delivered roughly in order, but later Epics may be reordered as priorities evolv
   do what.
 - **Includes:** Organisation Profile, Tenant Settings, Branding, User Management,
   Invitations, Roles, Permissions, Audit.
-- **Status:** Next.
+- **Status:** In progress — Organisation Profile (view/update) shipped in Sprint 2.1.
+  User Management, Invitations, Roles, Permissions, and Branding (logo upload) remain.
 
 ### Epic 3 — Product Catalogue
 
@@ -151,8 +152,10 @@ delivered roughly in order, but later Epics may be reordered as priorities evolv
 - ✓ Sprint 1A.1 — Identity Domain Design Refinements
 - ✓ Sprint 1B.1 — Identity Domain Implementation (Database & Domain Layer)
 - ✓ Sprint 1B.2 — Identity Domain Implementation (Authentication Layer)
+- ✓ Sprint 2.1 — Organisation Management (Organisation Profile)
 
-**Current focus:** Epic 2 — Organisation Management.
+**Current focus:** Epic 2 — Organisation Management, continued (User & Invitation
+Management next, per Sprint 2.2).
 
 ## 6. Future Ideas (Not Prioritised Yet)
 

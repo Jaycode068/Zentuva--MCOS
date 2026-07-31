@@ -32,26 +32,28 @@ export const registerOrganisationSchema = z.object({
 });
 export type RegisterOrganisationInput = z.infer<typeof registerOrganisationSchema>;
 
-/** `PATCH /organisations/me` (identity.md §3 Organisation Profile, §10). */
+/**
+ * `PATCH /api/organisation/me` (Sprint 2.1 brief — MVP field set only; supersedes the
+ * unused Sprint 1B.1 draft of this schema, which had no controller consumer yet). Field
+ * names match the sprint's wire contract exactly (`organisationName`, `phoneNumber`,
+ * `addressLine`, `timezone`) — the Organisation Controller maps these to their underlying
+ * Prisma column names (`name`, `phone`, `addressLine1`, `timeZone`). Read-only fields
+ * (`id`, `organisationCode`, `slug`, `createdAt`, `updatedAt`) are deliberately absent.
+ */
 export const updateOrganisationProfileSchema = z.object({
-  name: z.string().trim().min(1).max(200).optional(),
-  logoUrl: z.string().trim().url().optional(),
+  organisationName: z.string().trim().min(1).max(200).optional(),
+  displayName: z.string().trim().min(1).max(200).optional(),
   description: z.string().trim().max(2000).optional(),
-  industry: z.string().trim().max(100).optional(),
-  businessType: z.string().trim().max(100).optional(),
-  phone: z.string().trim().max(30).optional(),
+  email: z.string().trim().email().optional(),
+  phoneNumber: z.string().trim().min(7).max(30).optional(),
   website: z.string().trim().url().optional(),
-  supportEmail: z.string().trim().email().optional(),
-  addressLine1: z.string().trim().max(200).optional(),
-  addressLine2: z.string().trim().max(200).optional(),
-  city: z.string().trim().max(100).optional(),
-  state: z.string().trim().max(100).optional(),
-  postalCode: z.string().trim().max(20).optional(),
+  country: z.string().trim().min(2).max(100).optional(),
+  state: z.string().trim().min(2).max(100).optional(),
+  city: z.string().trim().min(1).max(100).optional(),
+  addressLine: z.string().trim().max(200).optional(),
+  industry: z.string().trim().max(100).optional(),
   currency: z.string().trim().length(3).optional(),
-  timeZone: z.string().trim().min(1).max(100).optional(),
-  fiscalYearStart: z.number().int().min(1).max(12).optional(),
-  dateFormat: z.string().trim().min(1).max(20).optional(),
-  settings: z.record(z.unknown()).optional(),
+  timezone: z.string().trim().min(1).max(100).optional(),
 });
 export type UpdateOrganisationProfileInput = z.infer<typeof updateOrganisationProfileSchema>;
 

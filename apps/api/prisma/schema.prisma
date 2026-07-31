@@ -56,6 +56,10 @@ model Organisation {
 
   // Profile fields — see identity.md §3 "Organisation Profile". All optional; filled in
   // after registration.
+  /// Shorter/friendlier public-facing name, distinct from the legal `name`. Added Sprint
+  /// 2.1 — not part of the original identity.md design, see
+  /// docs/sprint-2.1-completion-report.md "Deviations".
+  displayName     String?
   logoUrl         String?
   description     String?
   industry        String?

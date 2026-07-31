@@ -7,6 +7,58 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 2.1 Organisation Management — Organisation Profile] - 2026-07-30
+
+### Added
+
+- `apps/api/src/identity/organisation/organisation.controller.ts` + `organisation.module.ts`
+  — the Organisation Management HTTP surface: `GET /api/organisation/me` (any authenticated
+  member) and `PATCH /api/organisation/me` (Owner/Administrator only), backed by the
+  `OrganisationService`/`OrganisationRepository` built in Sprint 1B.1.
+- `RolesGuard` + `@Roles(...)` decorator (`apps/api/src/identity/auth/guards/roles.guard.ts`,
+  `.../decorators/roles.decorator.ts`) — a minimal role-name authorization check (Owner or
+  Administrator may update; Member is read-only), per this sprint's explicit "a simple
+  role-name check is sufficient... do not build a permission engine" scope. Not the
+  generalized permission-key evaluation system identity.md §6 describes long-term — that
+  remains future work.
+- `RoleRepository.findRoleNamesForUser` / `RoleService.getRoleNamesForUser` — needed by
+  `RolesGuard`; didn't exist after Sprint 1B.1/1B.2.
+- `Organisation.displayName` column (migration
+  `20260730180000_add_organisation_display_name`) — a new MVP field this sprint's field
+  list introduced that wasn't in the original identity.md design.
+- `updateOrganisationProfileSchema` (`packages/validation/src/identity.ts`) rewritten to
+  match this sprint's exact wire contract (`organisationName`, `displayName`, `description`,
+  `email`, `phoneNumber`, `website`, `country`, `state`, `city`, `addressLine`, `industry`,
+  `currency`, `timezone`) — supersedes the unused Sprint 1B.1 draft, which had no controller
+  consumer yet. The controller maps these wire names to their Prisma column names
+  (`name`, `phone`, `addressLine1`, `timeZone`).
+- `organisation.updated` audit action (`organisation-audit-actions.ts`), recorded on every
+  successful profile update via the existing `AuditService`.
+- `packages/ui`: `Input`, `Label`, `Textarea`, `Card`/`CardHeader`/`CardTitle`/
+  `CardDescription`/`CardContent` — shadcn/ui-style primitives, following the existing
+  `Button` component's pattern.
+- `apps/web/src/lib/api-client.ts` — a minimal token-aware `fetch` wrapper (reads a bearer
+  token from `localStorage`; no login page exists yet, see the completion report's "Known
+  limitations").
+- `apps/web/src/app/settings/organisation/` — the Organisation Settings page
+  (`GET`/`PATCH` via TanStack Query, React Hook Form + Zod validation, four sections:
+  General Information, Contact Information, Address, Business Settings), plus Save
+  Changes/Cancel.
+- `react-hook-form`, `@hookform/resolvers` added to `apps/web`.
+
+### Fixed
+
+- NestJS applies method-level `@UsePipes()` to every parameter, including custom
+  decorators like `@CurrentUser()` — not just `@Body()`. Combined with a Zod schema, this
+  silently stripped the `@CurrentUser()` payload down to `{}` (Zod's default "strip unknown
+  keys" behaviour), which surfaced as a Prisma error on `PATCH /api/organisation/me`. Fixed
+  by scoping the pipe to `@Body(new ZodValidationPipe(schema))` instead of the method-level
+  `@UsePipes()`, which no other existing endpoint had triggered (none previously combined a
+  body-validated `@UsePipes()` with `@CurrentUser()` on the same handler).
+
+Known limitations and deferred work are documented in
+`docs/sprint-2.1-completion-report.md`.
+
 ## [Sprint 1B.3 Product Backlog] - 2026-07-30
 
 ### Added

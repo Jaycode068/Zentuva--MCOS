@@ -104,6 +104,13 @@ export class RoleService {
   ): Promise<UserRole> {
     return this.roleRepository.assignToUser(organisationId, userId, roleId, assignedById);
   }
+
+  /** Role names held by a user (Sprint 2.1's RolesGuard: "a simple role-name check is
+   *  sufficient" — not a permission-key evaluation engine, see identity.md §6 for why
+   *  that's deliberately a separate, deferred concern). */
+  getRoleNamesForUser(organisationId: string, userId: string): Promise<string[]> {
+    return this.roleRepository.findRoleNamesForUser(organisationId, userId);
+  }
 }
 
 export interface CreateRoleInput {

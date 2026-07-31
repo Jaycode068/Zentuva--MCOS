@@ -112,4 +112,14 @@ export class RoleRepository {
       },
     });
   }
+
+  /** Role names held by a user within an organisation. Added Sprint 2.1 for the
+   *  role-name authorization check (RolesGuard) — didn't exist after Sprint 1B.1/1B.2. */
+  async findRoleNamesForUser(organisationId: string, userId: string): Promise<string[]> {
+    const userRoles = await this.prisma.userRole.findMany({
+      where: { organisationId, userId },
+      include: { role: true },
+    });
+    return userRoles.map((userRole) => userRole.role.name);
+  }
 }

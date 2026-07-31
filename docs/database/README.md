@@ -28,11 +28,17 @@ connectivity with a raw `SELECT 1`, not a model query.
 `User` also carries `failedLoginAttempts` (`Int`, default `0`), added in Sprint 1B.2 to drive
 automatic account locking — see [identity.md §4](../domains/identity.md#user).
 
+`Organisation` also carries `displayName` (`String?`), added in Sprint 2.1 for the
+Organisation Profile feature — see [identity.md §3](../domains/identity.md#organisation-profile).
+
 Authentication (login, JWT, refresh rotation, logout, password reset, invitation acceptance,
-account locking) is implemented as of Sprint 1B.2 — no RBAC evaluation, permission guards, or
-role/organisation/user-management APIs exist yet. See
-[`docs/sprint-1B.1-completion-report.md`](../sprint-1B.1-completion-report.md) and
-[`docs/sprint-1B.2-completion-report.md`](../sprint-1B.2-completion-report.md) for exactly what
+account locking) is implemented as of Sprint 1B.2. Sprint 2.1 added the Organisation Profile
+API (`GET`/`PATCH /api/organisation/me`) and a minimal role-name authorization check scoped to
+that endpoint — full RBAC evaluation (the `Permission`/`RolePermission` engine in identity.md
+§6) and the rest of the role/user-management API surface still don't exist. See
+[`docs/sprint-1B.1-completion-report.md`](../sprint-1B.1-completion-report.md),
+[`docs/sprint-1B.2-completion-report.md`](../sprint-1B.2-completion-report.md), and
+[`docs/sprint-2.1-completion-report.md`](../sprint-2.1-completion-report.md) for exactly what
 was and wasn't implemented in each sprint.
 
 ### Migrations
@@ -42,6 +48,7 @@ was and wasn't implemented in each sprint.
 | `20260728195709_init`                           | Created the placeholder `_health_check` table (Sprint 0)                     |
 | `20260729182400_init_identity_domain`           | Dropped `_health_check`; created all 11 Identity Domain tables (Sprint 1B.1) |
 | `20260730173455_add_user_failed_login_attempts` | Added `User.failedLoginAttempts` for account locking (Sprint 1B.2)           |
+| `20260730180000_add_organisation_display_name`  | Added `Organisation.displayName` for the Organisation Profile (Sprint 2.1)   |
 
 ### Seed data
 
