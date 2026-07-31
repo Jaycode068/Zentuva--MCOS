@@ -16,6 +16,7 @@ export function RetailIntelligence() {
       <Container>
         <SectionHeading
           eyebrow="The Zentuva Difference"
+          eyebrowClassName="text-accentPink"
           title={
             <span className="text-background">
               Beyond ERP. Know what happens after the product leaves your factory.

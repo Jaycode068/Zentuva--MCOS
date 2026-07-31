@@ -32,6 +32,12 @@ export class UserService {
     return this.userRepository.findByEmail(email);
   }
 
+  /** Added Sprint 3.2 — `OrganisationService.register` needs a duplicate-email check
+   *  before provisioning a new tenant, and `email` is globally unique (identity.md §2). */
+  existsByEmail(email: string): Promise<boolean> {
+    return this.userRepository.existsByEmail(email);
+  }
+
   listByOrganisation(organisationId: string, params?: ListUsersParams): Promise<User[]> {
     return this.userRepository.findManyByOrganisation(organisationId, params);
   }
@@ -161,9 +167,12 @@ export class UserService {
     return this.passwordHasher.compare(plaintextPassword, user.passwordHash);
   }
 
-  /** Creates the first User of a newly-registered Organisation (identity.md §5
-   *  Organisation Registration Flow). Organisation Registration itself is out of scope
-   *  for Sprint 1B.2 — deferred. */
+  /** Still a stub. Sprint 3.2 implemented Organisation Registration directly in
+   *  `OrganisationRepository.registerTenant` instead of through this method — that flow
+   *  needs one atomic transaction spanning Organisation+Role+User+UserRole+AuditLog, and
+   *  no repository here currently accepts an external transaction client to participate
+   *  in a cross-aggregate `$transaction`. See docs/sprint-3.2-completion-report.md
+   *  "Deviations from Design." */
   createFromRegistration(_input: CreateUserFromRegistrationInput): Promise<never> {
     return notImplemented('UserService.createFromRegistration');
   }

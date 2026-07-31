@@ -1,19 +1,23 @@
 # Identity Domain — Design
 
 - **Status:** Database & Domain Layer (Sprint 1B.1), Authentication Layer (Sprint 1B.2), the
-  Organisation Profile API + frontend (Sprint 2.1), and the User Management API + frontend
-  (Sprint 2.2) are implemented against this design. Full RBAC evaluation (the
-  `Permission`/`RolePermission` engine in §6 — Sprints 2.1/2.2 added only a role-name check,
-  reused across both) and the remaining APIs (Invitations, Roles) still don't exist.
+  Organisation Profile API + frontend (Sprint 2.1), the User Management API + frontend
+  (Sprint 2.2), and self-service tenant registration (`POST /auth/register` + `/register`,
+  `/register/success`, `/login` frontend pages — Sprint 3.2) are implemented against this
+  design. Full RBAC evaluation (the `Permission`/`RolePermission` engine in §6 — Sprints
+  2.1/2.2 added only a role-name check, reused since) and the remaining APIs (Invitations,
+  Roles) still don't exist.
 - **Sprint:** 1A (design), refined 1A.1 (post-review), implemented 1B.1 (database & domain
-  layer), 1B.2 (authentication layer), 2.1 (Organisation Profile), and 2.2 (User Management)
+  layer), 1B.2 (authentication layer), 2.1 (Organisation Profile), 2.2 (User Management), and
+  3.2 (Tenant Registration & Organisation Onboarding)
 - **Depends on:** [ADR-003 — Multi-Tenancy](../adr/ADR-003-multi-tenancy.md), [ADR-002 — Modular Monolith](../adr/ADR-002-modular-monolith.md)
 - **See also:** [Sprint 1A Design Report](../sprint-1A-identity-design-report.md) (decisions,
   assumptions, open questions, and the [Post-Review Refinements](../sprint-1A-identity-design-report.md#post-review-refinements)
   from 1A.1), [Sprint 1B.1 Completion Report](../sprint-1B.1-completion-report.md),
   [Sprint 1B.2 Completion Report](../sprint-1B.2-completion-report.md),
-  [Sprint 2.1 Completion Report](../sprint-2.1-completion-report.md), and
-  [Sprint 2.2 Completion Report](../sprint-2.2-completion-report.md) for what changed during
+  [Sprint 2.1 Completion Report](../sprint-2.1-completion-report.md),
+  [Sprint 2.2 Completion Report](../sprint-2.2-completion-report.md), and
+  [Sprint 3.2 Completion Report](../sprint-3.2-completion-report.md) for what changed during
   implementation and why.
 
 ## 1. Domain Overview
@@ -890,22 +894,34 @@ model AuditLog {
 
 ## 10. API Contract Design
 
-Illustrative only — **nothing below is implemented**. Request/response bodies are sketched, not
-exhaustive (validation rules, error shapes, and pagination details are Sprint 1B implementation
-concerns). All routes are implicitly scoped to the caller's organisation via their access token
-except registration and the pre-login auth routes.
+Illustrative only — **nothing below is implemented**, with one exception: `POST /auth/register`
+was implemented for real in Sprint 3.2, with a request/response shape different from the sketch
+in the table below — see the note beneath the table. Request/response bodies elsewhere are
+sketched, not exhaustive (validation rules, error shapes, and pagination details are Sprint 1B
+implementation concerns). All routes are implicitly scoped to the caller's organisation via their
+access token except registration and the pre-login auth routes.
 
 ### Auth
 
-| Endpoint                     | Input                                                                                               | Output                                                  |
-| ---------------------------- | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
-| `POST /auth/register`        | `{ organisationName, businessEmail, country, adminFirstName, adminLastName, adminEmail, password }` | `201 { organisation, user, accessToken, refreshToken }` |
-| `POST /auth/login`           | `{ email, password }`                                                                               | `200 { user, accessToken, refreshToken }` or `401`      |
-| `POST /auth/logout`          | _(access token)_                                                                                    | `204`                                                   |
-| `POST /auth/refresh`         | `{ refreshToken }`                                                                                  | `200 { accessToken, refreshToken }` or `401`            |
-| `POST /auth/password/forgot` | `{ email }`                                                                                         | `200` (always, see §5)                                  |
-| `POST /auth/password/reset`  | `{ token, newPassword }`                                                                            | `200` or `400` (invalid/expired token)                  |
-| `GET /auth/me`               | _(access token)_                                                                                    | `200 { user, organisation, permissions[] }`             |
+| Endpoint                     | Input                                                                                                                               | Output                                                                                  |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `POST /auth/register`        | `{ organisationName, businessEmail, country, adminFirstName, adminLastName, adminEmail, password }` (sketch — superseded, see note) | `201 { organisation, user, accessToken, refreshToken }` (sketch — superseded, see note) |
+| `POST /auth/login`           | `{ email, password }`                                                                                                               | `200 { user, accessToken, refreshToken }` or `401`                                      |
+| `POST /auth/logout`          | _(access token)_                                                                                                                    | `204`                                                                                   |
+| `POST /auth/refresh`         | `{ refreshToken }`                                                                                                                  | `200 { accessToken, refreshToken }` or `401`                                            |
+| `POST /auth/password/forgot` | `{ email }`                                                                                                                         | `200` (always, see §5)                                                                  |
+| `POST /auth/password/reset`  | `{ token, newPassword }`                                                                                                            | `200` or `400` (invalid/expired token)                                                  |
+| `GET /auth/me`               | _(access token)_                                                                                                                    | `200 { user, organisation, permissions[] }`                                             |
+
+`POST /auth/register` as actually implemented in Sprint 3.2 differs from the sketch above:
+request is `{ organisationName, country, firstName, lastName, email, password, confirmPassword,
+acceptTerms, displayName?, industry?, addressLine?, state?, city?, postalCode?, phoneNumber?,
+businessEmail?, website? }` (only organisation name, country, and the owner's name/email/password
+are required — business email is optional, not required as originally sketched), and the response
+is `201 { organisation: { id, name, organisationCode, slug }, owner: { id, email } }` — no tokens
+are issued at registration; the new Owner logs in separately via `POST /auth/login`. See
+[the Sprint 3.2 completion report](../sprint-3.2-completion-report.md) for the full design
+rationale (atomic transactional provisioning, slug/code generation).
 
 ### Organisations
 

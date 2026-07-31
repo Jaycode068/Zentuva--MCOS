@@ -12,12 +12,15 @@ export function Container({
 
 export function SectionHeading({
   eyebrow,
+  eyebrowClassName,
   title,
   description,
   align = 'center',
   className,
 }: {
   eyebrow?: string;
+  /** Override for sections on a dark background — deep purple reads poorly there. */
+  eyebrowClassName?: string;
   title: React.ReactNode;
   description?: React.ReactNode;
   align?: 'center' | 'left';
@@ -32,11 +35,16 @@ export function SectionHeading({
       )}
     >
       {eyebrow && (
-        <p className="mb-3 text-sm font-semibold uppercase tracking-wider text-primary">
+        <p
+          className={cn(
+            'mb-3 text-sm font-semibold uppercase tracking-wider text-brandPurple',
+            eyebrowClassName,
+          )}
+        >
           {eyebrow}
         </p>
       )}
-      <h2 className="text-balance text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
+      <h2 className="text-balance text-3xl font-semibold tracking-tight text-brandPurple sm:text-4xl">
         {title}
       </h2>
       {description && (

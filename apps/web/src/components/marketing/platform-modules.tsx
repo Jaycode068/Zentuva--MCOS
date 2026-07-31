@@ -87,7 +87,7 @@ export function PlatformModules() {
               key={title}
               className="group rounded-2xl border border-border bg-card p-6 transition-shadow hover:shadow-lg"
             >
-              <div className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-lavender text-primary">
+              <div className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-lavender text-brandPurple">
                 <Icon className="h-5 w-5" />
               </div>
               <h3 className="mt-4 text-base font-semibold text-foreground">{title}</h3>

@@ -64,9 +64,12 @@ delivered roughly in order, but later Epics may be reordered as priorities evolv
   authorization model to build on.
 - **Description:** Organisation/User/Role/Permission data model, JWT-based authentication
   (login, refresh rotation, logout, password reset, invitation acceptance, account
-  locking), and audit logging. RBAC evaluation and user/role-management APIs are not yet
-  built.
-- **Status:** Completed — Sprints 1A, 1A.1, 1B.1, 1B.2.
+  locking), audit logging, and self-service tenant registration (`POST /api/auth/register`
+  atomically provisions a new organisation, its default roles, and an Owner user in one
+  transaction). Full RBAC evaluation (the `Permission`/`RolePermission` engine) is not yet
+  built — role checks are currently a minimal role-name guard, shipped in Sprint 2.1.
+- **Status:** Completed — Sprints 1A, 1A.1, 1B.1, 1B.2. Extended in Sprint 3.2 with
+  self-service tenant registration and a sign-in UI.
 
 ### Epic 2 — Organisation Management
 
@@ -149,9 +152,14 @@ delivered roughly in order, but later Epics may be reordered as priorities evolv
 - **Objective:** communicate the Zentuva vision, establish trust, and create entry points
   for onboarding — the unauthenticated, public-facing side of the product.
 - **Includes:** Landing page, product positioning and marketing copy, brand identity,
-  demo/early-access capture, future content (blog, docs site, careers).
-- **Status:** In progress — landing page (`/`) shipped in Sprint 3.1. Demo/early-access
-  form capture and any additional public pages remain.
+  demo/early-access capture, tenant registration and sign-in, future content (blog, docs
+  site, careers).
+- **Status:** In progress — landing page (`/`) shipped in Sprint 3.1; tenant registration
+  (`/register`, `/register/success`) and sign-in (`/login`, `/login/forgot-password`)
+  shipped in Sprint 3.2, including a rebalanced brand palette (purple for brand/heading
+  elements, pink for interactive/CTA elements) applied across both the marketing site and
+  the new auth pages. Demo/early-access form capture (the "Book a Demo" CTA) and any
+  additional public pages remain.
 
 ## 5. Current Sprint Status
 
@@ -165,9 +173,9 @@ delivered roughly in order, but later Epics may be reordered as priorities evolv
 - ✓ Sprint 2.1 — Organisation Management (Organisation Profile)
 - ✓ Sprint 2.2 — Organisation Management (User Management)
 - ✓ Sprint 3.1 — Public Marketing Website (Landing Page)
+- ✓ Sprint 3.2 — Tenant Registration & Organisation Onboarding
 
-**Current focus:** Sprint 3.2 — authentication UI (sign-in/sign-up), explicitly not started
-in Sprint 3.1.
+**Current focus:** Sprint 4 — not yet scoped.
 
 ## 6. Future Ideas (Not Prioritised Yet)
 

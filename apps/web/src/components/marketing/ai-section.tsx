@@ -15,7 +15,7 @@ export function AiSection() {
     <section className="py-24">
       <Container>
         <div className="mx-auto max-w-3xl rounded-3xl border border-border bg-gradient-to-br from-lavender via-card to-card p-8 sm:p-12">
-          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-brandPurple text-brandPurple-foreground">
             <AiIcon className="h-6 w-6" />
           </div>
 

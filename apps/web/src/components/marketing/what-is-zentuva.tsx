@@ -25,7 +25,7 @@ export function WhatIsZentuva() {
 
         <div className="relative mx-auto mt-16 max-w-3xl rounded-3xl border border-dashed border-border bg-lavender/40 p-8 sm:p-12">
           <div className="flex justify-center">
-            <div className="flex items-center gap-3 rounded-2xl bg-primary px-6 py-4 text-primary-foreground shadow-lg">
+            <div className="flex items-center gap-3 rounded-2xl bg-brandPurple px-6 py-4 text-brandPurple-foreground shadow-lg">
               <ZentuvaMark className="h-6 w-6" />
               <span className="text-base font-semibold">Zentuva Core</span>
             </div>

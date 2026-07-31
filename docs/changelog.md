@@ -7,6 +7,69 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 3.2 Tenant Registration & Organisation Onboarding] - 2026-07-31
+
+### Added
+
+- `POST /api/auth/register` (`apps/api/src/identity/auth/auth.controller.ts`) — the first
+  self-service entry point into Zentuva. Accepts organisation details plus an Owner
+  account and atomically provisions a new tenant: organisation, its default system roles,
+  the Owner user, and an audit entry, all inside one Prisma interactive transaction
+  (`OrganisationRepository.registerTenant`) so any failure rolls back every write. Rejects
+  duplicate organisation names and duplicate emails with `409 Conflict`
+  (`OrganisationService.register`).
+- `registerOrganisationSchema` (`packages/validation/src/identity.ts`) — full rewrite of
+  the unused Sprint 1B.1 draft to match the real wire contract (`organisationName`,
+  `country`, owner `firstName`/`lastName`/`email`/`password`/`confirmPassword`,
+  `acceptTerms`, plus optional display name, industry, address fields, phone, business
+  email, and website).
+- Slug and organisation-code generation: slug = kebab-case of the organisation name with a
+  numeric collision suffix (`-2`, `-3`, ...); organisation code = first 3 uppercase letters
+  of the name (fallback `ZEN`) + zero-padded 4-digit sequence, incrementing on collision
+  (e.g. `SAH-0001`).
+- `apps/web/src/app/register/` — the two-section registration form (Organisation
+  Information, Owner Account) and `/register/success` confirmation page showing the new
+  organisation's name, code, and owner email (passed via URL query params from the
+  registration response, not client state, so it survives the full-page navigation).
+- `apps/web/src/app/login/` and `apps/web/src/app/login/forgot-password/` — sign-in page
+  (stores tokens, redirects to `/settings/organisation`) and a password-reset request page
+  that reuses the Sprint 1B.2 `POST /auth/password/request-reset` endpoint, previously
+  built but never wired to any frontend.
+- `apps/web/src/components/app/authenticated-nav.tsx` + `apps/web/src/app/settings/layout.tsx`
+  — a top nav (Logo, organisation name, user avatar with initials, Logout) wrapping all
+  `/settings/*` pages. The current user's id comes from decoding the access token's `sub`
+  claim client-side (`getCurrentUserId`, display-only, never an authorization decision);
+  the name/initials come from the existing `GET /api/users/:id` endpoint — no new backend
+  surface was added for this.
+- `apps/web/src/lib/auth.ts` (`registerOrganisation`, `login`, `logout`,
+  `requestPasswordReset`) and `api-client.ts` additions (`setTokens`, `clearTokens`,
+  `getCurrentUserId`).
+- **Brand rebalance**: `packages/ui/src/styles.css`'s `--primary` now means pink (was
+  purple in Sprint 3.1), so every interactive element that reads `primary` — the default
+  `Button` variant, focus rings, links — becomes pink automatically. A new `--brand-purple`
+  token was introduced for non-interactive brand elements (headings, icons, illustrations,
+  section titles) and applied across the Sprint 3.1 marketing components. This corrects
+  Sprint 3.1's purple-heavy balance per this sprint's explicit brief.
+- `packages/ui/src/components/checkbox.tsx` — native checkbox styled with
+  `accent-primary`, used for the registration form's Terms of Service acceptance.
+- `apps/api/src/identity/organisation/organisation.service.spec.ts` — 8 tests covering
+  `register()`: success, duplicate name, duplicate email, slug/code collision handling.
+
+### Known limitations
+
+- `OrganisationRepository.registerTenant` writes directly against the Prisma transaction
+  client rather than through `UserRepository`/`RoleRepository`/`AuditRepository`, because
+  none of those repositories currently accept an external `tx` client. This is a deliberate,
+  documented exception to "reuse existing repositories" — the alternative (adding `tx`
+  parameters to every repository method) was judged out of scope for this sprint. See
+  `docs/sprint-3.2-completion-report.md` for the full rationale.
+- No dedicated "current user" endpoint exists yet; the authenticated nav's user info comes
+  from decoding the JWT for the id and re-fetching via `GET /api/users/:id`. Fine for
+  display, but a future sprint should consider a proper `/auth/me` endpoint if more
+  session-derived data is needed.
+- "Book a Demo" on the landing page remains a static anchor link — no demo-booking flow
+  exists, unchanged from Sprint 3.1.
+
 ## [Sprint 3.1 Public Marketing Website — Landing Page] - 2026-07-31
 
 ### Added

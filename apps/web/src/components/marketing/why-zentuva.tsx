@@ -51,7 +51,7 @@ export function WhyZentuva() {
         <div className="mt-16 grid grid-cols-1 gap-x-8 gap-y-10 sm:grid-cols-2 lg:grid-cols-3">
           {PRINCIPLES.map(({ title, description }) => (
             <div key={title}>
-              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-primary">
+              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-brandPurple/10 text-brandPurple">
                 <svg
                   viewBox="0 0 24 24"
                   className="h-4 w-4"

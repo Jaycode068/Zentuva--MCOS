@@ -9,7 +9,7 @@ export function Hero() {
         aria-hidden="true"
         className="pointer-events-none absolute inset-x-0 -top-40 -z-10 flex justify-center blur-3xl"
       >
-        <div className="h-[36rem] w-[64rem] rounded-full bg-gradient-to-tr from-lavender via-primary/10 to-accentPink/20" />
+        <div className="h-[36rem] w-[64rem] rounded-full bg-gradient-to-tr from-lavender via-brandPurple/10 to-accentPink/20" />
       </div>
 
       <Container className="grid items-center gap-16 py-20 lg:grid-cols-2 lg:py-28">
@@ -19,7 +19,7 @@ export function Hero() {
             Now building the future of African manufacturing
           </div>
 
-          <h1 className="text-balance text-4xl font-semibold tracking-tight text-foreground sm:text-5xl lg:text-6xl">
+          <h1 className="text-balance text-4xl font-semibold tracking-tight text-brandPurple sm:text-5xl lg:text-6xl">
             The Operating System for African Manufacturing.
           </h1>
 
@@ -30,7 +30,7 @@ export function Hero() {
           </p>
 
           <div className="mt-10 flex flex-col gap-3 sm:flex-row">
-            <a href="#cta" className={cn(buttonVariants({ size: 'lg' }), 'px-8')}>
+            <a href="/register" className={cn(buttonVariants({ size: 'lg' }), 'px-8')}>
               Get Started
             </a>
             <a
@@ -61,7 +61,7 @@ function DashboardIllustration() {
           {[40, 65, 50, 80, 60, 95, 70].map((height, index) => (
             <span
               key={index}
-              className="flex-1 rounded-t-sm bg-primary/80"
+              className="flex-1 rounded-t-sm bg-brandPurple/80"
               style={{ height: `${height}%` }}
             />
           ))}
@@ -88,9 +88,9 @@ function DashboardIllustration() {
         <p className="mt-3 text-xs text-lavender-foreground/80">142 active partners</p>
       </div>
 
-      <div className="absolute right-4 bottom-24 w-40 rounded-2xl border border-border bg-primary p-4 text-primary-foreground shadow-xl">
+      <div className="absolute right-4 bottom-24 w-40 rounded-2xl border border-border bg-brandPurple p-4 text-brandPurple-foreground shadow-xl">
         <p className="text-xs font-medium opacity-80">Sales Today</p>
-        <p className="mt-1 text-lg font-semibold">+18.4%</p>
+        <p className="mt-1 text-lg font-semibold text-accentPink">+18.4%</p>
       </div>
     </div>
   );

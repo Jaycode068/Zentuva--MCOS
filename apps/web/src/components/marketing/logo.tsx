@@ -24,13 +24,13 @@ export function Logo({ className, iconClassName }: { className?: string; iconCla
     <span className={cn('inline-flex items-center gap-2 font-semibold tracking-tight', className)}>
       <span
         className={cn(
-          'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground',
+          'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brandPurple text-brandPurple-foreground',
           iconClassName,
         )}
       >
         <ZentuvaMark className="h-4 w-4" />
       </span>
-      <span className="text-lg text-foreground">Zentuva</span>
+      <span className="text-lg text-brandPurple">Zentuva</span>
     </span>
   );
 }

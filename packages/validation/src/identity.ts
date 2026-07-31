@@ -20,16 +20,47 @@ export type UserStatusInput = z.infer<typeof userStatusSchema>;
 export const invitationStatusSchema = z.enum(['PENDING', 'ACCEPTED', 'EXPIRED', 'REVOKED']);
 export type InvitationStatusInput = z.infer<typeof invitationStatusSchema>;
 
-/** `POST /auth/register` (identity.md §3 Organisation Registration, §10). */
-export const registerOrganisationSchema = z.object({
-  organisationName: z.string().trim().min(1).max(200),
-  businessEmail: z.string().trim().email(),
-  country: z.string().trim().min(1).max(100),
-  adminFirstName: z.string().trim().min(1).max(100),
-  adminLastName: z.string().trim().min(1).max(100),
-  adminEmail: z.string().trim().email(),
-  password: z.string().min(8).max(200),
-});
+/**
+ * `POST /api/auth/register` (Sprint 3.2 brief) — rewritten to match this sprint's exact
+ * two-section form (Organisation Information + Owner Account); supersedes the Sprint
+ * 1B.1 draft, which had no controller consumer yet (`adminFirstName`/`adminEmail` etc.
+ * are renamed to `firstName`/`email` to match the Owner Account section's field names).
+ *
+ * Only `organisationName` is required in the brief's Organisation Information section;
+ * `country` is additionally treated as required here because `Organisation.country` is a
+ * non-nullable DB column with no sensible default — see
+ * docs/sprint-3.2-completion-report.md "Deviations from Design."
+ *
+ * `confirmPassword` only exists to validate equality with `password` (see `.refine` below)
+ * — it is never persisted. `acceptTerms` is `.refine()`d as required-true, but there is no
+ * `acceptTerms` column anywhere (no schema change) — it's checked here and then dropped.
+ */
+export const registerOrganisationSchema = z
+  .object({
+    organisationName: z.string().trim().min(1).max(200),
+    displayName: z.string().trim().min(1).max(200).optional(),
+    industry: z.string().trim().max(100).optional(),
+    country: z.string().trim().min(2).max(100),
+    state: z.string().trim().max(100).optional(),
+    city: z.string().trim().max(100).optional(),
+    phoneNumber: z.string().trim().min(7).max(30).optional(),
+    businessEmail: z.string().trim().email().optional(),
+    website: z.string().trim().url().optional(),
+    firstName: z.string().trim().min(1).max(100),
+    lastName: z.string().trim().min(1).max(100),
+    email: z.string().trim().email(),
+    password: z.string().min(8).max(200),
+    confirmPassword: z.string().min(8).max(200),
+    acceptTerms: z.boolean(),
+  })
+  .refine((data) => data.password === data.confirmPassword, {
+    message: 'Passwords do not match',
+    path: ['confirmPassword'],
+  })
+  .refine((data) => data.acceptTerms === true, {
+    message: 'You must accept the terms to continue',
+    path: ['acceptTerms'],
+  });
 export type RegisterOrganisationInput = z.infer<typeof registerOrganisationSchema>;
 
 /**

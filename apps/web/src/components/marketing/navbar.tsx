@@ -20,7 +20,7 @@ export function Navbar() {
   return (
     <header className="sticky top-0 z-50 border-b border-border/60 bg-background/80 backdrop-blur-md">
       <Container className="flex h-16 items-center justify-between">
-        <a href="#" className="shrink-0" aria-label="Zentuva home">
+        <a href="/" className="shrink-0" aria-label="Zentuva home">
           <Logo />
         </a>
 
@@ -37,10 +37,10 @@ export function Navbar() {
         </nav>
 
         <div className="hidden items-center gap-3 lg:flex">
-          <a href="#" className={buttonVariants({ variant: 'ghost' })}>
+          <a href="/login" className={buttonVariants({ variant: 'ghost' })}>
             Sign In
           </a>
-          <a href="#cta" className={buttonVariants({ variant: 'default' })}>
+          <a href="/register" className={buttonVariants({ variant: 'default' })}>
             Get Started
           </a>
         </div>
@@ -90,11 +90,11 @@ export function Navbar() {
               </a>
             ))}
             <div className="mt-2 flex flex-col gap-2 border-t border-border/60 pt-4">
-              <a href="#" className={buttonVariants({ variant: 'outline' })}>
+              <a href="/login" className={buttonVariants({ variant: 'outline' })}>
                 Sign In
               </a>
               <a
-                href="#cta"
+                href="/register"
                 className={buttonVariants({ variant: 'default' })}
                 onClick={() => setOpen(false)}
               >

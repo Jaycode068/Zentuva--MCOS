@@ -38,11 +38,11 @@ export function ProblemSection() {
           ))}
         </div>
 
-        <div className="mx-auto mt-10 max-w-4xl rounded-2xl bg-primary px-8 py-10 text-center">
-          <p className="text-balance text-2xl font-semibold text-primary-foreground">
+        <div className="mx-auto mt-10 max-w-4xl rounded-2xl bg-brandPurple px-8 py-10 text-center">
+          <p className="text-balance text-2xl font-semibold text-brandPurple-foreground">
             Zentuva brings everything together.
           </p>
-          <p className="mx-auto mt-3 max-w-xl text-balance text-primary-foreground/80">
+          <p className="mx-auto mt-3 max-w-xl text-balance text-brandPurple-foreground/80">
             One operating system for every part of the business — instead of ten disconnected tools
             quietly working against each other.
           </p>

@@ -14,10 +14,13 @@ import {
   forgotPasswordSchema,
   loginSchema,
   refreshTokenSchema,
+  registerOrganisationSchema,
   resetPasswordSchema,
+  type RegisterOrganisationInput,
 } from '@zentuva/validation';
 import { Request } from 'express';
 
+import { OrganisationService } from '../organisation/organisation.service';
 import { AuthService, LoginResult, RequestContext } from './auth.service';
 import { ZodValidationPipe } from './common/zod-validation.pipe';
 import { CurrentUser } from './decorators/current-user.decorator';
@@ -25,15 +28,42 @@ import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { TokenPayload } from './ports/token.port';
 
 /**
- * The Identity Domain's HTTP surface for Sprint 1B.2: authentication only. No role,
- * permission, or organisation-management endpoints — see the brief's "Expose only
- * authentication endpoints" and Constraints. Every route is public except logout(-all)
- * and GET /sessions, which require a valid access token via {@link JwtAuthGuard} (pure
- * authentication — no RBAC).
+ * The Identity Domain's HTTP surface: authentication (Sprint 1B.2) plus tenant
+ * registration (Sprint 3.2 — `POST /register` provisions a brand-new Organisation +
+ * Owner, see {@link OrganisationService.register}). Every route is public except
+ * logout(-all) and GET /sessions, which require a valid access token via
+ * {@link JwtAuthGuard} (pure authentication — no RBAC).
  */
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly organisationService: OrganisationService,
+  ) {}
+
+  /**
+   * Tenant registration (Sprint 3.2 brief): provisions a new Organisation + Owner
+   * atomically. Deliberately does not return tokens/log the caller in — the brief's
+   * browser flow shows a "Registration Successful" screen and redirects to `/login`
+   * instead, see {@link OrganisationService.register}.
+   */
+  @Post('register')
+  @UsePipes(new ZodValidationPipe(registerOrganisationSchema))
+  async register(@Body() body: RegisterOrganisationInput) {
+    const { organisation, owner } = await this.organisationService.register(body);
+    return {
+      organisation: {
+        id: organisation.id,
+        name: organisation.name,
+        organisationCode: organisation.organisationCode,
+        slug: organisation.slug,
+      },
+      owner: {
+        id: owner.id,
+        email: owner.email,
+      },
+    };
+  }
 
   @Post('login')
   @UsePipes(new ZodValidationPipe(loginSchema))

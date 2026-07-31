@@ -46,6 +46,10 @@ module.exports = {
           DEFAULT: 'hsl(var(--accent-pink))',
           foreground: 'hsl(var(--accent-pink-foreground))',
         },
+        brandPurple: {
+          DEFAULT: 'hsl(var(--brand-purple))',
+          foreground: 'hsl(var(--brand-purple-foreground))',
+        },
       },
       borderRadius: {
         lg: 'var(--radius)',
