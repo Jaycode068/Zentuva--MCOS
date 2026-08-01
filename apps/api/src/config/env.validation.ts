@@ -20,6 +20,17 @@ export const envSchema = baseEnvSchema
     JWT_REFRESH_EXPIRES_IN: z.string().default('30d'),
 
     MAX_LOGIN_ATTEMPTS: z.coerce.number().int().min(1).default(5),
+
+    // --- File uploads (Sprint 3.4) — local disk for MVP, see
+    // apps/api/src/identity/organisation/infrastructure/local-file-storage.ts. Both have
+    // defaults so existing environments boot without any changes.
+    UPLOAD_DIR: z.string().default('uploads'),
+    API_PUBLIC_URL: z.string().url().default('http://localhost:4000'),
+    UPLOAD_MAX_FILE_SIZE_BYTES: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(2 * 1024 * 1024),
   })
   .refine((env) => env.JWT_ACCESS_SECRET !== env.JWT_REFRESH_SECRET, {
     message: 'JWT_ACCESS_SECRET and JWT_REFRESH_SECRET must be different values',

@@ -3,16 +3,18 @@
 - **Status:** Database & Domain Layer (Sprint 1B.1), Authentication Layer (Sprint 1B.2), the
   Organisation Profile API + frontend (Sprint 2.1), the User Management API + frontend
   (Sprint 2.2), self-service tenant registration (`POST /auth/register` + `/register`,
-  `/register/success`, `/login` frontend pages — Sprint 3.2), and full account self-service
+  `/register/success`, `/login` frontend pages — Sprint 3.2), full account self-service
   (`/api/account/*` + `/account/profile`, `/account/security`, `/account/sessions`,
-  `/change-password`, `/reset-password/[token]` — Sprint 3.3) are implemented against this
-  design. Full RBAC evaluation (the `Permission`/`RolePermission` engine in §6 — Sprints
-  2.1/2.2 added only a role-name check, reused since) and the remaining APIs (Invitations,
-  Roles) still don't exist.
+  `/change-password`, `/reset-password/[token]` — Sprint 3.3), and the Workspace
+  Configuration Center (`/api/settings/*` + the multi-tab `/settings/organisation` —
+  Branding, Regional, Business, Preferences, live tenant theming — Sprint 3.4) are
+  implemented against this design. Full RBAC evaluation (the `Permission`/`RolePermission`
+  engine in §6 — Sprints 2.1/2.2 added only a role-name check, reused since) and the
+  remaining APIs (Invitations, Roles) still don't exist.
 - **Sprint:** 1A (design), refined 1A.1 (post-review), implemented 1B.1 (database & domain
   layer), 1B.2 (authentication layer), 2.1 (Organisation Profile), 2.2 (User Management),
-  3.2 (Tenant Registration & Organisation Onboarding), and 3.3 (Account Management &
-  Authentication Experience)
+  3.2 (Tenant Registration & Organisation Onboarding), 3.3 (Account Management &
+  Authentication Experience), and 3.4 (Workspace Configuration & Organisation Branding)
 - **Depends on:** [ADR-003 — Multi-Tenancy](../adr/ADR-003-multi-tenancy.md), [ADR-002 — Modular Monolith](../adr/ADR-002-modular-monolith.md)
 - **See also:** [Sprint 1A Design Report](../sprint-1A-identity-design-report.md) (decisions,
   assumptions, open questions, and the [Post-Review Refinements](../sprint-1A-identity-design-report.md#post-review-refinements)
@@ -20,8 +22,9 @@
   [Sprint 1B.2 Completion Report](../sprint-1B.2-completion-report.md),
   [Sprint 2.1 Completion Report](../sprint-2.1-completion-report.md),
   [Sprint 2.2 Completion Report](../sprint-2.2-completion-report.md),
-  [Sprint 3.2 Completion Report](../sprint-3.2-completion-report.md), and
-  [Sprint 3.3 Completion Report](../sprint-3.3-completion-report.md) for what changed during
+  [Sprint 3.2 Completion Report](../sprint-3.2-completion-report.md),
+  [Sprint 3.3 Completion Report](../sprint-3.3-completion-report.md), and
+  [Sprint 3.4 Completion Report](../sprint-3.4-completion-report.md) for what changed during
   implementation and why.
 
 ## 1. Domain Overview
@@ -176,27 +179,33 @@ Every Organisation also gets an immutable, human-readable `organisationCode` (e.
 
 The full profile an Organisation can configure after registration:
 
-| Field                                                  | MVP?   | Notes                                                                                                                                                                                                 |
-| ------------------------------------------------------ | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Display Name                                           | MVP    | _Added Sprint 2.1._ Shorter/friendlier public-facing name, distinct from the legal Organisation Name — introduced by the Sprint 2.1 Organisation Profile brief, not part of the original design here. |
-| Logo                                                   | MVP    | Stored as a URL (DigitalOcean Spaces, per the [architecture overview](../handbook/architecture-overview.md)); upload flow is future frontend work, not this sprint.                                   |
-| Company Description                                    | MVP    | Free text.                                                                                                                                                                                            |
-| Industry                                               | MVP    | Free text in MVP; a controlled vocabulary is a future enhancement.                                                                                                                                    |
-| Business Type                                          | MVP    | Free text in MVP (e.g. "Manufacturer", "Distributor"); same note as Industry.                                                                                                                         |
-| Phone                                                  | MVP    | Free text (no format validation beyond basic sanity in MVP).                                                                                                                                          |
-| Website                                                | MVP    | Free text URL.                                                                                                                                                                                        |
-| Support Email                                          | MVP    | Distinct from Business Email — where customers reach this org's support.                                                                                                                              |
-| Address                                                | MVP    | Modelled as discrete fields (line 1/2, city, state, postal code) rather than one free-text block, so future domains (e.g. Distribution) can use it structurally.                                      |
-| Currency                                               | MVP    | Defaults to `USD`; free-text ISO code in MVP, not validated against a currency table.                                                                                                                 |
-| Time Zone                                              | MVP    | Defaults to `UTC`; free-text IANA identifier in MVP.                                                                                                                                                  |
-| Fiscal Year                                            | MVP    | Modelled as `fiscalYearStart` (month 1–12); "fiscal year" as a full accounting-period concept is Finance domain's concern, not Identity's.                                                            |
-| Date Format                                            | MVP    | Defaults to `YYYY-MM-DD`. Purely a display preference.                                                                                                                                                |
-| Settings                                               | MVP    | A single `Json` bucket for low-stakes, non-relational preferences (see note below).                                                                                                                   |
-| Status                                                 | MVP    | Enum — see §4 `Organisation.status`.                                                                                                                                                                  |
-| **Future:** structured Industry/Business Type taxonomy | Future | Controlled vocabularies, likely their own reference tables once real reporting needs exist.                                                                                                           |
-| **Future:** Currency/locale validation                 | Future | Validate against ISO 4217 / IANA timezone lists once a second country is onboarded.                                                                                                                   |
-| **Future:** Multiple locations/addresses               | Future | MVP models one address per organisation; multi-branch is a Distribution-domain-adjacent concern.                                                                                                      |
-| **Future:** Billing/subscription plan                  | Future | Explicitly out of scope — see §12.                                                                                                                                                                    |
+| Field                                                  | MVP?   | Notes                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ------------------------------------------------------ | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Display Name                                           | MVP    | _Added Sprint 2.1._ Shorter/friendlier public-facing name, distinct from the legal Organisation Name — introduced by the Sprint 2.1 Organisation Profile brief, not part of the original design here. Sprint 3.4's Branding tab also surfaces this same column as "Workspace Name" — not a separate field.                                                                                                     |
+| Logo                                                   | MVP    | _Upload implemented Sprint 3.4._ Stored as an absolute URL behind a `FileStorage` port — local disk for MVP (`LocalFileStorage`), designed so a future S3/DigitalOcean Spaces adapter (per the [architecture overview](../handbook/architecture-overview.md)) can replace it with no change to `OrganisationService`.                                                                                          |
+| Dark Logo                                              | MVP    | _Added Sprint 3.4._ Optional alternate logo (`darkLogoUrl`) shown when the workspace is in dark mode; falls back to Logo when unset. Same upload path as Logo, `variant=dark`.                                                                                                                                                                                                                                 |
+| Primary / Accent Brand Colour                          | MVP    | _Added Sprint 3.4._ `primaryColor`/`accentColor`, hex strings. Applied client-side as CSS custom-property overrides on top of the app's default HSL palette (`packages/ui/src/styles.css`) — see [Sprint 3.4 completion report](../sprint-3.4-completion-report.md) "Branding architecture". Deliberately does not include a purple override — Zentuva's own brand-identity colour is not tenant-customisable. |
+| Brand Theme                                            | MVP    | _Added Sprint 3.4._ `light`/`dark`/`system`, stored in `settings.theme` (not its own column — see the Settings row below).                                                                                                                                                                                                                                                                                     |
+| Company Description                                    | MVP    | Free text.                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Industry                                               | MVP    | Free text in MVP; a controlled vocabulary is a future enhancement.                                                                                                                                                                                                                                                                                                                                             |
+| Business Type                                          | MVP    | Free text in MVP (e.g. "Manufacturer", "Distributor"); same note as Industry. Sprint 3.4's Business tab surfaces this column as "Manufacturing Sector".                                                                                                                                                                                                                                                        |
+| Business Registration Number / Tax ID                  | MVP    | _Added Sprint 3.4._ `registrationNumber`/`taxId`, free text, both optional — no format validation against any jurisdiction's rules in MVP.                                                                                                                                                                                                                                                                     |
+| Number of Employees                                    | MVP    | _Added Sprint 3.4._ `employeeCount`, free text (e.g. `"25"` or `"11-50"`) rather than a strict integer, so an organisation isn't forced to guess an exact headcount.                                                                                                                                                                                                                                           |
+| Phone                                                  | MVP    | Free text (no format validation beyond basic sanity in MVP).                                                                                                                                                                                                                                                                                                                                                   |
+| Website                                                | MVP    | Free text URL.                                                                                                                                                                                                                                                                                                                                                                                                 |
+| Support Email                                          | MVP    | Distinct from Business Email — where customers reach this org's support.                                                                                                                                                                                                                                                                                                                                       |
+| Address                                                | MVP    | Modelled as discrete fields (line 1/2, city, state, postal code) rather than one free-text block, so future domains (e.g. Distribution) can use it structurally.                                                                                                                                                                                                                                               |
+| Currency                                               | MVP    | Defaults to `USD`; free-text ISO code in MVP, not validated against a currency table.                                                                                                                                                                                                                                                                                                                          |
+| Time Zone                                              | MVP    | Defaults to `UTC`; free-text IANA identifier in MVP.                                                                                                                                                                                                                                                                                                                                                           |
+| Fiscal Year                                            | MVP    | Modelled as `fiscalYearStart` (month 1–12); "fiscal year" as a full accounting-period concept is Finance domain's concern, not Identity's.                                                                                                                                                                                                                                                                     |
+| Date / Time / Number Format                            | MVP    | `dateFormat` defaults to `YYYY-MM-DD`; `timeFormat`/`numberFormat` _(added Sprint 3.4)_ default to `HH:mm`/`1,234.56`. All three are purely display preferences — the frontend is expected to apply them, not the API.                                                                                                                                                                                         |
+| Language                                               | MVP    | _Added Sprint 3.4._ English only — no column exists yet; the Regional tab shows a disabled "English" selector rather than persisting a value with exactly one possible choice.                                                                                                                                                                                                                                 |
+| Settings                                               | MVP    | A single `Json` bucket for low-stakes, non-relational preferences. _As of Sprint 3.4_, this is where Brand Theme and every Workspace Preferences toggle (compact navigation, animations, notification channels, AI/experimental feature flags) actually live — see `apps/api/src/identity/organisation/workspace-settings.ts`.                                                                                 |
+| Status                                                 | MVP    | Enum — see §4 `Organisation.status`.                                                                                                                                                                                                                                                                                                                                                                           |
+| **Future:** structured Industry/Business Type taxonomy | Future | Controlled vocabularies, likely their own reference tables once real reporting needs exist.                                                                                                                                                                                                                                                                                                                    |
+| **Future:** Currency/locale validation                 | Future | Validate against ISO 4217 / IANA timezone lists once a second country is onboarded.                                                                                                                                                                                                                                                                                                                            |
+| **Future:** Multiple locations/addresses               | Future | MVP models one address per organisation; multi-branch is a Distribution-domain-adjacent concern.                                                                                                                                                                                                                                                                                                               |
+| **Future:** Billing/subscription plan                  | Future | Explicitly out of scope — see §12.                                                                                                                                                                                                                                                                                                                                                                             |
 
 **Why a `settings: Json` field exists:** Not every future per-organisation toggle deserves a
 first-class column and a migration (e.g. "show currency symbol before or after amount"). `Json`
@@ -590,28 +599,30 @@ through a parent table to discover which tenant a row belongs to.
 
 ### Events to capture (Identity domain's own events; future domains add their own)
 
-| Action                                              | When                                                                                                                                                                                                              |
-| --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `organisation.created`                              | Self-service registration completes                                                                                                                                                                               |
-| `organisation.updated`                              | Profile fields changed                                                                                                                                                                                            |
-| `organisation.status_changed`                       | Suspended/reactivated/closed                                                                                                                                                                                      |
-| `user.created`                                      | Via registration, invitation acceptance, or direct creation (Sprint 2.2)                                                                                                                                          |
-| `user.updated`                                      | Profile or role changed                                                                                                                                                                                           |
-| `user.status_changed`                               | Suspended/reactivated/deactivated                                                                                                                                                                                 |
-| `user.activated` / `user.deactivated` _(added 2.2)_ | More granular than `user.status_changed` above — Sprint 2.2's User Management brief asked for these as distinct events; `user.status_changed` remains documented here but isn't emitted by Sprint 2.2's endpoints |
-| `auth.login.success` / `.failure`                   | Every login attempt, success or failure                                                                                                                                                                           |
-| `auth.logout`                                       | Explicit logout (single session)                                                                                                                                                                                  |
-| `auth.logout_all` _(added 1B.2)_                    | "Log out all devices"                                                                                                                                                                                             |
-| `auth.password.reset_requested` _(added 1B.2)_      | Reset requested (distinct from the completed change below)                                                                                                                                                        |
-| `auth.password.reset`                               | Password successfully reset                                                                                                                                                                                       |
-| `auth.refresh.reuse_detected`                       | Refresh token reuse (possible theft) — see §5                                                                                                                                                                     |
-| `auth.session.revoked` _(added 1B.2)_               | A session was force-revoked outside a normal single-session logout (refresh-token reuse, password reset)                                                                                                          |
-| `user.locked` _(added 1B.2)_                        | Account locked after `MAX_LOGIN_ATTEMPTS` failed logins — see §4                                                                                                                                                  |
-| `account.profile.updated` _(added 3.3)_             | Caller updates their own profile via `PATCH /api/account/profile`                                                                                                                                                 |
-| `account.password.changed` _(added 3.3)_            | Caller changes their own password via `POST /api/account/change-password` — distinct from `auth.password.reset`, which goes through a reset token instead                                                         |
-| `invitation.created` / `.revoked` / `.accepted`     | Full invitation lifecycle                                                                                                                                                                                         |
-| `role.created` / `.updated` / `.deleted`            | Custom role changes                                                                                                                                                                                               |
-| `role.assigned` / `.unassigned`                     | A user's role membership changes                                                                                                                                                                                  |
+| Action                                               | When                                                                                                                                                                                                              |
+| ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `organisation.created`                               | Self-service registration completes                                                                                                                                                                               |
+| `organisation.updated`                               | Profile fields changed                                                                                                                                                                                            |
+| `organisation.status_changed`                        | Suspended/reactivated/closed                                                                                                                                                                                      |
+| `user.created`                                       | Via registration, invitation acceptance, or direct creation (Sprint 2.2)                                                                                                                                          |
+| `user.updated`                                       | Profile or role changed                                                                                                                                                                                           |
+| `user.status_changed`                                | Suspended/reactivated/deactivated                                                                                                                                                                                 |
+| `user.activated` / `user.deactivated` _(added 2.2)_  | More granular than `user.status_changed` above — Sprint 2.2's User Management brief asked for these as distinct events; `user.status_changed` remains documented here but isn't emitted by Sprint 2.2's endpoints |
+| `auth.login.success` / `.failure`                    | Every login attempt, success or failure                                                                                                                                                                           |
+| `auth.logout`                                        | Explicit logout (single session)                                                                                                                                                                                  |
+| `auth.logout_all` _(added 1B.2)_                     | "Log out all devices"                                                                                                                                                                                             |
+| `auth.password.reset_requested` _(added 1B.2)_       | Reset requested (distinct from the completed change below)                                                                                                                                                        |
+| `auth.password.reset`                                | Password successfully reset                                                                                                                                                                                       |
+| `auth.refresh.reuse_detected`                        | Refresh token reuse (possible theft) — see §5                                                                                                                                                                     |
+| `auth.session.revoked` _(added 1B.2)_                | A session was force-revoked outside a normal single-session logout (refresh-token reuse, password reset)                                                                                                          |
+| `user.locked` _(added 1B.2)_                         | Account locked after `MAX_LOGIN_ATTEMPTS` failed logins — see §4                                                                                                                                                  |
+| `account.profile.updated` _(added 3.3)_              | Caller updates their own profile via `PATCH /api/account/profile`                                                                                                                                                 |
+| `account.password.changed` _(added 3.3)_             | Caller changes their own password via `POST /api/account/change-password` — distinct from `auth.password.reset`, which goes through a reset token instead                                                         |
+| `workspace.settings.updated` _(added 3.4)_           | Any `PATCH /api/settings/workspace` write — General/Branding/Regional/Business/Preferences fields, in one event                                                                                                   |
+| `workspace.logo.uploaded` / `.removed` _(added 3.4)_ | Logo upload (`POST /api/settings/logo`) or removal (`DELETE /api/settings/logo`), for either the light or dark variant                                                                                            |
+| `invitation.created` / `.revoked` / `.accepted`      | Full invitation lifecycle                                                                                                                                                                                         |
+| `role.created` / `.updated` / `.deleted`             | Custom role changes                                                                                                                                                                                               |
+| `role.assigned` / `.unassigned`                      | A user's role membership changes                                                                                                                                                                                  |
 
 ### Data stored per event
 
@@ -721,6 +732,8 @@ model Organisation {
 
   displayName     String? // added Sprint 2.1
   logoUrl         String?
+  /// Added Sprint 3.4 — see §3 "Organisation Profile".
+  darkLogoUrl     String?
   description     String?
   industry        String?
   businessType    String?
@@ -736,6 +749,14 @@ model Organisation {
   timeZone        String  @default("UTC")
   fiscalYearStart Int     @default(1)
   dateFormat      String  @default("YYYY-MM-DD")
+  /// Added Sprint 3.4.
+  timeFormat         String  @default("HH:mm")
+  numberFormat       String  @default("1,234.56")
+  primaryColor       String?
+  accentColor        String?
+  registrationNumber String?
+  taxId              String?
+  employeeCount      String?
   settings        Json    @default("{}")
 
   createdAt DateTime @default(now())
@@ -985,6 +1006,24 @@ field names distinct from the underlying Prisma columns (`organisationName` → 
 mapping and the reasoning. The `PATCH` authorization is a minimal role-name check (see §6),
 not the full permission-key evaluation this doc otherwise describes — also a deliberate,
 documented scope reduction for this sprint.
+
+### Workspace Settings
+
+_Implemented as of Sprint 3.4._ A superset of `/api/organisation/me` above — the same
+Organisation row, plus every Branding/Regional/Business/Preferences field (§3). Both
+endpoints continue to work independently; `/api/organisation/me` wasn't removed or
+redesigned, per that sprint's brief.
+
+| Endpoint                             | Auth                                           | Input                                                                                                                                                                                                                                         | Output                                                                     |
+| ------------------------------------ | ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| `GET /api/settings/workspace`        | Any authenticated user                         | —                                                                                                                                                                                                                                             | `200` — General + Branding + Regional + Business + Preferences fields (§3) |
+| `PATCH /api/settings/workspace`      | Owner or Administrator only (`403` for Member) | Partial — everything `PATCH /api/organisation/me` accepts, plus `timeFormat`, `numberFormat`, `fiscalYearStart`, `manufacturingSector`, `registrationNumber`, `taxId`, `employeeCount`, `primaryColor`, `accentColor`, `theme`, `preferences` | `200` — same shape as `GET`                                                |
+| `POST /api/settings/logo?variant=`   | Owner or Administrator only                    | Multipart `file` (PNG/JPEG/SVG, ≤2 MB); `variant=light\|dark`                                                                                                                                                                                 | `200` — same shape as `GET`, with `logoUrl`/`darkLogoUrl` updated          |
+| `DELETE /api/settings/logo?variant=` | Owner or Administrator only                    | —                                                                                                                                                                                                                                             | `200` — same shape as `GET`, with the corresponding URL cleared            |
+
+Logo URLs are never accepted through `PATCH /api/settings/workspace` — they're only ever
+set via the upload endpoint, which writes through the `FileStorage` port (§3, local disk
+for MVP) rather than accepting an arbitrary client-supplied URL.
 
 ### Users
 

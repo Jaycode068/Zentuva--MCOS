@@ -8,6 +8,7 @@ import { AuthModule } from './identity/auth/auth.module';
 import { HealthModule } from './health/health.module';
 import { IdentityModule } from './identity/identity.module';
 import { OrganisationModule } from './identity/organisation/organisation.module';
+import { SettingsModule } from './identity/settings/settings.module';
 import { UserModule } from './identity/user/user.module';
 import { PrismaModule } from './prisma/prisma.module';
 
@@ -25,6 +26,7 @@ import { PrismaModule } from './prisma/prisma.module';
     OrganisationModule,
     UserModule,
     AccountModule,
+    SettingsModule,
   ],
 })
 export class AppModule {}

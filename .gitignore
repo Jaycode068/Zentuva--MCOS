@@ -12,6 +12,9 @@ out/
 # Turborepo
 .turbo/
 
+# Local file uploads (Sprint 3.4 — LocalFileStorage dev/MVP adapter)
+apps/api/uploads/
+
 # Environment
 .env
 .env.local

@@ -3,6 +3,7 @@ import { Organisation, User } from '@prisma/client';
 import { RegisterOrganisationInput } from '@zentuva/validation';
 
 import { UserService } from '../user/user.service';
+import { FileStorage } from './ports/file-storage.port';
 import { OrganisationRepository } from './organisation.repository';
 import { OrganisationService } from './organisation.service';
 
@@ -17,6 +18,7 @@ describe('OrganisationService.register', () => {
     status: 'ACTIVE',
     displayName: null,
     logoUrl: null,
+    darkLogoUrl: null,
     description: null,
     industry: null,
     businessType: null,
@@ -32,6 +34,13 @@ describe('OrganisationService.register', () => {
     timeZone: 'UTC',
     fiscalYearStart: 1,
     dateFormat: 'YYYY-MM-DD',
+    timeFormat: 'HH:mm',
+    numberFormat: '1,234.56',
+    primaryColor: null,
+    accentColor: null,
+    registrationNumber: null,
+    taxId: null,
+    employeeCount: null,
     settings: {},
     createdAt: new Date('2026-01-01'),
     updatedAt: new Date('2026-01-01'),
@@ -78,8 +87,12 @@ describe('OrganisationService.register', () => {
       existsByEmail: jest.fn().mockResolvedValue(false),
       hashPassword: jest.fn().mockResolvedValue('hashed-password'),
     } as unknown as UserService;
-    const service = new OrganisationService(organisationRepository, userService);
-    return { service, organisationRepository, userService };
+    const fileStorage = {
+      upload: jest.fn(),
+      delete: jest.fn(),
+    } as unknown as FileStorage;
+    const service = new OrganisationService(organisationRepository, userService, fileStorage);
+    return { service, organisationRepository, userService, fileStorage };
   }
 
   it('rejects a duplicate organisation name with ConflictException', async () => {
@@ -167,5 +180,175 @@ describe('OrganisationService.register', () => {
     const result = await service.register(validInput);
 
     expect(result).toEqual({ organisation, owner });
+  });
+});
+
+describe('OrganisationService — Workspace Configuration (Sprint 3.4)', () => {
+  const baseOrganisation: Organisation = {
+    id: 'org-1',
+    name: 'Sahara Textiles Ltd',
+    slug: 'sahara-textiles-ltd',
+    organisationCode: 'SAH-0001',
+    businessEmail: 'hello@saharatextiles.com',
+    country: 'Nigeria',
+    status: 'ACTIVE',
+    displayName: null,
+    logoUrl: null,
+    darkLogoUrl: null,
+    description: null,
+    industry: null,
+    businessType: null,
+    phone: null,
+    website: null,
+    supportEmail: null,
+    addressLine1: null,
+    addressLine2: null,
+    city: null,
+    state: null,
+    postalCode: null,
+    currency: 'USD',
+    timeZone: 'UTC',
+    fiscalYearStart: 1,
+    dateFormat: 'YYYY-MM-DD',
+    timeFormat: 'HH:mm',
+    numberFormat: '1,234.56',
+    primaryColor: null,
+    accentColor: null,
+    registrationNumber: null,
+    taxId: null,
+    employeeCount: null,
+    settings: {},
+    createdAt: new Date('2026-01-01'),
+    updatedAt: new Date('2026-01-01'),
+  };
+
+  function makeWorkspaceService(overrides: Partial<Organisation> = {}) {
+    const organisation = { ...baseOrganisation, ...overrides };
+    const organisationRepository = {
+      findById: jest.fn().mockResolvedValue(organisation),
+      updateProfile: jest
+        .fn()
+        .mockImplementation((_id, data) => Promise.resolve({ ...organisation, ...data })),
+    } as unknown as OrganisationRepository;
+    const userService = {} as unknown as UserService;
+    const fileStorage = {
+      upload: jest
+        .fn()
+        .mockResolvedValue({ url: 'https://cdn.test/logos/new.png', key: 'logos/org-1/new.png' }),
+      delete: jest.fn().mockResolvedValue(undefined),
+    } as unknown as FileStorage;
+    const service = new OrganisationService(organisationRepository, userService, fileStorage);
+    return { service, organisationRepository, fileStorage, organisation };
+  }
+
+  describe('updateWorkspaceSettings', () => {
+    it('passes plain column fields straight through', async () => {
+      const { service, organisationRepository } = makeWorkspaceService();
+
+      await service.updateWorkspaceSettings('org-1', { industry: 'Textiles', taxId: 'TIN-123' });
+
+      expect(organisationRepository.updateProfile).toHaveBeenCalledWith('org-1', {
+        industry: 'Textiles',
+        taxId: 'TIN-123',
+      });
+    });
+
+    it('merges a partial preferences update over the existing stored settings', async () => {
+      const { service, organisationRepository } = makeWorkspaceService({
+        settings: { theme: 'dark', preferences: { compactNavigation: true, aiFeatures: true } },
+      });
+
+      await service.updateWorkspaceSettings('org-1', { preferences: { aiFeatures: false } });
+
+      expect(organisationRepository.updateProfile).toHaveBeenCalledWith('org-1', {
+        settings: {
+          theme: 'dark',
+          preferences: expect.objectContaining({
+            compactNavigation: true,
+            aiFeatures: false,
+            emailNotifications: true, // untouched default, not clobbered
+          }),
+        },
+      });
+    });
+
+    it('defaults theme/preferences for an organisation with no settings stored yet', async () => {
+      const { service, organisationRepository } = makeWorkspaceService({ settings: {} });
+
+      await service.updateWorkspaceSettings('org-1', { theme: 'light' });
+
+      expect(organisationRepository.updateProfile).toHaveBeenCalledWith('org-1', {
+        settings: expect.objectContaining({
+          theme: 'light',
+          preferences: expect.objectContaining({ animationsEnabled: true }),
+        }),
+      });
+    });
+  });
+
+  describe('setLogo', () => {
+    it('uploads the file, stores the URL, and stashes the storage key in settings', async () => {
+      const { service, organisationRepository, fileStorage } = makeWorkspaceService();
+
+      await service.setLogo('org-1', 'light', { mimeType: 'image/png', buffer: Buffer.from('x') });
+
+      expect(fileStorage.upload).toHaveBeenCalledWith({
+        organisationId: 'org-1',
+        folder: 'logos',
+        mimeType: 'image/png',
+        buffer: Buffer.from('x'),
+      });
+      expect(organisationRepository.updateProfile).toHaveBeenCalledWith('org-1', {
+        logoUrl: 'https://cdn.test/logos/new.png',
+        settings: { logoKey: 'logos/org-1/new.png' },
+      });
+    });
+
+    it('deletes the previous file for that variant after a successful replacement', async () => {
+      const { service, fileStorage } = makeWorkspaceService({
+        logoUrl: 'https://cdn.test/logos/old.png',
+        settings: { logoKey: 'logos/org-1/old.png' },
+      });
+
+      await service.setLogo('org-1', 'light', { mimeType: 'image/png', buffer: Buffer.from('x') });
+
+      expect(fileStorage.delete).toHaveBeenCalledWith('logos/org-1/old.png');
+    });
+
+    it('stores dark and light logos under independent keys', async () => {
+      const { service, organisationRepository } = makeWorkspaceService();
+
+      await service.setLogo('org-1', 'dark', { mimeType: 'image/png', buffer: Buffer.from('x') });
+
+      expect(organisationRepository.updateProfile).toHaveBeenCalledWith('org-1', {
+        darkLogoUrl: 'https://cdn.test/logos/new.png',
+        settings: { darkLogoKey: 'logos/org-1/new.png' },
+      });
+    });
+  });
+
+  describe('removeLogo', () => {
+    it('clears the URL, removes the stored key, and deletes the file', async () => {
+      const { service, organisationRepository, fileStorage } = makeWorkspaceService({
+        logoUrl: 'https://cdn.test/logos/old.png',
+        settings: { logoKey: 'logos/org-1/old.png', theme: 'dark' },
+      });
+
+      await service.removeLogo('org-1', 'light');
+
+      expect(organisationRepository.updateProfile).toHaveBeenCalledWith('org-1', {
+        logoUrl: null,
+        settings: { theme: 'dark' },
+      });
+      expect(fileStorage.delete).toHaveBeenCalledWith('logos/org-1/old.png');
+    });
+
+    it('is a no-op delete when no logo was ever uploaded', async () => {
+      const { service, fileStorage } = makeWorkspaceService();
+
+      await service.removeLogo('org-1', 'light');
+
+      expect(fileStorage.delete).not.toHaveBeenCalled();
+    });
   });
 });

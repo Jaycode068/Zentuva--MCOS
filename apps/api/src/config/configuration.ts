@@ -14,4 +14,12 @@ export default () => ({
     jwtRefreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN ?? '30d',
     maxLoginAttempts: parseInt(process.env.MAX_LOGIN_ATTEMPTS ?? '5', 10),
   },
+  uploads: {
+    dir: process.env.UPLOAD_DIR ?? 'uploads',
+    publicUrl: process.env.API_PUBLIC_URL ?? 'http://localhost:4000',
+    maxFileSizeBytes: parseInt(
+      process.env.UPLOAD_MAX_FILE_SIZE_BYTES ?? String(2 * 1024 * 1024),
+      10,
+    ),
+  },
 });

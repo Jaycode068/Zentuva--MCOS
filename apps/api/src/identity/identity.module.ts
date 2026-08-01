@@ -5,6 +5,7 @@ import { AuditService } from './audit/audit.service';
 import { CryptoModule } from './crypto/crypto.module';
 import { InvitationRepository } from './invitation/invitation.repository';
 import { InvitationService } from './invitation/invitation.service';
+import { FileStorageModule } from './organisation/infrastructure/file-storage.module';
 import { OrganisationRepository } from './organisation/organisation.repository';
 import { OrganisationService } from './organisation/organisation.service';
 import { PasswordResetRepository } from './password-reset/password-reset.repository';
@@ -25,7 +26,7 @@ import { UserService } from './user/user.service';
  * because UserService needs `PASSWORD_HASHER` for `verifyPassword`/account creation.
  */
 @Module({
-  imports: [CryptoModule],
+  imports: [CryptoModule, FileStorageModule],
   providers: [
     OrganisationRepository,
     OrganisationService,

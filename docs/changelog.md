@@ -7,6 +7,81 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 3.4 Workspace Configuration & Organisation Branding] - 2026-08-01
+
+### Added
+
+- `apps/web/src/app/settings/organisation/page.tsx` — replaces the single-page
+  Organisation Settings (Sprint 2.1) with a multi-tab Workspace Configuration Center:
+  General, Branding, Regional, Business, Preferences, and a Security placeholder. A
+  sidebar on desktop collapses to a horizontal scrollable tab bar on mobile/tablet. Every
+  tab shares one `GET /api/settings/workspace` query and saves independently via its own
+  `PATCH`.
+- `apps/api/src/identity/settings/` — a new `SettingsController`/`SettingsModule` at
+  `/api/settings/*`, built entirely on the existing `OrganisationService`/`AuditService`
+  (no new repository):
+  - `GET`/`PATCH /api/settings/workspace` — the full workspace profile (General +
+    Branding + Regional + Business + Preferences fields) as one partial-update surface,
+    same pattern as `PATCH /api/organisation/me` (Sprint 2.1).
+  - `POST`/`DELETE /api/settings/logo?variant=light|dark` — multipart logo upload/removal,
+    type/size validated server-side, with old files cleaned up on replace.
+  - Every write requires Owner or Administrator (`RolesGuard`, reused from Sprint 2.1);
+    `GET` is open to any authenticated user.
+- **File storage abstraction** — `FileStorage` port
+  (`apps/api/src/identity/organisation/ports/file-storage.port.ts`) plus a
+  `LocalFileStorage` adapter that writes to local disk and serves files via
+  `/api/uploads/*` (mounted in `main.ts`). Mirrors the `PasswordHasher`/`TokenService`/
+  `SessionStore` port pattern from Sprint 1B.2 — a future S3-backed adapter implements the
+  same interface with no change to `OrganisationService`/`SettingsController`.
+- **Nine new `Organisation` columns** (migration
+  `20260801000000_add_workspace_branding_fields`): `darkLogoUrl`, `primaryColor`,
+  `accentColor`, `timeFormat`, `numberFormat`, `registrationNumber`, `taxId`,
+  `employeeCount` — plain typed columns, same convention as the Sprint 1B.1/2.1 profile
+  fields. `businessType` (existing, previously unused) is now used for "Manufacturing
+  Sector". Workspace theme and every Preferences toggle live inside the existing
+  `settings` Json column instead of new columns — see
+  `apps/api/src/identity/organisation/workspace-settings.ts`
+  (`DEFAULT_WORKSPACE_SETTINGS`, deep-merged with stored settings on every read).
+- **Live tenant branding** — `apps/web/src/lib/branding.ts` converts a tenant's chosen
+  hex primary/accent colours to the app's existing HSL CSS custom properties
+  (`--primary`/`--ring`/`--accent-pink`) and applies them via `useApplyBranding`, called
+  from `AuthenticatedNav` (rendered on every authenticated page) alongside the
+  light/dark/system theme class toggle. No component was changed to consume tenant
+  colours — everything already read `hsl(var(--primary))` via the existing Tailwind
+  tokens. Zentuva's own `--brand-purple` is deliberately never overridden — it stays the
+  platform's own identity colour across every tenant.
+- `AuthenticatedNav` now also renders the organisation's own logo (or a colour-matched
+  initials avatar when none is uploaded, `apps/web/src/lib/org-initials.ts`) next to the
+  organisation name — alongside, not replacing, the Zentuva product mark.
+- Client-side logo validation (`apps/web/src/lib/logo-validation.ts`): type, size (2 MB),
+  and — for raster images — pixel dimensions, checked before the upload request for fast
+  feedback; type and size are re-validated server-side as the authority.
+- Every workspace write is audited: `workspace.settings.updated`,
+  `workspace.logo.uploaded`, `workspace.logo.removed`
+  (`apps/api/src/identity/organisation/workspace-audit-actions.ts`).
+- 17 new backend unit tests (workspace settings merge, logo upload/replace/remove
+  key-tracking, `SettingsController` mapping/validation/authorization) — 106/106 total.
+
+### Known limitations
+
+- **"Reset to Zentuva default" isn't a real "unset."** The colour pickers default to
+  Zentuva's own pink shades when no override is stored, but saving always writes a
+  concrete hex value — there's no way to explicitly clear back to "inherit the platform
+  default" once a colour has been customised (a cosmetic gap, not a data-integrity one).
+- **Favicon and Email Header Logo are placeholders only**, per the brief — disabled
+  upload buttons, no backend support.
+- **Security tab is a placeholder only**, per the brief — five "Coming Soon" cards
+  (Password Policy, Sessions, MFA, SSO, API Keys). This is workspace-wide security
+  _policy_, distinct from the per-user `/account/security` page Sprint 3.3 already
+  shipped (linked from this tab, not duplicated).
+- **Server-side image-dimension validation doesn't exist** — only client-side (no
+  image-parsing dependency was added this sprint). Type and size are validated on both
+  sides.
+- **"Business Description" isn't a separate field from General's "Description".** The
+  brief listed both, but they're the same underlying `Organisation.description` column —
+  duplicating an editable field across two tabs risked two conflicting unsaved drafts of
+  the same value, so it's rendered in General only.
+
 ## [Sprint 3.3 Account Management & Authentication Experience] - 2026-07-31
 
 ### Added

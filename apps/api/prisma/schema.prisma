@@ -61,8 +61,13 @@ model Organisation {
   /// docs/sprint-2.1-completion-report.md "Deviations".
   displayName     String?
   logoUrl         String?
+  /// Optional alternate logo shown on dark backgrounds/dark theme — Sprint 3.4 Branding
+  /// tab "Dark Logo". Falls back to `logoUrl` (or the initials avatar) when absent.
+  darkLogoUrl     String?
   description     String?
   industry        String?
+  /// Sprint 3.4 Business tab wire name is "Manufacturing Sector" — reuses this
+  /// pre-existing, previously-unused column rather than adding a new one.
   businessType    String?
   phone           String?
   website         String?
@@ -76,6 +81,31 @@ model Organisation {
   timeZone        String  @default("UTC")
   fiscalYearStart Int     @default(1)
   dateFormat      String  @default("YYYY-MM-DD")
+  /// Added Sprint 3.4 Regional tab. "HH:mm" (24-hour) or "hh:mm a" (12-hour).
+  timeFormat      String  @default("HH:mm")
+  /// Added Sprint 3.4 Regional tab. A display pattern, e.g. "1,234.56" or "1.234,56" —
+  /// interpreted by the frontend, not parsed/validated server-side beyond being a string.
+  numberFormat    String  @default("1,234.56")
+  /// Added Sprint 3.4 Branding tab — hex strings (e.g. "#7C3AED"), applied as CSS custom
+  /// property overrides client-side. `null` means "use the Zentuva default palette."
+  /// Deliberately does NOT include a purple/brand-identity override — see
+  /// docs/sprint-3.4-completion-report.md "Branding architecture": deep purple stays
+  /// Zentuva's own platform identity across every tenant, only the interactive
+  /// primary/accent layer is tenant-customisable.
+  primaryColor    String?
+  accentColor     String?
+  /// Added Sprint 3.4 Business tab.
+  registrationNumber String?
+  taxId              String?
+  /// A free-form count or bucket (e.g. "25" or "11-50") rather than a strict Int, so an
+  /// organisation isn't forced to guess an exact headcount.
+  employeeCount      String?
+  /// Structured, low-cardinality settings that don't warrant their own columns — Sprint
+  /// 3.4 Branding's `theme` and every Workspace Preferences toggle live here, per the
+  /// brief's "if settings become numerous, store as JSON" guidance. Shape documented in
+  /// `apps/api/src/identity/organisation/workspace-settings.ts`
+  /// (`DEFAULT_WORKSPACE_SETTINGS`) — deep-merged with this column's contents on every
+  /// read so older rows (and a fresh `{}`) still return complete, defaulted values.
   settings        Json    @default("{}")
 
   createdAt DateTime @default(now())

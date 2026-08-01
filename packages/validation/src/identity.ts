@@ -88,6 +88,57 @@ export const updateOrganisationProfileSchema = z.object({
 });
 export type UpdateOrganisationProfileInput = z.infer<typeof updateOrganisationProfileSchema>;
 
+/** `theme` on `PATCH /api/settings/workspace` (Sprint 3.4 Branding tab). */
+export const workspaceThemeSchema = z.enum(['light', 'dark', 'system']);
+export type WorkspaceThemeInput = z.infer<typeof workspaceThemeSchema>;
+
+const hexColorSchema = z
+  .string()
+  .trim()
+  .regex(/^#([0-9A-Fa-f]{6}|[0-9A-Fa-f]{3})$/, 'Enter a valid hex colour, e.g. #7C3AED');
+
+/** `preferences` on `PATCH /api/settings/workspace` (Sprint 3.4 Workspace Preferences
+ *  tab) — every key optional so a save can update just one toggle. */
+export const workspacePreferencesSchema = z.object({
+  defaultLandingPage: z.enum(['organisation', 'users']).optional(),
+  compactNavigation: z.boolean().optional(),
+  animationsEnabled: z.boolean().optional(),
+  emailNotifications: z.boolean().optional(),
+  systemNotifications: z.boolean().optional(),
+  marketingEmails: z.boolean().optional(),
+  aiFeatures: z.boolean().optional(),
+  experimentalFeatures: z.boolean().optional(),
+});
+export type WorkspacePreferencesInput = z.infer<typeof workspacePreferencesSchema>;
+
+/**
+ * `PATCH /api/settings/workspace` (Sprint 3.4 brief) — extends
+ * {@link updateOrganisationProfileSchema} (Sprint 2.1) with the Branding/Regional/
+ * Business/Preferences tabs' fields rather than duplicating the General fields it already
+ * defines (`displayName` also doubles as Branding's "Workspace Name" — same underlying
+ * column, no separate field). Logo URLs are deliberately absent: they're only ever set via
+ * `POST /api/settings/logo`, never this general PATCH. Every field optional — each
+ * settings tab saves independently and only sends the fields it owns.
+ */
+export const updateWorkspaceSettingsSchema = updateOrganisationProfileSchema.extend({
+  // Regional (beyond country/state/city/currency/timezone, already on the base schema)
+  timeFormat: z.string().trim().min(1).max(20).optional(),
+  numberFormat: z.string().trim().min(1).max(20).optional(),
+  fiscalYearStart: z.number().int().min(1).max(12).optional(),
+  // Business
+  manufacturingSector: z.string().trim().max(100).optional(),
+  registrationNumber: z.string().trim().max(100).optional(),
+  taxId: z.string().trim().max(100).optional(),
+  employeeCount: z.string().trim().max(50).optional(),
+  // Branding
+  primaryColor: hexColorSchema.optional(),
+  accentColor: hexColorSchema.optional(),
+  theme: workspaceThemeSchema.optional(),
+  // Preferences
+  preferences: workspacePreferencesSchema.optional(),
+});
+export type UpdateWorkspaceSettingsInput = z.infer<typeof updateWorkspaceSettingsSchema>;
+
 /** `POST /auth/login` (identity.md §10). */
 export const loginSchema = z.object({
   email: z.string().trim().email(),

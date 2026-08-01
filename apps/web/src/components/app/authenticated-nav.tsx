@@ -13,7 +13,10 @@ import {
 } from '@zentuva/ui';
 
 import { getAccountProfile } from '@/lib/account';
+import { useApplyBranding } from '@/lib/branding';
 import { logout } from '@/lib/auth';
+import { orgInitialsFor } from '@/lib/org-initials';
+import { getWorkspaceSettings } from '@/lib/settings';
 
 import { Container } from '../marketing/container';
 import { Logo } from '../marketing/logo';
@@ -23,11 +26,18 @@ import { Logo } from '../marketing/logo';
  * User Avatar, Logout"; Sprint 3.3 replaces the bare Logout button with a dropdown menu —
  * "My Profile / Security / Active Sessions / Logout").
  *
- * Sprint 3.3 also switches the data source from Sprint 3.2's `GET /api/users/:id` +
- * client-side JWT decode to the new `GET /api/account/profile` — one request now covers
- * both the display name/initials this component needs *and* the `mustChangePassword` flag
- * that gates every `/settings/*`/`/account/*` page (brief §5): if the flag is true, this
- * component redirects to `/change-password` before the user can see anything else.
+ * Sprint 3.3 switched the data source from Sprint 3.2's `GET /api/users/:id` + client-side
+ * JWT decode to `GET /api/account/profile` — one request covers both the display name/
+ * initials this component needs *and* the `mustChangePassword` flag that gates every
+ * `/settings/*`/`/account/*` page.
+ *
+ * Sprint 3.4 adds a second query, `GET /api/settings/workspace`, and applies its
+ * primary/accent colours + theme via {@link useApplyBranding} — this is *the* place
+ * tenant branding gets applied "immediately throughout the application" (brief
+ * acceptance criteria), since this component renders on every authenticated page. It
+ * also renders the organisation's own logo (or a colour-matched initials avatar when
+ * none is uploaded) next to the organisation name, alongside — not replacing — the
+ * Zentuva product mark.
  */
 export function AuthenticatedNav() {
   const router = useRouter();
@@ -36,6 +46,19 @@ export function AuthenticatedNav() {
     queryKey: ['account', 'profile'],
     queryFn: getAccountProfile,
   });
+
+  const { data: workspace } = useQuery({
+    queryKey: ['settings', 'workspace'],
+    queryFn: getWorkspaceSettings,
+  });
+
+  useApplyBranding(
+    workspace && {
+      primaryColor: workspace.primaryColor,
+      accentColor: workspace.accentColor,
+      theme: workspace.theme,
+    },
+  );
 
   useEffect(() => {
     if (profile?.mustChangePassword) {
@@ -52,19 +75,33 @@ export function AuthenticatedNav() {
     ? `${profile.firstName.charAt(0)}${profile.lastName.charAt(0)}`.toUpperCase()
     : '';
 
+  const orgName = workspace?.organisationName ?? profile?.organisation?.name;
+  const orgInitials = orgName ? orgInitialsFor(orgName) : '';
+
   return (
     <header className="sticky top-0 z-50 border-b border-border/60 bg-background/80 backdrop-blur-md">
       <Container className="flex h-16 items-center justify-between">
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
           <a href="/settings/organisation" aria-label="Zentuva home">
             <Logo />
           </a>
-          {profile?.organisation && (
+          {orgName && (
             <>
               <span className="hidden h-5 w-px bg-border sm:block" aria-hidden="true" />
-              <span className="hidden text-sm font-medium text-muted-foreground sm:inline">
-                {profile.organisation.name}
-              </span>
+              <div className="hidden items-center gap-2 sm:flex">
+                {workspace?.logoUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element -- external/user-uploaded URL, not a static asset next/image can optimise
+                  <img src={workspace.logoUrl} alt="" className="h-6 w-6 rounded object-contain" />
+                ) : (
+                  <div
+                    className="flex h-6 w-6 items-center justify-center rounded bg-primary text-[10px] font-semibold text-primary-foreground"
+                    aria-hidden="true"
+                  >
+                    {orgInitials}
+                  </div>
+                )}
+                <span className="text-sm font-medium text-muted-foreground">{orgName}</span>
+              </div>
             </>
           )}
         </div>

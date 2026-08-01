@@ -1,252 +1,111 @@
 'use client';
 
 import { useState } from 'react';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import {
-  Button,
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  Input,
-  Label,
-  Textarea,
-} from '@zentuva/ui';
-import { z } from '@zentuva/validation';
-import { useForm } from 'react-hook-form';
+import { useQuery } from '@tanstack/react-query';
+import { cn } from '@zentuva/ui';
 
 import { ApiError } from '@/lib/api-client';
+import { getWorkspaceSettings } from '@/lib/settings';
 
-import { getOrganisationProfile, OrganisationProfile, updateOrganisationProfile } from './api';
+import { BrandingTab } from './tabs/branding-tab';
+import { BusinessTab } from './tabs/business-tab';
+import { GeneralTab } from './tabs/general-tab';
+import { PreferencesTab } from './tabs/preferences-tab';
+import { RegionalTab } from './tabs/regional-tab';
+import { SecurityTab } from './tabs/security-tab';
+
+const TABS = [
+  { id: 'general', label: 'General' },
+  { id: 'branding', label: 'Branding' },
+  { id: 'regional', label: 'Regional' },
+  { id: 'business', label: 'Business' },
+  { id: 'preferences', label: 'Preferences' },
+  { id: 'security', label: 'Security' },
+] as const;
+
+type TabId = (typeof TABS)[number]['id'];
 
 /**
- * Mirrors `@zentuva/validation`'s `updateOrganisationProfileSchema` constraints, but each
- * optional field also accepts `''` — form inputs represent "not filled in" as an empty
- * string, while the API schema represents "no change" by omitting the key entirely. The
- * two are reconciled in `onSubmit` below (empty strings are dropped before the request is
- * sent), not by loosening the API contract itself.
+ * Workspace Configuration Center (Sprint 3.4) — replaces the single-page Organisation
+ * Settings (Sprint 2.1) with a multi-tab layout, per the brief. Every tab shares one
+ * `GET /api/settings/workspace` query (key `['settings', 'workspace']`) — the same key
+ * `AuthenticatedNav` uses for branding, so a save on any tab keeps the nav's logo/colours
+ * in sync automatically via `queryClient.setQueryData`. Each tab saves independently
+ * (its own `PATCH` call, its own mutation state) — this shell only owns which tab is
+ * visible and the one shared read.
  */
-const formSchema = z.object({
-  organisationName: z.string().trim().min(1, 'Organisation name is required').max(200),
-  displayName: z.string().trim().max(200).or(z.literal('')),
-  description: z.string().trim().max(2000).or(z.literal('')),
-  email: z.string().trim().email('Enter a valid email address').or(z.literal('')),
-  phoneNumber: z
-    .string()
-    .trim()
-    .max(30)
-    .or(z.literal(''))
-    .refine((value) => value === '' || value.length >= 7, 'Phone number is too short'),
-  website: z.string().trim().url('Enter a valid URL, e.g. https://example.com').or(z.literal('')),
-  country: z.string().trim().min(2, 'Country is required').max(100),
-  state: z.string().trim().max(100).or(z.literal('')),
-  city: z.string().trim().max(100).or(z.literal('')),
-  addressLine: z.string().trim().max(200).or(z.literal('')),
-  industry: z.string().trim().max(100).or(z.literal('')),
-  currency: z.string().trim().length(3, 'Use a 3-letter currency code, e.g. NGN').or(z.literal('')),
-  timezone: z.string().trim().max(100).or(z.literal('')),
-});
-
-type FormValues = z.infer<typeof formSchema>;
-
-function toFormValues(profile: OrganisationProfile): FormValues {
-  return {
-    organisationName: profile.organisationName,
-    displayName: profile.displayName ?? '',
-    description: profile.description ?? '',
-    email: profile.email,
-    phoneNumber: profile.phoneNumber ?? '',
-    website: profile.website ?? '',
-    country: profile.country,
-    state: profile.state ?? '',
-    city: profile.city ?? '',
-    addressLine: profile.addressLine ?? '',
-    industry: profile.industry ?? '',
-    currency: profile.currency,
-    timezone: profile.timezone,
-  };
-}
-
-/** Drops empty-string fields (form's "not filled in") so the PATCH request only carries
- *  fields the user actually set — matches the API's partial-update semantics. */
-function toUpdatePayload(values: FormValues) {
-  return Object.fromEntries(Object.entries(values).filter(([, value]) => value !== ''));
-}
-
-export default function OrganisationSettingsPage() {
-  const queryClient = useQueryClient();
-  const [saveState, setSaveState] = useState<'idle' | 'saved'>('idle');
+export default function WorkspaceSettingsPage() {
+  const [activeTab, setActiveTab] = useState<TabId>('general');
 
   const {
-    data: profile,
+    data: settings,
     isLoading,
     isError,
     error,
   } = useQuery({
-    queryKey: ['organisation', 'me'],
-    queryFn: getOrganisationProfile,
-  });
-
-  const form = useForm<FormValues>({
-    resolver: zodResolver(formSchema),
-    values: profile ? toFormValues(profile) : undefined,
-  });
-
-  const mutation = useMutation({
-    mutationFn: (values: FormValues) => updateOrganisationProfile(toUpdatePayload(values)),
-    onMutate: () => setSaveState('idle'),
-    onSuccess: (updated) => {
-      queryClient.setQueryData(['organisation', 'me'], updated);
-      setSaveState('saved');
-    },
+    queryKey: ['settings', 'workspace'],
+    queryFn: getWorkspaceSettings,
   });
 
   if (isLoading) {
     return (
-      <main className="mx-auto max-w-3xl px-6 py-10 text-sm text-muted-foreground">
-        Loading organisation profile…
+      <main className="mx-auto max-w-5xl px-6 py-10 text-sm text-muted-foreground">
+        Loading workspace settings…
       </main>
     );
   }
 
-  if (isError || !profile) {
+  if (isError || !settings) {
     return (
-      <main className="mx-auto max-w-3xl px-6 py-10">
+      <main className="mx-auto max-w-5xl px-6 py-10">
         <p className="text-sm text-destructive">
-          {error instanceof ApiError ? error.message : 'Failed to load organisation profile.'}
+          {error instanceof ApiError ? error.message : 'Failed to load workspace settings.'}
         </p>
       </main>
     );
   }
 
   return (
-    <main className="mx-auto max-w-3xl px-6 py-10">
+    <main className="mx-auto max-w-5xl px-6 py-10">
       <div className="mb-8">
-        <h1 className="text-2xl font-semibold tracking-tight">Organisation Settings</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Workspace Settings</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          {profile.organisationCode} · Created {new Date(profile.createdAt).toLocaleDateString()}
+          {settings.organisationCode} · Make Zentuva feel like your own operating system.
         </p>
       </div>
 
-      <form className="space-y-6" onSubmit={form.handleSubmit((values) => mutation.mutate(values))}>
-        <Card>
-          <CardHeader>
-            <CardTitle>General Information</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <Field
-              label="Organisation Name"
-              error={form.formState.errors.organisationName?.message}
+      <div className="flex flex-col gap-8 lg:flex-row">
+        <nav
+          className="flex gap-1 overflow-x-auto pb-2 lg:w-52 lg:shrink-0 lg:flex-col lg:overflow-visible lg:pb-0"
+          aria-label="Workspace settings sections"
+        >
+          {TABS.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveTab(tab.id)}
+              className={cn(
+                'shrink-0 rounded-md px-3 py-2 text-left text-sm font-medium transition-colors',
+                activeTab === tab.id
+                  ? 'bg-primary/10 text-primary'
+                  : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
+              )}
+              aria-current={activeTab === tab.id ? 'page' : undefined}
             >
-              <Input {...form.register('organisationName')} />
-            </Field>
-            <Field label="Display Name" error={form.formState.errors.displayName?.message}>
-              <Input {...form.register('displayName')} />
-            </Field>
-            <Field label="Business Description" error={form.formState.errors.description?.message}>
-              <Textarea rows={3} {...form.register('description')} />
-            </Field>
-          </CardContent>
-        </Card>
+              {tab.label}
+            </button>
+          ))}
+        </nav>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Contact Information</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <Field label="Email" error={form.formState.errors.email?.message}>
-              <Input type="email" {...form.register('email')} />
-            </Field>
-            <Field label="Phone Number" error={form.formState.errors.phoneNumber?.message}>
-              <Input {...form.register('phoneNumber')} />
-            </Field>
-            <Field label="Website" error={form.formState.errors.website?.message}>
-              <Input placeholder="https://example.com" {...form.register('website')} />
-            </Field>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Address</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <Field label="Country" error={form.formState.errors.country?.message}>
-              <Input {...form.register('country')} />
-            </Field>
-            <Field label="State" error={form.formState.errors.state?.message}>
-              <Input {...form.register('state')} />
-            </Field>
-            <Field label="City" error={form.formState.errors.city?.message}>
-              <Input {...form.register('city')} />
-            </Field>
-            <Field label="Address Line" error={form.formState.errors.addressLine?.message}>
-              <Input {...form.register('addressLine')} />
-            </Field>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Business Settings</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <Field label="Industry" error={form.formState.errors.industry?.message}>
-              <Input {...form.register('industry')} />
-            </Field>
-            <Field label="Currency" error={form.formState.errors.currency?.message}>
-              <Input placeholder="NGN" {...form.register('currency')} />
-            </Field>
-            <Field label="Timezone" error={form.formState.errors.timezone?.message}>
-              <Input placeholder="Africa/Lagos" {...form.register('timezone')} />
-            </Field>
-          </CardContent>
-        </Card>
-
-        {mutation.isError && (
-          <p className="text-sm text-destructive">
-            {mutation.error instanceof ApiError
-              ? mutation.error.message
-              : 'Failed to save changes.'}
-          </p>
-        )}
-        {saveState === 'saved' && !mutation.isPending && (
-          <p className="text-sm text-primary">Changes saved.</p>
-        )}
-
-        <div className="flex justify-end gap-3">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => form.reset(toFormValues(profile))}
-            disabled={mutation.isPending}
-          >
-            Cancel
-          </Button>
-          <Button type="submit" disabled={mutation.isPending}>
-            {mutation.isPending ? 'Saving…' : 'Save Changes'}
-          </Button>
+        <div className="min-w-0 flex-1">
+          {activeTab === 'general' && <GeneralTab settings={settings} />}
+          {activeTab === 'branding' && <BrandingTab settings={settings} />}
+          {activeTab === 'regional' && <RegionalTab settings={settings} />}
+          {activeTab === 'business' && <BusinessTab settings={settings} />}
+          {activeTab === 'preferences' && <PreferencesTab settings={settings} />}
+          {activeTab === 'security' && <SecurityTab />}
         </div>
-      </form>
+      </div>
     </main>
-  );
-}
-
-function Field({
-  label,
-  error,
-  children,
-}: {
-  label: string;
-  error?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="space-y-1.5">
-      <Label>{label}</Label>
-      {children}
-      {error && <p className="text-xs text-destructive">{error}</p>}
-    </div>
   );
 }

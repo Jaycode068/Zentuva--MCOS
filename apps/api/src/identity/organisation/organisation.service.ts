@@ -1,9 +1,17 @@
-import { ConflictException, Injectable } from '@nestjs/common';
-import { Organisation } from '@prisma/client';
+import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { Organisation, Prisma } from '@prisma/client';
 import { RegisterOrganisationInput } from '@zentuva/validation';
 
 import { UserService } from '../user/user.service';
+import { FILE_STORAGE, FileStorage } from './ports/file-storage.port';
 import { OrganisationRepository, RegisterTenantResult } from './organisation.repository';
+import {
+  getLogoStorageKey,
+  mergeWorkspaceSettings,
+  withLogoStorageKey,
+  WorkspacePreferences,
+  WorkspaceTheme,
+} from './workspace-settings';
 
 /**
  * Domain service for the Organisation aggregate.
@@ -21,6 +29,7 @@ export class OrganisationService {
   constructor(
     private readonly organisationRepository: OrganisationRepository,
     private readonly userService: UserService,
+    @Inject(FILE_STORAGE) private readonly fileStorage: FileStorage,
   ) {}
 
   getById(id: string): Promise<Organisation | null> {
@@ -95,6 +104,100 @@ export class OrganisationService {
     });
   }
 
+  // ---------------------------------------------------------------------------------
+  // Workspace Configuration (Sprint 3.4 brief)
+  // ---------------------------------------------------------------------------------
+
+  /**
+   * `PATCH /api/settings/workspace`. `columnFields` are plain `Organisation` columns —
+   * passed straight through to {@link OrganisationRepository.updateProfile}, exactly like
+   * `updateProfile` above (Sprint 2.1). `theme`/`preferences`, when present, are merged
+   * into the existing `settings` JSON (read-modify-write, since a partial preferences
+   * update must not clobber the preferences it didn't mention) rather than overwritten.
+   */
+  async updateWorkspaceSettings(
+    id: string,
+    input: UpdateWorkspaceSettingsPatch,
+  ): Promise<Organisation> {
+    const { theme, preferences, ...columnFields } = input;
+    const data: Prisma.OrganisationUpdateInput = { ...columnFields };
+
+    if (theme !== undefined || preferences !== undefined) {
+      const current = await this.getByIdOrThrow(id);
+      const merged = mergeWorkspaceSettings(current.settings);
+      const next = {
+        theme: theme ?? merged.theme,
+        preferences: { ...merged.preferences, ...(preferences ?? {}) },
+      };
+      data.settings = next as unknown as Prisma.InputJsonValue;
+    }
+
+    return this.organisationRepository.updateProfile(id, data);
+  }
+
+  /**
+   * `POST /api/settings/logo?variant=light|dark`. Uploads via the injected
+   * {@link FileStorage} port (never touches the filesystem directly), stores the
+   * resulting URL on `logoUrl`/`darkLogoUrl`, and stashes the storage key in `settings`
+   * (see `getLogoStorageKey`/`withLogoStorageKey`) so a previously-uploaded file can be
+   * cleaned up. Deleting the old file is best-effort — if it fails (already gone, adapter
+   * hiccup), the new logo is still saved; an orphaned file is a harmless MVP trade-off,
+   * not a correctness issue.
+   */
+  async setLogo(
+    id: string,
+    variant: 'light' | 'dark',
+    file: { mimeType: string; buffer: Buffer },
+  ): Promise<Organisation> {
+    const organisation = await this.getByIdOrThrow(id);
+    const previousKey = getLogoStorageKey(organisation.settings, variant);
+
+    const uploaded = await this.fileStorage.upload({
+      organisationId: id,
+      folder: 'logos',
+      mimeType: file.mimeType,
+      buffer: file.buffer,
+    });
+
+    const urlField = variant === 'dark' ? 'darkLogoUrl' : 'logoUrl';
+    const nextSettings = withLogoStorageKey(organisation.settings, variant, uploaded.key);
+    const updated = await this.organisationRepository.updateProfile(id, {
+      [urlField]: uploaded.url,
+      settings: nextSettings as Prisma.InputJsonValue,
+    });
+
+    if (previousKey) {
+      await this.fileStorage.delete(previousKey).catch(() => undefined);
+    }
+    return updated;
+  }
+
+  /** `DELETE /api/settings/logo?variant=light|dark`. */
+  async removeLogo(id: string, variant: 'light' | 'dark'): Promise<Organisation> {
+    const organisation = await this.getByIdOrThrow(id);
+    const key = getLogoStorageKey(organisation.settings, variant);
+
+    const urlField = variant === 'dark' ? 'darkLogoUrl' : 'logoUrl';
+    const nextSettings = withLogoStorageKey(organisation.settings, variant, undefined);
+    const updated = await this.organisationRepository.updateProfile(id, {
+      [urlField]: null,
+      settings: nextSettings as Prisma.InputJsonValue,
+    });
+
+    if (key) {
+      await this.fileStorage.delete(key).catch(() => undefined);
+    }
+    return updated;
+  }
+
+  private async getByIdOrThrow(id: string): Promise<Organisation> {
+    const organisation = await this.organisationRepository.findById(id);
+    if (!organisation) {
+      throw new NotFoundException('Organisation not found');
+    }
+    return organisation;
+  }
+
   private async generateUniqueSlug(name: string): Promise<string> {
     const base = slugify(name);
     let candidate = base;
@@ -159,4 +262,25 @@ export interface UpdateOrganisationProfileInput {
   industry?: string;
   currency?: string;
   timeZone?: string;
+}
+
+/**
+ * Domain-layer shape for `PATCH /api/settings/workspace` (Sprint 3.4) — extends
+ * {@link UpdateOrganisationProfileInput} with the plain-column Regional/Branding/
+ * Business fields, plus `theme`/`preferences` (merged into the `settings` JSON column by
+ * {@link OrganisationService.updateWorkspaceSettings}, not passed straight through like
+ * the rest). See {@link SettingsController} for the wire-to-domain field mapping.
+ */
+export interface UpdateWorkspaceSettingsPatch extends UpdateOrganisationProfileInput {
+  timeFormat?: string;
+  numberFormat?: string;
+  fiscalYearStart?: number;
+  businessType?: string;
+  registrationNumber?: string;
+  taxId?: string;
+  employeeCount?: string;
+  primaryColor?: string;
+  accentColor?: string;
+  theme?: WorkspaceTheme;
+  preferences?: Partial<WorkspacePreferences>;
 }
