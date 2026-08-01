@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -10,8 +11,12 @@ import {
   Patch,
   Post,
   Req,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { FileInterceptor } from '@nestjs/platform-express';
 import {
   ChangePasswordInput,
   changePasswordSchema,
@@ -26,6 +31,7 @@ import { ZodValidationPipe } from '../auth/common/zod-validation.pipe';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { TokenPayload } from '../auth/ports/token.port';
+import { assertValidImageFile } from '../common/image-upload-validation';
 import { OrganisationService } from '../organisation/organisation.service';
 import { UserWithRoles } from '../user/user.repository';
 import { UserService } from '../user/user.service';
@@ -46,6 +52,7 @@ export class AccountController {
     private readonly organisationService: OrganisationService,
     private readonly authService: AuthService,
     private readonly auditService: AuditService,
+    private readonly config: ConfigService,
   ) {}
 
   @Get('profile')
@@ -67,6 +74,68 @@ export class AccountController {
 
     await this.auditService.record({
       action: ACCOUNT_AUDIT_ACTIONS.PROFILE_UPDATED,
+      entityType: 'User',
+      entityId: user.sub,
+      organisationId: user.organisationId,
+      actorUserId: user.sub,
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+    });
+
+    const account = await this.userService.getByIdWithRoles(user.organisationId, user.sub);
+    if (!account) {
+      throw new NotFoundException('User not found');
+    }
+    return this.buildProfileResponse(account);
+  }
+
+  /**
+   * Profile photo upload — the "placeholder only" avatar from Sprint 3.3 made real,
+   * following the same multipart-upload pattern Sprint 3.4 established for
+   * `POST /api/settings/logo` (shared file-type/size validation via
+   * `assertValidImageFile`, shared `FileStorage` port via `UserService.setAvatar`).
+   */
+  @Post('avatar')
+  @UseInterceptors(FileInterceptor('file'))
+  async uploadAvatar(
+    @UploadedFile() file: Express.Multer.File | undefined,
+    @CurrentUser() user: TokenPayload,
+    @Req() req: Request,
+  ) {
+    if (!file) {
+      throw new BadRequestException('No file uploaded — attach it as multipart field "file"');
+    }
+    assertValidImageFile(file, this.config, 'Profile photo');
+
+    await this.userService.setAvatar(user.organisationId, user.sub, {
+      mimeType: file.mimetype,
+      buffer: file.buffer,
+    });
+
+    await this.auditService.record({
+      action: ACCOUNT_AUDIT_ACTIONS.AVATAR_UPLOADED,
+      entityType: 'User',
+      entityId: user.sub,
+      organisationId: user.organisationId,
+      actorUserId: user.sub,
+      metadata: { mimeType: file.mimetype, sizeBytes: file.size },
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+    });
+
+    const account = await this.userService.getByIdWithRoles(user.organisationId, user.sub);
+    if (!account) {
+      throw new NotFoundException('User not found');
+    }
+    return this.buildProfileResponse(account);
+  }
+
+  @Delete('avatar')
+  async deleteAvatar(@CurrentUser() user: TokenPayload, @Req() req: Request) {
+    await this.userService.removeAvatar(user.organisationId, user.sub);
+
+    await this.auditService.record({
+      action: ACCOUNT_AUDIT_ACTIONS.AVATAR_REMOVED,
       entityType: 'User',
       entityId: user.sub,
       organisationId: user.organisationId,
@@ -133,6 +202,7 @@ export class AccountController {
       firstName: account.firstName,
       lastName: account.lastName,
       phoneNumber: account.phoneNumber,
+      avatarUrl: account.avatarUrl,
       employeeCode: account.employeeCode,
       email: account.email,
       role: roleName,

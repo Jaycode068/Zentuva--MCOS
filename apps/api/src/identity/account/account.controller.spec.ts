@@ -1,4 +1,5 @@
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Organisation, Role, UserRole, UserStatus } from '@prisma/client';
 import { Request } from 'express';
 
@@ -45,6 +46,8 @@ describe('AccountController', () => {
     firstName: 'Amina',
     lastName: 'Yusuf',
     phoneNumber: '+2348012345678',
+    avatarUrl: null,
+    avatarKey: null,
     passwordHash: 'hashed',
     status: UserStatus.ACTIVE,
     failedLoginAttempts: 0,
@@ -99,6 +102,8 @@ describe('AccountController', () => {
     const userService = {
       getByIdWithRoles: jest.fn(),
       updateProfile: jest.fn(),
+      setAvatar: jest.fn(),
+      removeAvatar: jest.fn(),
     } as unknown as jest.Mocked<UserService>;
     const organisationService = {
       getById: jest.fn(),
@@ -109,12 +114,16 @@ describe('AccountController', () => {
       revokeSession: jest.fn(),
     } as unknown as jest.Mocked<AuthService>;
     const auditService = { record: jest.fn() } as unknown as jest.Mocked<AuditService>;
+    const config = {
+      get: jest.fn().mockReturnValue(2 * 1024 * 1024),
+    } as unknown as ConfigService;
 
     const controller = new AccountController(
       userService,
       organisationService,
       authService,
       auditService,
+      config,
     );
     return { controller, userService, organisationService, authService, auditService };
   }
@@ -133,6 +142,7 @@ describe('AccountController', () => {
         firstName: 'Amina',
         lastName: 'Yusuf',
         phoneNumber: '+2348012345678',
+        avatarUrl: null,
         employeeCode: 'EMP-01',
         email: 'amina@saharatextiles.com',
         role: 'Owner',
@@ -249,6 +259,72 @@ describe('AccountController', () => {
 
       const otherResult = await controller.revokeSession('session-2', tokenUser);
       expect(otherResult).toEqual({ revoked: true, wasCurrentSession: false });
+    });
+  });
+
+  describe('uploadAvatar', () => {
+    it('rejects a missing file', async () => {
+      const { controller } = makeController();
+      const req = { ip: '127.0.0.1', headers: {} } as unknown as Request;
+
+      await expect(controller.uploadAvatar(undefined, tokenUser, req)).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('rejects a disallowed mime type without calling the service', async () => {
+      const { controller, userService } = makeController();
+      const file = { mimetype: 'image/gif', size: 1000 } as Express.Multer.File;
+      const req = { ip: '127.0.0.1', headers: {} } as unknown as Request;
+
+      await expect(controller.uploadAvatar(file, tokenUser, req)).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(userService.setAvatar).not.toHaveBeenCalled();
+    });
+
+    it('uploads a valid file and records an audit entry', async () => {
+      const { controller, userService, organisationService, auditService } = makeController();
+      userService.setAvatar.mockResolvedValue({ ...account, avatarUrl: 'https://cdn.test/a.png' });
+      userService.getByIdWithRoles.mockResolvedValue({
+        ...account,
+        avatarUrl: 'https://cdn.test/a.png',
+      });
+      organisationService.getById.mockResolvedValue(organisation);
+      const file = {
+        mimetype: 'image/png',
+        size: 1000,
+        buffer: Buffer.from('x'),
+      } as Express.Multer.File;
+      const req = { ip: '127.0.0.1', headers: { 'user-agent': 'jest' } } as unknown as Request;
+
+      const result = await controller.uploadAvatar(file, tokenUser, req);
+
+      expect(userService.setAvatar).toHaveBeenCalledWith('org-1', 'user-1', {
+        mimeType: 'image/png',
+        buffer: file.buffer,
+      });
+      expect(auditService.record).toHaveBeenCalledWith(
+        expect.objectContaining({ action: ACCOUNT_AUDIT_ACTIONS.AVATAR_UPLOADED }),
+      );
+      expect(result.avatarUrl).toBe('https://cdn.test/a.png');
+    });
+  });
+
+  describe('deleteAvatar', () => {
+    it('removes the avatar and records an audit entry', async () => {
+      const { controller, userService, organisationService, auditService } = makeController();
+      userService.removeAvatar.mockResolvedValue(account);
+      userService.getByIdWithRoles.mockResolvedValue(account);
+      organisationService.getById.mockResolvedValue(organisation);
+      const req = { ip: '127.0.0.1', headers: { 'user-agent': 'jest' } } as unknown as Request;
+
+      await controller.deleteAvatar(tokenUser, req);
+
+      expect(userService.removeAvatar).toHaveBeenCalledWith('org-1', 'user-1');
+      expect(auditService.record).toHaveBeenCalledWith(
+        expect.objectContaining({ action: ACCOUNT_AUDIT_ACTIONS.AVATAR_REMOVED }),
+      );
     });
   });
 });

@@ -277,6 +277,12 @@ section covers responsibility, ownership, and lifecycle.
   their own password in both flows. `passwordChangedAt` is stamped whenever a password is
   set via change-password or reset-password (`null` until then — "Password Last Changed:
   Never" in the Security page), never at initial creation.
+- **`avatarUrl`**, **`avatarKey`** _(added Sprint 3.5)_: profile photo, same
+  `FileStorage`-port pattern as `Organisation.logoUrl`/`logoKey` (§10 "Settings"). Unlike
+  Organisation, `User` has no JSON `settings` bucket, so `avatarKey` (the opaque storage
+  key needed to delete the old file on replace/remove) is its own plain nullable column
+  rather than stashed in a blob — a deliberate deviation from the Organisation pattern, not
+  an oversight.
 
 **Status values** (`UserStatus`, expanded post-review — see
 [Post-Review Refinements](../sprint-1A-identity-design-report.md#post-review-refinements)):
@@ -1064,13 +1070,15 @@ whole surface is new this sprint), so there's no "deviation from sketch" to reco
 Every route requires only authentication (no `RolesGuard`) since every action is scoped
 to the caller's own account, not another user's.
 
-| Endpoint                            | Auth                   | Input                                               | Output                                                                                                            |
-| ----------------------------------- | ---------------------- | --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `GET /api/account/profile`          | Any authenticated user | —                                                   | `200` — own name/phone (editable) + employee code/email/role/organisation/joined date/security fields (read-only) |
-| `PATCH /api/account/profile`        | Any authenticated user | Partial `{ firstName, lastName, phoneNumber }`      | `200` — same shape as `GET`                                                                                       |
-| `POST /api/account/change-password` | Any authenticated user | `{ currentPassword, newPassword, confirmPassword }` | `204` — see §5 "Change Password Flow"                                                                             |
-| `GET /api/account/sessions`         | Any authenticated user | —                                                   | `200 { items: Session[] }`, each flagged `isCurrent`                                                              |
-| `DELETE /api/account/sessions/:id`  | Any authenticated user | —                                                   | `200 { revoked, wasCurrentSession }` — 404 if the id doesn't belong to the caller                                 |
+| Endpoint                                    | Auth                   | Input                                               | Output                                                                                                                   |
+| ------------------------------------------- | ---------------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `GET /api/account/profile`                  | Any authenticated user | —                                                   | `200` — own name/phone/avatar (editable) + employee code/email/role/organisation/joined date/security fields (read-only) |
+| `PATCH /api/account/profile`                | Any authenticated user | Partial `{ firstName, lastName, phoneNumber }`      | `200` — same shape as `GET`                                                                                              |
+| `POST /api/account/avatar` _(Sprint 3.5)_   | Any authenticated user | Multipart `file` (PNG/JPEG/SVG, ≤2 MB)              | `200` — same shape as `GET`, `avatarUrl` updated                                                                         |
+| `DELETE /api/account/avatar` _(Sprint 3.5)_ | Any authenticated user | —                                                   | `200` — same shape as `GET`, `avatarUrl` cleared                                                                         |
+| `POST /api/account/change-password`         | Any authenticated user | `{ currentPassword, newPassword, confirmPassword }` | `204` — see §5 "Change Password Flow"                                                                                    |
+| `GET /api/account/sessions`                 | Any authenticated user | —                                                   | `200 { items: Session[] }`, each flagged `isCurrent`                                                                     |
+| `DELETE /api/account/sessions/:id`          | Any authenticated user | —                                                   | `200 { revoked, wasCurrentSession }` — 404 if the id doesn't belong to the caller                                        |
 
 `GET /auth/sessions` (Sprint 1B.2) still exists unchanged and returns the same shape —
 `/api/account/sessions` is the documented, canonical route going forward, but the older

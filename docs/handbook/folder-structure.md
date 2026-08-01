@@ -6,6 +6,10 @@ zentuva/
 │   ├── web/                     Next.js frontend
 │   │   ├── src/
 │   │   │   ├── app/              App Router routes (layout.tsx, page.tsx, globals.css)
+│   │   │   │   └── (app)/        Route group (Sprint 3.5): every authenticated page
+│   │   │   │                     (/workspace, /settings/*, /account/*) — adds no URL
+│   │   │   │                     segment, shares one WorkspaceLayout
+│   │   │   ├── components/workspace/  Sidebar/Topbar/WorkspaceLayout shell (Sprint 3.5)
 │   │   │   ├── providers/        React context providers (TanStack Query, etc.)
 │   │   │   └── lib/              Frontend-only utilities (env parsing, etc.)
 │   │   ├── public/

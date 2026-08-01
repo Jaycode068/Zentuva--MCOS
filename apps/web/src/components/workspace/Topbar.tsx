@@ -12,34 +12,29 @@ import {
   DropdownMenuTrigger,
 } from '@zentuva/ui';
 
+import { Container } from '@/components/marketing/container';
+import { Logo } from '@/components/marketing/logo';
 import { getAccountProfile } from '@/lib/account';
 import { useApplyBranding } from '@/lib/branding';
 import { logout } from '@/lib/auth';
 import { orgInitialsFor } from '@/lib/org-initials';
 import { getWorkspaceSettings } from '@/lib/settings';
 
-import { Container } from '../marketing/container';
-import { Logo } from '../marketing/logo';
+import { MenuIcon } from './icons';
 
 /**
- * Top navigation for authenticated pages (Sprint 3.2 brief: "Logo, Organisation Name,
- * User Avatar, Logout"; Sprint 3.3 replaces the bare Logout button with a dropdown menu —
- * "My Profile / Security / Active Sessions / Logout").
- *
- * Sprint 3.3 switched the data source from Sprint 3.2's `GET /api/users/:id` + client-side
- * JWT decode to `GET /api/account/profile` — one request covers both the display name/
- * initials this component needs *and* the `mustChangePassword` flag that gates every
- * `/settings/*`/`/account/*` page.
- *
- * Sprint 3.4 adds a second query, `GET /api/settings/workspace`, and applies its
- * primary/accent colours + theme via {@link useApplyBranding} — this is *the* place
- * tenant branding gets applied "immediately throughout the application" (brief
- * acceptance criteria), since this component renders on every authenticated page. It
- * also renders the organisation's own logo (or a colour-matched initials avatar when
- * none is uploaded) next to the organisation name, alongside — not replacing — the
- * Zentuva product mark.
+ * Top navigation bar for the Workspace shell — the direct successor to Sprint 3.2/3.3/3.4's
+ * `AuthenticatedNav`, moved here and renamed as part of the Sprint 3.5 shell so every
+ * authenticated page renders it exactly once via `WorkspaceLayout` rather than each
+ * route's own `layout.tsx` importing it separately. All of `AuthenticatedNav`'s behaviour
+ * carries over unchanged: it fetches the account profile and workspace settings, applies
+ * tenant branding (`useApplyBranding`) as a side effect on every authenticated page, and
+ * redirects to `/change-password` when `mustChangePassword` is set. New in this sprint: a
+ * hamburger button that opens the mobile sidebar drawer, and the account-menu trigger now
+ * shows the uploaded profile photo (Sprint 3.5 fix) instead of always falling back to
+ * initials.
  */
-export function AuthenticatedNav() {
+export function Topbar({ onMenuClick }: { onMenuClick: () => void }) {
   const router = useRouter();
 
   const { data: profile } = useQuery({
@@ -79,10 +74,19 @@ export function AuthenticatedNav() {
   const orgInitials = orgName ? orgInitialsFor(orgName) : '';
 
   return (
-    <header className="sticky top-0 z-50 border-b border-border/60 bg-background/80 backdrop-blur-md">
+    <header className="sticky top-0 z-30 border-b border-border/60 bg-background/80 backdrop-blur-md">
       <Container className="flex h-16 items-center justify-between">
         <div className="flex items-center gap-3">
-          <a href="/settings/organisation" aria-label="Zentuva home">
+          <button
+            type="button"
+            onClick={onMenuClick}
+            className="-ml-2 flex h-9 w-9 items-center justify-center rounded-md text-foreground/70 hover:bg-accent hover:text-accent-foreground lg:hidden"
+            aria-label="Open navigation"
+          >
+            <MenuIcon className="h-5 w-5" />
+          </button>
+
+          <a href="/workspace" aria-label="Zentuva home">
             <Logo />
           </a>
           {orgName && (
@@ -108,10 +112,15 @@ export function AuthenticatedNav() {
 
         <DropdownMenu>
           <DropdownMenuTrigger
-            className="flex h-8 w-8 items-center justify-center rounded-full bg-brandPurple text-xs font-semibold text-brandPurple-foreground transition-opacity hover:opacity-90"
+            className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full bg-brandPurple text-xs font-semibold text-brandPurple-foreground transition-opacity hover:opacity-90"
             aria-label="Account menu"
           >
-            {initials}
+            {profile?.avatarUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element -- user-uploaded URL
+              <img src={profile.avatarUrl} alt="" className="h-full w-full object-cover" />
+            ) : (
+              initials
+            )}
           </DropdownMenuTrigger>
           <DropdownMenuContent>
             {profile && (

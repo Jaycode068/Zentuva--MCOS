@@ -96,7 +96,10 @@ export class UserRepository {
   async updateProfile(
     organisationId: string,
     id: string,
-    data: Pick<Prisma.UserUpdateInput, 'firstName' | 'lastName' | 'employeeCode' | 'phoneNumber'>,
+    data: Pick<
+      Prisma.UserUpdateInput,
+      'firstName' | 'lastName' | 'employeeCode' | 'phoneNumber' | 'avatarUrl' | 'avatarKey'
+    >,
   ): Promise<User> {
     return this.updateScoped(organisationId, id, data);
   }

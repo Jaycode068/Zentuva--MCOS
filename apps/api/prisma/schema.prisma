@@ -135,6 +135,13 @@ model User {
   /// Optional — Sprint 3.3 "My Profile" page. No format validation beyond the shared
   /// Zod schema (identity.md doesn't specify one).
   phoneNumber         String?
+  /// Profile photo — added when the Sprint 3.3 "placeholder only" avatar became a real
+  /// upload. Same `FileStorage` port + absolute-URL pattern as `Organisation.logoUrl`
+  /// (Sprint 3.4); `avatarKey` is the opaque storage key needed to delete the old file on
+  /// replace/remove — kept as its own column (not stashed in a settings blob) since User
+  /// has no JSON settings bucket the way Organisation does.
+  avatarUrl           String?
+  avatarKey           String?
   passwordHash        String
   status              UserStatus @default(INVITED)
   /// Forces a redirect to `/change-password` on next login before the user can continue

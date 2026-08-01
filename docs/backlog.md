@@ -80,15 +80,18 @@ delivered roughly in order, but later Epics may be reordered as priorities evolv
 - **Objective:** let an organisation manage itself — its profile, its people, and who can
   do what.
 - **Includes:** Organisation Profile, Tenant Settings, Branding, User Management,
-  Invitations, Roles, Permissions, Audit.
+  Invitations, Roles, Permissions, Audit, the Workspace application shell.
 - **Status:** In progress — Organisation Profile (view/update) shipped in Sprint 2.1; User
   Management (list/view/create/update/activate/deactivate) shipped in Sprint 2.2; the full
   Workspace Configuration Center — a multi-tab General/Branding/Regional/Business/
   Preferences settings experience, including logo upload and per-tenant primary/accent
   colour + light/dark/system theme applied live across the app — shipped in Sprint 3.4,
-  superseding the single-page Organisation Settings from 2.1. Invitations, Roles,
-  Permissions, and the Security tab (currently a "Coming Soon" placeholder for Password
-  Policy/Sessions/MFA/SSO/API Keys) remain.
+  superseding the single-page Organisation Settings from 2.1. Sprint 3.5 added the
+  permanent Workspace application shell (sidebar + top bar + `/workspace` landing page)
+  every authenticated page now renders through, and made the `/account/profile` photo
+  upload real (previously a Sprint 3.3 placeholder). Invitations, Roles, Permissions, and
+  the Security tab (currently a "Coming Soon" placeholder for Password Policy/Sessions/
+  MFA/SSO/API Keys) remain.
 
 ### Epic 3 — Product Catalogue
 
@@ -185,6 +188,7 @@ delivered roughly in order, but later Epics may be reordered as priorities evolv
 - ✓ Sprint 3.2 — Tenant Registration & Organisation Onboarding
 - ✓ Sprint 3.3 — Account Management & Authentication Experience
 - ✓ Sprint 3.4 — Workspace Configuration & Organisation Branding
+- ✓ Sprint 3.5 — Workspace Dashboard & Global Navigation
 
 **Current focus:** Sprint 4 — not yet scoped.
 

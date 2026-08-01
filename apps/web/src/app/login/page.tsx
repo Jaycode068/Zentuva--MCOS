@@ -38,7 +38,7 @@ function LoginForm() {
       setTokens(result.accessToken, result.refreshToken, rememberMe);
       // Sprint 3.3 §5 "First Login Password Change" — a forced password change takes
       // priority over the normal landing page.
-      router.push(result.user.mustChangePassword ? '/change-password' : '/settings/organisation');
+      router.push(result.user.mustChangePassword ? '/change-password' : '/workspace');
     },
   });
 

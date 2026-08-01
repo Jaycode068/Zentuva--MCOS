@@ -39,6 +39,8 @@ describe('UserController', () => {
     firstName: 'Jane',
     lastName: 'Doe',
     phoneNumber: null,
+    avatarUrl: null,
+    avatarKey: null,
     passwordHash: 'hashed',
     status: UserStatus.ACTIVE,
     failedLoginAttempts: 0,

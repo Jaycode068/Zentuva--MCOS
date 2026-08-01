@@ -1,6 +1,7 @@
 import type { ChangePasswordInput, UpdateAccountProfileInput } from '@zentuva/validation';
 
-import { apiFetch } from './api-client';
+import { ApiError, apiFetch, getAccessToken } from './api-client';
+import { env } from './env';
 
 /** `GET/PATCH /api/account/profile` response — see
  *  apps/api/src/identity/account/account.controller.ts. */
@@ -9,6 +10,7 @@ export interface AccountProfile {
   firstName: string;
   lastName: string;
   phoneNumber: string | null;
+  avatarUrl: string | null;
   employeeCode: string | null;
   email: string;
   role: string | null;
@@ -37,6 +39,31 @@ export function changePassword(input: ChangePasswordInput): Promise<void> {
     method: 'POST',
     body: JSON.stringify(input),
   });
+}
+
+/** `POST /api/account/avatar` — multipart upload, same pattern as `lib/settings.ts`'s
+ *  `uploadLogo` (bypasses `apiFetch`'s JSON `Content-Type` so the browser can set the
+ *  correct multipart boundary itself). */
+export async function uploadAvatar(file: File): Promise<AccountProfile> {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const token = getAccessToken();
+  const response = await fetch(`${env.NEXT_PUBLIC_API_URL}/account/avatar`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => undefined);
+    throw new ApiError(response.status, body?.message ?? response.statusText, body);
+  }
+  return (await response.json()) as AccountProfile;
+}
+
+export function deleteAvatar(): Promise<AccountProfile> {
+  return apiFetch<AccountProfile>('/account/avatar', { method: 'DELETE' });
 }
 
 /** `GET /api/account/sessions` response — one row per active `Session` (Sprint 3.3 §4). */

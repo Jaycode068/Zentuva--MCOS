@@ -50,6 +50,14 @@ module.exports = {
           DEFAULT: 'hsl(var(--brand-purple))',
           foreground: 'hsl(var(--brand-purple-foreground))',
         },
+        brandOrange: {
+          DEFAULT: 'hsl(var(--brand-orange))',
+          foreground: 'hsl(var(--brand-orange-foreground))',
+        },
+        brandTeal: {
+          DEFAULT: 'hsl(var(--brand-teal))',
+          foreground: 'hsl(var(--brand-teal-foreground))',
+        },
       },
       borderRadius: {
         lg: 'var(--radius)',

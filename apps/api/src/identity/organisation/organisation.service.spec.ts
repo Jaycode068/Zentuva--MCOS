@@ -54,6 +54,8 @@ describe('OrganisationService.register', () => {
     firstName: 'Boby',
     lastName: 'Owner',
     phoneNumber: null,
+    avatarUrl: null,
+    avatarKey: null,
     passwordHash: 'hashed',
     status: 'ACTIVE',
     failedLoginAttempts: 0,

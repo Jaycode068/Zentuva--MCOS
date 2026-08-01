@@ -4,6 +4,7 @@ import { CreateUserInput, UpdateUserInput, UserManagementStatusInput } from '@ze
 
 import { notImplemented } from '../common/not-implemented';
 import { PASSWORD_HASHER, PasswordHasher } from '../crypto/password-hasher.port';
+import { FILE_STORAGE, FileStorage } from '../organisation/ports/file-storage.port';
 import { RoleService } from '../role/role.service';
 import { ListUsersParams, UserRepository, UserWithRoles } from './user.repository';
 
@@ -22,6 +23,7 @@ export class UserService {
     private readonly userRepository: UserRepository,
     private readonly roleService: RoleService,
     @Inject(PASSWORD_HASHER) private readonly passwordHasher: PasswordHasher,
+    @Inject(FILE_STORAGE) private readonly fileStorage: FileStorage,
   ) {}
 
   getById(organisationId: string, id: string): Promise<User | null> {
@@ -137,6 +139,65 @@ export class UserService {
 
   updateProfile(organisationId: string, id: string, input: UpdateUserProfileInput): Promise<User> {
     return this.userRepository.updateProfile(organisationId, id, input);
+  }
+
+  /**
+   * Profile photo upload (`POST /api/account/avatar`) — added when Sprint 3.3's
+   * "placeholder only" avatar became a real upload, following the exact pattern Sprint
+   * 3.4 established for `OrganisationService.setLogo`: upload via the same injected
+   * {@link FileStorage} port, store the resulting URL, and best-effort delete the
+   * previous file (if any) so replacing a photo doesn't leak orphaned files. The old
+   * file's storage key lives in `User.avatarKey` — its own column rather than a JSON
+   * blob, since User (unlike Organisation) has no settings bucket to stash it in.
+   */
+  async setAvatar(
+    organisationId: string,
+    id: string,
+    file: { mimeType: string; buffer: Buffer },
+  ): Promise<User> {
+    const user = await this.getByIdOrThrow(organisationId, id);
+    const previousKey = user.avatarKey;
+
+    const uploaded = await this.fileStorage.upload({
+      organisationId,
+      folder: 'avatars',
+      mimeType: file.mimeType,
+      buffer: file.buffer,
+    });
+
+    const updated = await this.userRepository.updateProfile(organisationId, id, {
+      avatarUrl: uploaded.url,
+      avatarKey: uploaded.key,
+    });
+
+    if (previousKey) {
+      await this.fileStorage.delete(previousKey).catch(() => undefined);
+    }
+    return updated;
+  }
+
+  /** `DELETE /api/account/avatar`. */
+  async removeAvatar(organisationId: string, id: string): Promise<User> {
+    const user = await this.getByIdOrThrow(organisationId, id);
+    const key = user.avatarKey;
+
+    const updated = await this.userRepository.updateProfile(organisationId, id, {
+      avatarUrl: null,
+      avatarKey: null,
+    });
+
+    if (key) {
+      await this.fileStorage.delete(key).catch(() => undefined);
+    }
+    return updated;
+  }
+
+  private async getByIdOrThrow(organisationId: string, id: string): Promise<User> {
+    const user = await this.userRepository.findById(organisationId, id);
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+    return user;
   }
 
   updateStatus(organisationId: string, id: string, status: UserStatus): Promise<User> {

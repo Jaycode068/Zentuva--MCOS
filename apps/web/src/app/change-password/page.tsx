@@ -16,11 +16,11 @@ import { ApiError } from '@/lib/api-client';
 /**
  * Standalone `/change-password` page (Sprint 3.3 §2), reused for two entry points:
  * voluntary changes from `/account/security`, and the forced first-login redirect
- * (`AuthenticatedNav`'s `mustChangePassword` guard, §5) — both post the same
- * `POST /api/account/change-password` request and land back on `/settings/organisation`
- * on success ("Continue normally", per the brief). `POST /account/change-password` keeps
- * the current session signed in (it only revokes *other* sessions), so no re-login is
- * needed after a successful change.
+ * (`Topbar`'s `mustChangePassword` guard, §5) — both post the same
+ * `POST /api/account/change-password` request and land back on `/workspace` on success
+ * ("Continue normally", per the brief — `/workspace` is the permanent landing page as of
+ * Sprint 3.5). `POST /account/change-password` keeps the current session signed in (it
+ * only revokes *other* sessions), so no re-login is needed after a successful change.
  */
 export default function ChangePasswordPage() {
   const router = useRouter();
@@ -33,7 +33,7 @@ export default function ChangePasswordPage() {
   const mutation = useMutation({
     mutationFn: (values: ChangePasswordInput) => changePassword(values),
     onSuccess: () => {
-      router.push('/settings/organisation');
+      router.push('/workspace');
     },
   });
 

@@ -9,4 +9,6 @@
 export const ACCOUNT_AUDIT_ACTIONS = {
   PROFILE_UPDATED: 'account.profile.updated',
   PASSWORD_CHANGED: 'account.password.changed',
+  AVATAR_UPLOADED: 'account.avatar.uploaded',
+  AVATAR_REMOVED: 'account.avatar.removed',
 } as const;

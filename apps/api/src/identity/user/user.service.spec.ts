@@ -2,6 +2,7 @@ import { ConflictException, NotFoundException } from '@nestjs/common';
 import { Role, UserStatus } from '@prisma/client';
 
 import { PasswordHasher } from '../crypto/password-hasher.port';
+import { FileStorage } from '../organisation/ports/file-storage.port';
 import { RoleService } from '../role/role.service';
 import { UserRepository, UserWithRoles } from './user.repository';
 import { UserService } from './user.service';
@@ -25,6 +26,8 @@ describe('UserService', () => {
     firstName: 'Jane',
     lastName: 'Doe',
     phoneNumber: null,
+    avatarUrl: null,
+    avatarKey: null,
     passwordHash: 'hashed',
     status: UserStatus.ACTIVE,
     failedLoginAttempts: 0,
@@ -41,17 +44,22 @@ describe('UserService', () => {
     const userRepository = {
       existsByEmail: jest.fn(),
       createWithRole: jest.fn(),
+      findById: jest.fn(),
       findByIdWithRoles: jest.fn(),
       updateProfile: jest.fn(),
       updateStatus: jest.fn(),
-    } as unknown as UserRepository;
+    } as unknown as jest.Mocked<UserRepository>;
     const roleService = {
       getByName: jest.fn(),
       replaceUserRole: jest.fn(),
     } as unknown as RoleService;
     const passwordHasher = { hash: jest.fn(), compare: jest.fn() } as unknown as PasswordHasher;
-    const service = new UserService(userRepository, roleService, passwordHasher);
-    return { service, userRepository, roleService, passwordHasher };
+    const fileStorage = {
+      upload: jest.fn(),
+      delete: jest.fn().mockResolvedValue(undefined),
+    } as unknown as jest.Mocked<FileStorage>;
+    const service = new UserService(userRepository, roleService, passwordHasher, fileStorage);
+    return { service, userRepository, roleService, passwordHasher, fileStorage };
   }
 
   describe('createUser', () => {
@@ -162,6 +170,90 @@ describe('UserService', () => {
       });
       expect(userRepository.updateStatus).not.toHaveBeenCalled();
       expect(roleService.replaceUserRole).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('setAvatar', () => {
+    it('uploads the file, stores the URL, and stashes the storage key', async () => {
+      const { service, userRepository, fileStorage } = makeService();
+      userRepository.findById.mockResolvedValue(user);
+      fileStorage.upload.mockResolvedValue({
+        url: 'https://cdn.test/avatars/new.png',
+        key: 'avatars/org-1/new.png',
+      });
+
+      await service.setAvatar('org-1', 'user-1', {
+        mimeType: 'image/png',
+        buffer: Buffer.from('x'),
+      });
+
+      expect(fileStorage.upload).toHaveBeenCalledWith({
+        organisationId: 'org-1',
+        folder: 'avatars',
+        mimeType: 'image/png',
+        buffer: Buffer.from('x'),
+      });
+      expect(userRepository.updateProfile).toHaveBeenCalledWith('org-1', 'user-1', {
+        avatarUrl: 'https://cdn.test/avatars/new.png',
+        avatarKey: 'avatars/org-1/new.png',
+      });
+    });
+
+    it('deletes the previous avatar file after a successful replacement', async () => {
+      const { service, userRepository, fileStorage } = makeService();
+      userRepository.findById.mockResolvedValue({
+        ...user,
+        avatarUrl: 'https://cdn.test/avatars/old.png',
+        avatarKey: 'avatars/org-1/old.png',
+      });
+      fileStorage.upload.mockResolvedValue({
+        url: 'https://cdn.test/avatars/new.png',
+        key: 'avatars/org-1/new.png',
+      });
+
+      await service.setAvatar('org-1', 'user-1', {
+        mimeType: 'image/png',
+        buffer: Buffer.from('x'),
+      });
+
+      expect(fileStorage.delete).toHaveBeenCalledWith('avatars/org-1/old.png');
+    });
+
+    it('throws NotFoundException when the user no longer exists', async () => {
+      const { service, userRepository } = makeService();
+      userRepository.findById.mockResolvedValue(null);
+
+      await expect(
+        service.setAvatar('org-1', 'missing', { mimeType: 'image/png', buffer: Buffer.from('x') }),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('removeAvatar', () => {
+    it('clears the URL/key and deletes the file', async () => {
+      const { service, userRepository, fileStorage } = makeService();
+      userRepository.findById.mockResolvedValue({
+        ...user,
+        avatarUrl: 'https://cdn.test/avatars/old.png',
+        avatarKey: 'avatars/org-1/old.png',
+      });
+
+      await service.removeAvatar('org-1', 'user-1');
+
+      expect(userRepository.updateProfile).toHaveBeenCalledWith('org-1', 'user-1', {
+        avatarUrl: null,
+        avatarKey: null,
+      });
+      expect(fileStorage.delete).toHaveBeenCalledWith('avatars/org-1/old.png');
+    });
+
+    it('is a no-op delete when no avatar was ever uploaded', async () => {
+      const { service, userRepository, fileStorage } = makeService();
+      userRepository.findById.mockResolvedValue(user);
+
+      await service.removeAvatar('org-1', 'user-1');
+
+      expect(fileStorage.delete).not.toHaveBeenCalled();
     });
   });
 });

@@ -7,6 +7,84 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 3.5 Workspace Dashboard & Global Navigation] - 2026-08-01
+
+### Added
+
+- **Permanent Workspace shell** — `apps/web/src/components/workspace/` (`WorkspaceLayout`,
+  `Sidebar`, `Topbar`, `NavigationGroup`, `NavigationItem`, `WorkspaceHeader`,
+  `QuickActionCard`, `ModuleCard`) replaces the ad-hoc `AuthenticatedNav` every
+  `/settings/*`/`/account/*` route previously imported on its own. Desktop renders a fixed
+  left sidebar + top bar; mobile/tablet collapse the sidebar into a slide-over drawer
+  opened from a hamburger button. Wired in once via `apps/web/src/app/(app)/layout.tsx` (a
+  Next.js route group — adds no URL segment), so every authenticated route shares one
+  layout instance instead of duplicating navigation per route.
+- **`/workspace` — the new permanent landing page after login**
+  (`apps/web/src/app/(app)/workspace/page.tsx`): a welcome header (organisation logo/name +
+  workspace theme), a Quick Actions grid (Manage Organisation, Manage Users, Product
+  Catalogue, View Profile), a Platform Modules grid covering every domain from
+  `docs/roadmap.md` Phase 2/3 (active modules link out, unbuilt ones render disabled with a
+  "Coming Soon" badge), and two static placeholder cards (Recent Activity, Platform
+  Status) — deliberately not metric-heavy or backed by any new API, per the brief's
+  explicit "Out of Scope: analytics, charts, KPIs, notifications, activity feeds."
+- `apps/web/src/components/workspace/navigation-config.ts` — single source of truth for
+  the sidebar's three sections (Workspace/Administration/Support) and the sidebar/Platform
+  Modules grid it drives. Adding a future module means adding one entry here.
+- `apps/web/src/components/workspace/icons.tsx` — a small hand-rolled stroke-icon set (no
+  icon-library dependency added), same rationale as the existing hand-rolled `Dialog`/
+  `DropdownMenu`/marketing `Logo`.
+- **Orange and teal brand tokens** (`--brand-orange`, `--brand-teal` in
+  `packages/ui/src/styles.css`, `brandOrange`/`brandTeal` in
+  `packages/config/tailwind/preset.js`) — decorative accents (not tenant-customisable like
+  `--primary`/`--accent-pink`, not the platform identity mark like `--brand-purple`) used
+  to rotate purple/pink/orange/teal across the Platform Modules grid, per the brief's
+  "navigation should reflect these brand colours, not just purple."
+
+### Changed
+
+- **Login now redirects to `/workspace`** instead of `/settings/organisation`
+  (`apps/web/src/app/login/page.tsx`); the forced first-login `mustChangePassword` →
+  `/change-password` branch is unchanged, and `/change-password`'s own post-success
+  redirect now also lands on `/workspace` (`apps/web/src/app/change-password/page.tsx`).
+- **Route restructuring, no URL changes**: `settings/organisation`, `settings/users`,
+  `account/profile`, `account/security`, `account/sessions` moved under a new
+  `app/(app)/` route group so they share `WorkspaceLayout`. Because route groups add no
+  URL segment, every existing link/bookmark to these pages keeps working unchanged —
+  confirmed in the production build's route table and via live browser navigation.
+  `apps/web/src/app/settings/layout.tsx` and `apps/web/src/app/account/layout.tsx` (each
+  independently rendering `AuthenticatedNav`) are deleted, replaced by the one
+  `app/(app)/layout.tsx`.
+- `AuthenticatedNav` is retired; its logic (account/workspace queries, branding
+  application, `mustChangePassword` guard, account dropdown) moved into `Topbar`, which
+  also gained a mobile hamburger button and now shows the user's uploaded profile photo in
+  the account-menu trigger when one exists (falls back to initials otherwise).
+
+### Fixed
+
+- **`/account/profile`'s "Profile Photo" card is a real upload**, not the Sprint 3.3
+  disabled placeholder. Built the same way as Sprint 3.4's organisation logo upload:
+  `POST`/`DELETE /api/account/avatar` (`apps/api/src/identity/account/account.controller.ts`)
+  reuse the same `FileStorage` port and a new shared `assertValidImageFile` validator
+  (`apps/api/src/identity/common/image-upload-validation.ts`, extracted from the
+  logo-upload validation `SettingsController` already had). `User.avatarUrl`/`avatarKey`
+  are new plain nullable columns (migration `20260801010000_add_user_avatar_fields`) —
+  `avatarKey` is its own column rather than stashed in a JSON `settings` blob the way
+  Organisation does it, since `User` has no such bucket. Frontend: a new shared
+  `ImageUploadCard` component (`apps/web/src/components/app/image-upload-card.tsx`)
+  replaces what would otherwise be two near-identical upload/preview/replace/remove
+  implementations — the Branding tab's logo cards were refactored to use it too, so both
+  features share one implementation instead of two.
+
+### Known limitations
+
+- Platform Modules grid descriptions and the module list itself are static copy — nothing
+  reads from `docs/backlog.md`'s Epics programmatically.
+- No `defaultLandingPage` preference is consumed anywhere yet (Sprint 3.4 added the
+  Preferences toggle; login always redirects to a fixed destination regardless of its
+  value) — unchanged by this sprint.
+- "Workspace Settings" (Administration section) and every module below Dashboard render
+  as "Coming Soon" per the brief — no route exists for them yet.
+
 ## [Sprint 3.4 Workspace Configuration & Organisation Branding] - 2026-08-01
 
 ### Added

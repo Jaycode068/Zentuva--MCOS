@@ -37,6 +37,16 @@
        (pink) specifically so CTAs/links/focus don't compete visually with heading color. */
     --brand-purple: 258 55% 32%;
     --brand-purple-foreground: 0 0% 98%;
+
+    /* Sprint 3.5 — orange/teal, added for the Workspace shell's Platform Modules grid so
+       each module family gets a distinct accent (purple/pink/orange/teal rotation) instead
+       of every card looking identical. Decorative accents only, not tenant-customisable
+       like `--primary`/`--accent-pink` and not the platform identity mark like
+       `--brand-purple` — no component reads these unless it explicitly opts in. */
+    --brand-orange: 28 85% 55%;
+    --brand-orange-foreground: 0 0% 100%;
+    --brand-teal: 174 65% 32%;
+    --brand-teal-foreground: 0 0% 100%;
   }
 
   .dark {
@@ -64,6 +74,11 @@
     --accent-pink-foreground: 330 40% 10%;
     --brand-purple: 258 55% 72%;
     --brand-purple-foreground: 258 40% 10%;
+
+    --brand-orange: 28 80% 62%;
+    --brand-orange-foreground: 28 40% 10%;
+    --brand-teal: 174 55% 52%;
+    --brand-teal-foreground: 174 40% 10%;
   }
 }
 
