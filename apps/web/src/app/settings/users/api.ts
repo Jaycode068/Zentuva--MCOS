@@ -20,12 +20,6 @@ export function listUsers(): Promise<{ items: OrgUser[] }> {
   return apiFetch<{ items: OrgUser[] }>('/users');
 }
 
-/** Added Sprint 3.2 — the authenticated top nav's avatar needs the current user's own
- *  name/initials. */
-export function getUser(id: string): Promise<OrgUser> {
-  return apiFetch<OrgUser>(`/users/${id}`);
-}
-
 export function createUser(input: CreateUserInput): Promise<OrgUser> {
   return apiFetch<OrgUser>('/users', {
     method: 'POST',

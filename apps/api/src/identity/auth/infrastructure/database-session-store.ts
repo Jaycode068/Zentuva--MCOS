@@ -63,6 +63,14 @@ export class DatabaseSessionStore implements SessionStore {
     return this.sessionRepository.revokeAllForUser(organisationId, userId);
   }
 
+  revokeAllSessionsForUserExcept(
+    organisationId: string,
+    userId: string,
+    exceptSessionId: string,
+  ): Promise<void> {
+    return this.sessionRepository.revokeAllForUserExcept(organisationId, userId, exceptSessionId);
+  }
+
   listActiveSessions(organisationId: string, userId: string): Promise<Session[]> {
     return this.sessionRepository.findManyByUser(organisationId, userId);
   }

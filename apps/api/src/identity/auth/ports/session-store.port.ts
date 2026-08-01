@@ -30,6 +30,13 @@ export interface SessionStore {
   touchSession(sessionId: string): Promise<void>;
   revokeSession(organisationId: string, sessionId: string): Promise<void>;
   revokeAllSessionsForUser(organisationId: string, userId: string): Promise<void>;
+  /** Added Sprint 3.3 — change-password revokes every other session but keeps the one
+   *  making the request signed in (brief §2). */
+  revokeAllSessionsForUserExcept(
+    organisationId: string,
+    userId: string,
+    exceptSessionId: string,
+  ): Promise<void>;
   listActiveSessions(organisationId: string, userId: string): Promise<Session[]>;
 }
 

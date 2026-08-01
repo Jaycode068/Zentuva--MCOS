@@ -2,22 +2,26 @@
 
 - **Status:** Database & Domain Layer (Sprint 1B.1), Authentication Layer (Sprint 1B.2), the
   Organisation Profile API + frontend (Sprint 2.1), the User Management API + frontend
-  (Sprint 2.2), and self-service tenant registration (`POST /auth/register` + `/register`,
-  `/register/success`, `/login` frontend pages — Sprint 3.2) are implemented against this
+  (Sprint 2.2), self-service tenant registration (`POST /auth/register` + `/register`,
+  `/register/success`, `/login` frontend pages — Sprint 3.2), and full account self-service
+  (`/api/account/*` + `/account/profile`, `/account/security`, `/account/sessions`,
+  `/change-password`, `/reset-password/[token]` — Sprint 3.3) are implemented against this
   design. Full RBAC evaluation (the `Permission`/`RolePermission` engine in §6 — Sprints
   2.1/2.2 added only a role-name check, reused since) and the remaining APIs (Invitations,
   Roles) still don't exist.
 - **Sprint:** 1A (design), refined 1A.1 (post-review), implemented 1B.1 (database & domain
-  layer), 1B.2 (authentication layer), 2.1 (Organisation Profile), 2.2 (User Management), and
-  3.2 (Tenant Registration & Organisation Onboarding)
+  layer), 1B.2 (authentication layer), 2.1 (Organisation Profile), 2.2 (User Management),
+  3.2 (Tenant Registration & Organisation Onboarding), and 3.3 (Account Management &
+  Authentication Experience)
 - **Depends on:** [ADR-003 — Multi-Tenancy](../adr/ADR-003-multi-tenancy.md), [ADR-002 — Modular Monolith](../adr/ADR-002-modular-monolith.md)
 - **See also:** [Sprint 1A Design Report](../sprint-1A-identity-design-report.md) (decisions,
   assumptions, open questions, and the [Post-Review Refinements](../sprint-1A-identity-design-report.md#post-review-refinements)
   from 1A.1), [Sprint 1B.1 Completion Report](../sprint-1B.1-completion-report.md),
   [Sprint 1B.2 Completion Report](../sprint-1B.2-completion-report.md),
   [Sprint 2.1 Completion Report](../sprint-2.1-completion-report.md),
-  [Sprint 2.2 Completion Report](../sprint-2.2-completion-report.md), and
-  [Sprint 3.2 Completion Report](../sprint-3.2-completion-report.md) for what changed during
+  [Sprint 2.2 Completion Report](../sprint-2.2-completion-report.md),
+  [Sprint 3.2 Completion Report](../sprint-3.2-completion-report.md), and
+  [Sprint 3.3 Completion Report](../sprint-3.3-completion-report.md) for what changed during
   implementation and why.
 
 ## 1. Domain Overview
@@ -255,6 +259,15 @@ section covers responsibility, ownership, and lifecycle.
   the same audit/history reasons as Organisation.
 - **`failedLoginAttempts`** _(added Sprint 1B.2)_: consecutive failed logins since the last
   success; reset to 0 on success; drives the automatic `LOCKED` transition above. See §9.
+- **`phoneNumber`**, **`mustChangePassword`**, **`passwordChangedAt`** _(added Sprint 3.3)_:
+  `phoneNumber` is an optional profile field, editable via `PATCH /api/account/profile`.
+  `mustChangePassword` (default `false`) forces a redirect to `/change-password` on next
+  login before the user can continue anywhere else — set `true` only when an
+  Administrator creates a User with a temporary password (§10 "Users"); self-service
+  registration and invitation acceptance leave it `false`, since the user already chose
+  their own password in both flows. `passwordChangedAt` is stamped whenever a password is
+  set via change-password or reset-password (`null` until then — "Password Last Changed:
+  Never" in the Security page), never at initial creation.
 
 **Status values** (`UserStatus`, expanded post-review — see
 [Post-Review Refinements](../sprint-1A-identity-design-report.md#post-review-refinements)):
@@ -396,6 +409,28 @@ regardless of whether the email exists, to avoid leaking which emails are regist
 password — API validates the token, updates the password hash, marks the token used, and **revokes
 every existing Session for that user** (a password reset invalidates all prior logins, since the
 old password may have been compromised).
+
+### Change Password Flow
+
+_Added Sprint 3.3._ Self-service, from an authenticated session (`POST /api/account/
+change-password`): the caller supplies their current password (verified against the
+stored hash) and a new one — API hashes and stores the new password, then **revokes every
+Session for that user except the one making the request**. This is deliberately different
+from the Password Reset Flow above (which revokes _every_ session, including the
+requester's): a password reset is triggered by someone who's currently locked out and may
+be responding to a suspected compromise, so nothing is trusted; a password change is
+made by someone already holding a valid, currently-authenticated session who has also just
+re-proven they know the (old) password, so that session stays signed in — the intent is
+"log out my other devices," not "log out everywhere including this one."
+
+### First Login Password Change
+
+_Added Sprint 3.3._ If an Administrator creates a User with a temporary password (§10
+"Users"), that User's `mustChangePassword` flag (§4) is `true`. On next login, the API's
+response includes this flag; the frontend redirects to `/change-password` before letting
+the user reach anywhere else in the product. Submitting a successful change (same
+endpoint and behaviour as the Change Password Flow above) clears the flag as a side effect
+of `UserRepository.updatePasswordHash`, and the user continues normally from there.
 
 ### Invitation Flow
 
@@ -572,6 +607,8 @@ through a parent table to discover which tenant a row belongs to.
 | `auth.refresh.reuse_detected`                       | Refresh token reuse (possible theft) — see §5                                                                                                                                                                     |
 | `auth.session.revoked` _(added 1B.2)_               | A session was force-revoked outside a normal single-session logout (refresh-token reuse, password reset)                                                                                                          |
 | `user.locked` _(added 1B.2)_                        | Account locked after `MAX_LOGIN_ATTEMPTS` failed logins — see §4                                                                                                                                                  |
+| `account.profile.updated` _(added 3.3)_             | Caller updates their own profile via `PATCH /api/account/profile`                                                                                                                                                 |
+| `account.password.changed` _(added 3.3)_            | Caller changes their own password via `POST /api/account/change-password` — distinct from `auth.password.reset`, which goes through a reset token instead                                                         |
 | `invitation.created` / `.revoked` / `.accepted`     | Full invitation lifecycle                                                                                                                                                                                         |
 | `role.created` / `.updated` / `.deleted`            | Custom role changes                                                                                                                                                                                               |
 | `role.assigned` / `.unassigned`                     | A user's role membership changes                                                                                                                                                                                  |
@@ -721,10 +758,16 @@ model User {
   employeeCode        String?
   firstName           String
   lastName            String
+  /// Added Sprint 3.3 — see §4.
+  phoneNumber         String?
   passwordHash        String
   status              UserStatus @default(INVITED)
   /// Added Sprint 1B.2 — see §4 "failedLoginAttempts".
   failedLoginAttempts Int        @default(0)
+  /// Added Sprint 3.3 — see §4 and §5 "First Login Password Change".
+  mustChangePassword  Boolean    @default(false)
+  /// Added Sprint 3.3 — see §4.
+  passwordChangedAt   DateTime?
   emailVerifiedAt     DateTime?
   lastLoginAt         DateTime?
   createdAt           DateTime   @default(now())
@@ -974,6 +1017,26 @@ for the full reasoning):
 - User creation is direct (creator sets a temporary password, no invitation email) — the new
   user is `ACTIVE` immediately, skipping `INVITED` entirely. The `POST /invitations` flow
   below remains the alternative, not-yet-implemented path.
+
+### Account
+
+_Implemented as of Sprint 3.3_ — not sketched anywhere in the original §10 design (this
+whole surface is new this sprint), so there's no "deviation from sketch" to reconcile.
+Every route requires only authentication (no `RolesGuard`) since every action is scoped
+to the caller's own account, not another user's.
+
+| Endpoint                            | Auth                   | Input                                               | Output                                                                                                            |
+| ----------------------------------- | ---------------------- | --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `GET /api/account/profile`          | Any authenticated user | —                                                   | `200` — own name/phone (editable) + employee code/email/role/organisation/joined date/security fields (read-only) |
+| `PATCH /api/account/profile`        | Any authenticated user | Partial `{ firstName, lastName, phoneNumber }`      | `200` — same shape as `GET`                                                                                       |
+| `POST /api/account/change-password` | Any authenticated user | `{ currentPassword, newPassword, confirmPassword }` | `204` — see §5 "Change Password Flow"                                                                             |
+| `GET /api/account/sessions`         | Any authenticated user | —                                                   | `200 { items: Session[] }`, each flagged `isCurrent`                                                              |
+| `DELETE /api/account/sessions/:id`  | Any authenticated user | —                                                   | `200 { revoked, wasCurrentSession }` — 404 if the id doesn't belong to the caller                                 |
+
+`GET /auth/sessions` (Sprint 1B.2) still exists unchanged and returns the same shape —
+`/api/account/sessions` is the documented, canonical route going forward, but the older
+one was left in place since nothing about removing an unused-by-any-frontend route was
+worth the risk of an undocumented consumer breaking.
 
 ### Invitations
 

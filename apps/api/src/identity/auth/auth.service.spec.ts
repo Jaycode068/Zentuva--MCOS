@@ -1,4 +1,4 @@
-import { UnauthorizedException } from '@nestjs/common';
+import { NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   Invitation,
@@ -9,6 +9,7 @@ import {
   UserStatus,
 } from '@prisma/client';
 
+import { ACCOUNT_AUDIT_ACTIONS } from '../account/account-audit-actions';
 import { AuditService } from '../audit/audit.service';
 import { InvitationService } from '../invitation/invitation.service';
 import { PasswordResetService } from '../password-reset/password-reset.service';
@@ -28,9 +29,12 @@ function makeUser(overrides: Partial<User> = {}): User {
     employeeCode: null,
     firstName: 'Jane',
     lastName: 'Doe',
+    phoneNumber: null,
     passwordHash: 'hashed',
     status: UserStatus.ACTIVE,
     failedLoginAttempts: 0,
+    mustChangePassword: false,
+    passwordChangedAt: null,
     emailVerifiedAt: null,
     lastLoginAt: null,
     createdAt: new Date(),
@@ -140,6 +144,7 @@ describe('AuthService', () => {
       touchSession: jest.fn(),
       revokeSession: jest.fn(),
       revokeAllSessionsForUser: jest.fn(),
+      revokeAllSessionsForUserExcept: jest.fn(),
       listActiveSessions: jest.fn(),
     } as unknown as jest.Mocked<SessionStore>;
 
@@ -179,6 +184,7 @@ describe('AuthService', () => {
         lastName: user.lastName,
         organisationId: user.organisationId,
         status: user.status,
+        mustChangePassword: user.mustChangePassword,
       });
       expect(result.user).not.toHaveProperty('passwordHash');
       expect(userService.resetFailedLoginAttempts).toHaveBeenCalledWith(user.id);
@@ -527,6 +533,105 @@ describe('AuthService', () => {
 
       expect(result).toBe(sessions);
       expect(sessionStore.listActiveSessions).toHaveBeenCalledWith('org-1', 'user-1');
+    });
+  });
+
+  // -----------------------------------------------------------------------------
+  // Account Management (Sprint 3.3)
+  // -----------------------------------------------------------------------------
+  describe('changePassword', () => {
+    it('verifies the current password, sets the new one, and revokes every other session', async () => {
+      const user = makeUser();
+      userService.getById.mockResolvedValue(user);
+      userService.verifyPassword.mockResolvedValue(true);
+      userService.hashPassword.mockResolvedValue('new-hashed');
+
+      await authService.changePassword(
+        'org-1',
+        'user-1',
+        'session-current',
+        'oldPass1!',
+        'NewPass1!',
+        context,
+      );
+
+      expect(userService.verifyPassword).toHaveBeenCalledWith(user, 'oldPass1!');
+      expect(userService.hashPassword).toHaveBeenCalledWith('NewPass1!');
+      expect(userService.setPasswordHash).toHaveBeenCalledWith('user-1', 'new-hashed');
+      expect(sessionStore.revokeAllSessionsForUserExcept).toHaveBeenCalledWith(
+        'org-1',
+        'user-1',
+        'session-current',
+      );
+      expect(auditService.record).toHaveBeenCalledWith(
+        expect.objectContaining({ action: ACCOUNT_AUDIT_ACTIONS.PASSWORD_CHANGED }),
+      );
+      expect(auditService.record).toHaveBeenCalledWith(
+        expect.objectContaining({ action: AUTH_AUDIT_ACTIONS.SESSION_REVOKED }),
+      );
+    });
+
+    it('rejects an incorrect current password without touching sessions', async () => {
+      const user = makeUser();
+      userService.getById.mockResolvedValue(user);
+      userService.verifyPassword.mockResolvedValue(false);
+
+      await expect(
+        authService.changePassword(
+          'org-1',
+          'user-1',
+          'session-current',
+          'wrong',
+          'NewPass1!',
+          context,
+        ),
+      ).rejects.toThrow('Current password is incorrect');
+      expect(userService.setPasswordHash).not.toHaveBeenCalled();
+      expect(sessionStore.revokeAllSessionsForUserExcept).not.toHaveBeenCalled();
+    });
+
+    it('throws NotFoundException when the user no longer exists', async () => {
+      userService.getById.mockResolvedValue(null);
+
+      await expect(
+        authService.changePassword('org-1', 'missing', 'session-1', 'old', 'NewPass1!', context),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('revokeSession', () => {
+    it('revokes a session owned by the caller and records an audit entry', async () => {
+      const session = makeSession({ id: 'session-2', userId: 'user-1' });
+      sessionStore.findSessionById.mockResolvedValue(session);
+
+      await authService.revokeSession('org-1', 'user-1', 'session-2');
+
+      expect(sessionStore.revokeSession).toHaveBeenCalledWith('org-1', 'session-2');
+      expect(auditService.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: AUTH_AUDIT_ACTIONS.SESSION_REVOKED,
+          metadata: { sessionId: 'session-2', reason: 'user_revoked' },
+        }),
+      );
+    });
+
+    it('throws NotFoundException for a session that does not exist', async () => {
+      sessionStore.findSessionById.mockResolvedValue(null);
+
+      await expect(authService.revokeSession('org-1', 'user-1', 'nope')).rejects.toThrow(
+        NotFoundException,
+      );
+      expect(sessionStore.revokeSession).not.toHaveBeenCalled();
+    });
+
+    it("throws NotFoundException for another user's session (ownership check)", async () => {
+      const session = makeSession({ id: 'session-3', userId: 'someone-else' });
+      sessionStore.findSessionById.mockResolvedValue(session);
+
+      await expect(authService.revokeSession('org-1', 'user-1', 'session-3')).rejects.toThrow(
+        NotFoundException,
+      );
+      expect(sessionStore.revokeSession).not.toHaveBeenCalled();
     });
   });
 });

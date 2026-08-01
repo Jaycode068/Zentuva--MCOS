@@ -102,8 +102,21 @@ model User {
   employeeCode        String?
   firstName           String
   lastName            String
+  /// Optional — Sprint 3.3 "My Profile" page. No format validation beyond the shared
+  /// Zod schema (identity.md doesn't specify one).
+  phoneNumber         String?
   passwordHash        String
   status              UserStatus @default(INVITED)
+  /// Forces a redirect to `/change-password` on next login before the user can continue
+  /// (Sprint 3.3 §5). Set `true` when an Administrator creates a user with a temporary
+  /// password (Sprint 2.2 `createUser`); left `false` for self-service registration and
+  /// invitation acceptance, since both of those flows already have the user choose their
+  /// own password. Cleared automatically whenever a password is set via change-password
+  /// or reset-password.
+  mustChangePassword  Boolean    @default(false)
+  /// Stamped every time the password is set via change-password or reset-password (never
+  /// at initial creation) — Sprint 3.3 Security page's "Password Last Changed".
+  passwordChangedAt   DateTime?
   /// Consecutive failed login attempts since the last success. Reset to 0 on successful
   /// login; reaching MAX_LOGIN_ATTEMPTS (env-configured) transitions status to LOCKED.
   /// Added Sprint 1B.2 — identity.md's LOCKED status (§4, added 1A.1) deliberately left

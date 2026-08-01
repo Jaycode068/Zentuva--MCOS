@@ -7,6 +7,79 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 3.3 Account Management & Authentication Experience] - 2026-07-31
+
+### Added
+
+- `apps/api/src/identity/account/` — a new `AccountController`/`AccountModule` at
+  `/api/account/*`, entirely reusing existing services (`UserService`,
+  `OrganisationService`, `AuthService`, `AuditService`) rather than new repositories:
+  - `GET /account/profile` / `PATCH /account/profile` — the caller's own name, phone
+    number, and (read-only) employee code, email, role, organisation, joined date, plus
+    the security fields (`lastLoginAt`, `failedLoginAttempts`, `passwordChangedAt`,
+    `mustChangePassword`) reused by the Security page.
+  - `POST /account/change-password` — verifies the current password, hashes and stores
+    the new one, and revokes every _other_ active session while keeping the calling
+    session signed in (`AuthService.changePassword` + a new
+    `SessionRepository.revokeAllForUserExcept`).
+  - `GET /account/sessions` / `DELETE /account/sessions/:id` — lists the caller's active
+    sessions and revokes one by id, with an ownership check
+    (`AuthService.revokeSession`) so a session can only be revoked by the user who owns
+    it.
+- `User.phoneNumber`, `User.mustChangePassword`, `User.passwordChangedAt` — three new
+  columns (migration `20260731000000_add_user_account_management_fields`).
+  `mustChangePassword` defaults `true` only for accounts created with an admin-chosen
+  temporary password (`UserService.createUser`, Sprint 2.2); self-registered Owners and
+  invitation-acceptance users default `false`, since both already chose their own
+  password. `passwordChangedAt` is stamped by `UserRepository.updatePasswordHash`
+  (shared by change-password and reset-password) and starts `null` ("Never changed").
+- `strongPasswordSchema` in `@zentuva/validation` (min length + upper/lower/number/
+  special character), applied to both the new `changePasswordSchema` and — as a
+  consistency fix — the existing `resetPasswordSchema` (Sprint 1B.2), so every "set a new
+  password" path enforces the same policy.
+- Frontend: `/change-password` (shared by voluntary changes and the forced first-login
+  redirect), `/reset-password/[token]` (completes the Sprint 3.2 forgot-password flow —
+  `POST /auth/password/reset` existed since Sprint 1B.2 but had no frontend page until
+  now), and `/account/profile`, `/account/security`, `/account/sessions` (wrapped in a
+  shared `AccountTabs` sub-nav).
+- `PasswordStrength` and `PasswordInput` components
+  (`apps/web/src/components/auth/`) — a live strength checklist and a show/hide-password
+  toggle, shared across `/login`, `/change-password`, and `/reset-password/[token]`.
+- `packages/ui/src/components/dropdown-menu.tsx` — hand-rolled (no Radix, same rationale
+  as `Dialog` in Sprint 2.2), used by `AuthenticatedNav`'s new user menu (My Profile /
+  Security / Active Sessions / Logout), replacing the bare Logout button from Sprint 3.2.
+- `AuthenticatedNav` now calls the new `GET /api/account/profile` instead of Sprint 3.2's
+  `GET /api/users/:id` + client-side JWT decode — one request now covers the avatar's
+  display data _and_ the `mustChangePassword` flag, which the component uses to redirect
+  to `/change-password` before rendering anything else on any `/settings/*`/`/account/*`
+  page. `UserController`'s `getUser`-for-self hack and `api-client.ts`'s
+  `getCurrentUserId` are removed as a result — both are now genuinely dead code.
+- Login page improvements: Remember Me checkbox (backed by a new `remember` parameter on
+  `setTokens` — `true` uses `localStorage`, `false` uses `sessionStorage`), show/hide
+  password, autofocus on the email field, and a "password updated" banner after a
+  successful reset (`/login?passwordReset=1`).
+- `POST /auth/password/request-reset`'s dev-mode `resetToken` is now surfaced on
+  `/login/forgot-password` as a clickable dev-only link — there's still no real email
+  service ("mock for now" per the brief), so this is how the reset flow is testable at
+  all without one.
+- Every new mutation is audited: `account.profile.updated`, `account.password.changed`
+  (new — `apps/api/src/identity/account/account-audit-actions.ts`), plus session
+  revocation and password-reset events reusing the existing `auth.session.revoked`/
+  `auth.password.reset_requested`/`auth.password.reset` actions from Sprint 1B.2.
+- 12 new backend unit tests (`account.controller.spec.ts`, plus `changePassword`/
+  `revokeSession` cases added to `auth.service.spec.ts`) — 89/89 total.
+
+### Known limitations
+
+- Discovered (not introduced) during this sprint's manual verification: rapidly calling
+  `POST /auth/refresh` within the same wall-clock second as the token it's rotating was
+  issued can throw a 500 (Prisma unique-constraint collision on `tokenHash`), because
+  refresh JWTs are signed deterministically and `iat` only has second granularity. Only
+  reachable via back-to-back scripted requests, not normal browser use. Flagged as a
+  follow-up task rather than fixed here, per this sprint's "do not redesign already
+  implemented authentication" constraint.
+- "Profile Photo" is a placeholder only, per the brief — no upload endpoint exists.
+
 ## [Sprint 3.2 Tenant Registration & Organisation Onboarding] - 2026-07-31
 
 ### Added

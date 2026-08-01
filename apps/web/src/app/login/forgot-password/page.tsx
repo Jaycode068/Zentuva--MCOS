@@ -12,6 +12,7 @@ import { requestPasswordReset } from '@/lib/auth';
 
 export default function ForgotPasswordPage() {
   const [submitted, setSubmitted] = useState(false);
+  const [devResetToken, setDevResetToken] = useState<string | null>(null);
 
   const form = useForm<ForgotPasswordInput>({
     resolver: zodResolver(forgotPasswordSchema),
@@ -20,7 +21,14 @@ export default function ForgotPasswordPage() {
 
   const mutation = useMutation({
     mutationFn: (values: ForgotPasswordInput) => requestPasswordReset(values.email),
-    onSuccess: () => setSubmitted(true),
+    onSuccess: (result) => {
+      setSubmitted(true);
+      // Sprint 3.3: the API only ever returns `resetToken` in development (see
+      // AuthService.requestPasswordReset) — there is no email service yet ("mock for
+      // now" per the brief), so surfacing it here is how the reset flow is testable at
+      // all locally. Never present in production responses.
+      setDevResetToken(result.resetToken ?? null);
+    },
   });
 
   const errors = form.formState.errors;
@@ -38,9 +46,25 @@ export default function ForgotPasswordPage() {
         </div>
 
         {submitted ? (
-          <p className="rounded-lg border border-border bg-lavender/50 px-4 py-3 text-center text-sm text-lavender-foreground">
-            If an account exists for that email, a password reset link is on its way.
-          </p>
+          <div className="space-y-3">
+            <p className="rounded-lg border border-border bg-lavender/50 px-4 py-3 text-center text-sm text-lavender-foreground">
+              If an account exists for that email, a password reset link is on its way.
+            </p>
+            {devResetToken && (
+              <div className="rounded-lg border border-dashed border-primary/40 bg-primary/5 px-4 py-3 text-sm">
+                <p className="font-medium text-primary">Development mode</p>
+                <p className="mt-1 text-muted-foreground">
+                  No email service is configured yet — here&apos;s the reset link directly:
+                </p>
+                <a
+                  href={`/reset-password/${devResetToken}`}
+                  className="mt-2 block break-all font-medium text-primary hover:underline"
+                >
+                  /reset-password/{devResetToken}
+                </a>
+              </div>
+            )}
+          </div>
         ) : (
           <form
             noValidate

@@ -107,12 +107,53 @@ export const forgotPasswordSchema = z.object({
 });
 export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
 
-/** `POST /auth/password/reset` (identity.md §10). */
+/**
+ * Shared password-strength policy (Sprint 3.3 brief §2: minimum length, uppercase,
+ * lowercase, number, special character). Applied to both `changePasswordSchema` below and
+ * `resetPasswordSchema` — a user setting a new password should face the same policy
+ * whichever flow they came through. Registration's `registerOrganisationSchema` (Sprint
+ * 3.2) is deliberately left untouched here, per this sprint's "do not redesign already
+ * implemented authentication" constraint.
+ */
+export const strongPasswordSchema = z
+  .string()
+  .min(8, 'Must be at least 8 characters')
+  .max(200)
+  .regex(/[a-z]/, 'Must contain a lowercase letter')
+  .regex(/[A-Z]/, 'Must contain an uppercase letter')
+  .regex(/[0-9]/, 'Must contain a number')
+  .regex(/[^A-Za-z0-9]/, 'Must contain a special character');
+
+/** `POST /auth/password/reset` (identity.md §10). `newPassword` upgraded to
+ *  {@link strongPasswordSchema} in Sprint 3.3 — see the note above. */
 export const resetPasswordSchema = z.object({
   token: z.string().min(1),
-  newPassword: z.string().min(8).max(200),
+  newPassword: strongPasswordSchema,
 });
 export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
+
+/** `POST /api/account/change-password` (Sprint 3.3 brief §2). */
+export const changePasswordSchema = z
+  .object({
+    currentPassword: z.string().min(1, 'Current password is required'),
+    newPassword: strongPasswordSchema,
+    confirmPassword: z.string().min(1, 'Please confirm your new password'),
+  })
+  .refine((data) => data.newPassword === data.confirmPassword, {
+    message: 'Passwords do not match',
+    path: ['confirmPassword'],
+  });
+export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
+
+/** `PATCH /api/account/profile` (Sprint 3.3 brief §1) — the authenticated user editing
+ *  their own name/phone. Employee code, email, role, and organisation are read-only per
+ *  the brief and deliberately absent here. */
+export const updateAccountProfileSchema = z.object({
+  firstName: z.string().trim().min(1).max(100).optional(),
+  lastName: z.string().trim().min(1).max(100).optional(),
+  phoneNumber: z.string().trim().min(7).max(30).optional(),
+});
+export type UpdateAccountProfileInput = z.infer<typeof updateAccountProfileSchema>;
 
 /** `PATCH /users/:id` (identity.md §10, employeeCode added Sprint 1A.1). */
 export const updateUserProfileSchema = z.object({

@@ -1,19 +1,31 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
+import { Suspense, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation } from '@tanstack/react-query';
-import { Input, Label, buttonVariants, cn } from '@zentuva/ui';
+import { Checkbox, Input, Label, buttonVariants, cn } from '@zentuva/ui';
 import { loginSchema, type LoginInput } from '@zentuva/validation';
 import { useForm } from 'react-hook-form';
 
 import { AuthShell } from '@/components/auth/auth-shell';
-import { ApiError } from '@/lib/api-client';
+import { PasswordInput } from '@/components/auth/password-input';
+import { ApiError, setTokens } from '@/lib/api-client';
 import { login } from '@/lib/auth';
-import { setTokens } from '@/lib/api-client';
 
 export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginForm />
+    </Suspense>
+  );
+}
+
+function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const justResetPassword = searchParams.get('passwordReset') === '1';
+  const [rememberMe, setRememberMe] = useState(true);
 
   const form = useForm<LoginInput>({
     resolver: zodResolver(loginSchema),
@@ -23,8 +35,10 @@ export default function LoginPage() {
   const mutation = useMutation({
     mutationFn: (values: LoginInput) => login(values),
     onSuccess: (result) => {
-      setTokens(result.accessToken, result.refreshToken);
-      router.push('/settings/organisation');
+      setTokens(result.accessToken, result.refreshToken, rememberMe);
+      // Sprint 3.3 §5 "First Login Password Change" — a forced password change takes
+      // priority over the normal landing page.
+      router.push(result.user.mustChangePassword ? '/change-password' : '/settings/organisation');
     },
   });
 
@@ -40,6 +54,12 @@ export default function LoginPage() {
           <p className="mt-2 text-sm text-muted-foreground">Sign in to your Zentuva workspace.</p>
         </div>
 
+        {justResetPassword && (
+          <p className="mb-6 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-center text-sm text-primary">
+            Your password has been updated. Sign in with your new password.
+          </p>
+        )}
+
         <form
           noValidate
           className="space-y-4"
@@ -47,7 +67,7 @@ export default function LoginPage() {
         >
           <div className="space-y-1.5">
             <Label htmlFor="email">Email</Label>
-            <Input id="email" type="email" {...form.register('email')} />
+            <Input id="email" type="email" autoFocus {...form.register('email')} />
             {errors.email && <p className="text-xs text-destructive">{errors.email.message}</p>}
           </div>
 
@@ -61,11 +81,19 @@ export default function LoginPage() {
                 Forgot password?
               </a>
             </div>
-            <Input id="password" type="password" {...form.register('password')} />
+            <PasswordInput id="password" {...form.register('password')} />
             {errors.password && (
               <p className="text-xs text-destructive">{errors.password.message}</p>
             )}
           </div>
+
+          <label className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Checkbox
+              checked={rememberMe}
+              onChange={(event) => setRememberMe(event.target.checked)}
+            />
+            Remember me on this device
+          </label>
 
           {mutation.isError && (
             <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">

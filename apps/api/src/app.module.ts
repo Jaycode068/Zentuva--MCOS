@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 
 import configuration from './config/configuration';
 import { validateEnv } from './config/env.validation';
+import { AccountModule } from './identity/account/account.module';
 import { AuthModule } from './identity/auth/auth.module';
 import { HealthModule } from './health/health.module';
 import { IdentityModule } from './identity/identity.module';
@@ -23,6 +24,7 @@ import { PrismaModule } from './prisma/prisma.module';
     AuthModule,
     OrganisationModule,
     UserModule,
+    AccountModule,
   ],
 })
 export class AppModule {}

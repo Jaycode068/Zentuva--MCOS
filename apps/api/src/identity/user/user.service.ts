@@ -83,6 +83,11 @@ export class UserService {
         passwordHash,
         status: UserStatus.ACTIVE,
         emailVerifiedAt: new Date(),
+        // Sprint 3.3: this is an admin-chosen temporary password, not one the user picked
+        // themselves — force them to set their own on first login (brief §5). Self-service
+        // registration and invitation acceptance leave this `false` (the schema default),
+        // since the user already chose their own password in both of those flows.
+        mustChangePassword: true,
       },
       organisationId,
       role.id,
@@ -229,6 +234,7 @@ export interface UpdateUserProfileInput {
   firstName?: string;
   lastName?: string;
   employeeCode?: string;
+  phoneNumber?: string;
 }
 
 export interface CreateUserFromRegistrationInput {

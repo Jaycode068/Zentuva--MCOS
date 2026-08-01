@@ -64,12 +64,16 @@ delivered roughly in order, but later Epics may be reordered as priorities evolv
   authorization model to build on.
 - **Description:** Organisation/User/Role/Permission data model, JWT-based authentication
   (login, refresh rotation, logout, password reset, invitation acceptance, account
-  locking), audit logging, and self-service tenant registration (`POST /api/auth/register`
+  locking), audit logging, self-service tenant registration (`POST /api/auth/register`
   atomically provisions a new organisation, its default roles, and an Owner user in one
-  transaction). Full RBAC evaluation (the `Permission`/`RolePermission` engine) is not yet
-  built — role checks are currently a minimal role-name guard, shipped in Sprint 2.1.
+  transaction), and full self-service account management (`/api/account/*`: profile,
+  change password, active sessions) including a forced first-login password change for
+  admin-created accounts. Full RBAC evaluation (the `Permission`/`RolePermission` engine)
+  is not yet built — role checks are currently a minimal role-name guard, shipped in
+  Sprint 2.1.
 - **Status:** Completed — Sprints 1A, 1A.1, 1B.1, 1B.2. Extended in Sprint 3.2 with
-  self-service tenant registration and a sign-in UI.
+  self-service tenant registration and a sign-in UI, and in Sprint 3.3 with account
+  self-service (profile, password change, password reset completion, session management).
 
 ### Epic 2 — Organisation Management
 
@@ -174,6 +178,7 @@ delivered roughly in order, but later Epics may be reordered as priorities evolv
 - ✓ Sprint 2.2 — Organisation Management (User Management)
 - ✓ Sprint 3.1 — Public Marketing Website (Landing Page)
 - ✓ Sprint 3.2 — Tenant Registration & Organisation Onboarding
+- ✓ Sprint 3.3 — Account Management & Authentication Experience
 
 **Current focus:** Sprint 4 — not yet scoped.
 

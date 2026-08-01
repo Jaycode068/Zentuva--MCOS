@@ -23,7 +23,8 @@ export function registerOrganisation(input: RegisterOrganisationInput): Promise<
   });
 }
 
-/** `POST /api/auth/login` response — unchanged since Sprint 1B.2. */
+/** `POST /api/auth/login` response — `mustChangePassword` added Sprint 3.3 (§5, "First
+ *  Login Password Change"). */
 export interface LoginResult {
   accessToken: string;
   refreshToken: string;
@@ -35,6 +36,7 @@ export interface LoginResult {
     lastName: string;
     organisationId: string;
     status: string;
+    mustChangePassword: boolean;
   };
 }
 
@@ -54,11 +56,20 @@ export async function logout(): Promise<void> {
 }
 
 /** `POST /api/auth/password/request-reset` (Sprint 1B.2, unused by any frontend until
- *  now) — always responds `200`, whether or not the email exists (standard practice, so
- *  the response can't be used to enumerate accounts). */
+ *  Sprint 3.2) — always responds `200`, whether or not the email exists (standard
+ *  practice, so the response can't be used to enumerate accounts). */
 export function requestPasswordReset(email: string): Promise<{ resetToken?: string }> {
   return apiFetch<{ resetToken?: string }>('/auth/password/request-reset', {
     method: 'POST',
     body: JSON.stringify({ email }),
+  });
+}
+
+/** `POST /api/auth/password/reset` (Sprint 1B.2 backend, wired to a frontend page for the
+ *  first time in Sprint 3.3 — see `/reset-password/[token]`). */
+export function resetPassword(token: string, newPassword: string): Promise<void> {
+  return apiFetch<void>('/auth/password/reset', {
+    method: 'POST',
+    body: JSON.stringify({ token, newPassword }),
   });
 }

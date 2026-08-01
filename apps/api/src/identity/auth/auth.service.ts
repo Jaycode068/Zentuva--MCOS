@@ -1,8 +1,15 @@
-import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Session, User, UserStatus } from '@prisma/client';
 import { AppError } from '@zentuva/utils';
 
+import { ACCOUNT_AUDIT_ACTIONS } from '../account/account-audit-actions';
 import { AuditService } from '../audit/audit.service';
 import { InvitationService } from '../invitation/invitation.service';
 import { PasswordResetService } from '../password-reset/password-reset.service';
@@ -26,6 +33,9 @@ export interface UserSummary {
   lastName: string;
   organisationId: string;
   status: UserStatus;
+  /** Sprint 3.3 §5 — when `true`, the frontend must redirect to `/change-password`
+   *  before letting the user continue anywhere else. */
+  mustChangePassword: boolean;
 }
 
 export interface AuthTokens {
@@ -275,6 +285,76 @@ export class AuthService {
   }
 
   // ---------------------------------------------------------------------------------
+  // Account Management (Sprint 3.3 brief §2, §4)
+  // ---------------------------------------------------------------------------------
+
+  /**
+   * Self-service password change. Verifies the caller's current password, then revokes
+   * every *other* active session (brief §2: "Force login again on every other device") —
+   * unlike {@link resetPassword}, the session making this request stays signed in, since
+   * the user proved they still know their (old) password and is presumably the legitimate
+   * owner of the account, not responding to a suspected compromise.
+   */
+  async changePassword(
+    organisationId: string,
+    userId: string,
+    currentSessionId: string,
+    currentPassword: string,
+    newPassword: string,
+    context: RequestContext,
+  ): Promise<void> {
+    const user = await this.userService.getById(organisationId, userId);
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const validPassword = await this.userService.verifyPassword(user, currentPassword);
+    if (!validPassword) {
+      throw new BadRequestException('Current password is incorrect');
+    }
+
+    const newHash = await this.userService.hashPassword(newPassword);
+    await this.userService.setPasswordHash(user.id, newHash);
+    await this.sessionStore.revokeAllSessionsForUserExcept(
+      organisationId,
+      userId,
+      currentSessionId,
+    );
+
+    await this.recordAuditEvent(
+      ACCOUNT_AUDIT_ACTIONS.PASSWORD_CHANGED,
+      organisationId,
+      userId,
+      undefined,
+      context,
+    );
+    await this.recordAuditEvent(AUTH_AUDIT_ACTIONS.SESSION_REVOKED, organisationId, userId, {
+      reason: 'password_changed',
+      exceptSessionId: currentSessionId,
+    });
+  }
+
+  /**
+   * Revokes one of the caller's own sessions (brief §4 — Active Sessions "Users can revoke
+   * individual sessions"). Ownership is checked here (not just organisation membership) so
+   * one user can never revoke another user's session, even within the same organisation —
+   * a `NotFoundException` either way (nonexistent id or someone else's session) avoids
+   * confirming *whose* session a given id belongs to.
+   */
+  async revokeSession(organisationId: string, userId: string, sessionId: string): Promise<void> {
+    const session = await this.sessionStore.findSessionById(organisationId, sessionId);
+    if (!session || session.userId !== userId) {
+      throw new NotFoundException('Session not found');
+    }
+
+    await this.sessionStore.revokeSession(organisationId, sessionId);
+    await this.recordAuditEvent(AUTH_AUDIT_ACTIONS.SESSION_REVOKED, organisationId, userId, {
+      sessionId,
+      reason: 'user_revoked',
+    });
+  }
+
+  // ---------------------------------------------------------------------------------
   // Invitation Acceptance (brief §7)
   // ---------------------------------------------------------------------------------
 
@@ -380,5 +460,6 @@ function toUserSummary(user: User): UserSummary {
     lastName: user.lastName,
     organisationId: user.organisationId,
     status: user.status,
+    mustChangePassword: user.mustChangePassword,
   };
 }

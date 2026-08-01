@@ -1,11 +1,18 @@
 'use client';
 
+import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@zentuva/ui';
 
-import { getOrganisationProfile } from '@/app/settings/organisation/api';
-import { getUser } from '@/app/settings/users/api';
-import { getCurrentUserId } from '@/lib/api-client';
+import { getAccountProfile } from '@/lib/account';
 import { logout } from '@/lib/auth';
 
 import { Container } from '../marketing/container';
@@ -13,34 +20,36 @@ import { Logo } from '../marketing/logo';
 
 /**
  * Top navigation for authenticated pages (Sprint 3.2 brief: "Logo, Organisation Name,
- * User Avatar, Logout"). Reuses the existing `GET /api/organisation/me` and
- * `GET /api/users/:id` endpoints — no new backend surface. There is no dedicated
- * "current user" endpoint, so the user id comes from decoding the access token's `sub`
- * claim client-side (display only, never an authorization decision — see
- * `getCurrentUserId`).
+ * User Avatar, Logout"; Sprint 3.3 replaces the bare Logout button with a dropdown menu —
+ * "My Profile / Security / Active Sessions / Logout").
+ *
+ * Sprint 3.3 also switches the data source from Sprint 3.2's `GET /api/users/:id` +
+ * client-side JWT decode to the new `GET /api/account/profile` — one request now covers
+ * both the display name/initials this component needs *and* the `mustChangePassword` flag
+ * that gates every `/settings/*`/`/account/*` page (brief §5): if the flag is true, this
+ * component redirects to `/change-password` before the user can see anything else.
  */
 export function AuthenticatedNav() {
   const router = useRouter();
-  const userId = getCurrentUserId();
 
-  const { data: organisation } = useQuery({
-    queryKey: ['organisation', 'me'],
-    queryFn: getOrganisationProfile,
+  const { data: profile } = useQuery({
+    queryKey: ['account', 'profile'],
+    queryFn: getAccountProfile,
   });
 
-  const { data: currentUser } = useQuery({
-    queryKey: ['users', userId],
-    queryFn: () => getUser(userId as string),
-    enabled: userId !== null,
-  });
+  useEffect(() => {
+    if (profile?.mustChangePassword) {
+      router.replace('/change-password');
+    }
+  }, [profile?.mustChangePassword, router]);
 
   async function handleLogout() {
     await logout();
     router.push('/login');
   }
 
-  const initials = currentUser
-    ? `${currentUser.firstName.charAt(0)}${currentUser.lastName.charAt(0)}`.toUpperCase()
+  const initials = profile
+    ? `${profile.firstName.charAt(0)}${profile.lastName.charAt(0)}`.toUpperCase()
     : '';
 
   return (
@@ -50,32 +59,50 @@ export function AuthenticatedNav() {
           <a href="/settings/organisation" aria-label="Zentuva home">
             <Logo />
           </a>
-          {organisation && (
+          {profile?.organisation && (
             <>
               <span className="hidden h-5 w-px bg-border sm:block" aria-hidden="true" />
               <span className="hidden text-sm font-medium text-muted-foreground sm:inline">
-                {organisation.organisationName}
+                {profile.organisation.name}
               </span>
             </>
           )}
         </div>
 
-        <div className="flex items-center gap-4">
-          <div
-            className="flex h-8 w-8 items-center justify-center rounded-full bg-brandPurple text-xs font-semibold text-brandPurple-foreground"
-            title={currentUser ? `${currentUser.firstName} ${currentUser.lastName}` : undefined}
-            aria-hidden={!currentUser}
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            className="flex h-8 w-8 items-center justify-center rounded-full bg-brandPurple text-xs font-semibold text-brandPurple-foreground transition-opacity hover:opacity-90"
+            aria-label="Account menu"
           >
             {initials}
-          </div>
-          <button
-            type="button"
-            onClick={handleLogout}
-            className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
-          >
-            Logout
-          </button>
-        </div>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent>
+            {profile && (
+              <>
+                <DropdownMenuLabel>
+                  <p className="font-medium text-foreground">
+                    {profile.firstName} {profile.lastName}
+                  </p>
+                  <p className="truncate font-normal">{profile.email}</p>
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+              </>
+            )}
+            <DropdownMenuItem onSelect={() => router.push('/account/profile')}>
+              My Profile
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => router.push('/account/security')}>
+              Security
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => router.push('/account/sessions')}>
+              Active Sessions
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={handleLogout} className="text-destructive">
+              Logout
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </Container>
     </header>
   );

@@ -46,6 +46,22 @@ export class SessionRepository {
     });
   }
 
+  /** Same as {@link revokeAllForUser}, excluding one session — added Sprint 3.3 for
+   *  change-password's "invalidate every other session, keep the current one signed in"
+   *  requirement (brief §2), distinct from reset-password's "revoke everything, including
+   *  the session that requested the reset" via {@link revokeAllForUser}. */
+  async revokeAllForUserExcept(
+    organisationId: string,
+    userId: string,
+    exceptSessionId: string,
+    revokedAt: Date = new Date(),
+  ): Promise<void> {
+    await this.prisma.session.updateMany({
+      where: { organisationId, userId, revokedAt: null, id: { not: exceptSessionId } },
+      data: { revokedAt },
+    });
+  }
+
   updateLastUsedAt(id: string, at: Date = new Date()): Promise<Session> {
     return this.prisma.session.update({ where: { id }, data: { lastUsedAt: at } });
   }

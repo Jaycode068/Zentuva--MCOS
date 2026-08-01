@@ -96,7 +96,7 @@ export class UserRepository {
   async updateProfile(
     organisationId: string,
     id: string,
-    data: Pick<Prisma.UserUpdateInput, 'firstName' | 'lastName' | 'employeeCode'>,
+    data: Pick<Prisma.UserUpdateInput, 'firstName' | 'lastName' | 'employeeCode' | 'phoneNumber'>,
   ): Promise<User> {
     return this.updateScoped(organisationId, id, data);
   }
@@ -105,10 +105,18 @@ export class UserRepository {
     return this.updateScoped(organisationId, id, { status });
   }
 
-  /** Not tenant-scoped by an incoming organisationId — used post-password-hash by the
-   *  (future) auth flow, which already holds a User row it trusts. */
+  /**
+   * Not tenant-scoped by an incoming organisationId — used post-password-hash by the auth
+   * flow, which already holds a User row it trusts. Also stamps `passwordChangedAt` and
+   * clears `mustChangePassword` (Sprint 3.3) — every caller of this method (change-password,
+   * reset-password) represents the user successfully setting a new password, so both side
+   * effects belong here rather than being repeated at each call site.
+   */
   updatePasswordHash(id: string, passwordHash: string): Promise<User> {
-    return this.prisma.user.update({ where: { id }, data: { passwordHash } });
+    return this.prisma.user.update({
+      where: { id },
+      data: { passwordHash, passwordChangedAt: new Date(), mustChangePassword: false },
+    });
   }
 
   updateLastLoginAt(id: string, at: Date = new Date()): Promise<User> {

@@ -38,6 +38,8 @@ import { TOKEN_SERVICE } from './ports/token.port';
     JwtAuthGuard,
     RolesGuard,
   ],
-  exports: [TOKEN_SERVICE, JwtAuthGuard, RolesGuard],
+  // AuthService exported Sprint 3.3 so AccountModule can reuse it (change-password,
+  // session listing/revocation) rather than duplicating that orchestration.
+  exports: [AuthService, TOKEN_SERVICE, JwtAuthGuard, RolesGuard],
 })
 export class AuthModule {}
