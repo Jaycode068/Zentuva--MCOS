@@ -109,7 +109,9 @@ delivered roughly in order, but later Epics may be reordered as priorities evolv
 
 - **Objective:** manage sourcing raw materials and goods from suppliers.
 - **Includes:** Suppliers, Purchase Orders, Goods Received, Supplier Performance.
-- **Status:** Not started.
+- **Status:** Not started. A placeholder "Coming Soon" Suppliers entry was added to the
+  Workspace sidebar and dashboard in Sprint 3.5.1, alongside the existing Procurement
+  entry, so the navigation reflects supplier management ahead of this Epic's design.
 
 ### Epic 5 — Inventory
 
@@ -179,6 +181,17 @@ delivered roughly in order, but later Epics may be reordered as priorities evolv
   the new auth pages. Demo/early-access form capture (the "Book a Demo" CTA) and any
   additional public pages remain.
 
+### Epic 14 — Asset & Maintenance Management
+
+- **Objective:** track the factory equipment, vehicles, and long-term business assets a
+  manufacturing operation depends on, and keep them running.
+- **Includes:** Asset Register (equipment, vehicles, and other long-term assets),
+  Preventive Maintenance Scheduling, Equipment Servicing History.
+- **Status:** Not started. Placeholder "Coming Soon" navigation entries (Asset Register,
+  Maintenance) were added to the Workspace sidebar and dashboard in Sprint 3.5.1 so the
+  navigation reflects this Epic ahead of its design — no domain design work has happened
+  yet.
+
 ## 5. Current Sprint Status
 
 **Completed:**
@@ -196,6 +209,7 @@ delivered roughly in order, but later Epics may be reordered as priorities evolv
 - ✓ Sprint 3.4 — Workspace Configuration & Organisation Branding
 - ✓ Sprint 3.5 — Workspace Dashboard & Global Navigation
 - ✓ Sprint 4.1 — Product Catalogue Foundation
+- ✓ Sprint 3.5.1 — Workspace Navigation Refinement (Coming Soon Modules)
 
 **Current focus:** Sprint 4.2 — not yet scoped.
 

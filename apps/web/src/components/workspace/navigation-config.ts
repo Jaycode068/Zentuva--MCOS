@@ -1,5 +1,6 @@
 import {
   ArchiveIcon,
+  AssetIcon,
   BanknoteIcon,
   BarChartIcon,
   BoxIcon,
@@ -11,10 +12,12 @@ import {
   HelpCircleIcon,
   ShieldIcon,
   SlidersIcon,
+  SupplierIcon,
   TrendingUpIcon,
   TruckIcon,
   UserIcon,
   UsersIcon,
+  WrenchIcon,
   type WorkspaceIcon,
 } from './icons';
 
@@ -47,8 +50,21 @@ export const WORKSPACE_NAV_GROUPS: WorkspaceNavGroup[] = [
       { label: 'Dashboard', href: '/workspace', icon: GridIcon },
       { label: 'Products', href: '/settings/products', icon: BoxIcon },
       { label: 'Procurement', href: '/procurement', icon: CartIcon, comingSoon: true },
+      { label: 'Suppliers', href: '/suppliers', icon: SupplierIcon, comingSoon: true },
       { label: 'Inventory', href: '/inventory', icon: ArchiveIcon, comingSoon: true },
       { label: 'Production', href: '/production', icon: FactoryIcon, comingSoon: true },
+      {
+        label: 'Asset Register',
+        href: '/assets',
+        icon: AssetIcon,
+        comingSoon: true,
+      },
+      {
+        label: 'Maintenance',
+        href: '/maintenance',
+        icon: WrenchIcon,
+        comingSoon: true,
+      },
       { label: 'Sales', href: '/sales', icon: TrendingUpIcon, comingSoon: true },
       { label: 'Distribution', href: '/distribution', icon: TruckIcon, comingSoon: true },
       { label: 'Finance', href: '/finance', icon: BanknoteIcon, comingSoon: true },

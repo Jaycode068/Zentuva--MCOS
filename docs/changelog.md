@@ -7,6 +7,24 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 3.5.1 Workspace Navigation Refinement] - 2026-08-02
+
+### Added
+
+- Three future modules now appear as disabled "Coming Soon" entries in the Workspace
+  sidebar and the `/workspace` dashboard's Platform Modules grid, so the navigation
+  communicates the full long-term Manufacturing Operating System roadmap rather than
+  only the modules already scheduled: **Suppliers** (`/suppliers`), **Asset Register**
+  (`/assets`), and **Maintenance** (`/maintenance`). All three use the existing
+  `comingSoon` mechanism from `navigation-config.ts` (Sprint 3.5) — non-clickable,
+  visually identical to Procurement/Inventory/Production/Sales/Distribution/Finance/
+  Reports, no routes or pages created.
+
+### Notes
+
+- Navigation-only change: no backend, database, API, or authentication changes. No new
+  domain documentation, since these modules haven't been designed yet.
+
 ## [Sprint 4.1 Product Catalogue Foundation] - 2026-08-01
 
 ### Added

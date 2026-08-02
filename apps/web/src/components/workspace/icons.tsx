@@ -156,6 +156,28 @@ export const FileTextIcon = icon(
   </>,
 );
 
+export const SupplierIcon = icon(
+  <>
+    <path d="M3 21V9l6-4 6 4v12" />
+    <path d="M9 21v-6h4v6" />
+    <path d="M15 21V11l6-3v13h-6" />
+  </>,
+);
+
+export const AssetIcon = icon(
+  <>
+    <rect x="3" y="3" width="18" height="14" rx="1.5" />
+    <path d="M8 21h8M12 17v4" />
+    <circle cx="12" cy="10" r="3" />
+  </>,
+);
+
+export const WrenchIcon = icon(
+  <>
+    <path d="M14.7 6.3a4 4 0 0 0-5.4 4.7L3 17.3V21h3.7l6.3-6.3a4 4 0 0 0 4.7-5.4l-2.8 2.8-2-2 2.8-2.8Z" />
+  </>,
+);
+
 export const MenuIcon = icon(<path d="M3 6h18M3 12h18M3 18h18" />);
 
 export const CloseIcon = icon(<path d="M6 6l12 12M18 6 6 18" />);
