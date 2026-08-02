@@ -194,6 +194,100 @@ async function seedProducts(organisationId: string, actorUserId: string): Promis
   }
 }
 
+/** Five example Boby Bites suppliers (Sprint 4.2 brief) — hardcoded codes, same
+ *  "predictable seed data" convention as `BOBY_BITES_PRODUCTS`, since the seed script runs
+ *  outside the NestJS DI container and has no access to `SupplierService.
+ *  generateUniqueCode`. All seeded `ACTIVE`, matching what they'd default to via a real
+ *  `POST /api/suppliers` call. */
+const BOBY_BITES_SUPPLIERS = [
+  {
+    supplierCode: 'SUP-000001',
+    supplierName: 'Fresh Farms Ltd',
+    contactPerson: 'Chidi Okafor',
+    email: 'sales@freshfarms.test',
+    phoneNumber: '+234 801 234 5678',
+    country: 'Nigeria',
+    state: 'Oyo',
+    city: 'Ibadan',
+    supplierCategory: 'RAW_MATERIAL',
+    notes: 'Supplies plantain.',
+  },
+  {
+    supplierCode: 'SUP-000002',
+    supplierName: 'Golden Oil Ltd',
+    contactPerson: 'Amina Bello',
+    email: 'orders@goldenoil.test',
+    phoneNumber: '+234 802 345 6789',
+    country: 'Nigeria',
+    state: 'Kaduna',
+    city: 'Kaduna',
+    supplierCategory: 'RAW_MATERIAL',
+    notes: 'Supplies vegetable oil.',
+  },
+  {
+    supplierCode: 'SUP-000003',
+    supplierName: 'PackRight Nigeria',
+    contactPerson: 'Emeka Nwosu',
+    email: 'info@packright.test',
+    phoneNumber: '+234 803 456 7890',
+    country: 'Nigeria',
+    state: 'Lagos',
+    city: 'Lagos',
+    supplierCategory: 'PACKAGING',
+    notes: 'Supplies printed nylon and labels.',
+  },
+  {
+    supplierCode: 'SUP-000004',
+    supplierName: 'Salt Masters Ltd',
+    contactPerson: 'Fatima Yusuf',
+    email: 'sales@saltmasters.test',
+    phoneNumber: '+234 804 567 8901',
+    country: 'Nigeria',
+    state: 'Ebonyi',
+    city: 'Abakaliki',
+    supplierCategory: 'RAW_MATERIAL',
+    notes: 'Supplies salt.',
+  },
+  {
+    supplierCode: 'SUP-000005',
+    supplierName: 'Lagos Cartons Ltd',
+    contactPerson: 'Tunde Adeyemi',
+    email: 'info@lagoscartons.test',
+    phoneNumber: '+234 805 678 9012',
+    country: 'Nigeria',
+    state: 'Lagos',
+    city: 'Lagos',
+    supplierCategory: 'PACKAGING',
+    notes: 'Supplies cartons.',
+  },
+] as const;
+
+async function seedSuppliers(organisationId: string, actorUserId: string): Promise<void> {
+  console.log('Seeding Supplier Management (5 Boby Bites suppliers)...');
+  for (const supplier of BOBY_BITES_SUPPLIERS) {
+    await prisma.supplier.upsert({
+      where: { supplierCode: supplier.supplierCode },
+      update: {},
+      create: {
+        organisationId,
+        supplierCode: supplier.supplierCode,
+        supplierName: supplier.supplierName,
+        contactPerson: supplier.contactPerson,
+        email: supplier.email,
+        phoneNumber: supplier.phoneNumber,
+        country: supplier.country,
+        state: supplier.state,
+        city: supplier.city,
+        supplierCategory: supplier.supplierCategory,
+        notes: supplier.notes,
+        status: 'ACTIVE',
+        createdById: actorUserId,
+        updatedById: actorUserId,
+      },
+    });
+  }
+}
+
 async function main(): Promise<void> {
   // Read early (rather than inside `seedUser`) because the organisation's `businessEmail`
   // needs it before any user is created.
@@ -301,6 +395,7 @@ async function main(): Promise<void> {
   });
 
   await seedProducts(organisation.id, ownerUser.id);
+  await seedSuppliers(organisation.id, ownerUser.id);
 
   console.log('Recording an audit log entry for this seed run...');
   await prisma.auditLog.create({
@@ -322,6 +417,7 @@ async function main(): Promise<void> {
     memberEmail: memberUser.email,
     permissionsSeeded: permissions.length,
     productsSeeded: BOBY_BITES_PRODUCTS.length,
+    suppliersSeeded: BOBY_BITES_SUPPLIERS.length,
   });
 }
 

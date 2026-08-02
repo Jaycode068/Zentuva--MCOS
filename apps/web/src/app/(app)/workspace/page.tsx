@@ -46,7 +46,7 @@ const MODULE_DESCRIPTIONS: Record<string, string> = {
   '/workspace': 'Your workspace overview and quick links.',
   '/settings/products': 'The master catalogue of everything you manufacture or sell.',
   '/procurement': 'Suppliers, purchase orders, and goods received.',
-  '/suppliers': 'Manage approved vendors and supplier relationships.',
+  '/settings/suppliers': 'The master record of every vendor you buy from.',
   '/inventory': 'Stock levels, warehouses, and transfers.',
   '/production': 'Recipes, batch production, and quality control.',
   '/assets': 'Manage factory equipment, vehicles and long-term business assets.',
@@ -159,6 +159,10 @@ export default function WorkspaceDashboardPage() {
               </li>
               <li className="flex items-center justify-between">
                 <span className="text-foreground">Product Catalogue</span>
+                <span className="text-primary">✓ Complete</span>
+              </li>
+              <li className="flex items-center justify-between">
+                <span className="text-foreground">Supplier Management</span>
                 <span className="text-primary">✓ Complete</span>
               </li>
               <li className="flex items-center justify-between">

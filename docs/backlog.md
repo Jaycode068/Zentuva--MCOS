@@ -108,10 +108,11 @@ delivered roughly in order, but later Epics may be reordered as priorities evolv
 ### Epic 4 — Procurement
 
 - **Objective:** manage sourcing raw materials and goods from suppliers.
-- **Includes:** Suppliers, Purchase Orders, Goods Received, Supplier Performance.
-- **Status:** Not started. A placeholder "Coming Soon" Suppliers entry was added to the
-  Workspace sidebar and dashboard in Sprint 3.5.1, alongside the existing Procurement
-  entry, so the navigation reflects supplier management ahead of this Epic's design.
+- **Includes:** Purchase Orders, Goods Received, Supplier Performance. Supplier master
+  data itself now lives in its own domain — see Epic 15.
+- **Status:** Not started. Supplier master data (Epic 15) shipped ahead of this Epic in
+  Sprint 4.2, specifically so Purchase Orders can reference `Supplier.id` instead of a
+  free-text supplier name once this Epic is built.
 
 ### Epic 5 — Inventory
 
@@ -192,6 +193,20 @@ delivered roughly in order, but later Epics may be reordered as priorities evolv
   navigation reflects this Epic ahead of its design — no domain design work has happened
   yet.
 
+### Epic 15 — Supplier Management
+
+- **Objective:** maintain the master record of every vendor an organisation buys goods or
+  services from.
+- **Includes:** Supplier master data (identity, classification, contact/location fields,
+  Active/Inactive status). Deliberately excludes Purchase Orders, Goods Receiving,
+  Invoices, Vendor Payments, Procurement Workflows, Contracts, Price Lists, and
+  Product–Supplier relationships — those belong to Epic 4 (Procurement) once it's built on
+  top of this foundation.
+- **Status:** Foundation implemented — Sprint 4.2 ("Supplier Management"), reusing the
+  Sprint 4.1 Product Catalogue's architecture (auto-generated immutable code, the same
+  Owner/Administrator-write, Member-read-only authorization) — see
+  [`docs/domains/suppliers.md`](domains/suppliers.md).
+
 ## 5. Current Sprint Status
 
 **Completed:**
@@ -210,8 +225,9 @@ delivered roughly in order, but later Epics may be reordered as priorities evolv
 - ✓ Sprint 3.5 — Workspace Dashboard & Global Navigation
 - ✓ Sprint 4.1 — Product Catalogue Foundation
 - ✓ Sprint 3.5.1 — Workspace Navigation Refinement (Coming Soon Modules)
+- ✓ Sprint 4.2 — Supplier Management
 
-**Current focus:** Sprint 4.2 — not yet scoped.
+**Current focus:** Sprint 4.3 — not yet scoped.
 
 ## 6. Future Ideas (Not Prioritised Yet)
 

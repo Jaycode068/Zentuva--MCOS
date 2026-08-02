@@ -119,6 +119,8 @@ model Organisation {
   userRoles   UserRole[]
   /// Added Sprint 4.1 — Product Catalogue (docs/domains/catalogue.md).
   products    Product[]
+  /// Added Sprint 4.2 — Supplier Management (docs/domains/suppliers.md).
+  suppliers   Supplier[]
 
   @@map("organisations")
 }
@@ -428,4 +430,70 @@ model Product {
   @@index([organisationId])
   @@index([organisationId, status])
   @@map("products")
+}
+
+/// Hardcoded per the Sprint 4.2 brief ("Use an enum") — allows Procurement to later filter
+/// suppliers by what they supply.
+enum SupplierCategory {
+  RAW_MATERIAL
+  PACKAGING
+  LOGISTICS
+  MAINTENANCE
+  UTILITY
+  SERVICE
+  OTHER
+}
+
+/// No Draft/Archived states like Product — a supplier is either usable (Active) or not
+/// (Inactive). Inactive suppliers cannot receive future Purchase Orders (Sprint 4.3+,
+/// out of scope here) but the row is never physically deleted (Sprint 4.2 brief: "Do not
+/// implement delete. Suppliers should instead become INACTIVE").
+enum SupplierStatus {
+  ACTIVE
+  INACTIVE
+}
+
+/// Supplier Management (Sprint 4.2, docs/domains/suppliers.md) — the master record of
+/// every vendor an Organisation buys goods or services from. Deliberately NOT Procurement:
+/// no Purchase Orders, Goods Receiving, Invoices, or Product–Supplier relationships live
+/// here (brief's explicit "This is not Procurement" / Out of Scope list) — this table only
+/// answers "who do we buy from?"; Sprint 4.3 Procurement is expected to reference
+/// `Supplier.id` instead of a free-text supplier name.
+model Supplier {
+  id             String           @id @default(cuid())
+  organisationId String
+  /// Auto-generated (`SUP-000001`, ...), globally unique, immutable — same
+  /// collision-avoidance pattern as `Product.code` (Sprint 4.1). Never accepted on create
+  /// or update input.
+  supplierCode   String           @unique
+  supplierName   String
+  /// Optional customer/PO-facing name, distinct from the legal `supplierName` — same
+  /// pattern as `Organisation.displayName`/`Product.displayName`.
+  displayName    String?
+  contactPerson  String?
+  email          String?
+  phoneNumber    String?
+  website        String?
+  country        String?
+  state          String?
+  city           String?
+  address        String?
+  taxIdentificationNumber String?
+  supplierCategory SupplierCategory
+  status         SupplierStatus   @default(ACTIVE)
+  notes          String?
+  /// Plain ids, no FK relation — same convention as `AuditLog.actorUserId`/
+  /// `Product.createdById` (metadata about who acted, not a relationship the aggregate
+  /// depends on).
+  createdById    String?
+  updatedById    String?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+
+  @@index([organisationId])
+  @@index([organisationId, status])
+  @@index([organisationId, supplierCategory])
+  @@map("suppliers")
 }

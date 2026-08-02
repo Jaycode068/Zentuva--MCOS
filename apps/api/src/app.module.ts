@@ -12,6 +12,7 @@ import { OrganisationModule } from './identity/organisation/organisation.module'
 import { SettingsModule } from './identity/settings/settings.module';
 import { UserModule } from './identity/user/user.module';
 import { PrismaModule } from './prisma/prisma.module';
+import { SupplierModule } from './suppliers/supplier/supplier.module';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { PrismaModule } from './prisma/prisma.module';
     AccountModule,
     SettingsModule,
     ProductModule,
+    SupplierModule,
   ],
 })
 export class AppModule {}

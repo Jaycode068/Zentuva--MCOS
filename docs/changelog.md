@@ -7,6 +7,65 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 4.2 Supplier Management] - 2026-08-02
+
+### Added
+
+- **Supplier Management domain** (`apps/api/src/suppliers/supplier/`) — the second
+  non-Identity business domain module, following the same repository/service/controller
+  architecture as the Product Catalogue (Sprint 4.1): `SupplierRepository`,
+  `SupplierService`, `SupplierController`, `SupplierModule`. Deliberately **not**
+  Procurement — no Purchase Orders, Goods Receiving, Invoices, or Product–Supplier
+  relationships; this is the master vendor record Procurement (Sprint 4.3+) is expected to
+  reference by id — see `docs/domains/suppliers.md`.
+- **`Supplier` Prisma model** (migration `20260802163405_add_supplier_management`):
+  auto-generated immutable `supplierCode`, `supplierName`, `displayName`, contact fields
+  (`contactPerson`, `email`, `phoneNumber`, `website`), location fields (`country`,
+  `state`, `city`, `address`), `taxIdentificationNumber`, `supplierCategory` enum (Raw
+  Material/Packaging/Logistics/Maintenance/Utility/Service/Other), `status` enum
+  (Active/Inactive — never physically deleted), `notes`, and `createdById`/`updatedById`
+  metadata (plain columns, no FK relation, same convention as `Product.createdById`).
+- **Supplier Code generation** — `SUP-000001`, `SUP-000002`, ... — a global sequential
+  collision-avoidance loop mirroring `ProductService.generateUniqueCode` (Sprint 4.1).
+  Immutable and never accepted on create/update input.
+- **API** — `GET`/`POST /api/suppliers`, `GET`/`PATCH /api/suppliers/:id`. `GET` requires
+  only authentication (Member has read-only access); every write requires Owner or
+  Administrator (`RolesGuard`, same mechanism as every other domain since Sprint 2.1). No
+  `DELETE` endpoint — suppliers become `INACTIVE` via `PATCH` instead. Unlike Product's
+  dedicated activate/archive routes, a status change here is just another `PATCH` field;
+  the controller still records a distinct `supplier.activated`/`supplier.deactivated`
+  audit event when it happens (same "status event wins" pattern as
+  `UserController.resolveUpdateAuditAction`).
+- **`packages/validation/src/suppliers.ts`** — `createSupplierSchema`,
+  `updateSupplierSchema`, and the `SupplierCategory`/`SupplierStatus` enum schemas,
+  mirroring `catalogue.ts`'s plain-string-literal convention.
+- **Frontend `/settings/suppliers`** (under the Sprint 3.5 Workspace shell): a supplier
+  table (code, name, category, contact person, phone, status badge, actions), client-side
+  search (name/code/contact person) plus status and category filter dropdowns, and a
+  proper empty-state for an organisation with no suppliers yet. A reusable
+  `SupplierDialog` handles both Create and Edit, including the full field set from the
+  brief (name, display name, contact person, email, phone, website, country, state, city,
+  address, tax ID, category, notes, status).
+- **Workspace navigation** — "Suppliers" in the sidebar and the `/workspace` dashboard's
+  Platform Modules grid now point at `/settings/suppliers` and lost their "Coming Soon"
+  state (added in Sprint 3.5.1); every other future module continues showing "Coming
+  Soon."
+- **Seed data** — 5 example Boby Bites suppliers (Fresh Farms Ltd, Golden Oil Ltd,
+  PackRight Nigeria, Salt Masters Ltd, Lagos Cartons Ltd), all `ACTIVE` with realistic
+  contact/location details.
+- Every mutating endpoint is audited: `supplier.created`, `supplier.updated`,
+  `supplier.activated`, `supplier.deactivated`.
+- 14 new backend unit tests (`SupplierService`/`SupplierController`) — 153/153 total.
+
+### Known limitations
+
+- No Purchase Orders, Goods Receiving, Invoices, Vendor Payments, Procurement Workflows,
+  Contracts, Price Lists, or Product–Supplier relationships — all explicitly out of scope
+  per the brief, reserved for Procurement (Sprint 4.3+).
+- Category is a fixed enum, not tenant-configurable.
+- "Inactive suppliers cannot receive future Purchase Orders" is a stated business rule with
+  nothing to enforce it against yet, since Purchase Orders don't exist.
+
 ## [Sprint 3.5.1 Workspace Navigation Refinement] - 2026-08-02
 
 ### Added
