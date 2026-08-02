@@ -36,7 +36,9 @@ This roadmap tracks the intended build order. It is not a commitment to dates �
 
 ## Phase 2 — Core Manufacturing & Commerce Domains
 
-- [ ] Product Catalogue
+- [x] Product Catalogue — foundation shipped Sprint 4.1 (master product records; variants,
+      pricing, and inventory/production integration remain) — see
+      [`docs/domains/catalogue.md`](domains/catalogue.md)
 - [ ] Procurement
 - [ ] Inventory
 - [ ] Production

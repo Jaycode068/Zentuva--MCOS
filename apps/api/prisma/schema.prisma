@@ -59,41 +59,41 @@ model Organisation {
   /// Shorter/friendlier public-facing name, distinct from the legal `name`. Added Sprint
   /// 2.1 — not part of the original identity.md design, see
   /// docs/sprint-2.1-completion-report.md "Deviations".
-  displayName     String?
-  logoUrl         String?
+  displayName        String?
+  logoUrl            String?
   /// Optional alternate logo shown on dark backgrounds/dark theme — Sprint 3.4 Branding
   /// tab "Dark Logo". Falls back to `logoUrl` (or the initials avatar) when absent.
-  darkLogoUrl     String?
-  description     String?
-  industry        String?
+  darkLogoUrl        String?
+  description        String?
+  industry           String?
   /// Sprint 3.4 Business tab wire name is "Manufacturing Sector" — reuses this
   /// pre-existing, previously-unused column rather than adding a new one.
-  businessType    String?
-  phone           String?
-  website         String?
-  supportEmail    String?
-  addressLine1    String?
-  addressLine2    String?
-  city            String?
-  state           String?
-  postalCode      String?
-  currency        String  @default("USD")
-  timeZone        String  @default("UTC")
-  fiscalYearStart Int     @default(1)
-  dateFormat      String  @default("YYYY-MM-DD")
+  businessType       String?
+  phone              String?
+  website            String?
+  supportEmail       String?
+  addressLine1       String?
+  addressLine2       String?
+  city               String?
+  state              String?
+  postalCode         String?
+  currency           String  @default("USD")
+  timeZone           String  @default("UTC")
+  fiscalYearStart    Int     @default(1)
+  dateFormat         String  @default("YYYY-MM-DD")
   /// Added Sprint 3.4 Regional tab. "HH:mm" (24-hour) or "hh:mm a" (12-hour).
-  timeFormat      String  @default("HH:mm")
+  timeFormat         String  @default("HH:mm")
   /// Added Sprint 3.4 Regional tab. A display pattern, e.g. "1,234.56" or "1.234,56" —
   /// interpreted by the frontend, not parsed/validated server-side beyond being a string.
-  numberFormat    String  @default("1,234.56")
+  numberFormat       String  @default("1,234.56")
   /// Added Sprint 3.4 Branding tab — hex strings (e.g. "#7C3AED"), applied as CSS custom
   /// property overrides client-side. `null` means "use the Zentuva default palette."
   /// Deliberately does NOT include a purple/brand-identity override — see
   /// docs/sprint-3.4-completion-report.md "Branding architecture": deep purple stays
   /// Zentuva's own platform identity across every tenant, only the interactive
   /// primary/accent layer is tenant-customisable.
-  primaryColor    String?
-  accentColor     String?
+  primaryColor       String?
+  accentColor        String?
   /// Added Sprint 3.4 Business tab.
   registrationNumber String?
   taxId              String?
@@ -106,7 +106,7 @@ model Organisation {
   /// `apps/api/src/identity/organisation/workspace-settings.ts`
   /// (`DEFAULT_WORKSPACE_SETTINGS`) — deep-merged with this column's contents on every
   /// read so older rows (and a fresh `{}`) still return complete, defaulted values.
-  settings        Json    @default("{}")
+  settings           Json    @default("{}")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -117,6 +117,8 @@ model Organisation {
   auditLogs   AuditLog[]
   sessions    Session[]
   userRoles   UserRole[]
+  /// Added Sprint 4.1 — Product Catalogue (docs/domains/catalogue.md).
+  products    Product[]
 
   @@map("organisations")
 }
@@ -351,4 +353,79 @@ model AuditLog {
   @@index([organisationId, createdAt])
   @@index([entityType, entityId])
   @@map("audit_logs")
+}
+
+/// Hardcoded per the Sprint 4.1 brief ("Category" — not a Categories table; a full
+/// taxonomy is future scope once Procurement/Inventory need it).
+enum ProductCategory {
+  SNACKS
+  BEVERAGE
+  WATER
+  CONFECTIONERY
+  RAW_MATERIALS
+  PACKAGING
+  OTHERS
+}
+
+enum ProductType {
+  FINISHED_PRODUCT
+  RAW_MATERIAL
+  PACKAGING_MATERIAL
+}
+
+/// Draft -> Active -> Archived. Products are never physically deleted (Sprint 4.1 brief);
+/// Archived is the terminal "removed from active use" state.
+enum ProductStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+/// The Product Catalogue (Sprint 4.1, docs/domains/catalogue.md) — the master source of
+/// truth for everything an Organisation manufactures or sells. Every future manufacturing
+/// module (Inventory, Production, Sales, ...) is expected to reference `Product.id` rather
+/// than duplicating product data, per the brief's "master source of truth" framing.
+model Product {
+  id               String          @id @default(cuid())
+  organisationId   String
+  /// Auto-generated (`PRD-000001`, ...), globally unique, immutable — see
+  /// `ProductRepository.generateUniqueCode`. Never accepted on create or update input.
+  code             String          @unique
+  name             String
+  /// Optional customer-facing name, distinct from the internal `name` — same pattern as
+  /// `Organisation.displayName` (Sprint 2.1).
+  displayName      String?
+  /// Derived from `name` at creation time (deduped within the organisation on collision)
+  /// and left fixed afterward — not used in routing this sprint (the API is `:id`-based),
+  /// reserved for future customer-facing catalogue pages.
+  slug             String
+  category         ProductCategory
+  type             ProductType
+  shortDescription String?
+  longDescription  String?
+  /// Free text (Sprint 4.1 brief: "Store as text") — the frontend offers a fixed set of
+  /// common values (Piece, Pack, Carton, Bottle, Sachet, Kilogram, Gram, Litre) via a
+  /// dropdown, but nothing here enforces that list, same convention as
+  /// `Organisation.currency`/`dateFormat` (Sprint 1B.1/3.4: free-text columns, constrained
+  /// dropdowns in the UI only).
+  unit             String
+  /// Single product image — same `FileStorage` port + absolute-URL pattern as
+  /// `Organisation.logoUrl` (Sprint 3.4) and `User.avatarUrl` (Sprint 3.5). `imageKey` is
+  /// the opaque storage key needed to delete the old file on replace/remove.
+  imageUrl         String?
+  imageKey         String?
+  status           ProductStatus   @default(DRAFT)
+  /// Plain ids, no FK relation — same convention as `AuditLog.actorUserId`, since this is
+  /// metadata about who acted, not a relationship the Product aggregate depends on.
+  createdById      String?
+  updatedById      String?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+
+  @@unique([organisationId, slug])
+  @@index([organisationId])
+  @@index([organisationId, status])
+  @@map("products")
 }

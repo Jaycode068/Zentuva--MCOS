@@ -7,6 +7,66 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 4.1 Product Catalogue Foundation] - 2026-08-01
+
+### Added
+
+- **Product Catalogue domain** (`apps/api/src/catalogue/product/`) — the first
+  non-Identity business domain module, following the same repository/service/controller
+  architecture established for Identity: `ProductRepository`, `ProductService`,
+  `ProductController`, `ProductModule`. Product is the master source of truth every
+  future manufacturing module (Inventory, Production, Sales, ...) is expected to
+  reference by id — see `docs/domains/catalogue.md`.
+- **`Product` Prisma model** (migration `20260801184041_add_product_catalogue`):
+  identity fields (auto-generated immutable `code`, `name`, `displayName`, `slug`),
+  classification (`ProductCategory` enum — Snacks/Beverage/Water/Confectionery/Raw
+  Materials/Packaging/Others; `ProductType` enum — Finished Product/Raw Material/
+  Packaging Material), free-text `unit`, one image (`imageUrl`/`imageKey`, same
+  `FileStorage` pattern as `Organisation.logoUrl`/`User.avatarUrl`), `ProductStatus`
+  (Draft/Active/Archived — never physically deleted), and `createdById`/`updatedById`
+  metadata (plain columns, no FK relation, same convention as `AuditLog.actorUserId`).
+- **Product Code generation** — `PRD-000001`, `PRD-000002`, ... (`ProductService.
+generateUniqueCode`), a global sequential collision-avoidance loop mirroring
+  `OrganisationService.generateUniqueOrganisationCode` (Sprint 3.2). Immutable and never
+  accepted on create/update input.
+- **API** — `GET`/`POST /api/products`, `GET`/`PATCH /api/products/:id`,
+  `POST /api/products/:id/activate`, `POST /api/products/:id/archive`,
+  `POST`/`DELETE /api/products/:id/image`. `GET` requires only authentication (Member has
+  read-only access); every write requires Owner or Administrator (`RolesGuard`, same
+  mechanism as every other domain since Sprint 2.1). Status transitions are validated —
+  activating an already-active product (or archiving an already-archived one) is a `400`,
+  not a silent no-op.
+- **`packages/validation/src/catalogue.ts`** — `createProductSchema`,
+  `updateProductSchema`, and the `ProductCategory`/`ProductType`/`ProductStatus` enum
+  schemas, mirroring `identity.ts`'s plain-string-literal convention (no `@prisma/client`
+  import, since `apps/web` also depends on this package).
+- **Frontend `/settings/products`** (under the Sprint 3.5 Workspace shell): a product
+  table (image, code, name, category, type, status badge, updated date, actions), simple
+  client-side search by name/code (no pagination, per the brief), and a proper empty-state
+  for a catalogue with no products yet. A reusable `ProductDialog` handles both Create and
+  Edit (the image upload control only appears in Edit mode, since uploading requires an
+  existing product id); `ProductViewDialog` is a read-only details modal. Product image
+  upload/preview/replace/remove reuses the Sprint 3.4 `ImageUploadCard` component.
+- **Workspace navigation** — "Products" in the sidebar and the `/workspace` dashboard's
+  Quick Actions/Platform Modules now point at `/settings/products` and lost their "Coming
+  Soon" state; every other module continues showing "Coming Soon."
+- **Seed data** — 5 example Boby Bites products (Plantain Chips, Potato Chips, Roasted
+  Groundnut, Kulikuli, Chin Chin), all `SNACKS`/`FINISHED_PRODUCT`/`ACTIVE`, no images.
+- Every mutating endpoint is audited: `product.created`, `product.updated`,
+  `product.activated`, `product.archived`, `product.image.uploaded`,
+  `product.image.removed`.
+- 24 new backend unit tests (`ProductService`/`ProductController`) — 139/139 total.
+
+### Known limitations
+
+- No variants, batch numbers, expiry dates, barcode/QR generation, taxes, multi-image
+  galleries, bulk import/export, pricing, or inventory/procurement/sales integration —
+  all explicitly out of scope per the brief, reserved for their own future sprints.
+- Category and Product Type are fixed enums, not a tenant-configurable taxonomy.
+- The Create Product dialog cannot attach an image in the same request — a product must
+  be created first (its id is needed by the upload endpoint), then edited to add an
+  image.
+
 ## [Sprint 3.5 Workspace Dashboard & Global Navigation] - 2026-08-01
 
 ### Added

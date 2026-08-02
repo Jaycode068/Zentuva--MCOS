@@ -22,10 +22,11 @@ zentuva/
 │       │   ├── config/            Configuration loading + env validation
 │       │   ├── health/            Health check module (Terminus)
 │       │   ├── prisma/            PrismaService/PrismaModule (global)
-│       │   ├── identity/          Identity Domain — repositories + service skeletons, no controllers yet
-│       │   │   ├── organisation/  ├── user/  ├── role/  ├── invitation/  ├── session/  ├── audit/
-│       │   │   ├── common/        Shared helpers (e.g. not-implemented stub marker)
+│       │   ├── identity/          Identity Domain — organisation/, user/, role/, invitation/,
+│       │   │   │                  session/, audit/, auth/, account/, settings/, common/
 │       │   │   └── identity.module.ts
+│       │   ├── catalogue/         Product Catalogue Domain (Sprint 4.1) — first non-Identity
+│       │   │   └── product/       domain module; same repository/service/controller shape
 │       │   ├── app.module.ts
 │       │   └── main.ts
 │       ├── prisma/

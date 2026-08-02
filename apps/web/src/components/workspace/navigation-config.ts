@@ -45,7 +45,7 @@ export const WORKSPACE_NAV_GROUPS: WorkspaceNavGroup[] = [
     label: 'Workspace',
     items: [
       { label: 'Dashboard', href: '/workspace', icon: GridIcon },
-      { label: 'Products', href: '/products', icon: BoxIcon, comingSoon: true },
+      { label: 'Products', href: '/settings/products', icon: BoxIcon },
       { label: 'Procurement', href: '/procurement', icon: CartIcon, comingSoon: true },
       { label: 'Inventory', href: '/inventory', icon: ArchiveIcon, comingSoon: true },
       { label: 'Production', href: '/production', icon: FactoryIcon, comingSoon: true },

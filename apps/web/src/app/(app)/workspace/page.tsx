@@ -27,8 +27,8 @@ const QUICK_ACTIONS = [
   {
     icon: BoxIcon,
     title: 'Product Catalogue',
-    description: 'Coming soon.',
-    href: '/products',
+    description: 'Manage what your organisation manufactures and sells.',
+    href: '/settings/products',
   },
   {
     icon: UserIcon,
@@ -44,7 +44,7 @@ const MODULE_ACCENTS: ModuleAccent[] = ['purple', 'pink', 'orange', 'teal'];
 
 const MODULE_DESCRIPTIONS: Record<string, string> = {
   '/workspace': 'Your workspace overview and quick links.',
-  '/products': 'Categories, products, variants, and pricing.',
+  '/settings/products': 'The master catalogue of everything you manufacture or sell.',
   '/procurement': 'Suppliers, purchase orders, and goods received.',
   '/inventory': 'Stock levels, warehouses, and transfers.',
   '/production': 'Recipes, batch production, and quality control.',
@@ -156,6 +156,10 @@ export default function WorkspaceDashboardPage() {
               </li>
               <li className="flex items-center justify-between">
                 <span className="text-foreground">Product Catalogue</span>
+                <span className="text-primary">✓ Complete</span>
+              </li>
+              <li className="flex items-center justify-between">
+                <span className="text-foreground">Procurement</span>
                 <span className="text-muted-foreground">Coming Next</span>
               </li>
             </ul>

@@ -97,7 +97,13 @@ delivered roughly in order, but later Epics may be reordered as priorities evolv
 
 - **Objective:** model what an organisation manufactures and sells.
 - **Includes:** Categories, Products, Variants, Packaging, Pricing, Units, Product Images.
-- **Status:** Not started.
+- **Status:** In progress — the Product Catalogue foundation (master product records:
+  identity, classification, commercial fields, one image, Draft/Active/Archived
+  lifecycle) shipped in Sprint 4.1, reusing the Sprint 3.4 `FileStorage` upload
+  architecture and the same Owner/Administrator-write, Member-read-only authorization as
+  every other domain. Variants, Packaging (as a distinct concept from the Packaging
+  category), Pricing, a tenant-configurable Categories taxonomy, and inventory/production
+  integration remain — see [`docs/domains/catalogue.md`](domains/catalogue.md).
 
 ### Epic 4 — Procurement
 
@@ -189,8 +195,9 @@ delivered roughly in order, but later Epics may be reordered as priorities evolv
 - ✓ Sprint 3.3 — Account Management & Authentication Experience
 - ✓ Sprint 3.4 — Workspace Configuration & Organisation Branding
 - ✓ Sprint 3.5 — Workspace Dashboard & Global Navigation
+- ✓ Sprint 4.1 — Product Catalogue Foundation
 
-**Current focus:** Sprint 4 — not yet scoped.
+**Current focus:** Sprint 4.2 — not yet scoped.
 
 ## 6. Future Ideas (Not Prioritised Yet)
 

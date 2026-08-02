@@ -123,6 +123,77 @@ async function seedUser(params: {
   return user;
 }
 
+/** Five example Boby Bites products (Sprint 4.1 brief) — hardcoded codes/slugs, same
+ *  "predictable seed data" convention as the organisation's own hardcoded
+ *  `BOBY_BITES_ORGANISATION_CODE`, since the seed script runs outside the NestJS DI
+ *  container and has no access to `ProductService.generateUniqueCode`. Seeded `ACTIVE`
+ *  (not the `DRAFT` a real create-product call defaults to) so the demo catalogue reads as
+ *  a working one, not five untouched drafts. No product images, per the brief. */
+const BOBY_BITES_PRODUCTS = [
+  {
+    code: 'PRD-000001',
+    name: 'Plantain Chips',
+    slug: 'plantain-chips',
+    category: 'SNACKS',
+    type: 'FINISHED_PRODUCT',
+    unit: 'Pack',
+  },
+  {
+    code: 'PRD-000002',
+    name: 'Potato Chips',
+    slug: 'potato-chips',
+    category: 'SNACKS',
+    type: 'FINISHED_PRODUCT',
+    unit: 'Pack',
+  },
+  {
+    code: 'PRD-000003',
+    name: 'Roasted Groundnut',
+    slug: 'roasted-groundnut',
+    category: 'SNACKS',
+    type: 'FINISHED_PRODUCT',
+    unit: 'Sachet',
+  },
+  {
+    code: 'PRD-000004',
+    name: 'Kulikuli',
+    slug: 'kulikuli',
+    category: 'SNACKS',
+    type: 'FINISHED_PRODUCT',
+    unit: 'Sachet',
+  },
+  {
+    code: 'PRD-000005',
+    name: 'Chin Chin',
+    slug: 'chin-chin',
+    category: 'SNACKS',
+    type: 'FINISHED_PRODUCT',
+    unit: 'Pack',
+  },
+] as const;
+
+async function seedProducts(organisationId: string, actorUserId: string): Promise<void> {
+  console.log('Seeding Product Catalogue (5 Boby Bites products)...');
+  for (const product of BOBY_BITES_PRODUCTS) {
+    await prisma.product.upsert({
+      where: { code: product.code },
+      update: {},
+      create: {
+        organisationId,
+        code: product.code,
+        name: product.name,
+        slug: product.slug,
+        category: product.category,
+        type: product.type,
+        unit: product.unit,
+        status: 'ACTIVE',
+        createdById: actorUserId,
+        updatedById: actorUserId,
+      },
+    });
+  }
+}
+
 async function main(): Promise<void> {
   // Read early (rather than inside `seedUser`) because the organisation's `businessEmail`
   // needs it before any user is created.
@@ -229,6 +300,8 @@ async function main(): Promise<void> {
     defaultLastName: 'Member',
   });
 
+  await seedProducts(organisation.id, ownerUser.id);
+
   console.log('Recording an audit log entry for this seed run...');
   await prisma.auditLog.create({
     data: {
@@ -248,6 +321,7 @@ async function main(): Promise<void> {
     administratorEmail: administratorUser.email,
     memberEmail: memberUser.email,
     permissionsSeeded: permissions.length,
+    productsSeeded: BOBY_BITES_PRODUCTS.length,
   });
 }
 
