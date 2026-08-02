@@ -42,7 +42,10 @@ This roadmap tracks the intended build order. It is not a commitment to dates �
 - [x] Supplier Management — foundation shipped Sprint 4.2 (master vendor records; Purchase
       Orders and Product–Supplier relationships arrive with Procurement) — see
       [`docs/domains/suppliers.md`](domains/suppliers.md)
-- [ ] Procurement
+- [x] Procurement — Purchase Order management shipped Sprint 4.3 (create/edit/cancel,
+      automatic totals, Draft/Pending/Cancelled lifecycle; Goods Receiving, approval
+      workflow, and invoicing remain) — see
+      [`docs/domains/procurement.md`](domains/procurement.md)
 - [ ] Inventory
 - [ ] Production
 - [ ] Sales

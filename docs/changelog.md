@@ -7,6 +7,78 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 4.3 Procurement (Purchase Orders)] - 2026-08-02
+
+### Added
+
+- **Procurement domain** (`apps/api/src/procurement/purchase-order/`) — the third
+  non-Identity business domain module, following the same repository/service/controller
+  architecture as Product Catalogue/Supplier Management. Covers the purchasing workflow
+  from creating a Purchase Order through issuing it to a supplier; goods receiving into
+  Inventory is explicitly out of scope (Sprint 4.4) — see `docs/domains/procurement.md`.
+- **`PurchaseOrder`/`PurchaseOrderItem` Prisma models** (migration
+  `20260802171910_add_procurement_purchase_orders`): auto-generated immutable
+  `purchaseOrderNumber` (`PO-000001`, ...), `PurchaseOrderStatus` enum (Draft/Pending/
+  Approved/Cancelled/Received — this sprint only reaches Draft/Pending/Cancelled,
+  Approved/Received are reserved for the future approval and goods-receiving workflows),
+  a `Supplier` relation, and one-to-many `PurchaseOrderItem` rows (`productId`, quantity,
+  unit price, and a server-calculated line total).
+- **A fourth Product Type — `CONSUMABLE`** — added to the existing `ProductType` enum
+  (Sprint 4.1) alongside Raw Material/Packaging Material, so Procurement has a complete
+  set of purchasable input types distinct from Finished Products.
+- **Automatic, server-side calculations** — every line's total is always
+  `quantity * unitPrice`, the order subtotal is the sum of every line, and the total
+  equals the subtotal (no taxes or discounts in MVP). Nothing submitted by the client is
+  trusted for these figures; the server recomputes them from the submitted items on
+  every create/update.
+- **Product-type validation** — only products whose type is Raw Material, Packaging
+  Material, or Consumable may appear on a Purchase Order line; Finished Products are
+  rejected with a `400`. Enforced in `PurchaseOrderService` (the source of truth) and
+  mirrored in the frontend's product picker, which only lists purchasable types, so a
+  user can't even select a Finished Product in the first place.
+- **API** — `GET`/`POST /api/procurement/purchase-orders`,
+  `GET`/`PATCH /api/procurement/purchase-orders/:id`,
+  `POST /api/procurement/purchase-orders/:id/cancel`. `GET` requires only authentication
+  (Member has read-only access); every write requires Owner or Administrator
+  (`RolesGuard`). No `DELETE` endpoint — cancelled purchase orders remain in history and
+  become read-only (no further edits allowed).
+- **`packages/validation/src/procurement.ts`** — `createPurchaseOrderSchema`,
+  `updatePurchaseOrderSchema`, the line-item schema, and the `PurchaseOrderStatus` enum
+  schema, mirroring `suppliers.ts`/`catalogue.ts`'s conventions.
+- **Frontend `/settings/procurement`** (under the Sprint 3.5 Workspace shell): a purchase
+  order table (number, supplier, order date, expected delivery, status badge, total,
+  actions), client-side search (PO number/supplier) plus status and supplier filter
+  dropdowns, and a reusable `PurchaseOrderDialog` with a header (supplier, order date,
+  expected delivery, remarks) and an items grid (product picker filtered to purchasable
+  types, quantity, unit price, a live-computed line total, Add/Remove Row) with running
+  Subtotal/Total. A `CANCELLED` order opens the same dialog fully disabled with no submit
+  button, satisfying the brief's "Cancelled POs become read-only."
+- **Workspace navigation** — "Procurement" in the sidebar and the `/workspace`
+  dashboard's Platform Modules grid now point at `/settings/procurement` and lost their
+  "Coming Soon" state; every other future module continues showing "Coming Soon."
+- **Seed data** — 5 additional raw-material/packaging Products (Plantain, Vegetable Oil,
+  Printed Nylon, Salt, Cartons) and 3 example Boby Bites Purchase Orders spanning every
+  status this sprint reaches: `PO-000001` (Fresh Farms Ltd, Plantain, `PENDING` — already
+  issued, matching the brief's own worked example), `PO-000002` (Golden Oil Ltd,
+  Vegetable Oil, `DRAFT`), `PO-000003` (PackRight Nigeria, Printed Nylon, `CANCELLED`).
+- Every mutating endpoint is audited: `purchase-order.created`, `purchase-order.updated`,
+  `purchase-order.cancelled`.
+- 16 new backend unit tests (`PurchaseOrderService`/`PurchaseOrderController`) —
+  169/169 total.
+
+### Known limitations
+
+- No Goods Receiving, Inventory Transactions, Supplier Invoices, Purchase Approval
+  Workflow, Payments, multi-currency, taxes, discounts, partial deliveries, or back
+  orders — all explicitly out of scope per the brief, reserved for later Procurement and
+  Inventory sprints.
+- Reaching `PENDING` ("issued to supplier") happens by editing a `DRAFT` order and
+  changing its Status field — there is no separate "Issue" action/endpoint this sprint.
+- Amounts are stored as `Float`, not an arbitrary-precision `Decimal` type — consistent
+  with the rest of this schema, which has no precedent for `Decimal` yet, and sufficient
+  for the MVP figures involved; each calculation step rounds to 2 decimal places to limit
+  floating-point drift.
+
 ## [Sprint 4.2 Supplier Management] - 2026-08-02
 
 ### Added

@@ -101,18 +101,24 @@ delivered roughly in order, but later Epics may be reordered as priorities evolv
   identity, classification, commercial fields, one image, Draft/Active/Archived
   lifecycle) shipped in Sprint 4.1, reusing the Sprint 3.4 `FileStorage` upload
   architecture and the same Owner/Administrator-write, Member-read-only authorization as
-  every other domain. Variants, Packaging (as a distinct concept from the Packaging
-  category), Pricing, a tenant-configurable Categories taxonomy, and inventory/production
-  integration remain — see [`docs/domains/catalogue.md`](domains/catalogue.md).
+  every other domain. Sprint 4.3 added a fourth Product Type — Consumable — alongside
+  Raw Material/Packaging Material, so Procurement has a complete set of purchasable
+  input types (`docs/domains/procurement.md` §2 "Relationships"). Variants, Packaging (as
+  a distinct concept from the Packaging category), Pricing, a tenant-configurable
+  Categories taxonomy, and inventory/production integration remain — see
+  [`docs/domains/catalogue.md`](domains/catalogue.md).
 
 ### Epic 4 — Procurement
 
 - **Objective:** manage sourcing raw materials and goods from suppliers.
 - **Includes:** Purchase Orders, Goods Received, Supplier Performance. Supplier master
   data itself now lives in its own domain — see Epic 15.
-- **Status:** Not started. Supplier master data (Epic 15) shipped ahead of this Epic in
-  Sprint 4.2, specifically so Purchase Orders can reference `Supplier.id` instead of a
-  free-text supplier name once this Epic is built.
+- **Status:** In progress — Purchase Order management (create/edit/cancel, automatic
+  line/subtotal/total calculation, Draft/Pending/Cancelled lifecycle) shipped in
+  Sprint 4.3, referencing `Supplier.id` (Epic 15, Sprint 4.2) instead of a free-text
+  supplier name, per that Epic's own stated purpose. Goods Receiving, Supplier
+  Performance, Purchase Approval Workflow, and Invoices remain — see
+  [`docs/domains/procurement.md`](domains/procurement.md).
 
 ### Epic 5 — Inventory
 
@@ -226,8 +232,9 @@ delivered roughly in order, but later Epics may be reordered as priorities evolv
 - ✓ Sprint 4.1 — Product Catalogue Foundation
 - ✓ Sprint 3.5.1 — Workspace Navigation Refinement (Coming Soon Modules)
 - ✓ Sprint 4.2 — Supplier Management
+- ✓ Sprint 4.3 — Procurement (Purchase Orders)
 
-**Current focus:** Sprint 4.3 — not yet scoped.
+**Current focus:** Sprint 4.4 — not yet scoped.
 
 ## 6. Future Ideas (Not Prioritised Yet)
 

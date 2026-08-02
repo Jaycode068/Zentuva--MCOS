@@ -45,7 +45,7 @@ const MODULE_ACCENTS: ModuleAccent[] = ['purple', 'pink', 'orange', 'teal'];
 const MODULE_DESCRIPTIONS: Record<string, string> = {
   '/workspace': 'Your workspace overview and quick links.',
   '/settings/products': 'The master catalogue of everything you manufacture or sell.',
-  '/procurement': 'Suppliers, purchase orders, and goods received.',
+  '/settings/procurement': 'Purchase orders for raw materials, packaging, and supplies.',
   '/settings/suppliers': 'The master record of every vendor you buy from.',
   '/inventory': 'Stock levels, warehouses, and transfers.',
   '/production': 'Recipes, batch production, and quality control.',
@@ -167,6 +167,10 @@ export default function WorkspaceDashboardPage() {
               </li>
               <li className="flex items-center justify-between">
                 <span className="text-foreground">Procurement</span>
+                <span className="text-primary">✓ Complete</span>
+              </li>
+              <li className="flex items-center justify-between">
+                <span className="text-foreground">Inventory</span>
                 <span className="text-muted-foreground">Coming Next</span>
               </li>
             </ul>

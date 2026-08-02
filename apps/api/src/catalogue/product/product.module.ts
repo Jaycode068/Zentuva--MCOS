@@ -15,10 +15,15 @@ import { ProductService } from './product.service';
  * which doesn't re-export it) so `ProductService` can inject `FILE_STORAGE` for product
  * image uploads, same as `IdentityModule` itself does for `OrganisationService`/
  * `UserService`.
+ *
+ * Exports `ProductRepository` so other domains can validate/read products without
+ * duplicating Prisma access — first consumed by `ProcurementModule` (Sprint 4.3) to
+ * enforce "only Raw Material/Packaging Material/Consumable products may be purchased."
  */
 @Module({
   imports: [IdentityModule, AuthModule, FileStorageModule],
   controllers: [ProductController],
   providers: [ProductRepository, ProductService],
+  exports: [ProductRepository],
 })
 export class ProductModule {}

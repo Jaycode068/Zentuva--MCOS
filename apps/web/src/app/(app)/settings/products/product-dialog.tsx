@@ -40,6 +40,7 @@ const TYPE_OPTIONS: { value: Product['type']; label: string }[] = [
   { value: 'FINISHED_PRODUCT', label: 'Finished Product' },
   { value: 'RAW_MATERIAL', label: 'Raw Material' },
   { value: 'PACKAGING_MATERIAL', label: 'Packaging Material' },
+  { value: 'CONSUMABLE', label: 'Consumable' },
 ];
 
 /**

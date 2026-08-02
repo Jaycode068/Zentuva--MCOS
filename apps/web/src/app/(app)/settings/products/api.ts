@@ -13,7 +13,7 @@ export interface Product {
   slug: string;
   category:
     'SNACKS' | 'BEVERAGE' | 'WATER' | 'CONFECTIONERY' | 'RAW_MATERIALS' | 'PACKAGING' | 'OTHERS';
-  type: 'FINISHED_PRODUCT' | 'RAW_MATERIAL' | 'PACKAGING_MATERIAL';
+  type: 'FINISHED_PRODUCT' | 'RAW_MATERIAL' | 'PACKAGING_MATERIAL' | 'CONSUMABLE';
   shortDescription: string | null;
   longDescription: string | null;
   unit: string;

@@ -5,13 +5,14 @@ workflows, key entities, and how it integrates with other domains.
 
 ## Status
 
-| Domain                                                           | Status                                                                                                                            |
-| ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| [Identity](identity.md)                                          | Designed (1A/1A.1); database & domain layer (1B.1) and authentication layer (1B.2) implemented — no RBAC/user-management APIs yet |
-| Organisation                                                     | Folded into [Identity](identity.md) — see its "What is an Organisation?" business rule                                            |
-| [Product Catalogue](catalogue.md)                                | Foundation implemented — Sprint 4.1                                                                                               |
-| [Supplier Management](suppliers.md)                              | Foundation implemented — Sprint 4.2                                                                                               |
-| Procurement, Inventory, Production, Sales, Distribution, Finance | Not started                                                                                                                       |
+| Domain                                              | Status                                                                                                                            |
+| --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| [Identity](identity.md)                             | Designed (1A/1A.1); database & domain layer (1B.1) and authentication layer (1B.2) implemented — no RBAC/user-management APIs yet |
+| Organisation                                        | Folded into [Identity](identity.md) — see its "What is an Organisation?" business rule                                            |
+| [Product Catalogue](catalogue.md)                   | Foundation implemented — Sprint 4.1                                                                                               |
+| [Supplier Management](suppliers.md)                 | Foundation implemented — Sprint 4.2                                                                                               |
+| [Procurement](procurement.md)                       | Purchase Order management implemented — Sprint 4.3                                                                                |
+| Inventory, Production, Sales, Distribution, Finance | Not started                                                                                                                       |
 
 As each domain is designed/built, add a `<domain>.md` here covering:
 

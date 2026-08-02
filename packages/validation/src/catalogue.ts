@@ -24,7 +24,12 @@ export const productCategorySchema = z.enum([
 ]);
 export type ProductCategoryInput = z.infer<typeof productCategorySchema>;
 
-export const productTypeSchema = z.enum(['FINISHED_PRODUCT', 'RAW_MATERIAL', 'PACKAGING_MATERIAL']);
+export const productTypeSchema = z.enum([
+  'FINISHED_PRODUCT',
+  'RAW_MATERIAL',
+  'PACKAGING_MATERIAL',
+  'CONSUMABLE',
+]);
 export type ProductTypeInput = z.infer<typeof productTypeSchema>;
 
 export const productStatusSchema = z.enum(['DRAFT', 'ACTIVE', 'ARCHIVED']);

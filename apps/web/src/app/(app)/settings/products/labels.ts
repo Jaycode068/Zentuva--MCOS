@@ -18,6 +18,7 @@ export const TYPE_LABELS: Record<Product['type'], string> = {
   FINISHED_PRODUCT: 'Finished Product',
   RAW_MATERIAL: 'Raw Material',
   PACKAGING_MATERIAL: 'Packaging Material',
+  CONSUMABLE: 'Consumable',
 };
 
 /** Draft = not yet published (warning/amber), Active = success, Archived = muted/default —

@@ -121,6 +121,8 @@ model Organisation {
   products    Product[]
   /// Added Sprint 4.2 — Supplier Management (docs/domains/suppliers.md).
   suppliers   Supplier[]
+  /// Added Sprint 4.3 — Procurement (docs/domains/procurement.md).
+  purchaseOrders PurchaseOrder[]
 
   @@map("organisations")
 }
@@ -373,6 +375,10 @@ enum ProductType {
   FINISHED_PRODUCT
   RAW_MATERIAL
   PACKAGING_MATERIAL
+  /// Added Sprint 4.3 (docs/domains/procurement.md) — a third Purchase-Order-eligible type
+  /// alongside Raw Material/Packaging Material (e.g. factory supplies that aren't inputs
+  /// to a recipe or a package, like cleaning agents or machine lubricant).
+  CONSUMABLE
 }
 
 /// Draft -> Active -> Archived. Products are never physically deleted (Sprint 4.1 brief);
@@ -425,6 +431,10 @@ model Product {
   updatedAt        DateTime        @updatedAt
 
   organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  /// Added Sprint 4.3 — Procurement (docs/domains/procurement.md). Only products whose
+  /// `type` is Raw Material/Packaging Material/Consumable may actually appear here — see
+  /// `PurchaseOrderService`'s product-type validation.
+  purchaseOrderItems PurchaseOrderItem[]
 
   @@unique([organisationId, slug])
   @@index([organisationId])
@@ -491,9 +501,90 @@ model Supplier {
   updatedAt      DateTime         @updatedAt
 
   organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  /// Added Sprint 4.3 — Procurement (docs/domains/procurement.md).
+  purchaseOrders PurchaseOrder[]
 
   @@index([organisationId])
   @@index([organisationId, status])
   @@index([organisationId, supplierCategory])
   @@map("suppliers")
+}
+
+/// Draft -> Pending -> (Approved -> Received) or Cancelled. Sprint 4.3 only reaches
+/// Draft/Pending/Cancelled — Approved/Received are reserved for the future approval
+/// (Sprint 4.4+) and goods-receiving (Sprint 4.4) workflows and are not reachable by any
+/// endpoint in this sprint. Purchase orders are never physically deleted (brief: "No
+/// DELETE. Cancelled POs remain in history").
+enum PurchaseOrderStatus {
+  DRAFT
+  PENDING
+  APPROVED
+  CANCELLED
+  RECEIVED
+}
+
+/// Procurement (Sprint 4.3, docs/domains/procurement.md) — a request to buy goods from a
+/// Supplier. This sprint covers the purchasing workflow up to the point a PO has been
+/// issued to a supplier (`PENDING`); goods receiving into Inventory is explicitly out of
+/// scope (Sprint 4.4).
+model PurchaseOrder {
+  id                   String              @id @default(cuid())
+  organisationId       String
+  /// Auto-generated (`PO-000001`, ...), globally unique, immutable — same
+  /// collision-avoidance pattern as `Product.code`/`Supplier.supplierCode`.
+  purchaseOrderNumber  String              @unique
+  supplierId           String
+  orderDate            DateTime
+  expectedDeliveryDate DateTime?
+  status               PurchaseOrderStatus @default(DRAFT)
+  remarks              String?
+  /// Server-calculated, never trusted from the client — see
+  /// `PurchaseOrderService.buildItems`. Sum of every line's `lineTotal`.
+  subtotal             Float
+  /// `subtotal` with no taxes or discounts applied (Sprint 4.3 brief: "No taxes or
+  /// discounts in MVP") — kept as its own column rather than always reading `subtotal`
+  /// directly since Sales/Finance-style totals typically diverge from their subtotal once
+  /// tax/discount logic exists, and this keeps that future migration additive.
+  total                Float
+  /// Plain ids, no FK relation — same convention as `AuditLog.actorUserId`/
+  /// `Product.createdById`.
+  createdById          String?
+  updatedById          String?
+  /// Always `null` in this sprint — no approval workflow exists yet (brief: "Do not
+  /// implement approval workflow"). Reserved for when `APPROVED` becomes reachable.
+  approvedById         String?
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+
+  organisation Organisation       @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  supplier     Supplier           @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  items        PurchaseOrderItem[]
+
+  @@index([organisationId])
+  @@index([organisationId, status])
+  @@index([organisationId, supplierId])
+  @@map("purchase_orders")
+}
+
+/// One line of a PurchaseOrder — "buy this much of this product at this price." Only
+/// products whose `type` is Raw Material/Packaging Material/Consumable may be referenced
+/// (enforced in `PurchaseOrderService`, not the database) — Finished Products are rejected
+/// since a manufacturer buys inputs, not its own output.
+model PurchaseOrderItem {
+  id              String   @id @default(cuid())
+  purchaseOrderId String
+  productId       String
+  quantity        Float
+  unitPrice       Float
+  /// Server-calculated as `quantity * unitPrice` — see `PurchaseOrderService.buildItems`.
+  lineTotal       Float
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  product       Product       @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@index([purchaseOrderId])
+  @@index([productId])
+  @@map("purchase_order_items")
 }

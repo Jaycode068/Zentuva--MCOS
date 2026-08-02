@@ -12,6 +12,7 @@ import { OrganisationModule } from './identity/organisation/organisation.module'
 import { SettingsModule } from './identity/settings/settings.module';
 import { UserModule } from './identity/user/user.module';
 import { PrismaModule } from './prisma/prisma.module';
+import { PurchaseOrderModule } from './procurement/purchase-order/purchase-order.module';
 import { SupplierModule } from './suppliers/supplier/supplier.module';
 
 @Module({
@@ -31,6 +32,7 @@ import { SupplierModule } from './suppliers/supplier/supplier.module';
     SettingsModule,
     ProductModule,
     SupplierModule,
+    PurchaseOrderModule,
   ],
 })
 export class AppModule {}

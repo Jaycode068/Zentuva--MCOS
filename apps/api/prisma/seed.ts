@@ -170,12 +170,67 @@ const BOBY_BITES_PRODUCTS = [
     type: 'FINISHED_PRODUCT',
     unit: 'Pack',
   },
+  /// Sprint 4.3 additions — raw material/packaging inputs a Purchase Order can actually
+  /// reference (`PurchaseOrderService` rejects Finished Products), one per supplier
+  /// category so the seeded POs below line up with a real supplier→input relationship.
+  /// Plantain/Vegetable Oil/Printed Nylon deliberately use `PRD-000011`–`-000013`, not
+  /// `-000006`–`-000008` — this dev database already has organically-created products
+  /// (via live browser/API testing in Sprints 4.1/4.2) occupying those codes, and this
+  /// upsert is keyed by `code`, so reusing them would silently no-op against the wrong,
+  /// unrelated product instead of creating these. Salt/Cartons keep `-000009`/`-000010`,
+  /// which were genuinely free.
+  {
+    code: 'PRD-000011',
+    name: 'Plantain',
+    slug: 'plantain',
+    category: 'RAW_MATERIALS',
+    type: 'RAW_MATERIAL',
+    unit: 'Kilogram',
+  },
+  {
+    code: 'PRD-000012',
+    name: 'Vegetable Oil',
+    slug: 'vegetable-oil',
+    category: 'RAW_MATERIALS',
+    type: 'RAW_MATERIAL',
+    unit: 'Litre',
+  },
+  {
+    code: 'PRD-000013',
+    name: 'Printed Nylon',
+    slug: 'printed-nylon',
+    category: 'PACKAGING',
+    type: 'PACKAGING_MATERIAL',
+    unit: 'Roll',
+  },
+  {
+    code: 'PRD-000009',
+    name: 'Salt',
+    slug: 'salt',
+    category: 'RAW_MATERIALS',
+    type: 'RAW_MATERIAL',
+    unit: 'Kilogram',
+  },
+  {
+    code: 'PRD-000010',
+    name: 'Cartons',
+    slug: 'cartons',
+    category: 'PACKAGING',
+    type: 'PACKAGING_MATERIAL',
+    unit: 'Piece',
+  },
 ] as const;
 
-async function seedProducts(organisationId: string, actorUserId: string): Promise<void> {
-  console.log('Seeding Product Catalogue (5 Boby Bites products)...');
+/** Returns a `code -> id` map so `seedPurchaseOrders` can reference the products it just
+ *  seeded without a second round-trip lookup. */
+async function seedProducts(
+  organisationId: string,
+  actorUserId: string,
+): Promise<Record<string, string>> {
+  console.log('Seeding Product Catalogue (10 Boby Bites products)...');
+  const productsByCode: Record<string, string> = {};
   for (const product of BOBY_BITES_PRODUCTS) {
-    await prisma.product.upsert({
+    const created = await prisma.product.upsert({
       where: { code: product.code },
       update: {},
       create: {
@@ -191,7 +246,9 @@ async function seedProducts(organisationId: string, actorUserId: string): Promis
         updatedById: actorUserId,
       },
     });
+    productsByCode[product.code] = created.id;
   }
+  return productsByCode;
 }
 
 /** Five example Boby Bites suppliers (Sprint 4.2 brief) — hardcoded codes, same
@@ -262,10 +319,16 @@ const BOBY_BITES_SUPPLIERS = [
   },
 ] as const;
 
-async function seedSuppliers(organisationId: string, actorUserId: string): Promise<void> {
+/** Returns a `supplierCode -> id` map so `seedPurchaseOrders` can reference the suppliers
+ *  it just seeded without a second round-trip lookup. */
+async function seedSuppliers(
+  organisationId: string,
+  actorUserId: string,
+): Promise<Record<string, string>> {
   console.log('Seeding Supplier Management (5 Boby Bites suppliers)...');
+  const suppliersByCode: Record<string, string> = {};
   for (const supplier of BOBY_BITES_SUPPLIERS) {
-    await prisma.supplier.upsert({
+    const created = await prisma.supplier.upsert({
       where: { supplierCode: supplier.supplierCode },
       update: {},
       create: {
@@ -283,6 +346,81 @@ async function seedSuppliers(organisationId: string, actorUserId: string): Promi
         status: 'ACTIVE',
         createdById: actorUserId,
         updatedById: actorUserId,
+      },
+    });
+    suppliersByCode[supplier.supplierCode] = created.id;
+  }
+  return suppliersByCode;
+}
+
+/** Three example Boby Bites purchase orders (Sprint 4.3 brief) — hardcoded numbers, same
+ *  "predictable seed data" convention as `BOBY_BITES_PRODUCTS`/`BOBY_BITES_SUPPLIERS`.
+ *  Deliberately spans all three statuses this sprint reaches (`PENDING` — already issued
+ *  to the supplier, matching the brief's own worked example; `DRAFT` — still being
+ *  prepared; `CANCELLED` — demonstrates the "never deleted, stays in history" rule) so the
+ *  seed data exercises every status the UI needs to render. */
+const BOBY_BITES_PURCHASE_ORDERS = [
+  {
+    purchaseOrderNumber: 'PO-000001',
+    supplierCode: 'SUP-000001',
+    orderDate: new Date('2026-07-20'),
+    expectedDeliveryDate: new Date('2026-08-05'),
+    status: 'PENDING',
+    remarks: 'Restocking plantain for the next production run.',
+    items: [{ productCode: 'PRD-000011', quantity: 2000, unitPrice: 350 }],
+  },
+  {
+    purchaseOrderNumber: 'PO-000002',
+    supplierCode: 'SUP-000002',
+    orderDate: new Date('2026-07-28'),
+    expectedDeliveryDate: null,
+    status: 'DRAFT',
+    remarks: 'Draft — confirming quantity with production before issuing.',
+    items: [{ productCode: 'PRD-000012', quantity: 500, unitPrice: 1200 }],
+  },
+  {
+    purchaseOrderNumber: 'PO-000003',
+    supplierCode: 'SUP-000003',
+    orderDate: new Date('2026-07-15'),
+    expectedDeliveryDate: new Date('2026-07-25'),
+    status: 'CANCELLED',
+    remarks: 'Cancelled — switched to an alternate packaging supplier for this batch.',
+    items: [{ productCode: 'PRD-000013', quantity: 1000, unitPrice: 150 }],
+  },
+] as const;
+
+async function seedPurchaseOrders(
+  organisationId: string,
+  actorUserId: string,
+  productsByCode: Record<string, string>,
+  suppliersByCode: Record<string, string>,
+): Promise<void> {
+  console.log('Seeding Procurement (3 Boby Bites purchase orders)...');
+  for (const po of BOBY_BITES_PURCHASE_ORDERS) {
+    const items = po.items.map((item) => ({
+      productId: productsByCode[item.productCode]!,
+      quantity: item.quantity,
+      unitPrice: item.unitPrice,
+      lineTotal: item.quantity * item.unitPrice,
+    }));
+    const total = items.reduce((sum, item) => sum + item.lineTotal, 0);
+
+    await prisma.purchaseOrder.upsert({
+      where: { purchaseOrderNumber: po.purchaseOrderNumber },
+      update: {},
+      create: {
+        organisationId,
+        purchaseOrderNumber: po.purchaseOrderNumber,
+        supplierId: suppliersByCode[po.supplierCode]!,
+        orderDate: po.orderDate,
+        expectedDeliveryDate: po.expectedDeliveryDate,
+        status: po.status,
+        remarks: po.remarks,
+        subtotal: total,
+        total,
+        createdById: actorUserId,
+        updatedById: actorUserId,
+        items: { create: items },
       },
     });
   }
@@ -394,8 +532,9 @@ async function main(): Promise<void> {
     defaultLastName: 'Member',
   });
 
-  await seedProducts(organisation.id, ownerUser.id);
-  await seedSuppliers(organisation.id, ownerUser.id);
+  const productsByCode = await seedProducts(organisation.id, ownerUser.id);
+  const suppliersByCode = await seedSuppliers(organisation.id, ownerUser.id);
+  await seedPurchaseOrders(organisation.id, ownerUser.id, productsByCode, suppliersByCode);
 
   console.log('Recording an audit log entry for this seed run...');
   await prisma.auditLog.create({
@@ -418,6 +557,7 @@ async function main(): Promise<void> {
     permissionsSeeded: permissions.length,
     productsSeeded: BOBY_BITES_PRODUCTS.length,
     suppliersSeeded: BOBY_BITES_SUPPLIERS.length,
+    purchaseOrdersSeeded: BOBY_BITES_PURCHASE_ORDERS.length,
   });
 }
 
