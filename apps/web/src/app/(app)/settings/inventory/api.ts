@@ -1,7 +1,10 @@
 import { apiFetch } from '@/lib/api-client';
 
+export type ProductStatus = 'DRAFT' | 'ACTIVE' | 'ARCHIVED';
+
 /** `GET /api/inventory`, `GET /api/inventory/:productId` response shape — see
- *  apps/api/src/inventory/inventory.controller.ts's `toStockResponse`. */
+ *  apps/api/src/inventory/inventory.controller.ts's `toStockResponse`. Extended Sprint
+ *  4.5 with `location`/`quantityReserved`/`quantityAvailable`/`lastMovement`. */
 export interface InventoryStock {
   productId: string;
   product: {
@@ -10,9 +13,70 @@ export interface InventoryStock {
     name: string;
     type: 'FINISHED_PRODUCT' | 'RAW_MATERIAL' | 'PACKAGING_MATERIAL' | 'CONSUMABLE';
     unit: string;
+    status: ProductStatus;
   };
+  location: { id: string; name: string };
   quantityOnHand: number;
+  quantityReserved: number;
+  quantityAvailable: number;
+  lastMovement: string | null;
   updatedAt: string | null;
+}
+
+export interface ListInventoryStockParams {
+  search?: string;
+  productType?: InventoryStock['product']['type'];
+  productStatus?: ProductStatus;
+  locationId?: string;
+}
+
+export type LocationStatus = 'ACTIVE' | 'INACTIVE';
+
+/** `GET/POST /api/inventory/locations`, `PATCH .../locations/:id` response shape (Sprint
+ *  4.5 brief §16/§20). No delete — only `status` toggling, same convention as
+ *  Suppliers/Products. */
+export interface InventoryLocation {
+  id: string;
+  name: string;
+  status: LocationStatus;
+  isDefault: boolean;
+  productCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateInventoryLocationPayload {
+  name: string;
+}
+
+export interface UpdateInventoryLocationPayload {
+  name?: string;
+  status?: LocationStatus;
+}
+
+export type AdjustmentReason =
+  'PHYSICAL_COUNT' | 'DAMAGE' | 'SPOILAGE' | 'LOSS' | 'FOUND_STOCK' | 'DATA_CORRECTION' | 'OTHER';
+
+export interface CreateInventoryAdjustmentPayload {
+  productId: string;
+  locationId?: string;
+  /** Signed delta — positive increases stock, negative decreases it. Never a new
+   *  absolute balance. */
+  quantity: number;
+  reason: AdjustmentReason;
+  notes?: string;
+}
+
+/** `POST /api/inventory/adjustments` response shape — see `toAdjustmentResponse`. */
+export interface StockAdjustmentResult {
+  productId: string;
+  product: { id: string; code: string; name: string; unit: string };
+  location: { id: string; name: string };
+  reason: AdjustmentReason;
+  quantityDelta: number;
+  previousQuantity: number;
+  newQuantity: number;
+  transactionId: string;
 }
 
 export type InventoryTransactionType = 'RECEIPT' | 'ISSUE' | 'ADJUSTMENT';
@@ -114,16 +178,37 @@ export interface UpdateGoodsReceiptDiscrepancyPayload {
   notes?: string;
 }
 
-export function listInventoryStock(): Promise<{ items: InventoryStock[] }> {
-  return apiFetch<{ items: InventoryStock[] }>('/inventory');
+export function listInventoryStock(
+  params: ListInventoryStockParams = {},
+): Promise<{ items: InventoryStock[] }> {
+  const query = new URLSearchParams();
+  if (params.search) query.set('search', params.search);
+  if (params.productType) query.set('productType', params.productType);
+  if (params.productStatus) query.set('productStatus', params.productStatus);
+  if (params.locationId) query.set('locationId', params.locationId);
+  const queryString = query.toString();
+  return apiFetch<{ items: InventoryStock[] }>(`/inventory${queryString ? `?${queryString}` : ''}`);
 }
 
 export function getInventoryStockByProduct(productId: string): Promise<InventoryStock> {
   return apiFetch<InventoryStock>(`/inventory/${productId}`);
 }
 
-export function listInventoryTransactions(): Promise<{ items: InventoryTransaction[] }> {
-  return apiFetch<{ items: InventoryTransaction[] }>('/inventory/transactions');
+export interface ListInventoryTransactionsParams {
+  productId?: string;
+  transactionType?: InventoryTransactionType;
+}
+
+export function listInventoryTransactions(
+  params: ListInventoryTransactionsParams = {},
+): Promise<{ items: InventoryTransaction[] }> {
+  const query = new URLSearchParams();
+  if (params.productId) query.set('productId', params.productId);
+  if (params.transactionType) query.set('transactionType', params.transactionType);
+  const queryString = query.toString();
+  return apiFetch<{ items: InventoryTransaction[] }>(
+    `/inventory/transactions${queryString ? `?${queryString}` : ''}`,
+  );
 }
 
 export function listGoodsReceipts(): Promise<{ items: GoodsReceipt[] }> {
@@ -157,4 +242,36 @@ export function getPurchaseOrderReceivingSummary(
   return apiFetch<PurchaseOrderReceivingSummary>(
     `/inventory/purchase-orders/${purchaseOrderId}/receiving`,
   );
+}
+
+export function listInventoryLocations(): Promise<{ items: InventoryLocation[] }> {
+  return apiFetch<{ items: InventoryLocation[] }>('/inventory/locations');
+}
+
+export function createInventoryLocation(
+  input: CreateInventoryLocationPayload,
+): Promise<InventoryLocation> {
+  return apiFetch<InventoryLocation>('/inventory/locations', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateInventoryLocation(
+  id: string,
+  input: UpdateInventoryLocationPayload,
+): Promise<InventoryLocation> {
+  return apiFetch<InventoryLocation>(`/inventory/locations/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+}
+
+export function createInventoryAdjustment(
+  input: CreateInventoryAdjustmentPayload,
+): Promise<StockAdjustmentResult> {
+  return apiFetch<StockAdjustmentResult>('/inventory/adjustments', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
 }

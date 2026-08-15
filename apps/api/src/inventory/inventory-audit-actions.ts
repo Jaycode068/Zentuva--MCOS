@@ -15,4 +15,12 @@ export const INVENTORY_AUDIT_ACTIONS = {
   REPLACEMENT_RECEIVED: 'goods-receipt.replacement-received',
   RESOLVED: 'goods-receipt.resolved',
   INVENTORY_INCREASED: 'inventory.increased',
+  /** Sprint 4.5 brief's explicit event list — one event per manual correction,
+   *  recorded on every `POST /api/inventory/adjustments` regardless of direction
+   *  (increase or decrease), same "no duplicate events" instruction as the rest of
+   *  this file. */
+  ADJUSTED: 'inventory.adjusted',
+  LOCATION_CREATED: 'inventory.location.created',
+  LOCATION_UPDATED: 'inventory.location.updated',
+  LOCATION_DEACTIVATED: 'inventory.location.deactivated',
 } as const;

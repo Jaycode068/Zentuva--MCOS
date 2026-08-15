@@ -1,9 +1,11 @@
 import type { BadgeProps } from '@zentuva/ui';
 
 import type {
+  AdjustmentReason,
   DiscrepancyStatus,
   InventoryStock,
   InventoryTransactionType,
+  LocationStatus,
   RejectionReason,
 } from './api';
 
@@ -69,4 +71,26 @@ export const DISCREPANCY_STATUS_VARIANT: Record<
   REPLACEMENT_RECEIVED: 'warning',
   CREDIT_EXPECTED: 'warning',
   RESOLVED: 'success',
+};
+
+/** Sprint 4.5 brief §5 — a small controlled list of reasons for a manual stock
+ *  correction. */
+export const ADJUSTMENT_REASON_LABELS: Record<AdjustmentReason, string> = {
+  PHYSICAL_COUNT: 'Physical Count',
+  DAMAGE: 'Damage',
+  SPOILAGE: 'Spoilage',
+  LOSS: 'Loss',
+  FOUND_STOCK: 'Found Stock',
+  DATA_CORRECTION: 'Data Correction',
+  OTHER: 'Other',
+};
+
+export const LOCATION_STATUS_LABELS: Record<LocationStatus, string> = {
+  ACTIVE: 'Active',
+  INACTIVE: 'Inactive',
+};
+
+export const LOCATION_STATUS_VARIANT: Record<LocationStatus, NonNullable<BadgeProps['variant']>> = {
+  ACTIVE: 'success',
+  INACTIVE: 'default',
 };

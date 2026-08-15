@@ -23,6 +23,7 @@ export type GoodsReceiptWithRelations = GoodsReceipt & {
   })[];
   supplier: { id: string; supplierCode: string; supplierName: string };
   purchaseOrder: { id: string; purchaseOrderNumber: string };
+  location: { id: string; name: string };
 };
 
 const RELATIONS_INCLUDE = {
@@ -32,6 +33,7 @@ const RELATIONS_INCLUDE = {
   },
   supplier: { select: { id: true, supplierCode: true, supplierName: true } },
   purchaseOrder: { select: { id: true, purchaseOrderNumber: true } },
+  location: { select: { id: true, name: true } },
 };
 
 export interface ReceivingTotals {
@@ -60,6 +62,11 @@ export interface ReceiveGoodsData {
   purchaseOrderItems: { id: string; quantity: number }[];
   goodsReceiptNumber: string;
   supplierId: string;
+  /** Sprint 4.5 — the physical location this delivery is received into. Resolved by
+   *  `InventoryService` before this transaction runs (either the caller's explicit
+   *  choice or `InventoryLocationRepository.getOrCreateDefault`), so this file never
+   *  needs to touch that resolution itself. */
+  locationId: string;
   receivedDate: Date;
   receivedById: string;
   remarks?: string;
@@ -233,6 +240,7 @@ export class GoodsReceiptRepository {
           goodsReceiptNumber: data.goodsReceiptNumber,
           purchaseOrderId: data.purchaseOrderId,
           supplierId: data.supplierId,
+          locationId: data.locationId,
           receivedDate: data.receivedDate,
           receivedById: data.receivedById,
           remarks: data.remarks,
@@ -260,14 +268,16 @@ export class GoodsReceiptRepository {
       for (const item of acceptedItems) {
         await tx.inventoryStock.upsert({
           where: {
-            organisationId_productId: {
+            organisationId_productId_locationId: {
               organisationId: data.organisationId,
               productId: item.productId,
+              locationId: data.locationId,
             },
           },
           create: {
             organisationId: data.organisationId,
             productId: item.productId,
+            locationId: data.locationId,
             quantityOnHand: item.acceptedQuantity,
           },
           update: { quantityOnHand: { increment: item.acceptedQuantity } },
@@ -278,6 +288,7 @@ export class GoodsReceiptRepository {
           data: acceptedItems.map((item) => ({
             organisationId: data.organisationId,
             productId: item.productId,
+            locationId: data.locationId,
             transactionType: InventoryTransactionType.RECEIPT,
             quantity: item.acceptedQuantity,
             referenceType: 'GoodsReceipt',

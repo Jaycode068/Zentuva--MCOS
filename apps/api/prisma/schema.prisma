@@ -127,6 +127,8 @@ model Organisation {
   goodsReceipts         GoodsReceipt[]
   inventoryStock        InventoryStock[]
   inventoryTransactions InventoryTransaction[]
+  /// Added Sprint 4.5 — Inventory Locations (docs/domains/inventory.md).
+  inventoryLocations    InventoryLocation[]
 
   @@map("organisations")
 }
@@ -616,6 +618,52 @@ model PurchaseOrderItem {
   @@map("purchase_order_items")
 }
 
+/// Sprint 4.5 (docs/domains/inventory.md "Stock Locations") — the minimum useful
+/// multi-location concept: a named physical place stock can be held (a warehouse, a
+/// store room, ...), deliberately not a full Warehouse Management System (brief §15: no
+/// bins, shelves, zones, barcode scanning, or transfers between locations yet). Every
+/// organisation has exactly one `isDefault` location (auto-created as "Main Warehouse"
+/// on first use if none exists — see `InventoryLocationRepository.getOrCreateDefault`),
+/// which Goods Receiving falls back to when no location is specified, so the existing
+/// receiving flow never breaks.
+model InventoryLocation {
+  id             String         @id @default(cuid())
+  organisationId String
+  name           String
+  /// No delete — same "deactivate, never remove" convention as `Supplier`/`Product`
+  /// (brief §20: "Do not allow deleting locations that already have inventory
+  /// history... Deactivation should preserve historical records"). In practice every
+  /// location accumulates history immediately (Goods Receiving requires one), so this
+  /// codebase never exposes a delete path for locations at all, matching the domain's
+  /// no-hard-delete convention everywhere else.
+  status         LocationStatus @default(ACTIVE)
+  /// Exactly one location per organisation should have this `true` — the fallback
+  /// target for Goods Receiving when the caller doesn't specify a location. Enforced in
+  /// `InventoryLocationRepository`/`InventoryLocationService`, not a database
+  /// constraint (Prisma has no native "at most one true per group" constraint).
+  isDefault      Boolean        @default(false)
+  createdById    String?
+  updatedById    String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  organisation  Organisation           @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  goodsReceipts GoodsReceipt[]
+  stock         InventoryStock[]
+  transactions  InventoryTransaction[]
+
+  @@index([organisationId])
+  @@index([organisationId, status])
+  @@map("inventory_locations")
+}
+
+/// `Supplier`/`Product` both use `ACTIVE`/`INACTIVE` for the same "usable vs. retired,
+/// never deleted" distinction — reused here rather than inventing new enum values.
+enum LocationStatus {
+  ACTIVE
+  INACTIVE
+}
+
 /// Inventory (Sprint 4.4, docs/domains/inventory.md) — Goods Receiving into stock. A
 /// `GoodsReceipt` records one physical delivery event against a Purchase Order. Sprint
 /// 4.4.1 removed the original "received once" restriction: a Purchase Order may now have
@@ -635,6 +683,11 @@ model GoodsReceipt {
   /// always "goods from this supplier," and this avoids every read joining through the
   /// Purchase Order just to show who delivered.
   supplierId         String
+  /// Added Sprint 4.5 — which physical location the accepted goods were received into.
+  /// Defaults to the organisation's default location when not specified (brief §17:
+  /// "Do not break the existing Goods Receiving flow") — `InventoryService.receiveGoods`
+  /// resolves it, never the client.
+  locationId         String
   receivedDate       DateTime
   /// Plain id, no FK relation — same convention as `AuditLog.actorUserId`/
   /// `PurchaseOrder.createdById` (metadata about who acted, not a relationship the
@@ -662,10 +715,12 @@ model GoodsReceipt {
   organisation  Organisation       @relation(fields: [organisationId], references: [id], onDelete: Cascade)
   purchaseOrder PurchaseOrder      @relation(fields: [purchaseOrderId], references: [id], onDelete: Restrict)
   supplier      Supplier           @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  location      InventoryLocation  @relation(fields: [locationId], references: [id], onDelete: Restrict)
   items         GoodsReceiptItem[]
 
   @@index([organisationId])
   @@index([organisationId, purchaseOrderId])
+  @@index([locationId])
   @@map("goods_receipts")
 }
 
@@ -734,35 +789,64 @@ enum DiscrepancyStatus {
   RESOLVED
 }
 
-/// The live stock balance — one row per (Organisation, Product), updated in place as
-/// goods are received (and, in future sprints, adjusted/issued). Per the Sprint 4.4
-/// brief's "One Architectural Improvement": `InventoryTransaction` is the source of
+/// The live stock balance — one row per (Organisation, Product, Location) as of Sprint
+/// 4.5 (previously just (Organisation, Product) — see `InventoryLocation`), updated in
+/// place as goods are received/adjusted (and, in future sprints, issued). Per the Sprint
+/// 4.4 brief's "One Architectural Improvement": `InventoryTransaction` is the source of
 /// truth/audit trail; this table is a fast-to-query cache of where that ledger currently
-/// nets out, always re-derivable by summing this product's transactions.
+/// nets out, always re-derivable by summing this product's transactions at this
+/// location.
 model InventoryStock {
-  id             String   @id @default(cuid())
-  organisationId String
-  productId      String
-  quantityOnHand Float    @default(0)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id               String   @id @default(cuid())
+  organisationId   String
+  productId        String
+  locationId       String
+  quantityOnHand   Float    @default(0)
+  /// Added Sprint 4.5, always `0` this sprint — no reservation workflow exists yet
+  /// (brief §1: "Do not create reservation workflows in this sprint"). Kept as a real
+  /// column now, not retrofitted later, so a future reservation feature (Sales order
+  /// holds, Production batch allocation, ...) is an additive change, not another
+  /// `InventoryStock` migration. `quantityAvailable` is never stored — always computed
+  /// as `quantityOnHand - quantityReserved` at read time (`InventoryService`), and today
+  /// that's simply `quantityOnHand`.
+  quantityReserved Float    @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
-  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
-  product      Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
+  organisation Organisation      @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  product      Product           @relation(fields: [productId], references: [id], onDelete: Cascade)
+  location     InventoryLocation @relation(fields: [locationId], references: [id], onDelete: Restrict)
 
-  @@unique([organisationId, productId])
+  @@unique([organisationId, productId, locationId])
   @@index([organisationId])
+  @@index([locationId])
   @@map("inventory_stock")
 }
 
-/// Sprint 4.4 only ever writes `RECEIPT` rows (Goods Receiving). `ISSUE` (Production
-/// consumption, Sales) and `ADJUSTMENT` (manual stock corrections) exist in the enum for
-/// forward-compatibility with future sprints — see docs/domains/inventory.md "Future
-/// Production Consumption" — but no endpoint produces them yet.
+/// Sprint 4.4 only wrote `RECEIPT` rows (Goods Receiving); Sprint 4.5 added `ADJUSTMENT`
+/// (controlled stock corrections). `ISSUE` (Production consumption, Sales) remains
+/// reserved for future sprints — see docs/domains/inventory.md "Future Production
+/// Consumption". Deliberately no generic manual "remove stock" action exists yet (brief
+/// §3: "Do not create a generic 'remove stock' button that could bypass business
+/// processes") — `ISSUE` will only ever be written by Production/Sales business logic,
+/// not a standalone Inventory endpoint.
 enum InventoryTransactionType {
   RECEIPT
   ISSUE
   ADJUSTMENT
+}
+
+/// Controlled reasons for an `ADJUSTMENT` transaction (Sprint 4.5 brief §5) — a simple
+/// structured field plus free-text `InventoryTransaction.notes`, not an elaborate
+/// configuration system.
+enum AdjustmentReason {
+  PHYSICAL_COUNT
+  DAMAGE
+  SPOILAGE
+  LOSS
+  FOUND_STOCK
+  DATA_CORRECTION
+  OTHER
 }
 
 /// The immutable stock ledger (Sprint 4.4 brief's "One Architectural Improvement") —
@@ -770,25 +854,46 @@ enum InventoryTransactionType {
 /// domain that moves stock (Production, Sales, Stock Adjustment) is expected to write
 /// here, the same way every domain already writes to `AuditLog` (identity.md §8).
 model InventoryTransaction {
-  id              String                   @id @default(cuid())
-  organisationId  String
-  productId       String
-  transactionType InventoryTransactionType
+  id               String                   @id @default(cuid())
+  organisationId   String
+  productId        String
+  /// Added Sprint 4.5 — which `InventoryStock` (Organisation, Product, Location) row
+  /// this movement applied to.
+  locationId       String
+  transactionType  InventoryTransactionType
   /// Always positive — direction is carried by `transactionType`, not the sign of this
-  /// column.
-  quantity        Float
+  /// column (a future `ISSUE` still records a positive quantity "removed"), keeping every
+  /// row human-readable at a glance. The one exception: a negative `ADJUSTMENT` (a
+  /// downward correction) *does* carry a negative sign, since "increase or decrease" is
+  /// the adjustment's own point — see `InventoryService.adjustStock`.
+  quantity         Float
   /// What business event produced this row (e.g. `"GoodsReceipt"`), paired with
   /// `referenceId` — same "polymorphic reference" shape as `AuditLog.entityType`/
   /// `entityId`, not a real FK (the referenced row may live in another domain's table).
-  referenceType   String
-  referenceId     String
-  createdAt       DateTime                 @default(now())
+  /// A manual `ADJUSTMENT` has no parent aggregate of its own, so `referenceType` is
+  /// `"ManualAdjustment"` and `referenceId` is `null` — added Sprint 4.5, nullable only
+  /// for that case.
+  referenceType    String
+  referenceId      String?
+  /// Added Sprint 4.5 — set only on `ADJUSTMENT` rows, one of the controlled
+  /// `AdjustmentReason` values (brief §5).
+  adjustmentReason AdjustmentReason?
+  /// Added Sprint 4.5 — free-text context, primarily for adjustments ("Physical count
+  /// discrepancy during monthly stocktake").
+  notes            String?
+  /// Added Sprint 4.5 — who initiated this movement. Plain id, no FK relation, same
+  /// convention as `AuditLog.actorUserId`/`GoodsReceipt.receivedById`. Always the
+  /// authenticated caller.
+  createdById      String?
+  createdAt        DateTime                 @default(now())
 
-  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
-  product      Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
+  organisation Organisation      @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  product      Product           @relation(fields: [productId], references: [id], onDelete: Cascade)
+  location     InventoryLocation @relation(fields: [locationId], references: [id], onDelete: Restrict)
 
   @@index([organisationId])
   @@index([organisationId, productId])
+  @@index([locationId])
   @@index([referenceType, referenceId])
   @@map("inventory_transactions")
 }

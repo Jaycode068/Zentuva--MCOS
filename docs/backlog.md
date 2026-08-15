@@ -135,10 +135,17 @@ delivered roughly in order, but later Epics may be reordered as priorities evolv
   Goods Receipt carries a lightweight supplier-discrepancy resolution state
   (`NONE`/`PENDING_SUPPLIER`/`REPLACEMENT_EXPECTED`/`REPLACEMENT_RECEIVED`/
   `CREDIT_EXPECTED`/`RESOLVED`) — deliberately not a full Quality Management or Supplier
-  Claims system. The immutable `InventoryTransaction` stock ledger remains the source of
-  truth every future stock movement (Production issue/output, Sales issue, Stock
-  Adjustment) is expected to write into. Warehouses, Transfers, Stock Adjustment, and
-  Inventory Counts remain — see [`docs/domains/inventory.md`](domains/inventory.md).
+  Claims system. Sprint 4.5 ("Inventory Control & Stock Management") added a minimal
+  `InventoryLocation` model (every stock balance is now Organisation+Product+Location,
+  not just Organisation+Product; every organisation gets a lazily-created default
+  location) and a controlled `ADJUSTMENT` transaction type for manual corrections
+  (Physical Count/Damage/Spoilage/Loss/Found Stock/Data Correction/Other reasons, a
+  signed quantity delta, hard negative-stock prevention) — the immutable
+  `InventoryTransaction` ledger now carries `RECEIPT` and `ADJUSTMENT` rows side by side,
+  the same source of truth every future stock movement (Production issue/output, Sales
+  issue) is expected to write into. Warehouse Transfers, Reservation/Allocation,
+  Valuation (FIFO/weighted-average/COGS), Low Stock alerting, and a full Warehouse
+  Management System remain — see [`docs/domains/inventory.md`](domains/inventory.md).
 
 ### Epic 6 — Production
 
@@ -248,8 +255,9 @@ delivered roughly in order, but later Epics may be reordered as priorities evolv
 - ✓ Sprint 4.3 — Procurement (Purchase Orders)
 - ✓ Sprint 4.4 — Inventory Management (Goods Receiving)
 - ✓ Sprint 4.4.1 — Goods Receiving, Inspection & Supplier Discrepancy Refinement
+- ✓ Sprint 4.5 — Inventory Control & Stock Management
 
-**Current focus:** Sprint 4.5 — not yet scoped.
+**Current focus:** Sprint 4.6 — not yet scoped.
 
 ## 6. Future Ideas (Not Prioritised Yet)
 

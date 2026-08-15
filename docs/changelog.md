@@ -7,6 +7,72 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 4.5 Inventory Control & Stock Management] - 2026-08-15
+
+### Added
+
+- **`InventoryLocation`** — a minimal physical-location model (name + Active/Inactive
+  status, no bins/shelves/zones/barcodes). Every stock balance is now
+  `Organisation + Product + Location`, not just `Organisation + Product`. Every
+  organisation gets a "Main Warehouse" default location, created lazily and
+  idempotently the first time it's actually needed (first Goods Receipt, first
+  Adjustment, or first visit to the Locations tab) rather than hooked into
+  organisation registration. Owner/Administrator can add, rename, and
+  activate/deactivate additional locations via `GET/POST /api/inventory/locations`,
+  `PATCH /api/inventory/locations/:id`; the default location can never be
+  deactivated (every caller that doesn't pick a location falls back to it).
+- **Manual stock adjustments** — `POST /api/inventory/adjustments` (Owner/Administrator
+  only), the first controlled write path to `InventoryStock` outside of receiving.
+  Takes a Product, an optional Location (default location if omitted), a signed
+  quantity delta, a structured reason (`PHYSICAL_COUNT`/`DAMAGE`/`SPOILAGE`/`LOSS`/
+  `FOUND_STOCK`/`DATA_CORRECTION`/`OTHER`), and optional notes. Writes a new
+  `InventoryTransaction` `ADJUSTMENT` row and updates `InventoryStock.quantityOnHand`
+  atomically, in that order, inside one transaction — the same "ledger first, cache
+  second" discipline `GoodsReceiptRepository.receive` already established. Hard
+  negative-stock prevention: an adjustment that would take `quantityOnHand` below zero
+  is rejected (`400`), never silently clamped.
+- **Frontend `StockAdjustmentDialog`** — Product/Location/Adjustment Type
+  (Increase/Decrease)/Quantity/Reason/Notes, with a live-computed, read-only "New
+  Balance" preview and the Save button disabled if that preview would go negative.
+- **Frontend Locations tab** — list every location with its status and how many
+  distinct products currently have stock there; create/rename/deactivate via
+  `LocationDialog`.
+- **Frontend Inventory Summary enhancements** — new Code/Type/UoM/Location/Quantity
+  Available/Last Movement columns, plus Product Status and Location filters alongside
+  the existing search and Product Type filter.
+- **Frontend running balance** — the Transactions tab, once filtered to a single
+  product, shows a client-computed running balance per row (ascending cumulative sum
+  of the ledger's `quantity`, displayed against the existing newest-first ordering) —
+  no new endpoint, since `GET /api/inventory/transactions?productId=` already returns
+  everything needed.
+- **New audit events** — `inventory.adjusted`, `inventory.location.created`,
+  `inventory.location.updated`, `inventory.location.deactivated`.
+
+### Changed
+
+- **`InventoryStock`**'s unique key changed from `(organisationId, productId)` to
+  `(organisationId, productId, locationId)`; gained `quantityReserved` (always `0`
+  this sprint — reservation itself isn't implemented, the column exists purely so a
+  future Sales/Production workflow doesn't need a shape change) and a computed
+  `quantityAvailable` (`quantityOnHand - quantityReserved`) in API responses.
+- **`InventoryTransaction`** gained `locationId`, `adjustmentReason`, `notes`, and
+  `createdById`; `referenceId` became nullable (a manual adjustment has no other
+  entity to point at, unlike a `GoodsReceipt`-sourced `RECEIPT` row).
+- **`GoodsReceipt`** gained `locationId` — every receipt now records which location it
+  was received into (always the organisation's default location this sprint; there is
+  still no location picker on the Goods Receiving form, per the brief's explicit
+  "without breaking the existing flow" instruction).
+- **`GET /api/inventory`** gained `?productStatus=`/`?locationId=` filters alongside
+  the existing `?search=`/`?productType=`.
+
+### Fixed
+
+- `InventoryModule` was missing `InventoryLocationRepository` from its provider list,
+  which crashed the whole API at boot (`Nest can't resolve dependencies of
+InventoryService`) the moment `InventoryService`'s constructor grew a fourth
+  repository dependency — caught during this sprint's own live-server verification,
+  fixed before merge.
+
 ## [Sprint 4.4.1 Goods Receiving, Inspection & Supplier Discrepancy Refinement] - 2026-08-13
 
 ### Changed

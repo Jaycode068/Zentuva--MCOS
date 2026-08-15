@@ -480,6 +480,49 @@ async function seedPurchaseOrders(
   return purchaseOrdersByNumber;
 }
 
+/** Two example Boby Bites stock locations (Sprint 4.5 brief §16/§20) — "Main Warehouse"
+ *  is the organisation's default (same one `InventoryLocationRepository.getOrCreateDefault`
+ *  would lazily create if this script never ran); "Cold Storage" exists purely so the
+ *  Locations tab and the Inventory Summary's location filter have more than one row to
+ *  demonstrate against. Looked up by `(organisationId, name)` rather than upserted by a
+ *  unique key — `InventoryLocation.name` isn't globally or per-org unique at the schema
+ *  level (brief didn't ask for that constraint) — so this checks for an existing row
+ *  first, matching the "idempotent on re-run" convention every other seed function here
+ *  uses. */
+const BOBY_BITES_INVENTORY_LOCATIONS = [
+  { name: 'Main Warehouse', isDefault: true },
+  { name: 'Cold Storage', isDefault: false },
+] as const;
+
+/** Returns a `name -> id` map so `seedGoodsReceipts`/`seedInventoryAdjustment` can
+ *  reference these locations without a second round-trip lookup. */
+async function seedInventoryLocations(
+  organisationId: string,
+  actorUserId: string,
+): Promise<Record<string, string>> {
+  console.log('Seeding Inventory Locations (Main Warehouse + Cold Storage)...');
+  const locationsByName: Record<string, string> = {};
+  for (const location of BOBY_BITES_INVENTORY_LOCATIONS) {
+    const existing = await prisma.inventoryLocation.findFirst({
+      where: { organisationId, name: location.name },
+    });
+    const created =
+      existing ??
+      (await prisma.inventoryLocation.create({
+        data: {
+          organisationId,
+          name: location.name,
+          status: 'ACTIVE',
+          isDefault: location.isDefault,
+          createdById: actorUserId,
+          updatedById: actorUserId,
+        },
+      }));
+    locationsByName[location.name] = created.id;
+  }
+  return locationsByName;
+}
+
 /** Five example Boby Bites goods receipts (Sprint 4.4.1 brief §16) spanning every
  *  receiving scenario the brief calls for:
  *  - `GRN-000001` against `PO-000001` — a complete, perfect delivery (Scenario A).
@@ -585,6 +628,7 @@ async function seedGoodsReceipts(
   actorUserId: string,
   productsByCode: Record<string, string>,
   purchaseOrdersByNumber: Record<string, SeededPurchaseOrder>,
+  defaultLocationId: string,
 ): Promise<void> {
   console.log('Seeding Inventory (5 Boby Bites goods receipts across 4 purchase orders)...');
   for (const grn of BOBY_BITES_GOODS_RECEIPTS) {
@@ -646,6 +690,7 @@ async function seedGoodsReceipts(
           goodsReceiptNumber: grn.goodsReceiptNumber,
           purchaseOrderId: purchaseOrder.id,
           supplierId: purchaseOrder.supplierId,
+          locationId: defaultLocationId,
           receivedDate: grn.receivedDate,
           receivedById: actorUserId,
           remarks: grn.remarks,
@@ -657,10 +702,17 @@ async function seedGoodsReceipts(
       const acceptedItems = items.filter((item) => item.acceptedQuantity > 0);
       for (const item of acceptedItems) {
         await tx.inventoryStock.upsert({
-          where: { organisationId_productId: { organisationId, productId: item.productId } },
+          where: {
+            organisationId_productId_locationId: {
+              organisationId,
+              productId: item.productId,
+              locationId: defaultLocationId,
+            },
+          },
           create: {
             organisationId,
             productId: item.productId,
+            locationId: defaultLocationId,
             quantityOnHand: item.acceptedQuantity,
           },
           update: { quantityOnHand: { increment: item.acceptedQuantity } },
@@ -671,6 +723,7 @@ async function seedGoodsReceipts(
           data: acceptedItems.map((item) => ({
             organisationId,
             productId: item.productId,
+            locationId: defaultLocationId,
             transactionType: 'RECEIPT',
             quantity: item.acceptedQuantity,
             referenceType: 'GoodsReceipt',
@@ -691,6 +744,67 @@ async function seedGoodsReceipts(
       discrepancyNotes: 'Replacement received in full via GRN-000004.',
     },
   });
+}
+
+/** One example manual stock adjustment (Sprint 4.5 brief §30 "idempotent seed data with
+ *  ... at least one adjustment example") — a monthly physical count on Salt turning up
+ *  5kg less than the ledger expects, corrected via `ADJUSTMENT` rather than editing
+ *  `InventoryStock` directly, same rule `InventoryStockRepository.adjustStock` itself
+ *  enforces. Idempotency is checked by matching on the exact
+ *  `(organisationId, productId, locationId, transactionType, quantity)` tuple — this
+ *  script has no natural unique business key for a manual adjustment the way
+ *  `goodsReceiptNumber` gives goods receipts. */
+async function seedInventoryAdjustment(
+  organisationId: string,
+  actorUserId: string,
+  productId: string,
+  locationId: string,
+): Promise<void> {
+  console.log('Seeding one example Inventory Adjustment (Salt physical count)...');
+  const ADJUSTMENT_QUANTITY = -5;
+  const existing = await prisma.inventoryTransaction.findFirst({
+    where: {
+      organisationId,
+      productId,
+      locationId,
+      transactionType: 'ADJUSTMENT',
+      quantity: ADJUSTMENT_QUANTITY,
+    },
+  });
+  if (existing) {
+    return;
+  }
+
+  const stock = await prisma.inventoryStock.findUnique({
+    where: { organisationId_productId_locationId: { organisationId, productId, locationId } },
+  });
+  const newQuantity = (stock?.quantityOnHand ?? 0) + ADJUSTMENT_QUANTITY;
+  if (newQuantity < 0) {
+    // The goods-receiving seed data above must run first — skip quietly rather than
+    // crashing the whole seed script if it somehow didn't.
+    return;
+  }
+
+  await prisma.$transaction([
+    prisma.inventoryStock.upsert({
+      where: { organisationId_productId_locationId: { organisationId, productId, locationId } },
+      create: { organisationId, productId, locationId, quantityOnHand: newQuantity },
+      update: { quantityOnHand: newQuantity },
+    }),
+    prisma.inventoryTransaction.create({
+      data: {
+        organisationId,
+        productId,
+        locationId,
+        transactionType: 'ADJUSTMENT',
+        quantity: ADJUSTMENT_QUANTITY,
+        referenceType: 'ManualAdjustment',
+        adjustmentReason: 'PHYSICAL_COUNT',
+        notes: 'Monthly stock count — 5kg discrepancy found, cause unknown.',
+        createdById: actorUserId,
+      },
+    }),
+  ]);
 }
 
 async function main(): Promise<void> {
@@ -801,13 +915,27 @@ async function main(): Promise<void> {
 
   const productsByCode = await seedProducts(organisation.id, ownerUser.id);
   const suppliersByCode = await seedSuppliers(organisation.id, ownerUser.id);
+  const locationsByName = await seedInventoryLocations(organisation.id, ownerUser.id);
   const purchaseOrdersByNumber = await seedPurchaseOrders(
     organisation.id,
     ownerUser.id,
     productsByCode,
     suppliersByCode,
   );
-  await seedGoodsReceipts(organisation.id, ownerUser.id, productsByCode, purchaseOrdersByNumber);
+  const mainWarehouseId = locationsByName['Main Warehouse']!;
+  await seedGoodsReceipts(
+    organisation.id,
+    ownerUser.id,
+    productsByCode,
+    purchaseOrdersByNumber,
+    mainWarehouseId,
+  );
+  await seedInventoryAdjustment(
+    organisation.id,
+    ownerUser.id,
+    productsByCode['PRD-000009']!,
+    mainWarehouseId,
+  );
 
   console.log('Recording an audit log entry for this seed run...');
   await prisma.auditLog.create({
@@ -832,6 +960,7 @@ async function main(): Promise<void> {
     suppliersSeeded: BOBY_BITES_SUPPLIERS.length,
     purchaseOrdersSeeded: BOBY_BITES_PURCHASE_ORDERS.length,
     goodsReceiptsSeeded: BOBY_BITES_GOODS_RECEIPTS.length,
+    inventoryLocationsSeeded: BOBY_BITES_INVENTORY_LOCATIONS.length,
   });
 }
 

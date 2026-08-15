@@ -36,4 +36,34 @@ export class InventoryTransactionRepository {
       orderBy: { createdAt: 'desc' },
     });
   }
+
+  /** Single-product counterpart of `getLastMovementByProduct` — used where only one
+   *  product's history is already being read (`InventoryService.getStockByProduct`),
+   *  so a full organisation-wide `groupBy` would be wasted work. */
+  async getLastMovementForProduct(organisationId: string, productId: string): Promise<Date | null> {
+    const row = await this.prisma.inventoryTransaction.findFirst({
+      where: { organisationId, productId },
+      orderBy: { createdAt: 'desc' },
+      select: { createdAt: true },
+    });
+    return row?.createdAt ?? null;
+  }
+
+  /** Most recent transaction timestamp per product (Sprint 4.5 brief §11 "Last
+   *  Movement" column) — one `groupBy` for the whole Inventory Summary table rather
+   *  than an N+1 query per row. */
+  async getLastMovementByProduct(organisationId: string): Promise<Map<string, Date>> {
+    const rows = await this.prisma.inventoryTransaction.groupBy({
+      by: ['productId'],
+      where: { organisationId },
+      _max: { createdAt: true },
+    });
+    const result = new Map<string, Date>();
+    for (const row of rows) {
+      if (row._max.createdAt) {
+        result.set(row.productId, row._max.createdAt);
+      }
+    }
+    return result;
+  }
 }

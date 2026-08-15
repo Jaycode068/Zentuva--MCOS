@@ -50,9 +50,10 @@ This roadmap tracks the intended build order. It is not a commitment to dates �
 - [x] Inventory — Goods Receiving shipped Sprint 4.4, refined Sprint 4.4.1 to
       distinguish Ordered/Delivered/Accepted/Rejected/Outstanding/Excess, receive
       multiple times against one order, and track a lightweight supplier-discrepancy
-      resolution state; inventory increases only by the accepted portion, into a live
-      per-product stock balance + immutable transaction ledger; warehouses, transfers,
-      stock adjustments, and counts remain — see
+      resolution state; Sprint 4.5 added a minimal multi-location foundation (every
+      balance is now Organisation+Product+Location) and controlled manual stock
+      adjustments, into a live stock balance + immutable transaction ledger;
+      warehouse transfers, reservation, valuation, and a full WMS remain — see
       [`docs/domains/inventory.md`](domains/inventory.md)
 - [ ] Production
 - [ ] Sales

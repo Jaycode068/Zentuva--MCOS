@@ -12,7 +12,7 @@ workflows, key entities, and how it integrates with other domains.
 | [Product Catalogue](catalogue.md)        | Foundation implemented — Sprint 4.1                                                                                               |
 | [Supplier Management](suppliers.md)      | Foundation implemented — Sprint 4.2                                                                                               |
 | [Procurement](procurement.md)            | Purchase Order management implemented — Sprint 4.3                                                                                |
-| [Inventory](inventory.md)                | Goods Receiving implemented — Sprint 4.4                                                                                          |
+| [Inventory](inventory.md)                | Goods Receiving implemented — Sprint 4.4, refined 4.4.1, extended with locations & stock adjustments — Sprint 4.5                 |
 | Production, Sales, Distribution, Finance | Not started                                                                                                                       |
 
 As each domain is designed/built, add a `<domain>.md` here covering:

@@ -1,10 +1,22 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
-import { DiscrepancyStatus, InventoryTransactionType, ProductType } from '@prisma/client';
+import {
+  DiscrepancyStatus,
+  InventoryTransactionType,
+  LocationStatus,
+  ProductStatus,
+  ProductType,
+} from '@prisma/client';
 import {
   CreateGoodsReceiptInput,
+  CreateInventoryAdjustmentInput,
+  CreateInventoryLocationInput,
   UpdateGoodsReceiptDiscrepancyInput,
+  UpdateInventoryLocationInput,
   createGoodsReceiptSchema,
+  createInventoryAdjustmentSchema,
+  createInventoryLocationSchema,
   updateGoodsReceiptDiscrepancySchema,
+  updateInventoryLocationSchema,
 } from '@zentuva/validation';
 import { Request } from 'express';
 
@@ -20,21 +32,24 @@ import {
   InventoryStockSummary,
   InventoryService,
   PurchaseOrderReceivingSummary,
+  StockAdjustmentResult,
 } from './inventory.service';
 import { INVENTORY_AUDIT_ACTIONS } from './inventory-audit-actions';
 import { InventoryTransactionWithProduct } from './inventory-transaction.repository';
 
 /**
- * Inventory HTTP surface (Sprint 4.4 brief, extended Sprint 4.4.1). `GET` requires only
- * authentication — Member has read-only access, same "Owner/Administrator: Receive
- * Goods, Member: Read Only" table every domain since Sprint 2.1 uses; every write
- * (`POST .../goods-receipts`, `PATCH .../discrepancy`) additionally requires the Owner or
- * Administrator role (`RolesGuard`).
+ * Inventory HTTP surface (Sprint 4.4 brief, extended Sprint 4.4.1, extended again Sprint
+ * 4.5 for locations and manual stock adjustments). `GET` requires only authentication —
+ * Member has read-only access, same "Owner/Administrator: write, Member: Read Only" table
+ * every domain since Sprint 2.1 uses; every write (`POST .../goods-receipts`,
+ * `PATCH .../discrepancy`, `POST .../adjustments`, `POST .../locations`,
+ * `PATCH .../locations/:id`) additionally requires the Owner or Administrator role
+ * (`RolesGuard`).
  *
- * Route order matters here: `transactions`, `goods-receipts`, and `purchase-orders` are
- * literal path segments and must be declared before the `:productId` wildcard route at
- * the bottom, or Nest/Express would match e.g. `GET /api/inventory/transactions` as
- * `productId === "transactions"` instead.
+ * Route order matters here: `locations`, `adjustments`, `transactions`, `goods-receipts`,
+ * and `purchase-orders` are literal path segments and must be declared before the
+ * `:productId` wildcard route at the bottom, or Nest/Express would match e.g.
+ * `GET /api/inventory/transactions` as `productId === "transactions"` instead.
  *
  * Tenant isolation: every method resolves its target by `(id, organisationId)` together,
  * scoped to the caller's own `organisationId` from their JWT — same convention as every
@@ -55,12 +70,117 @@ export class InventoryController {
     @CurrentUser() user: TokenPayload,
     @Query('search') search?: string,
     @Query('productType') productType?: ProductType,
+    @Query('productStatus') productStatus?: ProductStatus,
+    @Query('locationId') locationId?: string,
   ) {
     const stock = await this.inventoryService.listStock(user.organisationId, {
       search: search?.trim() || undefined,
       productType,
+      productStatus,
+      locationId,
     });
     return { items: stock.map(toStockResponse) };
+  }
+
+  @Get('locations')
+  async listLocations(@CurrentUser() user: TokenPayload) {
+    const locations = await this.inventoryService.listLocations(user.organisationId);
+    return { items: locations };
+  }
+
+  @Post('locations')
+  @UseGuards(RolesGuard)
+  @Roles('Owner', 'Administrator')
+  async createLocation(
+    @Body(new ZodValidationPipe(createInventoryLocationSchema)) body: CreateInventoryLocationInput,
+    @CurrentUser() user: TokenPayload,
+    @Req() req: Request,
+  ) {
+    const location = await this.inventoryService.createLocation(
+      user.organisationId,
+      body,
+      user.sub,
+    );
+
+    await this.auditService.record({
+      action: INVENTORY_AUDIT_ACTIONS.LOCATION_CREATED,
+      entityType: 'InventoryLocation',
+      entityId: location.id,
+      organisationId: user.organisationId,
+      actorUserId: user.sub,
+      metadata: { name: location.name },
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+    });
+
+    return location;
+  }
+
+  @Patch('locations/:id')
+  @UseGuards(RolesGuard)
+  @Roles('Owner', 'Administrator')
+  async updateLocation(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(updateInventoryLocationSchema)) body: UpdateInventoryLocationInput,
+    @CurrentUser() user: TokenPayload,
+    @Req() req: Request,
+  ) {
+    const location = await this.inventoryService.updateLocation(
+      user.organisationId,
+      id,
+      body,
+      user.sub,
+    );
+
+    await this.auditService.record({
+      action:
+        body.status === LocationStatus.INACTIVE
+          ? INVENTORY_AUDIT_ACTIONS.LOCATION_DEACTIVATED
+          : INVENTORY_AUDIT_ACTIONS.LOCATION_UPDATED,
+      entityType: 'InventoryLocation',
+      entityId: location.id,
+      organisationId: user.organisationId,
+      actorUserId: user.sub,
+      metadata: { name: location.name, status: location.status },
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+    });
+
+    return location;
+  }
+
+  @Post('adjustments')
+  @UseGuards(RolesGuard)
+  @Roles('Owner', 'Administrator')
+  async createAdjustment(
+    @Body(new ZodValidationPipe(createInventoryAdjustmentSchema))
+    body: CreateInventoryAdjustmentInput,
+    @CurrentUser() user: TokenPayload,
+    @Req() req: Request,
+  ) {
+    const result = await this.inventoryService.adjustStock(user.organisationId, body, user.sub);
+
+    await this.auditService.record({
+      action: INVENTORY_AUDIT_ACTIONS.ADJUSTED,
+      entityType: 'InventoryStock',
+      entityId: result.productId,
+      organisationId: user.organisationId,
+      actorUserId: user.sub,
+      metadata: {
+        productId: result.productId,
+        productName: result.product.name,
+        locationId: result.location.id,
+        locationName: result.location.name,
+        reason: result.reason,
+        quantityDelta: result.quantityDelta,
+        previousQuantity: result.previousQuantity,
+        newQuantity: result.newQuantity,
+      },
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+    });
+
+    return toAdjustmentResponse(result);
   }
 
   @Get('transactions')
@@ -238,8 +358,25 @@ function toStockResponse(stock: InventoryStockSummary) {
   return {
     productId: stock.productId,
     product: stock.product,
+    location: stock.location,
     quantityOnHand: stock.quantityOnHand,
+    quantityReserved: stock.quantityReserved,
+    quantityAvailable: stock.quantityAvailable,
+    lastMovement: stock.lastMovement,
     updatedAt: stock.updatedAt,
+  };
+}
+
+function toAdjustmentResponse(result: StockAdjustmentResult) {
+  return {
+    productId: result.productId,
+    product: result.product,
+    location: result.location,
+    reason: result.reason,
+    quantityDelta: result.quantityDelta,
+    previousQuantity: result.previousQuantity,
+    newQuantity: result.newQuantity,
+    transactionId: result.transactionId,
   };
 }
 

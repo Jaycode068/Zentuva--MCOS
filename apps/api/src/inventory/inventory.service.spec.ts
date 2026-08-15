@@ -8,8 +8,21 @@ import {
 } from '../procurement/purchase-order/purchase-order.repository';
 import { GoodsReceiptConflictError, GoodsReceiptRepository } from './goods-receipt.repository';
 import { InventoryService } from './inventory.service';
+import { InventoryLocationRepository } from './inventory-location.repository';
 import { InventoryStockRepository } from './inventory-stock.repository';
 import { InventoryTransactionRepository } from './inventory-transaction.repository';
+
+const defaultLocation = {
+  id: 'loc-1',
+  organisationId: 'org-1',
+  name: 'Main Warehouse',
+  status: 'ACTIVE' as const,
+  isDefault: true,
+  createdById: 'user-2',
+  updatedById: 'user-2',
+  createdAt: new Date('2026-01-01'),
+  updatedAt: new Date('2026-01-01'),
+};
 
 describe('InventoryService', () => {
   const product: Product = {
@@ -81,6 +94,8 @@ describe('InventoryService', () => {
     remarks: null,
     discrepancyStatus: DiscrepancyStatus.NONE,
     discrepancyNotes: null,
+    locationId: 'loc-1',
+    location: { id: 'loc-1', name: 'Main Warehouse' },
     createdAt: new Date('2026-08-05'),
     updatedAt: new Date('2026-08-05'),
     items: [
@@ -113,22 +128,34 @@ describe('InventoryService', () => {
     } as unknown as jest.Mocked<GoodsReceiptRepository>;
     const inventoryStockRepository = {
       findManyByOrganisation: jest.fn(),
-      findByProduct: jest.fn(),
+      findManyByProduct: jest.fn().mockResolvedValue([]),
+      findByProductAndLocation: jest.fn(),
+      adjustStock: jest.fn(),
     } as unknown as jest.Mocked<InventoryStockRepository>;
     const inventoryTransactionRepository = {
       findManyByOrganisation: jest.fn(),
+      getLastMovementForProduct: jest.fn().mockResolvedValue(null),
+      getLastMovementByProduct: jest.fn().mockResolvedValue(new Map()),
     } as unknown as jest.Mocked<InventoryTransactionRepository>;
+    const inventoryLocationRepository = {
+      findById: jest.fn(),
+      findManyByOrganisation: jest.fn().mockResolvedValue([]),
+      create: jest.fn(),
+      update: jest.fn(),
+      getOrCreateDefault: jest.fn().mockResolvedValue(defaultLocation),
+    } as unknown as jest.Mocked<InventoryLocationRepository>;
     const purchaseOrderRepository = {
       findById: jest.fn(),
     } as unknown as jest.Mocked<PurchaseOrderRepository>;
     const productRepository = {
-      findById: jest.fn(),
+      findById: jest.fn().mockResolvedValue(product),
     } as unknown as jest.Mocked<ProductRepository>;
 
     const service = new InventoryService(
       goodsReceiptRepository,
       inventoryStockRepository,
       inventoryTransactionRepository,
+      inventoryLocationRepository,
       purchaseOrderRepository,
       productRepository,
     );
@@ -137,6 +164,7 @@ describe('InventoryService', () => {
       goodsReceiptRepository,
       inventoryStockRepository,
       inventoryTransactionRepository,
+      inventoryLocationRepository,
       purchaseOrderRepository,
       productRepository,
     };
@@ -520,32 +548,40 @@ describe('InventoryService', () => {
   });
 
   describe('getStockByProduct', () => {
-    it('returns the stock row when one exists', async () => {
-      const { service, inventoryStockRepository } = makeService();
-      inventoryStockRepository.findByProduct.mockResolvedValue({
-        id: 'stock-1',
-        organisationId: 'org-1',
-        productId: 'product-1',
-        quantityOnHand: 300,
-        createdAt: new Date('2026-08-05'),
-        updatedAt: new Date('2026-08-05'),
-        product: {
-          id: 'product-1',
-          code: 'PRD-000009',
-          name: 'Salt',
-          type: ProductType.RAW_MATERIAL,
-          unit: 'Kilogram',
+    it('returns the aggregated stock across locations when it exists', async () => {
+      const { service, inventoryStockRepository, productRepository } = makeService();
+      productRepository.findById.mockResolvedValue(product);
+      inventoryStockRepository.findManyByProduct.mockResolvedValue([
+        {
+          id: 'stock-1',
+          organisationId: 'org-1',
+          productId: 'product-1',
+          locationId: 'loc-1',
+          quantityOnHand: 300,
+          quantityReserved: 0,
+          createdAt: new Date('2026-08-05'),
+          updatedAt: new Date('2026-08-05'),
+          product: {
+            id: 'product-1',
+            code: 'PRD-000009',
+            name: 'Salt',
+            type: ProductType.RAW_MATERIAL,
+            unit: 'Kilogram',
+            status: 'ACTIVE',
+          },
+          location: { id: 'loc-1', name: 'Main Warehouse' },
         },
-      });
+      ] as never);
 
       const result = await service.getStockByProduct('org-1', 'product-1');
 
       expect(result.quantityOnHand).toBe(300);
+      expect(result.quantityAvailable).toBe(300);
     });
 
     it('returns a zero-balance view when the product exists but has never been received', async () => {
       const { service, inventoryStockRepository, productRepository } = makeService();
-      inventoryStockRepository.findByProduct.mockResolvedValue(null);
+      inventoryStockRepository.findManyByProduct.mockResolvedValue([]);
       productRepository.findById.mockResolvedValue(product);
 
       const result = await service.getStockByProduct('org-1', 'product-1');
@@ -556,12 +592,86 @@ describe('InventoryService', () => {
 
     it('throws NotFoundException when the product does not exist in this organisation', async () => {
       const { service, inventoryStockRepository, productRepository } = makeService();
-      inventoryStockRepository.findByProduct.mockResolvedValue(null);
+      inventoryStockRepository.findManyByProduct.mockResolvedValue([]);
       productRepository.findById.mockResolvedValue(null);
 
       await expect(service.getStockByProduct('org-1', 'missing')).rejects.toThrow(
         NotFoundException,
       );
+    });
+  });
+
+  describe('adjustStock', () => {
+    it('applies a positive adjustment and returns the new balance', async () => {
+      const { service, inventoryStockRepository, productRepository } = makeService();
+      productRepository.findById.mockResolvedValue(product);
+      inventoryStockRepository.findByProductAndLocation.mockResolvedValue({
+        id: 'stock-1',
+        organisationId: 'org-1',
+        productId: 'product-1',
+        locationId: 'loc-1',
+        quantityOnHand: 100,
+        quantityReserved: 0,
+        createdAt: new Date('2026-08-05'),
+        updatedAt: new Date('2026-08-05'),
+        product: {
+          id: 'product-1',
+          code: 'PRD-000009',
+          name: 'Salt',
+          type: ProductType.RAW_MATERIAL,
+          unit: 'Kilogram',
+          status: 'ACTIVE',
+        },
+        location: { id: 'loc-1', name: 'Main Warehouse' },
+      } as never);
+      inventoryStockRepository.adjustStock.mockResolvedValue({
+        stock: { quantityOnHand: 110 } as never,
+        transaction: { id: 'txn-1' } as never,
+      });
+
+      const result = await service.adjustStock(
+        'org-1',
+        { productId: 'product-1', quantity: 10, reason: 'PHYSICAL_COUNT' },
+        'user-2',
+      );
+
+      expect(result.previousQuantity).toBe(100);
+      expect(result.newQuantity).toBe(110);
+      expect(inventoryStockRepository.adjustStock).toHaveBeenCalledWith(
+        expect.objectContaining({ productId: 'product-1', locationId: 'loc-1', quantity: 10 }),
+      );
+    });
+
+    it('translates a repository-level negative-stock guard into a BadRequestException', async () => {
+      const { service, inventoryStockRepository, productRepository } = makeService();
+      productRepository.findById.mockResolvedValue(product);
+      inventoryStockRepository.findByProductAndLocation.mockResolvedValue(null);
+      inventoryStockRepository.adjustStock.mockRejectedValue(
+        new (jest.requireActual('./inventory-stock.repository').NegativeStockError)(
+          'Adjustment would result in negative stock',
+        ),
+      );
+
+      await expect(
+        service.adjustStock(
+          'org-1',
+          { productId: 'product-1', quantity: -10, reason: 'DAMAGE' },
+          'user-2',
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('throws NotFoundException when the product does not exist in this organisation', async () => {
+      const { service, productRepository } = makeService();
+      productRepository.findById.mockResolvedValue(null);
+
+      await expect(
+        service.adjustStock(
+          'org-1',
+          { productId: 'missing', quantity: 5, reason: 'FOUND_STOCK' },
+          'user-2',
+        ),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 });

@@ -30,6 +30,8 @@ describe('InventoryController', () => {
       remarks: null,
       discrepancyStatus: DiscrepancyStatus.NONE,
       discrepancyNotes: null,
+      locationId: 'loc-1',
+      location: { id: 'loc-1', name: 'Main Warehouse' },
       createdAt: new Date('2026-08-05'),
       updatedAt: new Date('2026-08-05'),
       items: [
@@ -63,6 +65,10 @@ describe('InventoryController', () => {
       receiveGoods: jest.fn(),
       updateDiscrepancyStatus: jest.fn(),
       getPurchaseOrderReceivingSummary: jest.fn(),
+      adjustStock: jest.fn(),
+      listLocations: jest.fn(),
+      createLocation: jest.fn(),
+      updateLocation: jest.fn(),
     } as unknown as jest.Mocked<InventoryService>;
     const auditService = { record: jest.fn() } as unknown as jest.Mocked<AuditService>;
 
@@ -84,11 +90,16 @@ describe('InventoryController', () => {
             name: 'Salt',
             type: 'RAW_MATERIAL',
             unit: 'Kilogram',
+            status: 'ACTIVE',
           },
+          location: { id: 'loc-1', name: 'Main Warehouse' },
           quantityOnHand: 480,
+          quantityReserved: 0,
+          quantityAvailable: 480,
+          lastMovement: new Date('2026-08-05'),
           updatedAt: new Date('2026-08-05'),
         },
-      ]);
+      ] as never);
 
       const result = await controller.list(tokenUser, '  salt  ', 'RAW_MATERIAL');
 
@@ -322,6 +333,102 @@ describe('InventoryController', () => {
 
       await expect(controller.getByProduct(tokenUser, 'missing')).rejects.toThrow(
         NotFoundException,
+      );
+    });
+  });
+
+  describe('createAdjustment', () => {
+    it('records inventory.adjusted with the before/after balance', async () => {
+      const { controller, inventoryService, auditService } = makeController();
+      inventoryService.adjustStock.mockResolvedValue({
+        productId: 'product-1',
+        product: { id: 'product-1', code: 'PRD-000009', name: 'Salt', unit: 'Kilogram' },
+        location: { id: 'loc-1', name: 'Main Warehouse' },
+        reason: 'PHYSICAL_COUNT',
+        quantityDelta: 10,
+        previousQuantity: 100,
+        newQuantity: 110,
+        transactionId: 'txn-1',
+      } as never);
+
+      const result = await controller.createAdjustment(
+        { productId: 'product-1', quantity: 10, reason: 'PHYSICAL_COUNT' },
+        tokenUser,
+        req,
+      );
+
+      expect(inventoryService.adjustStock).toHaveBeenCalledWith(
+        'org-1',
+        { productId: 'product-1', quantity: 10, reason: 'PHYSICAL_COUNT' },
+        'user-2',
+      );
+      expect(auditService.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: INVENTORY_AUDIT_ACTIONS.ADJUSTED,
+          entityId: 'product-1',
+        }),
+      );
+      expect(result.newQuantity).toBe(110);
+    });
+  });
+
+  describe('createLocation', () => {
+    it('records inventory.location.created', async () => {
+      const { controller, inventoryService, auditService } = makeController();
+      inventoryService.createLocation.mockResolvedValue({
+        id: 'loc-2',
+        name: 'Cold Store',
+        status: 'ACTIVE',
+        isDefault: false,
+        productCount: 0,
+        createdAt: new Date('2026-08-15'),
+        updatedAt: new Date('2026-08-15'),
+      } as never);
+
+      await controller.createLocation({ name: 'Cold Store' }, tokenUser, req);
+
+      expect(auditService.record).toHaveBeenCalledWith(
+        expect.objectContaining({ action: INVENTORY_AUDIT_ACTIONS.LOCATION_CREATED }),
+      );
+    });
+  });
+
+  describe('updateLocation', () => {
+    it('records inventory.location.deactivated when status is set to INACTIVE', async () => {
+      const { controller, inventoryService, auditService } = makeController();
+      inventoryService.updateLocation.mockResolvedValue({
+        id: 'loc-2',
+        name: 'Cold Store',
+        status: 'INACTIVE',
+        isDefault: false,
+        productCount: 0,
+        createdAt: new Date('2026-08-15'),
+        updatedAt: new Date('2026-08-15'),
+      } as never);
+
+      await controller.updateLocation('loc-2', { status: 'INACTIVE' }, tokenUser, req);
+
+      expect(auditService.record).toHaveBeenCalledWith(
+        expect.objectContaining({ action: INVENTORY_AUDIT_ACTIONS.LOCATION_DEACTIVATED }),
+      );
+    });
+
+    it('records inventory.location.updated for a rename', async () => {
+      const { controller, inventoryService, auditService } = makeController();
+      inventoryService.updateLocation.mockResolvedValue({
+        id: 'loc-2',
+        name: 'Cold Storage',
+        status: 'ACTIVE',
+        isDefault: false,
+        productCount: 0,
+        createdAt: new Date('2026-08-15'),
+        updatedAt: new Date('2026-08-15'),
+      } as never);
+
+      await controller.updateLocation('loc-2', { name: 'Cold Storage' }, tokenUser, req);
+
+      expect(auditService.record).toHaveBeenCalledWith(
+        expect.objectContaining({ action: INVENTORY_AUDIT_ACTIONS.LOCATION_UPDATED }),
       );
     });
   });

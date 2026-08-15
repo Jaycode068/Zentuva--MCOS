@@ -7,6 +7,7 @@ import { PurchaseOrderModule } from '../procurement/purchase-order/purchase-orde
 import { GoodsReceiptRepository } from './goods-receipt.repository';
 import { InventoryController } from './inventory.controller';
 import { InventoryService } from './inventory.service';
+import { InventoryLocationRepository } from './inventory-location.repository';
 import { InventoryStockRepository } from './inventory-stock.repository';
 import { InventoryTransactionRepository } from './inventory-transaction.repository';
 
@@ -25,6 +26,7 @@ import { InventoryTransactionRepository } from './inventory-transaction.reposito
     GoodsReceiptRepository,
     InventoryStockRepository,
     InventoryTransactionRepository,
+    InventoryLocationRepository,
     InventoryService,
   ],
 })

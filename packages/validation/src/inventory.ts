@@ -93,3 +93,59 @@ export const updateGoodsReceiptDiscrepancySchema = z.object({
 export type UpdateGoodsReceiptDiscrepancyInput = z.infer<
   typeof updateGoodsReceiptDiscrepancySchema
 >;
+
+/** Sprint 4.5 brief §16 — `Supplier`/`Product` both use `ACTIVE`/`INACTIVE` for the same
+ *  "usable vs. retired, never deleted" distinction; reused here. */
+export const locationStatusSchema = z.enum(['ACTIVE', 'INACTIVE']);
+export type LocationStatusInput = z.infer<typeof locationStatusSchema>;
+
+/** `POST /api/inventory/locations` (Sprint 4.5 brief §16/§20). Every organisation's
+ *  first location is auto-created as the default "Main Warehouse" on first use
+ *  (`InventoryLocationRepository.getOrCreateDefault`) — this schema is for
+ *  Owner/Administrator-created *additional* locations, always starting `ACTIVE`. */
+export const createInventoryLocationSchema = z.object({
+  name: z.string().trim().min(1, 'Location name is required').max(200),
+});
+export type CreateInventoryLocationInput = z.infer<typeof createInventoryLocationSchema>;
+
+/** `PATCH /api/inventory/locations/:id` — rename and/or deactivate/reactivate. No
+ *  delete (brief §16/§20: "Do not allow deleting locations that already have inventory
+ *  history"). */
+export const updateInventoryLocationSchema = z.object({
+  name: z.string().trim().min(1, 'Location name is required').max(200).optional(),
+  status: locationStatusSchema.optional(),
+});
+export type UpdateInventoryLocationInput = z.infer<typeof updateInventoryLocationSchema>;
+
+/** Sprint 4.5 brief §5 — a small controlled list of adjustment reasons, not an
+ *  elaborate configuration system. */
+export const adjustmentReasonSchema = z.enum([
+  'PHYSICAL_COUNT',
+  'DAMAGE',
+  'SPOILAGE',
+  'LOSS',
+  'FOUND_STOCK',
+  'DATA_CORRECTION',
+  'OTHER',
+]);
+export type AdjustmentReasonInput = z.infer<typeof adjustmentReasonSchema>;
+
+/**
+ * `POST /api/inventory/adjustments` (Sprint 4.5 brief §4/§8). `quantity` is the signed
+ * delta to apply (e.g. `-3` for "3 units fewer than the system thinks") — never a new
+ * absolute balance to overwrite `quantityOnHand` with (brief: "the system must NOT
+ * simply overwrite quantityOnHand"). Zero is rejected (brief §30 "zero adjustment
+ * rejection" — a no-op adjustment isn't a legitimate correction). `locationId` is
+ * optional — omitted, it resolves to the organisation's default location, same
+ * fallback Goods Receiving uses. Negative-stock prevention
+ * (`current + quantity >= 0`) is enforced server-side in `InventoryService`, not here,
+ * since it depends on the current balance.
+ */
+export const createInventoryAdjustmentSchema = z.object({
+  productId: z.string().trim().min(1, 'Product is required'),
+  locationId: z.string().trim().min(1).optional(),
+  quantity: z.number().refine((value) => value !== 0, 'Adjustment quantity cannot be zero'),
+  reason: adjustmentReasonSchema,
+  notes: z.string().trim().max(2000).optional(),
+});
+export type CreateInventoryAdjustmentInput = z.infer<typeof createInventoryAdjustmentSchema>;
