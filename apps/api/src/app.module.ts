@@ -11,6 +11,7 @@ import { IdentityModule } from './identity/identity.module';
 import { OrganisationModule } from './identity/organisation/organisation.module';
 import { SettingsModule } from './identity/settings/settings.module';
 import { UserModule } from './identity/user/user.module';
+import { InventoryModule } from './inventory/inventory.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { PurchaseOrderModule } from './procurement/purchase-order/purchase-order.module';
 import { SupplierModule } from './suppliers/supplier/supplier.module';
@@ -33,6 +34,7 @@ import { SupplierModule } from './suppliers/supplier/supplier.module';
     ProductModule,
     SupplierModule,
     PurchaseOrderModule,
+    InventoryModule,
   ],
 })
 export class AppModule {}

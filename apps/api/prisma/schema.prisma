@@ -111,18 +111,22 @@ model Organisation {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  users       User[]
-  roles       Role[]
-  invitations Invitation[]
-  auditLogs   AuditLog[]
-  sessions    Session[]
-  userRoles   UserRole[]
+  users                 User[]
+  roles                 Role[]
+  invitations           Invitation[]
+  auditLogs             AuditLog[]
+  sessions              Session[]
+  userRoles             UserRole[]
   /// Added Sprint 4.1 — Product Catalogue (docs/domains/catalogue.md).
-  products    Product[]
+  products              Product[]
   /// Added Sprint 4.2 — Supplier Management (docs/domains/suppliers.md).
-  suppliers   Supplier[]
+  suppliers             Supplier[]
   /// Added Sprint 4.3 — Procurement (docs/domains/procurement.md).
-  purchaseOrders PurchaseOrder[]
+  purchaseOrders        PurchaseOrder[]
+  /// Added Sprint 4.4 — Inventory (docs/domains/inventory.md).
+  goodsReceipts         GoodsReceipt[]
+  inventoryStock        InventoryStock[]
+  inventoryTransactions InventoryTransaction[]
 
   @@map("organisations")
 }
@@ -430,11 +434,15 @@ model Product {
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
 
-  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  organisation          Organisation           @relation(fields: [organisationId], references: [id], onDelete: Cascade)
   /// Added Sprint 4.3 — Procurement (docs/domains/procurement.md). Only products whose
   /// `type` is Raw Material/Packaging Material/Consumable may actually appear here — see
   /// `PurchaseOrderService`'s product-type validation.
-  purchaseOrderItems PurchaseOrderItem[]
+  purchaseOrderItems    PurchaseOrderItem[]
+  /// Added Sprint 4.4 — Inventory (docs/domains/inventory.md).
+  goodsReceiptItems     GoodsReceiptItem[]
+  inventoryStock        InventoryStock[]
+  inventoryTransactions InventoryTransaction[]
 
   @@unique([organisationId, slug])
   @@index([organisationId])
@@ -470,39 +478,41 @@ enum SupplierStatus {
 /// answers "who do we buy from?"; Sprint 4.3 Procurement is expected to reference
 /// `Supplier.id` instead of a free-text supplier name.
 model Supplier {
-  id             String           @id @default(cuid())
-  organisationId String
+  id                      String           @id @default(cuid())
+  organisationId          String
   /// Auto-generated (`SUP-000001`, ...), globally unique, immutable — same
   /// collision-avoidance pattern as `Product.code` (Sprint 4.1). Never accepted on create
   /// or update input.
-  supplierCode   String           @unique
-  supplierName   String
+  supplierCode            String           @unique
+  supplierName            String
   /// Optional customer/PO-facing name, distinct from the legal `supplierName` — same
   /// pattern as `Organisation.displayName`/`Product.displayName`.
-  displayName    String?
-  contactPerson  String?
-  email          String?
-  phoneNumber    String?
-  website        String?
-  country        String?
-  state          String?
-  city           String?
-  address        String?
+  displayName             String?
+  contactPerson           String?
+  email                   String?
+  phoneNumber             String?
+  website                 String?
+  country                 String?
+  state                   String?
+  city                    String?
+  address                 String?
   taxIdentificationNumber String?
-  supplierCategory SupplierCategory
-  status         SupplierStatus   @default(ACTIVE)
-  notes          String?
+  supplierCategory        SupplierCategory
+  status                  SupplierStatus   @default(ACTIVE)
+  notes                   String?
   /// Plain ids, no FK relation — same convention as `AuditLog.actorUserId`/
   /// `Product.createdById` (metadata about who acted, not a relationship the aggregate
   /// depends on).
-  createdById    String?
-  updatedById    String?
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
+  createdById             String?
+  updatedById             String?
+  createdAt               DateTime         @default(now())
+  updatedAt               DateTime         @updatedAt
 
-  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  organisation   Organisation    @relation(fields: [organisationId], references: [id], onDelete: Cascade)
   /// Added Sprint 4.3 — Procurement (docs/domains/procurement.md).
   purchaseOrders PurchaseOrder[]
+  /// Added Sprint 4.4 — Inventory (docs/domains/inventory.md).
+  goodsReceipts  GoodsReceipt[]
 
   @@index([organisationId])
   @@index([organisationId, status])
@@ -510,17 +520,25 @@ model Supplier {
   @@map("suppliers")
 }
 
-/// Draft -> Pending -> (Approved -> Received) or Cancelled. Sprint 4.3 only reaches
-/// Draft/Pending/Cancelled — Approved/Received are reserved for the future approval
-/// (Sprint 4.4+) and goods-receiving (Sprint 4.4) workflows and are not reachable by any
-/// endpoint in this sprint. Purchase orders are never physically deleted (brief: "No
-/// DELETE. Cancelled POs remain in history").
+/// Draft -> Pending -> (Approved ->) Partially Received -> Received, or Cancelled.
+/// Sprint 4.3 only reached Draft/Pending/Cancelled. Sprint 4.4 added `RECEIVED` via
+/// `InventoryService.receiveGoods`. Sprint 4.4.1 (docs/domains/inventory.md
+/// "Receiving Model") added `PARTIALLY_RECEIVED` and made receiving repeatable: a
+/// Purchase Order may now have many Goods Receipts, and its status reflects delivery
+/// completeness — `deliveredQuantity` vs `orderedQuantity` per line, summed across every
+/// receipt — not acceptance/rejection, which is tracked separately per receipt via
+/// `GoodsReceipt.discrepancyStatus`. `APPROVED` remains reserved for a future approval
+/// workflow. Purchase orders are never physically deleted (brief: "No DELETE. Cancelled
+/// POs remain in history"), and once receiving has started
+/// (`PARTIALLY_RECEIVED`/`RECEIVED`) a PO can no longer be edited or cancelled — see
+/// `PurchaseOrderService.update`/`cancel`.
 enum PurchaseOrderStatus {
   DRAFT
   PENDING
   APPROVED
-  CANCELLED
+  PARTIALLY_RECEIVED
   RECEIVED
+  CANCELLED
 }
 
 /// Procurement (Sprint 4.3, docs/domains/procurement.md) — a request to buy goods from a
@@ -556,9 +574,14 @@ model PurchaseOrder {
   createdAt            DateTime            @default(now())
   updatedAt            DateTime            @updatedAt
 
-  organisation Organisation       @relation(fields: [organisationId], references: [id], onDelete: Cascade)
-  supplier     Supplier           @relation(fields: [supplierId], references: [id], onDelete: Restrict)
-  items        PurchaseOrderItem[]
+  organisation  Organisation        @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  supplier      Supplier            @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  items         PurchaseOrderItem[]
+  /// Added Sprint 4.4 — Inventory (docs/domains/inventory.md). May now have many rows
+  /// (Sprint 4.4.1 removed the "received once" restriction) — a short delivery, a
+  /// rejection, or a vendor sending replacement goods each add another immutable
+  /// `GoodsReceipt`, never editing a prior one.
+  goodsReceipts GoodsReceipt[]
 
   @@index([organisationId])
   @@index([organisationId, status])
@@ -581,10 +604,191 @@ model PurchaseOrderItem {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
-  product       Product       @relation(fields: [productId], references: [id], onDelete: Restrict)
+  purchaseOrder     PurchaseOrder      @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  product           Product            @relation(fields: [productId], references: [id], onDelete: Restrict)
+  /// Added Sprint 4.4.1 — every physical delivery against this line (across possibly
+  /// many Goods Receipts) references it directly, so "ordered" always means this row's
+  /// own `quantity`, never a value re-entered at receiving time.
+  goodsReceiptItems GoodsReceiptItem[]
 
   @@index([purchaseOrderId])
   @@index([productId])
   @@map("purchase_order_items")
+}
+
+/// Inventory (Sprint 4.4, docs/domains/inventory.md) — Goods Receiving into stock. A
+/// `GoodsReceipt` records one physical delivery event against a Purchase Order. Sprint
+/// 4.4.1 removed the original "received once" restriction: a Purchase Order may now have
+/// many Goods Receipts (a short delivery followed later by the remainder, a rejected
+/// batch followed by a replacement, ...). Every `GoodsReceipt` row, once created, is
+/// immutable — the only field ever updated afterward is `discrepancyStatus`/
+/// `discrepancyNotes`, the lightweight supplier-resolution state described below, which
+/// is deliberately *not* a correction to what was actually received.
+model GoodsReceipt {
+  id                 String            @id @default(cuid())
+  organisationId     String
+  /// Auto-generated (`GRN-000001`, ...), globally unique, immutable — same
+  /// collision-avoidance pattern as `PurchaseOrder.purchaseOrderNumber`.
+  goodsReceiptNumber String            @unique
+  purchaseOrderId    String
+  /// Denormalised from `PurchaseOrder.supplierId` at receiving time — a Goods Receipt is
+  /// always "goods from this supplier," and this avoids every read joining through the
+  /// Purchase Order just to show who delivered.
+  supplierId         String
+  receivedDate       DateTime
+  /// Plain id, no FK relation — same convention as `AuditLog.actorUserId`/
+  /// `PurchaseOrder.createdById` (metadata about who acted, not a relationship the
+  /// aggregate depends on). Always the authenticated caller — never accepted as free-text
+  /// input.
+  receivedById       String?
+  remarks            String?
+  /// Added Sprint 4.4.1 — a lightweight, manually-progressed status representing whether
+  /// *this specific receipt's* shortfall/rejection still needs supplier resolution
+  /// (replacement, credit, ...). Auto-set at creation (`PENDING_SUPPLIER` if any item on
+  /// this receipt was rejected, `NONE` otherwise) and updatable afterward via
+  /// `PATCH /api/inventory/goods-receipts/:id/discrepancy` — see
+  /// docs/domains/inventory.md "Supplier Resolution". Deliberately not a full Supplier
+  /// Claims/Returns/Credit-Note system (brief's explicit Architectural Constraints) —
+  /// just enough to preserve that the discrepancy happened and track its resolution
+  /// state.
+  discrepancyStatus  DiscrepancyStatus @default(NONE)
+  /// Free-text context for the current `discrepancyStatus` (e.g. "Supplier confirmed
+  /// replacement ships next week") — the one field on this otherwise-immutable row that
+  /// can change over time, alongside `discrepancyStatus` itself.
+  discrepancyNotes   String?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  organisation  Organisation       @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  purchaseOrder PurchaseOrder      @relation(fields: [purchaseOrderId], references: [id], onDelete: Restrict)
+  supplier      Supplier           @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  items         GoodsReceiptItem[]
+
+  @@index([organisationId])
+  @@index([organisationId, purchaseOrderId])
+  @@map("goods_receipts")
+}
+
+/// Reasons a receiving inspector can give for rejecting some (or all) of a delivered
+/// quantity — Sprint 4.4.1 brief §4, a simple structured field rather than a full Quality
+/// Management System.
+enum RejectionReason {
+  DAMAGED
+  DEFECTIVE
+  WRONG_ITEM
+  WRONG_SPECIFICATION
+  CONTAMINATED
+  OTHER
+}
+
+/// One line of a Goods Receipt — distinguishes what physically arrived from what passed
+/// inspection into usable stock. References `purchaseOrderItemId` directly (not just
+/// `productId`) so "ordered quantity" is always read from that row's own immutable
+/// `quantity`, never re-entered here — see docs/domains/inventory.md "Receiving Model".
+model GoodsReceiptItem {
+  id                  String           @id @default(cuid())
+  goodsReceiptId      String
+  purchaseOrderItemId String
+  /// Denormalised from `purchaseOrderItem.productId` — same rationale as
+  /// `GoodsReceipt.supplierId` (avoids every read joining through the Purchase Order
+  /// item just to show which product this line is).
+  productId           String
+  /// The physical quantity counted at receiving — may be less than ordered (short
+  /// delivery), more than ordered (excess supply, brief §3 Scenario E — never silently
+  /// capped), or zero rejected/all accepted.
+  deliveredQuantity   Float
+  /// The portion of `deliveredQuantity` rejected (defective, damaged, wrong item, ...).
+  /// `0` by default — most receipts have no rejection at all.
+  rejectedQuantity    Float            @default(0)
+  /// `deliveredQuantity - rejectedQuantity`, computed and stored by `InventoryService`
+  /// (never accepted from the client — brief §12: "Do not allow the user to manually
+  /// enter Accepted Quantity"). This is the only figure that ever increases
+  /// `InventoryStock`/writes an `InventoryTransaction` — see "Important Business Rule"
+  /// in the brief.
+  acceptedQuantity    Float
+  rejectionReason     RejectionReason?
+  rejectionNotes      String?
+  createdAt           DateTime         @default(now())
+
+  goodsReceipt      GoodsReceipt      @relation(fields: [goodsReceiptId], references: [id], onDelete: Cascade)
+  purchaseOrderItem PurchaseOrderItem @relation(fields: [purchaseOrderItemId], references: [id], onDelete: Restrict)
+  product           Product           @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@index([goodsReceiptId])
+  @@index([purchaseOrderItemId])
+  @@index([productId])
+  @@map("goods_receipt_items")
+}
+
+/// The lightweight supplier-resolution state for a `GoodsReceipt`'s discrepancy (if any)
+/// — Sprint 4.4.1 brief §5. Deliberately not a Supplier Claims/Returns/Credit-Note
+/// system: this just preserves that a discrepancy happened and its current resolution
+/// state, nothing more (no automated supplier notification, no financial claim, no
+/// return logistics — all explicitly out of scope).
+enum DiscrepancyStatus {
+  NONE
+  PENDING_SUPPLIER
+  REPLACEMENT_EXPECTED
+  REPLACEMENT_RECEIVED
+  CREDIT_EXPECTED
+  RESOLVED
+}
+
+/// The live stock balance — one row per (Organisation, Product), updated in place as
+/// goods are received (and, in future sprints, adjusted/issued). Per the Sprint 4.4
+/// brief's "One Architectural Improvement": `InventoryTransaction` is the source of
+/// truth/audit trail; this table is a fast-to-query cache of where that ledger currently
+/// nets out, always re-derivable by summing this product's transactions.
+model InventoryStock {
+  id             String   @id @default(cuid())
+  organisationId String
+  productId      String
+  quantityOnHand Float    @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  product      Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([organisationId, productId])
+  @@index([organisationId])
+  @@map("inventory_stock")
+}
+
+/// Sprint 4.4 only ever writes `RECEIPT` rows (Goods Receiving). `ISSUE` (Production
+/// consumption, Sales) and `ADJUSTMENT` (manual stock corrections) exist in the enum for
+/// forward-compatibility with future sprints — see docs/domains/inventory.md "Future
+/// Production Consumption" — but no endpoint produces them yet.
+enum InventoryTransactionType {
+  RECEIPT
+  ISSUE
+  ADJUSTMENT
+}
+
+/// The immutable stock ledger (Sprint 4.4 brief's "One Architectural Improvement") —
+/// every inventory movement, ever, insert-only, never updated or deleted. Every future
+/// domain that moves stock (Production, Sales, Stock Adjustment) is expected to write
+/// here, the same way every domain already writes to `AuditLog` (identity.md §8).
+model InventoryTransaction {
+  id              String                   @id @default(cuid())
+  organisationId  String
+  productId       String
+  transactionType InventoryTransactionType
+  /// Always positive — direction is carried by `transactionType`, not the sign of this
+  /// column.
+  quantity        Float
+  /// What business event produced this row (e.g. `"GoodsReceipt"`), paired with
+  /// `referenceId` — same "polymorphic reference" shape as `AuditLog.entityType`/
+  /// `entityId`, not a real FK (the referenced row may live in another domain's table).
+  referenceType   String
+  referenceId     String
+  createdAt       DateTime                 @default(now())
+
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  product      Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([organisationId])
+  @@index([organisationId, productId])
+  @@index([referenceType, referenceId])
+  @@map("inventory_transactions")
 }

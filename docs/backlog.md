@@ -114,18 +114,31 @@ delivered roughly in order, but later Epics may be reordered as priorities evolv
 - **Includes:** Purchase Orders, Goods Received, Supplier Performance. Supplier master
   data itself now lives in its own domain — see Epic 15.
 - **Status:** In progress — Purchase Order management (create/edit/cancel, automatic
-  line/subtotal/total calculation, Draft/Pending/Cancelled lifecycle) shipped in
-  Sprint 4.3, referencing `Supplier.id` (Epic 15, Sprint 4.2) instead of a free-text
-  supplier name, per that Epic's own stated purpose. Goods Receiving, Supplier
-  Performance, Purchase Approval Workflow, and Invoices remain — see
-  [`docs/domains/procurement.md`](domains/procurement.md).
+  line/subtotal/total calculation) shipped in Sprint 4.3, referencing `Supplier.id`
+  (Epic 15, Sprint 4.2) instead of a free-text supplier name. Its status lifecycle now
+  also reaches `PARTIALLY_RECEIVED`/`RECEIVED`, set exclusively by Epic 5's receiving
+  workflow (Sprint 4.4.1) — see [`docs/domains/procurement.md`](domains/procurement.md).
+  Supplier Performance, Purchase Approval Workflow, and Invoices remain.
 
 ### Epic 5 — Inventory
 
 - **Objective:** track stock across its lifecycle and locations.
 - **Includes:** Raw Materials, Finished Goods, Stock Movement, Warehouses, Transfers,
   Stock Adjustment.
-- **Status:** Not started.
+- **Status:** In progress — Goods Receiving shipped in Sprint 4.4 and substantially
+  refined in Sprint 4.4.1 ("Goods Receiving, Inspection & Supplier Discrepancy
+  Refinement") to match real manufacturing receiving workflows: every delivery now
+  distinguishes Ordered/Delivered/Accepted/Rejected/Outstanding/Excess quantities,
+  inventory increases only by the _accepted_ portion (never delivered), a Purchase Order
+  may receive multiple times (short deliveries, rejections followed by supplier
+  replacements, even deliveries after the order is already fully `RECEIVED`), and each
+  Goods Receipt carries a lightweight supplier-discrepancy resolution state
+  (`NONE`/`PENDING_SUPPLIER`/`REPLACEMENT_EXPECTED`/`REPLACEMENT_RECEIVED`/
+  `CREDIT_EXPECTED`/`RESOLVED`) — deliberately not a full Quality Management or Supplier
+  Claims system. The immutable `InventoryTransaction` stock ledger remains the source of
+  truth every future stock movement (Production issue/output, Sales issue, Stock
+  Adjustment) is expected to write into. Warehouses, Transfers, Stock Adjustment, and
+  Inventory Counts remain — see [`docs/domains/inventory.md`](domains/inventory.md).
 
 ### Epic 6 — Production
 
@@ -233,8 +246,10 @@ delivered roughly in order, but later Epics may be reordered as priorities evolv
 - ✓ Sprint 3.5.1 — Workspace Navigation Refinement (Coming Soon Modules)
 - ✓ Sprint 4.2 — Supplier Management
 - ✓ Sprint 4.3 — Procurement (Purchase Orders)
+- ✓ Sprint 4.4 — Inventory Management (Goods Receiving)
+- ✓ Sprint 4.4.1 — Goods Receiving, Inspection & Supplier Discrepancy Refinement
 
-**Current focus:** Sprint 4.4 — not yet scoped.
+**Current focus:** Sprint 4.5 — not yet scoped.
 
 ## 6. Future Ideas (Not Prioritised Yet)
 

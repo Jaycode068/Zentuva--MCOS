@@ -251,6 +251,30 @@ describe('PurchaseOrderService', () => {
       );
     });
 
+    it('rejects editing a partially received purchase order', async () => {
+      const { service, purchaseOrderRepository } = makeService();
+      purchaseOrderRepository.findById.mockResolvedValue({
+        ...purchaseOrder,
+        status: PurchaseOrderStatus.PARTIALLY_RECEIVED,
+      });
+
+      await expect(service.update('org-1', 'po-1', { remarks: 'x' }, 'user-1')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('rejects editing a fully received purchase order', async () => {
+      const { service, purchaseOrderRepository } = makeService();
+      purchaseOrderRepository.findById.mockResolvedValue({
+        ...purchaseOrder,
+        status: PurchaseOrderStatus.RECEIVED,
+      });
+
+      await expect(service.update('org-1', 'po-1', { remarks: 'x' }, 'user-1')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
     it('recalculates totals when items are replaced', async () => {
       const { service, purchaseOrderRepository, productRepository } = makeService();
       purchaseOrderRepository.findById.mockResolvedValue(purchaseOrder);
@@ -310,6 +334,26 @@ describe('PurchaseOrderService', () => {
       purchaseOrderRepository.findById.mockResolvedValue({
         ...purchaseOrder,
         status: PurchaseOrderStatus.CANCELLED,
+      });
+
+      await expect(service.cancel('org-1', 'po-1', 'user-2')).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects cancelling a partially received purchase order', async () => {
+      const { service, purchaseOrderRepository } = makeService();
+      purchaseOrderRepository.findById.mockResolvedValue({
+        ...purchaseOrder,
+        status: PurchaseOrderStatus.PARTIALLY_RECEIVED,
+      });
+
+      await expect(service.cancel('org-1', 'po-1', 'user-2')).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects cancelling a fully received purchase order', async () => {
+      const { service, purchaseOrderRepository } = makeService();
+      purchaseOrderRepository.findById.mockResolvedValue({
+        ...purchaseOrder,
+        status: PurchaseOrderStatus.RECEIVED,
       });
 
       await expect(service.cancel('org-1', 'po-1', 'user-2')).rejects.toThrow(BadRequestException);

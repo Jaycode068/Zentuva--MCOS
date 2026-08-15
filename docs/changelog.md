@@ -7,6 +7,152 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 4.4.1 Goods Receiving, Inspection & Supplier Discrepancy Refinement] - 2026-08-13
+
+### Changed
+
+- **Redesigned the receiving model** to distinguish what was ordered from what a
+  supplier actually delivered, what passed inspection, what was rejected, what remains
+  outstanding, and what happened to the discrepancy — a real manufacturing receiving
+  workflow gap identified during Sprint 4.4's own local testing. `GoodsReceiptItem` now
+  records `deliveredQuantity`, `rejectedQuantity`, and a server-computed
+  `acceptedQuantity` (`delivered - rejected`, never accepted from the client) against
+  the specific `PurchaseOrderItem` it's fulfilling, instead of a single
+  `quantityReceived` figure.
+- **Inventory now increases only by the accepted quantity, never the delivered
+  quantity** — a rejected portion never enters usable stock or writes an
+  `InventoryTransaction` row.
+- **A Purchase Order may now be received more than once** — the original "received
+  once" restriction is gone. Short deliveries can be completed later, a rejected batch
+  can be followed by a supplier replacement, and a delivery can even be recorded against
+  an order that's already fully `RECEIVED` (the brief's own worked example: order 1,000,
+  receive 1,100 with 50 rejected, then later receive 50 replacement units). "Duplicate
+  receipt protection" is redesigned around receipt identity — every `POST` always
+  creates its own new, immutable, uniquely-numbered `GoodsReceipt` — rather than a
+  status gate that blocked legitimate repeat receiving.
+- **`PurchaseOrderStatus` gained `PARTIALLY_RECEIVED`.** A Purchase Order's status now
+  tracks delivery completeness (cumulative delivered vs. ordered quantity across every
+  receipt), not acceptance — an order can reach `RECEIVED` even if some of what arrived
+  was rejected; that rejection is tracked separately, per receipt. Once a Purchase Order
+  reaches `PARTIALLY_RECEIVED`/`RECEIVED`, it can no longer be edited or cancelled
+  (`PurchaseOrderService`), matching the existing rule for `CANCELLED` orders.
+
+### Added
+
+- **A lightweight supplier-discrepancy resolution state** on each `GoodsReceipt` —
+  `discrepancyStatus` (`NONE`/`PENDING_SUPPLIER`/`REPLACEMENT_EXPECTED`/
+  `REPLACEMENT_RECEIVED`/`CREDIT_EXPECTED`/`RESOLVED`) plus free-text
+  `discrepancyNotes`, auto-set to `PENDING_SUPPLIER` when a receipt has any rejected
+  quantity. Progressable via the new
+  `PATCH /api/inventory/goods-receipts/:id/discrepancy` endpoint — the one mutation ever
+  applied to an otherwise-immutable `GoodsReceipt`. Deliberately not a full Supplier
+  Claims/Returns/Credit-Note system.
+- **Structured rejection reasons** — a `RejectionReason` enum
+  (`DAMAGED`/`DEFECTIVE`/`WRONG_ITEM`/`WRONG_SPECIFICATION`/`CONTAMINATED`/`OTHER`) plus
+  free-text notes per rejected line.
+- **`GET /api/inventory/purchase-orders/:purchaseOrderId/receiving`** — a per-item
+  Ordered/Delivered/Accepted/Rejected/Outstanding/Excess aggregate plus the full receipt
+  history for a Purchase Order, powering both the Goods Receiving dialog's "previously
+  delivered" context and a new read-only "Receiving Summary" table embedded in
+  Procurement's own Purchase Order dialog.
+- **Frontend `/settings/inventory` "Goods Receipts" tab** — the full receiving history
+  (every receipt's delivered/rejected/accepted breakdown per item, rejection
+  reason/notes) with an inline control to progress a receipt's discrepancy status.
+- **Goods Receiving dialog reworked** — selecting a Purchase Order now loads its full
+  receiving context (Ordered/Previously Delivered/Accepted/Rejected/Outstanding per
+  item); the user enters Delivered Quantity and, if applicable, Rejected Quantity +
+  Reason + Notes; Accepted Quantity is always shown computed, never editable; an
+  "Excess Supply" badge appears when delivering more than what's outstanding, never
+  blocked or capped.
+- Three new audit actions: `goods-receipt.discrepancy-recorded` (a receipt has a
+  rejection), `goods-receipt.replacement-received` (not the first receipt against the
+  order), `goods-receipt.resolved` (`PATCH .../discrepancy` sets `RESOLVED`).
+- **Seed data** — three additional Purchase Orders and five Goods Receipts spanning
+  every scenario: a complete/perfect delivery, a short delivery left open, a delivery
+  with rejected goods followed by an immediate replacement (demonstrating multi-receipt
+  history), and an excess delivery accepted in full.
+- 13 new/updated backend unit tests (`InventoryService`/`InventoryController`/
+  `PurchaseOrderService`) — 200/200 total.
+
+### Known limitations
+
+- No Quality Management module, Supplier Claims module, Supplier Returns module,
+  Accounts Payable, Credit Notes, Warehouse Management, Batch/Lot tracking, Expiry
+  tracking, multi-warehouse support, or automated supplier communication — all
+  explicitly out of scope per the brief, reserved for future modules.
+- No automatic linkage between a rejected Goods Receipt and the later replacement that
+  resolves it — a person must mark the original `RESOLVED`; the system doesn't infer the
+  connection.
+- The Purchase Order status write remains a deliberate, documented exception to
+  ADR-002's domain-ownership convention (now guarding against a concurrent cancel rather
+  than blocking repeat receiving) — see `docs/domains/inventory.md` §6.
+
+## [Sprint 4.4 Inventory Management (Goods Receiving)] - 2026-08-13
+
+### Added
+
+- **Inventory domain** (`apps/api/src/inventory/`) — the fourth non-Identity business
+  domain module, and the first to consume Procurement directly: it receives an existing
+  `PurchaseOrder`'s items into a live per-product stock balance and transitions the order
+  to `RECEIVED`. Not a stock management sprint — no warehouse transfers, stock
+  adjustments, or inventory counts — see `docs/domains/inventory.md`.
+- **`GoodsReceipt`/`GoodsReceiptItem`, `InventoryStock`, `InventoryTransaction` Prisma
+  models** (migration `20260813153410_add_inventory_goods_receiving`): auto-generated
+  immutable `goodsReceiptNumber` (`GRN-000001`, ...), a live `quantityOnHand` balance per
+  `(Organisation, Product)`, and a new `InventoryTransactionType` enum
+  (Receipt/Issue/Adjustment — this sprint only ever writes `RECEIPT` rows).
+- **A ledger-centric design from day one** — per the brief's own architectural
+  recommendation, `InventoryTransaction` is the immutable, insert-only source of truth
+  for every stock movement; `InventoryStock` is a fast-to-query cache of where that
+  ledger currently nets out. Every future module that moves stock (Production, Sales,
+  Stock Adjustment) is expected to write into this same table.
+- **Receiving Rules** — a Purchase Order may only be received once; only a `PENDING`
+  order is eligible (`CANCELLED` and already-`RECEIVED` orders are rejected with
+  distinct `400`s); every submitted item must already belong to the Purchase Order being
+  received. Enforced in `InventoryService.receiveGoods` _and_ re-checked inside
+  `GoodsReceiptRepository.receive`'s own database transaction — the transaction's own
+  `updateMany` only matches a `PENDING` order, so a concurrent duplicate-receive attempt
+  finds zero rows and the whole transaction rolls back, preventing a partial stock
+  increment against an order that didn't actually transition.
+- **API** — `GET /api/inventory`, `GET /api/inventory/:productId`,
+  `GET /api/inventory/transactions`, `GET`/`POST /api/inventory/goods-receipts`,
+  `GET /api/inventory/goods-receipts/:id`. `GET` requires only authentication (Member has
+  read-only access); the one write (`POST .../goods-receipts`) requires Owner or
+  Administrator (`RolesGuard`). No `PATCH`/`DELETE` endpoints — Goods Receipts are
+  immutable.
+- **`packages/validation/src/inventory.ts`** — `createGoodsReceiptSchema`, the line-item
+  schema, and the `InventoryTransactionType` enum schema, mirroring
+  `procurement.ts`/`suppliers.ts`'s conventions.
+- **Frontend `/settings/inventory`** (under the Sprint 3.5 Workspace shell): an Inventory
+  Summary tab (Product, Product Type, Quantity On Hand, Last Updated, with search and a
+  Product Type filter) and a read-only Transactions tab (Date, Product, Type, Quantity,
+  Reference), plus a `GoodsReceivingDialog` — select an eligible (`PENDING`) Purchase
+  Order, its Supplier and items with expected quantities load automatically, enter each
+  line's received quantity, Save.
+- **Workspace navigation** — "Inventory" in the sidebar and the `/workspace` dashboard's
+  Platform Modules grid now point at `/settings/inventory` and lost their "Coming Soon"
+  state; every other future module continues showing "Coming Soon."
+- **Seed data** — one goods receipt (`GRN-000001`) fully receiving `PO-000001` (Fresh
+  Farms Ltd, Plantain, 2,000 kg — the brief's own worked example), bringing `PO-000001`
+  to `RECEIVED` and seeding `InventoryStock`/`InventoryTransaction` rows to match.
+- Every mutating action is audited twice per receipt: `goods-receipt.received` and
+  `inventory.increased` (brief: "Record: Goods Received, Inventory Increased").
+- 18 new backend unit tests (`InventoryService`/`InventoryController`) — 187/187 total.
+
+### Known limitations
+
+- No Stock Adjustments, Warehouse Transfers, Multiple Warehouses, Inventory Counts,
+  Production Consumption, Sales Deductions, Returns, Batch/Lot Tracking, or Expiry
+  Tracking — all explicitly out of scope per the brief, reserved for later Inventory and
+  Production sprints.
+- A Purchase Order can only be received in full, in one event — no partial receiving or
+  discrepancy workflow when received quantity differs from ordered quantity.
+- The Purchase Order status flip to `RECEIVED` writes to Procurement's table directly
+  from inside `GoodsReceiptRepository`'s own transaction — a deliberate, documented
+  exception to the "domains reference each other only through exported
+  repositories/services" convention, made so all four writes (receipt, stock, ledger, PO
+  status) commit or roll back together. See `docs/domains/inventory.md` §6.
+
 ## [Sprint 4.3 Procurement (Purchase Orders)] - 2026-08-02
 
 ### Added

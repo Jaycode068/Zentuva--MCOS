@@ -353,12 +353,13 @@ async function seedSuppliers(
   return suppliersByCode;
 }
 
-/** Three example Boby Bites purchase orders (Sprint 4.3 brief) — hardcoded numbers, same
- *  "predictable seed data" convention as `BOBY_BITES_PRODUCTS`/`BOBY_BITES_SUPPLIERS`.
- *  Deliberately spans all three statuses this sprint reaches (`PENDING` — already issued
- *  to the supplier, matching the brief's own worked example; `DRAFT` — still being
- *  prepared; `CANCELLED` — demonstrates the "never deleted, stays in history" rule) so the
- *  seed data exercises every status the UI needs to render. */
+/** Six example Boby Bites purchase orders — the original three from Sprint 4.3
+ *  (`PENDING`/`DRAFT`/`CANCELLED`, unchanged) plus three added Sprint 4.4.1 so
+ *  `seedGoodsReceipts` below has enough purchase orders to demonstrate every receiving
+ *  scenario the brief calls for (§16): a short delivery (`PO-000009`), a delivery with
+ *  rejected goods followed by a replacement (`PO-000010`), and an excess delivery
+ *  (`PO-000011`). All three start `PENDING`; `seedGoodsReceipts` drives their status to
+ *  `PARTIALLY_RECEIVED`/`RECEIVED` the same way a real receive would. */
 const BOBY_BITES_PURCHASE_ORDERS = [
   {
     purchaseOrderNumber: 'PO-000001',
@@ -387,15 +388,53 @@ const BOBY_BITES_PURCHASE_ORDERS = [
     remarks: 'Cancelled — switched to an alternate packaging supplier for this batch.',
     items: [{ productCode: 'PRD-000013', quantity: 1000, unitPrice: 150 }],
   },
+  {
+    purchaseOrderNumber: 'PO-000009',
+    supplierCode: 'SUP-000004',
+    orderDate: new Date('2026-08-01'),
+    expectedDeliveryDate: new Date('2026-08-10'),
+    status: 'PENDING',
+    remarks: 'Salt for the next seasoning batch.',
+    items: [{ productCode: 'PRD-000009', quantity: 500, unitPrice: 200 }],
+  },
+  {
+    purchaseOrderNumber: 'PO-000010',
+    supplierCode: 'SUP-000005',
+    orderDate: new Date('2026-07-25'),
+    expectedDeliveryDate: new Date('2026-08-03'),
+    status: 'PENDING',
+    remarks: 'Cartons for finished-goods packing.',
+    items: [{ productCode: 'PRD-000010', quantity: 1000, unitPrice: 90 }],
+  },
+  {
+    purchaseOrderNumber: 'PO-000011',
+    supplierCode: 'SUP-000003',
+    orderDate: new Date('2026-07-30'),
+    expectedDeliveryDate: new Date('2026-08-06'),
+    status: 'PENDING',
+    remarks: 'Reorder after PO-000003 was cancelled — new packaging spec.',
+    items: [{ productCode: 'PRD-000013', quantity: 1000, unitPrice: 150 }],
+  },
 ] as const;
 
+interface SeededPurchaseOrder {
+  id: string;
+  /** `PurchaseOrderItem.id` keyed by product code — `seedGoodsReceipts` needs the real
+   *  item id (not just the product code) since `GoodsReceiptItem.purchaseOrderItemId` is
+   *  the actual foreign key, same as a real receive request. */
+  itemIdByProductCode: Record<string, string>;
+}
+
+/** Returns a `purchaseOrderNumber -> {id, itemIdByProductCode}` map so
+ *  `seedGoodsReceipts` can reference each order's real `PurchaseOrderItem` rows. */
 async function seedPurchaseOrders(
   organisationId: string,
   actorUserId: string,
   productsByCode: Record<string, string>,
   suppliersByCode: Record<string, string>,
-): Promise<void> {
-  console.log('Seeding Procurement (3 Boby Bites purchase orders)...');
+): Promise<Record<string, SeededPurchaseOrder>> {
+  console.log('Seeding Procurement (6 Boby Bites purchase orders)...');
+  const purchaseOrdersByNumber: Record<string, SeededPurchaseOrder> = {};
   for (const po of BOBY_BITES_PURCHASE_ORDERS) {
     const items = po.items.map((item) => ({
       productId: productsByCode[item.productCode]!,
@@ -423,7 +462,235 @@ async function seedPurchaseOrders(
         items: { create: items },
       },
     });
+
+    const created = await prisma.purchaseOrder.findUniqueOrThrow({
+      where: { purchaseOrderNumber: po.purchaseOrderNumber },
+      include: { items: true },
+    });
+    const itemIdByProductCode: Record<string, string> = {};
+    for (const item of po.items) {
+      const productId = productsByCode[item.productCode]!;
+      const matched = created.items.find((row) => row.productId === productId);
+      if (matched) {
+        itemIdByProductCode[item.productCode] = matched.id;
+      }
+    }
+    purchaseOrdersByNumber[po.purchaseOrderNumber] = { id: created.id, itemIdByProductCode };
   }
+  return purchaseOrdersByNumber;
+}
+
+/** Five example Boby Bites goods receipts (Sprint 4.4.1 brief §16) spanning every
+ *  receiving scenario the brief calls for:
+ *  - `GRN-000001` against `PO-000001` — a complete, perfect delivery (Scenario A).
+ *  - `GRN-000002` against `PO-000009` — a short delivery, order stays open
+ *    (Scenario B / `PARTIALLY_RECEIVED`).
+ *  - `GRN-000003` against `PO-000010` — full quantity delivered but partly rejected
+ *    (Scenario C); `GRN-000004`, also against `PO-000010`, is the supplier's later
+ *    replacement for exactly the rejected quantity (brief §6) — together they
+ *    demonstrate a Purchase Order receiving more than once.
+ *  - `GRN-000005` against `PO-000011` — the supplier delivered more than ordered
+ *    (Scenario E), accepted in full, never capped.
+ *  `PO-000002`/`PO-000003` stay `DRAFT`/`CANCELLED` and are deliberately never
+ *  receiving targets here — same rule `InventoryService.receiveGoods` enforces. */
+const BOBY_BITES_GOODS_RECEIPTS = [
+  {
+    goodsReceiptNumber: 'GRN-000001',
+    purchaseOrderNumber: 'PO-000001',
+    receivedDate: new Date('2026-08-05'),
+    remarks: 'Full delivery received in good condition — matches the purchase order exactly.',
+    items: [
+      {
+        productCode: 'PRD-000011',
+        deliveredQuantity: 2000,
+        rejectedQuantity: 0,
+        rejectionReason: undefined,
+        rejectionNotes: undefined,
+      },
+    ],
+  },
+  {
+    goodsReceiptNumber: 'GRN-000002',
+    purchaseOrderNumber: 'PO-000009',
+    receivedDate: new Date('2026-08-08'),
+    remarks: 'Supplier short-shipped this delivery — 50kg still outstanding.',
+    items: [
+      {
+        productCode: 'PRD-000009',
+        deliveredQuantity: 450,
+        rejectedQuantity: 0,
+        rejectionReason: undefined,
+        rejectionNotes: undefined,
+      },
+    ],
+  },
+  {
+    goodsReceiptNumber: 'GRN-000003',
+    purchaseOrderNumber: 'PO-000010',
+    receivedDate: new Date('2026-08-01'),
+    remarks: 'Full quantity delivered, but 50 cartons arrived with crushed corners.',
+    items: [
+      {
+        productCode: 'PRD-000010',
+        deliveredQuantity: 1000,
+        rejectedQuantity: 50,
+        rejectionReason: 'DAMAGED' as const,
+        rejectionNotes: 'Corners crushed in transit — unusable for packing.',
+      },
+    ],
+  },
+  {
+    goodsReceiptNumber: 'GRN-000004',
+    purchaseOrderNumber: 'PO-000010',
+    receivedDate: new Date('2026-08-09'),
+    remarks: 'Replacement for the 50 cartons rejected on GRN-000003.',
+    items: [
+      {
+        productCode: 'PRD-000010',
+        deliveredQuantity: 50,
+        rejectedQuantity: 0,
+        rejectionReason: undefined,
+        rejectionNotes: undefined,
+      },
+    ],
+  },
+  {
+    goodsReceiptNumber: 'GRN-000005',
+    purchaseOrderNumber: 'PO-000011',
+    receivedDate: new Date('2026-08-07'),
+    remarks: 'Supplier sent more than ordered — excess accepted for the next production run.',
+    items: [
+      {
+        productCode: 'PRD-000013',
+        deliveredQuantity: 1100,
+        rejectedQuantity: 0,
+        rejectionReason: undefined,
+        rejectionNotes: undefined,
+      },
+    ],
+  },
+] as const;
+
+/** Mirrors `GoodsReceiptRepository.receive`'s transaction (recompute each item's
+ *  cumulative delivered quantity, decide `PARTIALLY_RECEIVED` vs `RECEIVED`, create
+ *  GoodsReceipt + items, increment `InventoryStock` by *accepted* quantity, append
+ *  `InventoryTransaction` RECEIPT rows) rather than calling through the NestJS service
+ *  layer — same "talks to Prisma directly" convention as the rest of this script.
+ *  Idempotent on re-run: skips any GRN that already exists. `GRN-000004` (the
+ *  replacement for `GRN-000003`'s rejected cartons) is seeded *after* `GRN-000003`
+ *  precisely so its "cumulative delivered" calculation sees the first receipt's totals —
+ *  same order a real user would receive them in. */
+async function seedGoodsReceipts(
+  organisationId: string,
+  actorUserId: string,
+  productsByCode: Record<string, string>,
+  purchaseOrdersByNumber: Record<string, SeededPurchaseOrder>,
+): Promise<void> {
+  console.log('Seeding Inventory (5 Boby Bites goods receipts across 4 purchase orders)...');
+  for (const grn of BOBY_BITES_GOODS_RECEIPTS) {
+    const existing = await prisma.goodsReceipt.findUnique({
+      where: { goodsReceiptNumber: grn.goodsReceiptNumber },
+    });
+    if (existing) {
+      continue;
+    }
+
+    const purchaseOrder = await prisma.purchaseOrder.findUniqueOrThrow({
+      where: { purchaseOrderNumber: grn.purchaseOrderNumber },
+      include: { items: true },
+    });
+    const seededPurchaseOrder = purchaseOrdersByNumber[grn.purchaseOrderNumber]!;
+
+    const items = grn.items.map((item) => ({
+      purchaseOrderItemId: seededPurchaseOrder.itemIdByProductCode[item.productCode]!,
+      productId: productsByCode[item.productCode]!,
+      deliveredQuantity: item.deliveredQuantity,
+      rejectedQuantity: item.rejectedQuantity,
+      acceptedQuantity: item.deliveredQuantity - item.rejectedQuantity,
+      rejectionReason: item.rejectionReason,
+      rejectionNotes: item.rejectionNotes,
+    }));
+    const hasDiscrepancy = items.some((item) => item.rejectedQuantity > 0);
+
+    await prisma.$transaction(async (tx) => {
+      const priorTotalsRows = await tx.goodsReceiptItem.groupBy({
+        by: ['purchaseOrderItemId'],
+        where: { goodsReceipt: { organisationId, purchaseOrderId: purchaseOrder.id } },
+        _sum: { deliveredQuantity: true },
+      });
+      const priorDelivered = new Map(
+        priorTotalsRows.map((row) => [row.purchaseOrderItemId, row._sum.deliveredQuantity ?? 0]),
+      );
+      const newlyDelivered = new Map<string, number>();
+      for (const item of items) {
+        newlyDelivered.set(
+          item.purchaseOrderItemId,
+          (newlyDelivered.get(item.purchaseOrderItemId) ?? 0) + item.deliveredQuantity,
+        );
+      }
+      const fullyDelivered = purchaseOrder.items.every((poItem) => {
+        const cumulative =
+          (priorDelivered.get(poItem.id) ?? 0) + (newlyDelivered.get(poItem.id) ?? 0);
+        return cumulative >= poItem.quantity;
+      });
+      const newStatus = fullyDelivered ? 'RECEIVED' : 'PARTIALLY_RECEIVED';
+
+      await tx.purchaseOrder.update({
+        where: { id: purchaseOrder.id },
+        data: { status: newStatus, updatedById: actorUserId },
+      });
+
+      const goodsReceipt = await tx.goodsReceipt.create({
+        data: {
+          organisationId,
+          goodsReceiptNumber: grn.goodsReceiptNumber,
+          purchaseOrderId: purchaseOrder.id,
+          supplierId: purchaseOrder.supplierId,
+          receivedDate: grn.receivedDate,
+          receivedById: actorUserId,
+          remarks: grn.remarks,
+          discrepancyStatus: hasDiscrepancy ? 'PENDING_SUPPLIER' : 'NONE',
+          items: { create: items },
+        },
+      });
+
+      const acceptedItems = items.filter((item) => item.acceptedQuantity > 0);
+      for (const item of acceptedItems) {
+        await tx.inventoryStock.upsert({
+          where: { organisationId_productId: { organisationId, productId: item.productId } },
+          create: {
+            organisationId,
+            productId: item.productId,
+            quantityOnHand: item.acceptedQuantity,
+          },
+          update: { quantityOnHand: { increment: item.acceptedQuantity } },
+        });
+      }
+      if (acceptedItems.length > 0) {
+        await tx.inventoryTransaction.createMany({
+          data: acceptedItems.map((item) => ({
+            organisationId,
+            productId: item.productId,
+            transactionType: 'RECEIPT',
+            quantity: item.acceptedQuantity,
+            referenceType: 'GoodsReceipt',
+            referenceId: goodsReceipt.id,
+          })),
+        });
+      }
+    });
+  }
+
+  // GRN-000004 fully replaces the 50 cartons GRN-000003 rejected — mark that original
+  // discrepancy Resolved so the seed data demonstrates the complete lifecycle (brief
+  // §13's "Receiving History" example), not just the "still pending" half of it.
+  await prisma.goodsReceipt.updateMany({
+    where: { goodsReceiptNumber: 'GRN-000003' },
+    data: {
+      discrepancyStatus: 'RESOLVED',
+      discrepancyNotes: 'Replacement received in full via GRN-000004.',
+    },
+  });
 }
 
 async function main(): Promise<void> {
@@ -534,7 +801,13 @@ async function main(): Promise<void> {
 
   const productsByCode = await seedProducts(organisation.id, ownerUser.id);
   const suppliersByCode = await seedSuppliers(organisation.id, ownerUser.id);
-  await seedPurchaseOrders(organisation.id, ownerUser.id, productsByCode, suppliersByCode);
+  const purchaseOrdersByNumber = await seedPurchaseOrders(
+    organisation.id,
+    ownerUser.id,
+    productsByCode,
+    suppliersByCode,
+  );
+  await seedGoodsReceipts(organisation.id, ownerUser.id, productsByCode, purchaseOrdersByNumber);
 
   console.log('Recording an audit log entry for this seed run...');
   await prisma.auditLog.create({
@@ -558,6 +831,7 @@ async function main(): Promise<void> {
     productsSeeded: BOBY_BITES_PRODUCTS.length,
     suppliersSeeded: BOBY_BITES_SUPPLIERS.length,
     purchaseOrdersSeeded: BOBY_BITES_PURCHASE_ORDERS.length,
+    goodsReceiptsSeeded: BOBY_BITES_GOODS_RECEIPTS.length,
   });
 }
 

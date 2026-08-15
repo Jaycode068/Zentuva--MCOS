@@ -43,10 +43,17 @@ This roadmap tracks the intended build order. It is not a commitment to dates �
       Orders and Product–Supplier relationships arrive with Procurement) — see
       [`docs/domains/suppliers.md`](domains/suppliers.md)
 - [x] Procurement — Purchase Order management shipped Sprint 4.3 (create/edit/cancel,
-      automatic totals, Draft/Pending/Cancelled lifecycle; Goods Receiving, approval
-      workflow, and invoicing remain) — see
+      automatic totals); status lifecycle now also reaches `PARTIALLY_RECEIVED`/
+      `RECEIVED`, set by Inventory's receiving workflow (Sprint 4.4.1); approval
+      workflow and invoicing remain — see
       [`docs/domains/procurement.md`](domains/procurement.md)
-- [ ] Inventory
+- [x] Inventory — Goods Receiving shipped Sprint 4.4, refined Sprint 4.4.1 to
+      distinguish Ordered/Delivered/Accepted/Rejected/Outstanding/Excess, receive
+      multiple times against one order, and track a lightweight supplier-discrepancy
+      resolution state; inventory increases only by the accepted portion, into a live
+      per-product stock balance + immutable transaction ledger; warehouses, transfers,
+      stock adjustments, and counts remain — see
+      [`docs/domains/inventory.md`](domains/inventory.md)
 - [ ] Production
 - [ ] Sales
 - [ ] Distribution

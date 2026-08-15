@@ -16,10 +16,18 @@ import { PurchaseOrderService } from './purchase-order.service';
  * `PurchaseOrderService` can inject their repositories to validate a PO's supplier and
  * item products without duplicating Prisma access (ADR-002: reference other domains by
  * their exported repository/service, never write to their tables directly).
+ *
+ * Exports `PurchaseOrderRepository` so other domains can read purchase orders without
+ * duplicating Prisma access — first consumed by `InventoryModule` (Sprint 4.4) to
+ * validate a Purchase Order is eligible to be received (exists, not cancelled, not
+ * already received) before attempting to receive it. Inventory's actual *write* to
+ * `PurchaseOrder.status` happens separately, inside `GoodsReceiptRepository.receive`'s
+ * own transaction — see that file's doc comment for why.
  */
 @Module({
   imports: [IdentityModule, AuthModule, ProductModule, SupplierModule],
   controllers: [PurchaseOrderController],
   providers: [PurchaseOrderRepository, PurchaseOrderService],
+  exports: [PurchaseOrderRepository],
 })
 export class PurchaseOrderModule {}

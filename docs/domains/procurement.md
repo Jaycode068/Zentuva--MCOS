@@ -1,15 +1,18 @@
 # Procurement Domain
 
 - **Status:** Purchase Order management implemented — Sprint 4.3 ("Procurement (Purchase
-  Orders)").
-- **Sprint:** 4.3
+  Orders)"); status lifecycle extended Sprint 4.4.1 with `PARTIALLY_RECEIVED` and
+  receiving-driven edit/cancel restrictions.
+- **Sprint:** 4.3, 4.4.1
 - **Depends on:** [Identity](identity.md) (tenant boundary, authentication, `RolesGuard`),
   [Supplier Management](suppliers.md) (every Purchase Order belongs to a Supplier),
   [Product Catalogue](catalogue.md) (every Purchase Order line references a Product),
   [ADR-002 — Modular Monolith](../adr/ADR-002-modular-monolith.md),
   [ADR-003 — Multi-Tenancy](../adr/ADR-003-multi-tenancy.md)
-- **See also:** [Sprint 4.3 Completion Report](../sprint-4.3-completion-report.md) for
-  what was implemented and why.
+- **See also:** [Sprint 4.3 Completion Report](../sprint-4.3-completion-report.md),
+  [Sprint 4.4.1 Completion Report](../sprint-4.4.1-completion-report.md),
+  [Inventory](inventory.md) (owns the receiving workflow that now drives this domain's
+  `PARTIALLY_RECEIVED`/`RECEIVED` transitions).
 
 ## 1. Business Purpose
 
@@ -90,23 +93,43 @@ absent from both `createPurchaseOrderSchema` and `updatePurchaseOrderSchema`.
 
 ### Status
 
-`DRAFT` (default) → `PENDING` → (`APPROVED` → `RECEIVED`, not reachable this sprint) or
-`CANCELLED` from either `DRAFT` or `PENDING`. Per the brief, Sprint 4.3 only reaches
-`DRAFT`/`PENDING`/`CANCELLED` — `APPROVED`/`RECEIVED` exist in the enum (so the schema
-doesn't need another migration when the approval and goods-receiving workflows arrive)
-but no endpoint in this sprint can set them.
+`DRAFT` (default) → `PENDING` → (`APPROVED`, not reachable yet) →
+`PARTIALLY_RECEIVED` → `RECEIVED`, or `CANCELLED` from `DRAFT`/`PENDING`. Sprint 4.3
+only reached `DRAFT`/`PENDING`/`CANCELLED` — `APPROVED`/`RECEIVED` existed in the enum
+unused. Sprint 4.4.1 added `PARTIALLY_RECEIVED` and gave Inventory the only path to
+`PARTIALLY_RECEIVED`/`RECEIVED`: `InventoryService.receiveGoods`
+(`POST /api/inventory/goods-receipts`), documented fully in
+[`inventory.md`](inventory.md) §3 "Purchase Order Status." In short: the status tracks
+**delivery completeness** (cumulative delivered quantity vs. ordered quantity, summed
+across every Goods Receipt), not acceptance/rejection — a Purchase Order can reach
+`RECEIVED` even if some of what was delivered was rejected; that rejection is tracked
+separately, per receipt, via `GoodsReceipt.discrepancyStatus`.
 
 There is no dedicated "Issue" action — a new PO always starts `DRAFT` (the Create
-dialog has no Status field), and reaching `PENDING` ("issued to a supplier," this
-sprint's own finish line) happens by editing the order and changing its Status field via
-`PATCH`, which is restricted by the validation schema to `DRAFT`/`PENDING` only.
-`CANCELLED` is reachable only through the dedicated `POST /:id/cancel` endpoint, keeping
-cancellation a distinct, separately-audited, one-way action — the same reasoning
-`ProductService` keeps activate/archive off its generic update path. **Purchase orders
-are never physically deleted** (brief: "No DELETE. Cancelled POs remain in history"), and
-a `CANCELLED` order becomes fully read-only (`PurchaseOrderService.update` rejects
-editing one with a `400`; the frontend's dialog also renders every field disabled with no
-submit button for the same state).
+dialog has no Status field), and reaching `PENDING` ("issued to a supplier") happens by
+editing the order and changing its Status field via `PATCH`, which is restricted by the
+validation schema to `DRAFT`/`PENDING` only — `PARTIALLY_RECEIVED`/`RECEIVED` are never
+settable through this endpoint, only through actually receiving goods. `CANCELLED` is
+reachable only through the dedicated `POST /:id/cancel` endpoint, keeping cancellation a
+distinct, separately-audited, one-way action.
+
+**Purchase orders are never physically deleted** (brief: "No DELETE. Cancelled POs
+remain in history"). Three states are terminal for editing/cancelling purposes:
+
+- `CANCELLED` — `PurchaseOrderService.update`/`cancel` both reject with a `400`
+  ("Cancelled purchase orders cannot be edited"/"...is already cancelled").
+- `PARTIALLY_RECEIVED`/`RECEIVED` (Sprint 4.4.1) — `PurchaseOrderService.update`/`cancel`
+  both reject with a `400` ("Purchase orders that have already started receiving cannot
+  be edited/cancelled") — once Inventory has recorded a delivery against an order,
+  changing its items/supplier would corrupt the ordered-quantity figures Inventory's
+  outstanding/excess calculations depend on, and cancelling an order that's already (at
+  least partly) fulfilled doesn't reflect reality.
+
+The frontend's `PurchaseOrderDialog` renders every field disabled with no submit button
+for all three of these states (`EDITABLE_STATUSES = ['DRAFT', 'PENDING']`), and instead
+shows a read-only "Receiving Summary" table (Ordered/Delivered/Accepted/Rejected/
+Outstanding per item) whenever the order has any receiving activity — see
+[`inventory.md`](inventory.md) §4.
 
 ## 3. Workflows
 
@@ -168,28 +191,32 @@ rather than an arbitrary-precision `Decimal` type.
   references `Product.id`; validated via the exported `ProductRepository` the same way.
   Sprint 4.3 also added a fourth `ProductType` — `CONSUMABLE` — so Procurement has a
   complete set of purchasable input types alongside Raw Material/Packaging Material.
-- **Inventory (Sprint 4.4, not yet built)** — the natural next consumer: once goods
-  arrive, Inventory is expected to reference a `PurchaseOrder`/`PurchaseOrderItem` to
-  record what was actually received (which may differ from what was ordered — partial
-  deliveries are explicitly out of scope this sprint) and transition the order toward
-  `RECEIVED`.
+- **Inventory** ([inventory.md](inventory.md), Sprint 4.4/4.4.1) — the natural next
+  consumer: `InventoryService.receiveGoods` references `PurchaseOrder`/
+  `PurchaseOrderItem` (via the exported `PurchaseOrderRepository`, read-only) to record
+  what was actually delivered/accepted/rejected, and is the _only_ code path that ever
+  writes `PurchaseOrder.status` to `PARTIALLY_RECEIVED`/`RECEIVED` — a deliberate,
+  documented exception to the "domains write only their own tables" convention, made
+  for the receiving transaction's atomicity (see `inventory.md` §6).
 - **Purchase Approval Workflow (future, not yet built)** — `APPROVED` and `approvedById`
   already exist in the schema, unused, reserved for whenever that workflow is designed.
 
 ## 7. API Reference
 
-| Endpoint                                           | Auth                                           | Input                                                                                                     | Output                                                                 |
-| -------------------------------------------------- | ---------------------------------------------- | --------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| `GET /api/procurement/purchase-orders`             | Any authenticated user                         | Optional `?search=`, `?status=`, `?supplierId=`                                                           | `200 { items: PurchaseOrder[] }`                                       |
-| `GET /api/procurement/purchase-orders/:id`         | Any authenticated user                         | —                                                                                                         | `200` — a single `PurchaseOrder`                                       |
-| `POST /api/procurement/purchase-orders`            | Owner or Administrator only (`403` for Member) | `{ supplierId, orderDate, expectedDeliveryDate?, remarks?, items: [{ productId, quantity, unitPrice }] }` | `201` — the created `PurchaseOrder` (`status: DRAFT`)                  |
-| `PATCH /api/procurement/purchase-orders/:id`       | Owner or Administrator only                    | Partial of the same fields as create, plus optional `status` (`DRAFT`/`PENDING` only)                     | `200` — the updated `PurchaseOrder`; `400` if the order is `CANCELLED` |
-| `POST /api/procurement/purchase-orders/:id/cancel` | Owner or Administrator only                    | —                                                                                                         | `200` — `400` if already `CANCELLED`                                   |
+| Endpoint                                           | Auth                                           | Input                                                                                                     | Output                                                                                                 |
+| -------------------------------------------------- | ---------------------------------------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `GET /api/procurement/purchase-orders`             | Any authenticated user                         | Optional `?search=`, `?status=`, `?supplierId=`                                                           | `200 { items: PurchaseOrder[] }`                                                                       |
+| `GET /api/procurement/purchase-orders/:id`         | Any authenticated user                         | —                                                                                                         | `200` — a single `PurchaseOrder`                                                                       |
+| `POST /api/procurement/purchase-orders`            | Owner or Administrator only (`403` for Member) | `{ supplierId, orderDate, expectedDeliveryDate?, remarks?, items: [{ productId, quantity, unitPrice }] }` | `201` — the created `PurchaseOrder` (`status: DRAFT`)                                                  |
+| `PATCH /api/procurement/purchase-orders/:id`       | Owner or Administrator only                    | Partial of the same fields as create, plus optional `status` (`DRAFT`/`PENDING` only)                     | `200` — the updated `PurchaseOrder`; `400` if the order is `CANCELLED`/`PARTIALLY_RECEIVED`/`RECEIVED` |
+| `POST /api/procurement/purchase-orders/:id/cancel` | Owner or Administrator only                    | —                                                                                                         | `200` — `400` if already `CANCELLED`, or `PARTIALLY_RECEIVED`/`RECEIVED`                               |
 
 Every write is scoped to the caller's own `organisationId` (from their JWT) — a
 cross-tenant `id` 404s exactly like a nonexistent one, never leaking whether the
 purchase order exists in another tenant. There is no `DELETE` endpoint (see "Status"
-above).
+above). `PARTIALLY_RECEIVED`/`RECEIVED` are set only by
+[`POST /api/inventory/goods-receipts`](inventory.md#7-api-reference), never by this
+domain's own endpoints.
 
 ## 8. Audit Events
 
@@ -206,8 +233,9 @@ enum PurchaseOrderStatus {
   DRAFT
   PENDING
   APPROVED
-  CANCELLED
+  PARTIALLY_RECEIVED
   RECEIVED
+  CANCELLED
 }
 
 model PurchaseOrder {
@@ -260,12 +288,13 @@ See migration `20260802171910_add_procurement_purchase_orders` for the exact SQL
 (including the `ProductType` enum's new `CONSUMABLE` value, added in the same
 migration).
 
-## 10. Known Limitations (Sprint 4.3)
+## 10. Known Limitations (Sprint 4.4.1)
 
-- No Goods Receiving, Inventory Transactions, Supplier Invoices, Purchase Approval
-  Workflow, Payments, multi-currency, taxes, discounts, partial deliveries, or back
-  orders — all explicitly out of scope per the brief, reserved for later Procurement and
-  Inventory sprints.
+- No Supplier Invoices, Purchase Approval Workflow, Payments, multi-currency, taxes, or
+  discounts — all explicitly out of scope, reserved for later Procurement sprints.
+  Goods Receiving itself now exists — see [`inventory.md`](inventory.md) — including
+  partial deliveries and excess supply, which this document's Sprint 4.3 revision had
+  listed as out of scope.
 - Amounts (`unitPrice`, `quantity`, `lineTotal`, `subtotal`, `total`) are stored as
   `Float`, not an arbitrary-precision `Decimal` — this schema has no prior precedent for
   `Decimal` (no domain before this one has dealt with money), and Float with
@@ -273,3 +302,5 @@ migration).
   involved. Worth revisiting if/when real accounting precision becomes a requirement.
 - Reaching `PENDING` has no dedicated "Issue" UI action or endpoint — it's a Status field
   change via the Edit dialog/`PATCH`, same mechanism as every other header edit.
+  `PARTIALLY_RECEIVED`/`RECEIVED`, by contrast, have no UI action at all in this
+  domain — they're set exclusively by Inventory's receiving endpoint.

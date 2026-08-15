@@ -15,8 +15,9 @@ export const purchaseOrderStatusSchema = z.enum([
   'DRAFT',
   'PENDING',
   'APPROVED',
-  'CANCELLED',
+  'PARTIALLY_RECEIVED',
   'RECEIVED',
+  'CANCELLED',
 ]);
 export type PurchaseOrderStatusInput = z.infer<typeof purchaseOrderStatusSchema>;
 

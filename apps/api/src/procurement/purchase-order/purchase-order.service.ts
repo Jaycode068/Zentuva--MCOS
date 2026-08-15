@@ -96,10 +96,15 @@ export class PurchaseOrderService {
   }
 
   /** Partial update — `purchaseOrderNumber` is never accepted (brief: "Immutable").
-   *  Rejects editing a `CANCELLED` order (brief: "Cancelled POs become read-only").
-   *  `status` here is restricted by the validation schema to `DRAFT`/`PENDING` only —
-   *  reaching `CANCELLED` requires {@link cancel}. Submitting `items` replaces the whole
-   *  line list and recalculates totals; omitting it leaves the existing items untouched. */
+   *  Rejects editing a `CANCELLED` order (brief: "Cancelled POs become read-only") and,
+   *  since Sprint 4.4.1, a `PARTIALLY_RECEIVED`/`RECEIVED` one too — once Inventory has
+   *  started receiving against an order, changing its items/supplier would corrupt the
+   *  ordered-quantity figures Inventory's outstanding/excess calculations depend on
+   *  (docs/domains/inventory.md "Receiving Model"). `status` here is restricted by the
+   *  validation schema to `DRAFT`/`PENDING` only — `PARTIALLY_RECEIVED`/`RECEIVED` are
+   *  reachable only via `InventoryService.receiveGoods`, `CANCELLED` only via
+   *  {@link cancel}. Submitting `items` replaces the whole line list and recalculates
+   *  totals; omitting it leaves the existing items untouched. */
   async update(
     organisationId: string,
     id: string,
@@ -109,6 +114,14 @@ export class PurchaseOrderService {
     const existing = await this.getByIdOrThrow(organisationId, id);
     if (existing.status === PurchaseOrderStatus.CANCELLED) {
       throw new BadRequestException('Cancelled purchase orders cannot be edited');
+    }
+    if (
+      existing.status === PurchaseOrderStatus.PARTIALLY_RECEIVED ||
+      existing.status === PurchaseOrderStatus.RECEIVED
+    ) {
+      throw new BadRequestException(
+        'Purchase orders that have already started receiving cannot be edited',
+      );
     }
     if (input.supplierId) {
       await this.assertSupplierExists(organisationId, input.supplierId);
@@ -145,7 +158,11 @@ export class PurchaseOrderService {
 
   /** `POST /:id/cancel` — the only path to `CANCELLED`. Rejects an already-cancelled
    *  order rather than silently no-opping, same convention as
-   *  `ProductService.activate`/`archive`. */
+   *  `ProductService.activate`/`archive`. Since Sprint 4.4.1, also rejects an order that
+   *  has already started receiving (`PARTIALLY_RECEIVED`/`RECEIVED`) — goods have
+   *  physically arrived and entered inventory against this order; cancelling it at that
+   *  point wouldn't reflect reality and has no defined effect on the stock already
+   *  received. */
   async cancel(
     organisationId: string,
     id: string,
@@ -154,6 +171,14 @@ export class PurchaseOrderService {
     const existing = await this.getByIdOrThrow(organisationId, id);
     if (existing.status === PurchaseOrderStatus.CANCELLED) {
       throw new BadRequestException('Purchase order is already cancelled');
+    }
+    if (
+      existing.status === PurchaseOrderStatus.PARTIALLY_RECEIVED ||
+      existing.status === PurchaseOrderStatus.RECEIVED
+    ) {
+      throw new BadRequestException(
+        'Purchase orders that have already started receiving cannot be cancelled',
+      );
     }
 
     const updated = await this.purchaseOrderRepository.update(organisationId, id, {

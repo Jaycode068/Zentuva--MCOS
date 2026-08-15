@@ -10,7 +10,8 @@ export interface PurchaseOrderItem {
   lineTotal: number;
 }
 
-export type PurchaseOrderStatus = 'DRAFT' | 'PENDING' | 'APPROVED' | 'CANCELLED' | 'RECEIVED';
+export type PurchaseOrderStatus =
+  'DRAFT' | 'PENDING' | 'APPROVED' | 'PARTIALLY_RECEIVED' | 'RECEIVED' | 'CANCELLED';
 
 export interface PurchaseOrder {
   id: string;

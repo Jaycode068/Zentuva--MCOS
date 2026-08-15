@@ -18,10 +18,16 @@ import { useFieldArray, useForm } from 'react-hook-form';
 
 import { ApiError } from '@/lib/api-client';
 
+import { getPurchaseOrderReceivingSummary } from '../inventory/api';
 import { listProducts } from '../products/api';
 import { listSuppliers } from '../suppliers/api';
 import { createPurchaseOrder, updatePurchaseOrder, type PurchaseOrder } from './api';
 import { EDITABLE_STATUSES, formatCurrency, STATUS_LABELS } from './labels';
+
+/** A Purchase Order only has receiving activity worth showing once it's actually been
+ *  issued to the supplier — `DRAFT` (never issued) and `CANCELLED` (called off) never
+ *  have any `GoodsReceipt` rows, so there's nothing to fetch or render for them. */
+const STATUSES_WITH_RECEIVING_ACTIVITY = ['PENDING', 'PARTIALLY_RECEIVED', 'RECEIVED'];
 
 /** Second line of defense behind the backend's own check (Sprint 4.3 brief: "This
  *  validation belongs inside the service layer" — the frontend filter here is purely a
@@ -98,6 +104,14 @@ export function PurchaseOrderDialog({
   const purchasableProducts = (productsData?.items ?? []).filter((product) =>
     PURCHASABLE_PRODUCT_TYPES.includes(product.type),
   );
+
+  const showReceivingSummary =
+    isEdit && STATUSES_WITH_RECEIVING_ACTIVITY.includes(purchaseOrder.status);
+  const { data: receivingSummary } = useQuery({
+    queryKey: ['purchase-order-receiving-summary', purchaseOrder?.id],
+    queryFn: () => getPurchaseOrderReceivingSummary(purchaseOrder!.id),
+    enabled: showReceivingSummary,
+  });
 
   const form = useForm<PurchaseOrderFormValues>({
     resolver: zodResolver(purchaseOrderFormSchema),
@@ -355,6 +369,51 @@ export function PurchaseOrderDialog({
             <span>{formatCurrency(subtotal)}</span>
           </div>
         </div>
+
+        {showReceivingSummary && receivingSummary && (
+          <div className="space-y-2 border-t border-border pt-3">
+            <Label>Receiving Summary</Label>
+            <div className="overflow-x-auto rounded-md border border-border">
+              <table className="w-full text-sm">
+                <thead className="border-b border-border bg-muted/50 text-left">
+                  <tr>
+                    <th className="px-3 py-2 font-medium">Product</th>
+                    <th className="px-3 py-2 font-medium">Ordered</th>
+                    <th className="px-3 py-2 font-medium">Delivered</th>
+                    <th className="px-3 py-2 font-medium">Accepted</th>
+                    <th className="px-3 py-2 font-medium">Rejected</th>
+                    <th className="px-3 py-2 font-medium">Outstanding</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {receivingSummary.items.map((item) => (
+                    <tr
+                      key={item.purchaseOrderItemId}
+                      className="border-b border-border last:border-0"
+                    >
+                      <td className="px-3 py-2">
+                        {item.product.name}{' '}
+                        <span className="text-xs text-muted-foreground">({item.product.unit})</span>
+                      </td>
+                      <td className="px-3 py-2">{item.orderedQuantity}</td>
+                      <td className="px-3 py-2">
+                        {item.deliveredQuantity}
+                        {item.excessQuantity > 0 && (
+                          <span className="ml-1 text-xs text-muted-foreground">
+                            (+{item.excessQuantity} excess)
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2">{item.acceptedQuantity}</td>
+                      <td className="px-3 py-2">{item.rejectedQuantity}</td>
+                      <td className="px-3 py-2">{item.outstandingQuantity}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
 
         {mutation.isError && (
           <p className="text-sm text-destructive">
