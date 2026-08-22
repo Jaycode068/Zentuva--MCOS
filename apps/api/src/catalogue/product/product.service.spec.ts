@@ -2,6 +2,7 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Product, ProductCategory, ProductStatus, ProductType } from '@prisma/client';
 
 import { FileStorage } from '../../identity/organisation/ports/file-storage.port';
+import { ProductVariantRepository } from '../product-variant/product-variant.repository';
 import { ProductRepository } from './product.repository';
 import { ProductService } from './product.service';
 
@@ -25,6 +26,7 @@ describe('ProductService', () => {
     updatedById: 'user-1',
     createdAt: new Date('2026-01-01'),
     updatedAt: new Date('2026-01-01'),
+    productVariantId: null,
   };
 
   function makeService() {
@@ -32,16 +34,21 @@ describe('ProductService', () => {
       create: jest.fn(),
       findById: jest.fn(),
       findManyByOrganisation: jest.fn(),
+      findByIdWithHierarchy: jest.fn(),
+      findManyByOrganisationWithHierarchy: jest.fn(),
       existsByCode: jest.fn().mockResolvedValue(false),
       existsBySlug: jest.fn().mockResolvedValue(false),
       update: jest.fn(),
     } as unknown as jest.Mocked<ProductRepository>;
+    const productVariantRepository = {
+      findById: jest.fn(),
+    } as unknown as jest.Mocked<ProductVariantRepository>;
     const fileStorage = {
       upload: jest.fn(),
       delete: jest.fn().mockResolvedValue(undefined),
     } as unknown as jest.Mocked<FileStorage>;
-    const service = new ProductService(productRepository, fileStorage);
-    return { service, productRepository, fileStorage };
+    const service = new ProductService(productRepository, productVariantRepository, fileStorage);
+    return { service, productRepository, productVariantRepository, fileStorage };
   }
 
   describe('create', () => {
@@ -105,6 +112,62 @@ describe('ProductService', () => {
       expect(productRepository.create).toHaveBeenCalledWith(
         expect.objectContaining({ slug: 'plantain-chips-2' }),
       );
+    });
+
+    it('attaches a valid productVariantId (Sprint 4.7)', async () => {
+      const { service, productRepository, productVariantRepository } = makeService();
+      productVariantRepository.findById.mockResolvedValue({ id: 'variant-1' } as never);
+      productRepository.create.mockResolvedValue(product);
+
+      await service.create(
+        'org-1',
+        {
+          name: 'Plantain Chips',
+          category: 'SNACKS',
+          type: 'FINISHED_PRODUCT',
+          unit: 'Pack',
+          productVariantId: 'variant-1',
+        },
+        'user-1',
+      );
+
+      expect(productVariantRepository.findById).toHaveBeenCalledWith('org-1', 'variant-1');
+      expect(productRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ productVariant: { connect: { id: 'variant-1' } } }),
+      );
+    });
+
+    it('rejects a productVariantId that does not exist in this organisation (Sprint 4.7)', async () => {
+      const { service, productVariantRepository } = makeService();
+      productVariantRepository.findById.mockResolvedValue(null);
+
+      await expect(
+        service.create(
+          'org-1',
+          {
+            name: 'Plantain Chips',
+            category: 'SNACKS',
+            type: 'FINISHED_PRODUCT',
+            unit: 'Pack',
+            productVariantId: 'missing',
+          },
+          'user-1',
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('omitting productVariantId never touches ProductVariantRepository (regression)', async () => {
+      const { service, productRepository, productVariantRepository } = makeService();
+      productRepository.create.mockResolvedValue(product);
+
+      await service.create(
+        'org-1',
+        { name: 'Plantain Chips', category: 'SNACKS', type: 'FINISHED_PRODUCT', unit: 'Pack' },
+        'user-1',
+      );
+
+      expect(productVariantRepository.findById).not.toHaveBeenCalled();
+      expect(productRepository.create.mock.calls[0]?.[0]).not.toHaveProperty('productVariant');
     });
   });
 
@@ -280,6 +343,35 @@ describe('ProductService', () => {
       await service.removeImage('org-1', 'product-1', 'user-1');
 
       expect(fileStorage.delete).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('getById / list — hierarchy context (Sprint 4.7)', () => {
+    it('getById delegates to findByIdWithHierarchy, not the plain findById', async () => {
+      const { service, productRepository } = makeService();
+      const withHierarchy = { ...product, productVariant: null };
+      productRepository.findByIdWithHierarchy.mockResolvedValue(withHierarchy);
+
+      const result = await service.getById('org-1', 'product-1');
+
+      expect(productRepository.findByIdWithHierarchy).toHaveBeenCalledWith('org-1', 'product-1');
+      expect(productRepository.findById).not.toHaveBeenCalled();
+      expect(result?.productVariant).toBeNull();
+    });
+
+    it('list delegates to findManyByOrganisationWithHierarchy', async () => {
+      const { service, productRepository } = makeService();
+      productRepository.findManyByOrganisationWithHierarchy.mockResolvedValue([
+        { ...product, productVariant: null },
+      ]);
+
+      const result = await service.list('org-1');
+
+      expect(productRepository.findManyByOrganisationWithHierarchy).toHaveBeenCalledWith(
+        'org-1',
+        undefined,
+      );
+      expect(result).toHaveLength(1);
     });
   });
 });

@@ -1,6 +1,6 @@
 import type { BadgeProps } from '@zentuva/ui';
 
-import type { Product } from './api';
+import type { Product, ProductFamily, ProductVariant } from './api';
 
 /** Shared display labels/badge colours for the Products table and view dialog — one
  *  source of truth so the two don't drift. */
@@ -27,4 +27,22 @@ export const STATUS_VARIANT: Record<Product['status'], NonNullable<BadgeProps['v
   DRAFT: 'warning',
   ACTIVE: 'success',
   ARCHIVED: 'default',
+};
+
+/** Sprint 4.7 — Product Family/Variant status is 2-state (`ACTIVE`/`INACTIVE`, no Draft
+ *  phase), same semantic mapping as Inventory's own `LOCATION_STATUS_VARIANT`. */
+export const PRODUCT_FAMILY_STATUS_VARIANT: Record<
+  ProductFamily['status'],
+  NonNullable<BadgeProps['variant']>
+> = {
+  ACTIVE: 'success',
+  INACTIVE: 'default',
+};
+
+export const PRODUCT_VARIANT_STATUS_VARIANT: Record<
+  ProductVariant['status'],
+  NonNullable<BadgeProps['variant']>
+> = {
+  ACTIVE: 'success',
+  INACTIVE: 'default',
 };

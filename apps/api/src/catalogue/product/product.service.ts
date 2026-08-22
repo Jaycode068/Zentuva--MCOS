@@ -3,7 +3,8 @@ import { Product, ProductStatus } from '@prisma/client';
 import { CreateProductInput, UpdateProductInput } from '@zentuva/validation';
 
 import { FILE_STORAGE, FileStorage } from '../../identity/organisation/ports/file-storage.port';
-import { ListProductsParams, ProductRepository } from './product.repository';
+import { ProductVariantRepository } from '../product-variant/product-variant.repository';
+import { ListProductsParams, ProductRepository, ProductWithHierarchy } from './product.repository';
 
 const PRODUCT_CODE_PREFIX = 'PRD';
 const PRODUCT_CODE_SEQUENCE_LENGTH = 6;
@@ -18,15 +19,18 @@ const PRODUCT_CODE_SEQUENCE_LENGTH = 6;
 export class ProductService {
   constructor(
     private readonly productRepository: ProductRepository,
+    private readonly productVariantRepository: ProductVariantRepository,
     @Inject(FILE_STORAGE) private readonly fileStorage: FileStorage,
   ) {}
 
-  getById(organisationId: string, id: string): Promise<Product | null> {
-    return this.productRepository.findById(organisationId, id);
+  /** Added Sprint 4.7 — includes the product's optional `ProductVariant`/parent
+   *  `ProductFamily` context (docs/domains/catalogue.md). */
+  getById(organisationId: string, id: string): Promise<ProductWithHierarchy | null> {
+    return this.productRepository.findByIdWithHierarchy(organisationId, id);
   }
 
-  list(organisationId: string, params?: ListProductsParams): Promise<Product[]> {
-    return this.productRepository.findManyByOrganisation(organisationId, params);
+  list(organisationId: string, params?: ListProductsParams): Promise<ProductWithHierarchy[]> {
+    return this.productRepository.findManyByOrganisationWithHierarchy(organisationId, params);
   }
 
   /** New products always start `DRAFT` (brief: "Status defaults to Draft") — reaching
@@ -36,6 +40,9 @@ export class ProductService {
     input: CreateProductInput,
     actorUserId: string,
   ): Promise<Product> {
+    if (input.productVariantId) {
+      await this.assertVariantExists(organisationId, input.productVariantId);
+    }
     const code = await this.generateUniqueCode();
     const slug = await this.generateUniqueSlug(organisationId, input.name);
 
@@ -53,6 +60,9 @@ export class ProductService {
       status: ProductStatus.DRAFT,
       createdById: actorUserId,
       updatedById: actorUserId,
+      ...(input.productVariantId
+        ? { productVariant: { connect: { id: input.productVariantId } } }
+        : {}),
     });
   }
 
@@ -65,6 +75,9 @@ export class ProductService {
     actorUserId: string,
   ): Promise<Product> {
     await this.getByIdOrThrow(organisationId, id);
+    if (input.productVariantId) {
+      await this.assertVariantExists(organisationId, input.productVariantId);
+    }
 
     const updated = await this.productRepository.update(organisationId, id, {
       name: input.name,
@@ -75,11 +88,27 @@ export class ProductService {
       shortDescription: input.shortDescription,
       longDescription: input.longDescription,
       updatedById: actorUserId,
+      ...(input.productVariantId
+        ? { productVariant: { connect: { id: input.productVariantId } } }
+        : {}),
     });
     if (!updated) {
       throw new NotFoundException('Product not found');
     }
     return updated;
+  }
+
+  /** Added Sprint 4.7 — `productVariantId` is checked tenant-scoped (same
+   *  "second line of defense" pattern `BillOfMaterialService.assertFinishedProduct`
+   *  uses for `Product`), never trusted just because it parses as a cuid. */
+  private async assertVariantExists(
+    organisationId: string,
+    productVariantId: string,
+  ): Promise<void> {
+    const variant = await this.productVariantRepository.findById(organisationId, productVariantId);
+    if (!variant) {
+      throw new BadRequestException('Product variant not found');
+    }
   }
 
   /** `POST /:id/activate` — valid from `DRAFT` or `ARCHIVED` only (brief: "Enforce...

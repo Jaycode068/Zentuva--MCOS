@@ -35,7 +35,12 @@ describe('ProductController', () => {
     updatedById: 'user-1',
     createdAt: new Date('2026-01-01'),
     updatedAt: new Date('2026-01-01'),
+    productVariantId: null,
   };
+
+  /** `list`/`getOne` resolve to the hierarchy-enriched shape (Sprint 4.7) — every other
+   *  method on `ProductService` still resolves to a plain `Product`. */
+  const productWithHierarchy = { ...product, productVariant: null };
 
   function makeController() {
     const productService = {
@@ -62,13 +67,62 @@ describe('ProductController', () => {
   describe('list', () => {
     it('passes the trimmed search query through', async () => {
       const { controller, productService } = makeController();
-      productService.list.mockResolvedValue([product]);
+      productService.list.mockResolvedValue([productWithHierarchy]);
 
       const result = await controller.list(tokenUser, '  chips  ');
 
       expect(productService.list).toHaveBeenCalledWith('org-1', { search: 'chips' });
       expect(result.items).toHaveLength(1);
       expect(result.items[0]?.code).toBe('PRD-000001');
+      // Sprint 4.7 — read responses expose hierarchy context (null for a flat product).
+      expect(result.items[0]).toHaveProperty('productVariantId', null);
+      expect(result.items[0]).toHaveProperty('productVariant', null);
+    });
+
+    it('nests family context when the product has a variant (Sprint 4.7)', async () => {
+      const { controller, productService } = makeController();
+      productService.list.mockResolvedValue([
+        {
+          ...productWithHierarchy,
+          productVariantId: 'variant-1',
+          productVariant: {
+            id: 'variant-1',
+            organisationId: 'org-1',
+            productFamilyId: 'family-1',
+            code: 'VAR-000001',
+            name: 'Sweet & Spicy — Ripe Plantain',
+            description: null,
+            status: 'ACTIVE',
+            createdById: 'user-1',
+            updatedById: 'user-1',
+            createdAt: new Date('2026-08-15'),
+            updatedAt: new Date('2026-08-15'),
+            productFamily: {
+              id: 'family-1',
+              organisationId: 'org-1',
+              code: 'FAM-000001',
+              name: 'Plantain Chips',
+              description: null,
+              status: 'ACTIVE',
+              createdById: 'user-1',
+              updatedById: 'user-1',
+              createdAt: new Date('2026-08-15'),
+              updatedAt: new Date('2026-08-15'),
+            },
+          },
+        } as never,
+      ]);
+
+      const result = await controller.list(tokenUser);
+
+      expect(result.items[0]?.productVariant).toEqual(
+        expect.objectContaining({
+          id: 'variant-1',
+          code: 'VAR-000001',
+          name: 'Sweet & Spicy — Ripe Plantain',
+          productFamily: expect.objectContaining({ id: 'family-1', code: 'FAM-000001' }),
+        }),
+      );
     });
   });
 
@@ -101,6 +155,10 @@ describe('ProductController', () => {
         expect.objectContaining({ action: PRODUCT_AUDIT_ACTIONS.CREATED, entityId: 'product-1' }),
       );
       expect(result.code).toBe('PRD-000001');
+      // Sprint 4.7 regression — write endpoints keep returning the flat shape, never the
+      // nested `productVariant` object `list`/`getOne` expose.
+      expect(result).not.toHaveProperty('productVariant');
+      expect(result).toHaveProperty('productVariantId', null);
     });
   });
 

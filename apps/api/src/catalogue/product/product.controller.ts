@@ -34,6 +34,7 @@ import { RolesGuard } from '../../identity/auth/guards/roles.guard';
 import { TokenPayload } from '../../identity/auth/ports/token.port';
 import { assertValidImageFile } from '../../identity/common/image-upload-validation';
 import { PRODUCT_AUDIT_ACTIONS } from './product-audit-actions';
+import { ProductWithHierarchy } from './product.repository';
 import { ProductService } from './product.service';
 
 /**
@@ -61,7 +62,7 @@ export class ProductController {
     const products = await this.productService.list(user.organisationId, {
       search: search?.trim() || undefined,
     });
-    return { items: products.map(toProductResponse) };
+    return { items: products.map(toProductResponseWithHierarchy) };
   }
 
   @Get(':id')
@@ -70,7 +71,7 @@ export class ProductController {
     if (!product) {
       throw new NotFoundException('Product not found');
     }
-    return toProductResponse(product);
+    return toProductResponseWithHierarchy(product);
   }
 
   @Post()
@@ -238,5 +239,28 @@ function toProductResponse(product: Product) {
     updatedAt: product.updatedAt,
     createdById: product.createdById,
     updatedById: product.updatedById,
+    productVariantId: product.productVariantId,
+  };
+}
+
+/** Added Sprint 4.7 — used only by `list`/`getOne`, the two read endpoints
+ *  `ProductService` now resolves with hierarchy context. Write endpoints
+ *  (create/update/activate/archive/image) keep returning the flat
+ *  {@link toProductResponse} shape unchanged. */
+function toProductResponseWithHierarchy(product: ProductWithHierarchy) {
+  return {
+    ...toProductResponse(product),
+    productVariant: product.productVariant
+      ? {
+          id: product.productVariant.id,
+          code: product.productVariant.code,
+          name: product.productVariant.name,
+          productFamily: {
+            id: product.productVariant.productFamily.id,
+            code: product.productVariant.productFamily.code,
+            name: product.productVariant.productFamily.name,
+          },
+        }
+      : null,
   };
 }

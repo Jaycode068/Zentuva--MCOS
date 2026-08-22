@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma, Product, ProductStatus } from '@prisma/client';
+import { Prisma, Product, ProductFamily, ProductStatus, ProductVariant } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
 
@@ -9,6 +9,20 @@ export interface ListProductsParams {
    *  "Simple search... No pagination"). */
   search?: string;
 }
+
+/** Added Sprint 4.7 — a `Product` joined with its optional `ProductVariant`/parent
+ *  `ProductFamily` context. Only returned by {@link ProductRepository.findByIdWithHierarchy}/
+ *  {@link ProductRepository.findManyByOrganisationWithHierarchy} — every other method on
+ *  this repository (including the plain `findById`/`findManyByOrganisation` other
+ *  domains consume directly, e.g. `BillOfMaterialService`) keeps returning a plain
+ *  `Product` unchanged. */
+export type ProductWithHierarchy = Product & {
+  productVariant: (ProductVariant & { productFamily: ProductFamily }) | null;
+};
+
+const HIERARCHY_INCLUDE = {
+  productVariant: { include: { productFamily: true } },
+} as const;
 
 /**
  * Thin Prisma access for the Product aggregate. No business logic — see ProductService and
@@ -36,18 +50,31 @@ export class ProductRepository {
     params: ListProductsParams = {},
   ): Promise<Product[]> {
     return this.prisma.product.findMany({
-      where: {
-        organisationId,
-        ...(params.status ? { status: params.status } : {}),
-        ...(params.search
-          ? {
-              OR: [
-                { name: { contains: params.search, mode: 'insensitive' } },
-                { code: { contains: params.search, mode: 'insensitive' } },
-              ],
-            }
-          : {}),
-      },
+      where: buildWhere(organisationId, params),
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  /** Added Sprint 4.7 — same lookup as {@link findById}, plus the product's optional
+   *  `ProductVariant`/parent `ProductFamily` context. Used only by `ProductController`'s
+   *  own read endpoints — every cross-domain consumer (`BillOfMaterialService`, etc.)
+   *  keeps calling the plain {@link findById}. */
+  findByIdWithHierarchy(organisationId: string, id: string): Promise<ProductWithHierarchy | null> {
+    return this.prisma.product.findFirst({
+      where: { id, organisationId },
+      include: HIERARCHY_INCLUDE,
+    });
+  }
+
+  /** Added Sprint 4.7 — same lookup/filters as {@link findManyByOrganisation}, plus the
+   *  hierarchy context. See {@link findByIdWithHierarchy}. */
+  findManyByOrganisationWithHierarchy(
+    organisationId: string,
+    params: ListProductsParams = {},
+  ): Promise<ProductWithHierarchy[]> {
+    return this.prisma.product.findMany({
+      where: buildWhere(organisationId, params),
+      include: HIERARCHY_INCLUDE,
       orderBy: { createdAt: 'desc' },
     });
   }
@@ -80,4 +107,19 @@ export class ProductRepository {
     }
     return this.prisma.product.findUniqueOrThrow({ where: { id } });
   }
+}
+
+function buildWhere(organisationId: string, params: ListProductsParams): Prisma.ProductWhereInput {
+  return {
+    organisationId,
+    ...(params.status ? { status: params.status } : {}),
+    ...(params.search
+      ? {
+          OR: [
+            { name: { contains: params.search, mode: 'insensitive' } },
+            { code: { contains: params.search, mode: 'insensitive' } },
+          ],
+        }
+      : {}),
+  };
 }

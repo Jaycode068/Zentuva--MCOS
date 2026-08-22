@@ -960,6 +960,221 @@ async function seedProduction(
   });
 }
 
+/** One `ProductFamily` ("Plantain Chips") with three `ProductVariant`s, each carrying
+ *  three pack-size SKUs — the exact worked example from the Sprint 4.7 brief. The
+ *  pre-existing `PRD-000001` "Plantain Chips" (with its own `BOM-000001`/`PROD-000001`
+ *  chain, Sprint 4.6) is deliberately left completely untouched — `productVariantId`
+ *  stays `null` on that row, proving a pre-existing product needs no migration to keep
+ *  working.
+ *
+ *  `code`/`bomNumber`/`productionOrderNumber` are all GLOBALLY unique (not per
+ *  organisation — see `Product.code`'s own schema comment), so a code that looks free
+ *  against `BOBY_BITES_PRODUCTS` can still collide with a row some *other* organisation
+ *  created via live browser/API testing in an earlier sprint (this dev database is
+ *  shared across every organisation ever registered against it, same situation
+ *  `BOBY_BITES_PRODUCTS`'s own "why -000006–-000008 are skipped" comment describes).
+ *  `PRD-000020` was tried first and found to collide with exactly this kind of
+ *  organically-created row from another organisation — `PRD-000030` replaced it. */
+const PLANTAIN_CHIPS_FAMILY = {
+  code: 'FAM-000001',
+  name: 'Plantain Chips',
+} as const;
+
+const PLANTAIN_CHIPS_VARIANTS = [
+  {
+    code: 'VAR-000001',
+    name: 'Sweet & Spicy — Ripe Plantain',
+    skus: [
+      { code: 'PRD-000030', name: 'Plantain Chips Sweet & Spicy 30g', unit: 'Pack' },
+      { code: 'PRD-000021', name: 'Plantain Chips Sweet & Spicy 500g', unit: 'Pack' },
+      { code: 'PRD-000022', name: 'Plantain Chips Sweet & Spicy 1kg', unit: 'Pack' },
+    ],
+  },
+  {
+    code: 'VAR-000002',
+    name: 'Green & Spicy — Unripe Plantain',
+    skus: [
+      { code: 'PRD-000023', name: 'Plantain Chips Green & Spicy 30g', unit: 'Pack' },
+      { code: 'PRD-000024', name: 'Plantain Chips Green & Spicy 500g', unit: 'Pack' },
+      { code: 'PRD-000025', name: 'Plantain Chips Green & Spicy 1kg', unit: 'Pack' },
+    ],
+  },
+  {
+    code: 'VAR-000003',
+    name: 'Classic Salted',
+    skus: [
+      { code: 'PRD-000026', name: 'Plantain Chips Classic Salted 30g', unit: 'Pack' },
+      { code: 'PRD-000027', name: 'Plantain Chips Classic Salted 500g', unit: 'Pack' },
+      { code: 'PRD-000028', name: 'Plantain Chips Classic Salted 1kg', unit: 'Pack' },
+    ],
+  },
+] as const;
+
+/** Returns a `code -> id` map (SKUs only) so `seedProductFamilyProduction` and the final
+ *  summary can reference the newly-seeded products without a second round-trip lookup —
+ *  same convention as `seedProducts`'s own return value. Idempotent: every row is
+ *  `upsert`ed by its own unique `code`, exactly like `seedProducts`/`seedSuppliers`. */
+async function seedProductFamilyHierarchy(
+  organisationId: string,
+  actorUserId: string,
+): Promise<Record<string, string>> {
+  console.log('Seeding Product Family hierarchy (1 family, 3 variants, 9 SKUs)...');
+
+  const family = await prisma.productFamily.upsert({
+    where: { code: PLANTAIN_CHIPS_FAMILY.code },
+    update: {},
+    create: {
+      organisationId,
+      code: PLANTAIN_CHIPS_FAMILY.code,
+      name: PLANTAIN_CHIPS_FAMILY.name,
+      status: 'ACTIVE',
+      createdById: actorUserId,
+      updatedById: actorUserId,
+    },
+  });
+
+  const skusByCode: Record<string, string> = {};
+  for (const variantData of PLANTAIN_CHIPS_VARIANTS) {
+    const variant = await prisma.productVariant.upsert({
+      where: { code: variantData.code },
+      update: {},
+      create: {
+        organisationId,
+        productFamilyId: family.id,
+        code: variantData.code,
+        name: variantData.name,
+        status: 'ACTIVE',
+        createdById: actorUserId,
+        updatedById: actorUserId,
+      },
+    });
+
+    for (const sku of variantData.skus) {
+      const created = await prisma.product.upsert({
+        where: { code: sku.code },
+        update: {},
+        create: {
+          organisationId,
+          code: sku.code,
+          name: sku.name,
+          slug: slugifyForSeed(sku.name),
+          category: 'SNACKS',
+          type: 'FINISHED_PRODUCT',
+          unit: sku.unit,
+          status: 'ACTIVE',
+          productVariantId: variant.id,
+          createdById: actorUserId,
+          updatedById: actorUserId,
+        },
+      });
+      skusByCode[sku.code] = created.id;
+    }
+  }
+
+  return skusByCode;
+}
+
+/** Same slugify shape as `ProductService`'s own (lowercase, non-alnum -> `-`, trimmed) —
+ *  kept local since the seed script runs outside the NestJS DI container and has no
+ *  access to `ProductService.generateUniqueSlug`'s collision-avoidance loop; these nine
+ *  names are known upfront to be unique within the organisation. */
+function slugifyForSeed(value: string): string {
+  return value
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+/** One BOM + Production Order against a new hierarchy SKU (Sprint 4.7 brief §16: "not
+ *  every SKU needs a complete production BOM... at least enough to prove Family ->
+ *  Variant -> SKU -> BOM -> Production Order"). Deliberately a separate function from
+ *  `seedProduction` — the pre-existing `BOM-000001`/`PROD-000001` chain (Sprint 4.6) is
+ *  never touched by this sprint. Reuses the same four raw materials/packaging
+ *  `PLANTAIN_CHIPS_BOM` already reuses, at pack-appropriate quantities for the smaller
+ *  30g SKU. */
+const SWEET_SPICY_30G_BOM = {
+  bomNumber: 'BOM-000003',
+  productCode: 'PRD-000030',
+  name: 'Plantain Chips Sweet & Spicy 30g v1',
+  yieldQuantity: 2000,
+  items: [
+    { productCode: 'PRD-000011', quantity: 40, unitOfMeasure: 'Kilogram' },
+    { productCode: 'PRD-000012', quantity: 4, unitOfMeasure: 'Litre' },
+    { productCode: 'PRD-000009', quantity: 0.4, unitOfMeasure: 'Kilogram' },
+    { productCode: 'PRD-000013', quantity: 2000, unitOfMeasure: 'Roll' },
+  ],
+} as const;
+const SWEET_SPICY_30G_PRODUCTION_ORDER_NUMBER = 'PROD-000003';
+const SWEET_SPICY_30G_PLANNED_QUANTITY = 1000;
+
+async function seedProductFamilyProduction(
+  organisationId: string,
+  actorUserId: string,
+  productsByCode: Record<string, string>,
+  locationId: string,
+): Promise<void> {
+  console.log(
+    'Seeding Production for the Product Family hierarchy (1 BOM + 1 Production Order)...',
+  );
+
+  const finishedProductId = productsByCode[SWEET_SPICY_30G_BOM.productCode]!;
+  const existingBom = await prisma.billOfMaterial.findUnique({
+    where: { bomNumber: SWEET_SPICY_30G_BOM.bomNumber },
+  });
+  const bom =
+    existingBom ??
+    (await prisma.billOfMaterial.create({
+      data: {
+        organisationId,
+        bomNumber: SWEET_SPICY_30G_BOM.bomNumber,
+        productId: finishedProductId,
+        name: SWEET_SPICY_30G_BOM.name,
+        status: 'ACTIVE',
+        yieldQuantity: SWEET_SPICY_30G_BOM.yieldQuantity,
+        createdById: actorUserId,
+        updatedById: actorUserId,
+        items: {
+          create: SWEET_SPICY_30G_BOM.items.map((item) => ({
+            componentProductId: productsByCode[item.productCode]!,
+            quantity: item.quantity,
+            unitOfMeasure: item.unitOfMeasure,
+          })),
+        },
+      },
+    }));
+
+  const existingOrder = await prisma.productionOrder.findUnique({
+    where: { productionOrderNumber: SWEET_SPICY_30G_PRODUCTION_ORDER_NUMBER },
+  });
+  if (existingOrder) {
+    return;
+  }
+
+  await prisma.productionOrder.create({
+    data: {
+      organisationId,
+      productionOrderNumber: SWEET_SPICY_30G_PRODUCTION_ORDER_NUMBER,
+      productId: finishedProductId,
+      billOfMaterialId: bom.id,
+      plannedQuantity: SWEET_SPICY_30G_PLANNED_QUANTITY,
+      locationId,
+      status: 'PLANNED',
+      notes: 'First production run of the Sweet & Spicy 30g SKU (Product Family hierarchy demo).',
+      createdById: actorUserId,
+      updatedById: actorUserId,
+      items: {
+        create: SWEET_SPICY_30G_BOM.items.map((item) => ({
+          componentProductId: productsByCode[item.productCode]!,
+          requiredQuantity:
+            (item.quantity * SWEET_SPICY_30G_PLANNED_QUANTITY) / SWEET_SPICY_30G_BOM.yieldQuantity,
+          unitOfMeasure: item.unitOfMeasure,
+        })),
+      },
+    },
+  });
+}
+
 async function main(): Promise<void> {
   // Read early (rather than inside `seedUser`) because the organisation's `businessEmail`
   // needs it before any user is created.
@@ -1067,6 +1282,8 @@ async function main(): Promise<void> {
   });
 
   const productsByCode = await seedProducts(organisation.id, ownerUser.id);
+  const skusByCode = await seedProductFamilyHierarchy(organisation.id, ownerUser.id);
+  Object.assign(productsByCode, skusByCode);
   const suppliersByCode = await seedSuppliers(organisation.id, ownerUser.id);
   const locationsByName = await seedInventoryLocations(organisation.id, ownerUser.id);
   const purchaseOrdersByNumber = await seedPurchaseOrders(
@@ -1096,6 +1313,7 @@ async function main(): Promise<void> {
     mainWarehouseId,
   );
   await seedProduction(organisation.id, ownerUser.id, productsByCode, mainWarehouseId);
+  await seedProductFamilyProduction(organisation.id, ownerUser.id, productsByCode, mainWarehouseId);
 
   console.log('Recording an audit log entry for this seed run...');
   await prisma.auditLog.create({
@@ -1123,6 +1341,9 @@ async function main(): Promise<void> {
     inventoryLocationsSeeded: BOBY_BITES_INVENTORY_LOCATIONS.length,
     billsOfMaterialSeeded: 2,
     productionOrdersSeeded: 2,
+    productFamiliesSeeded: 1,
+    productVariantsSeeded: PLANTAIN_CHIPS_VARIANTS.length,
+    productFamilySkusSeeded: Object.keys(skusByCode).length,
   });
 }
 

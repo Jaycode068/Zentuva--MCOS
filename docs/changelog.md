@@ -7,6 +7,78 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 4.7 Product Family, Variant & SKU Architecture Refinement] - 2026-08-15
+
+### Added
+
+- **`ProductFamily`/`ProductVariant`** — a grouping/reporting hierarchy layered on top of
+  the existing flat Product Catalogue: `Organisation → ProductFamily → ProductVariant →
+Product (SKU)`. A Family is a commercial grouping (e.g. "Plantain Chips"); a Variant is
+  a recipe/formulation within it (e.g. "Sweet & Spicy — Ripe Plantain"); the SKU
+  (`Product`) — unchanged, gains only an optional `productVariantId` — remains the actual
+  stockable/manufacturable/sellable item every other domain transacts against. Different
+  pack sizes of the same variant (30g/500g/1kg) are still each their own independent
+  `Product` row; there is no dedicated pack-size entity this sprint. `GET/POST
+/api/product-families`, `GET/PATCH /api/product-families/:id`, `GET/POST
+/api/product-variants`, `GET/PATCH /api/product-variants/:id` (Owner/Administrator
+  write, Member read-only, same `RolesGuard` convention as every other domain). Auto-
+  generated immutable `FAM-000001`/`VAR-000001` codes, `ACTIVE`/`INACTIVE` status (a UI
+  convenience, not a cross-domain business rule the way `Product.status` is). A variant's
+  parent family cannot be changed after creation (no re-parenting) this sprint.
+- **`Product` gains `productVariantId`** (nullable, `onDelete: SetNull`) — every
+  pre-existing product (including the flagship `PRD-000001` with its already-`COMPLETED`
+  Sprint 4.6 production history) is left with `productVariantId: null`, untouched by the
+  migration. `GET /api/products`/`GET /api/products/:id` responses now include nested
+  `productVariant`/`productFamily` context; write endpoints accept an optional
+  `productVariantId` (validated tenant-scoped, `400` on a missing/cross-tenant id).
+- **`ProductRepository` gained two new read methods** (`findByIdWithHierarchy`/
+  `findManyByOrganisationWithHierarchy`) used only by `ProductService`'s own `getById`/
+  `list` — its pre-existing `findById`/`findManyByOrganisation` methods, directly
+  consumed by `BillOfMaterialService` for finished-product validation, were left
+  byte-for-byte unchanged so Production's own Product lookups are completely unaffected
+  by this sprint (confirmed by a new regression test).
+- **Frontend `/settings/products`** gained a Flat/Hierarchy view toggle — the hierarchy
+  view groups every SKU under its real Family → Variant tree (looked up from the actual
+  fetched Family/Variant lists, never fabricated from a product's own narrow nested
+  data), with clickable headers opening the corresponding edit dialog. The flat table
+  gained a "Family / Variant" column. New "Add Family"/"Add Variant" entry points open
+  `ProductFamilyDialog`/`ProductVariantDialog`. The existing `ProductDialog` gained a
+  cascading Family → Variant picker (Family selection is local UI state; only the
+  resolved `productVariantId` is submitted), shown only when creating/editing a
+  `FINISHED_PRODUCT` — a UI convention, not a server-side restriction.
+- **Seed data** — a "Plantain Chips" `ProductFamily` with 3 variants (Sweet & Spicy—Ripe,
+  Green & Spicy—Unripe, Classic Salted), each with 30g/500g/1kg SKUs (9 total), plus one
+  BOM + Production Order against the Sweet & Spicy 30g SKU demonstrating the full
+  Family→Variant→SKU→BOM→Production Order chain. Idempotent across repeated runs.
+- **New audit events** — `product-family.created/updated`, `product-variant.created/
+updated`.
+
+### Fixed
+
+- A seed-data code collision, caught during this sprint's own database verification: the
+  originally-chosen seed codes (`PRD-000020`, `BOM-000002`, `PROD-000002`) silently
+  collided with pre-existing rows belonging to a _different_ organisation already present
+  in the shared dev database — `Product.code`/`BillOfMaterial.bomNumber`/
+  `ProductionOrder.productionOrderNumber` are all globally unique, not per-organisation,
+  so the seed script's `upsert` no-op'd against the wrong org's row instead of creating
+  the intended Boby Bites SKU. Fixed by switching to verified-free codes
+  (`PRD-000030`/`BOM-000003`/`PROD-000003`) and documenting the discovery mechanism in
+  the seed script for future sprints' awareness.
+
+### Known limitations
+
+- No dedicated pack-size entity, attribute/option engine, product configurator, or
+  e-commerce-style variant selector — the hierarchy is a fixed three-level tree, not a
+  generic attribute system, per this sprint's explicit anti-over-engineering brief.
+- No re-parenting a `ProductVariant` to a different `ProductFamily`, and no way to detach
+  a `Product` from its `ProductVariant` once attached.
+- No cross-family/variant aggregation query (e.g. total units across every pack size of a
+  variant) — the relational structure makes this straightforward to build later, but no
+  such query/endpoint exists yet.
+- BOM/Production Order/Inventory Stock continue to target the SKU (`Product`) exclusively
+  — this is a deliberate, non-negotiable architectural boundary, not a limitation to be
+  lifted later.
+
 ## [Sprint 4.6 Production Management & Bill of Materials Foundation] - 2026-08-15
 
 ### Added

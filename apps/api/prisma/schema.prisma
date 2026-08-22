@@ -134,6 +134,9 @@ model Organisation {
   productionOrders                 ProductionOrder[]
   productionMaterialIssues         ProductionMaterialIssue[]
   productionRuns                   ProductionRun[]
+  /// Added Sprint 4.7 — Product Family, Variant & SKU Architecture (docs/domains/catalogue.md).
+  productFamilies                  ProductFamily[]
+  productVariants                  ProductVariant[]
 
   @@map("organisations")
 }
@@ -440,8 +443,17 @@ model Product {
   updatedById      String?
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
+  /// Added Sprint 4.7 — Product Family, Variant & SKU Architecture
+  /// (docs/domains/catalogue.md). Nullable — raw materials/packaging/consumables, and any
+  /// pre-existing finished product never migrated into the hierarchy, simply have no
+  /// variant. `onDelete: SetNull` (not `Restrict` like every other FK into `Product`) is
+  /// deliberate: this is the one FK pointing *out* of the transactional SKU into an
+  /// optional grouping label, not the reverse — the SKU must never be blocked or cascaded
+  /// away by anything happening to its variant.
+  productVariantId String?
 
   organisation                 Organisation                  @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  productVariant               ProductVariant?               @relation(fields: [productVariantId], references: [id], onDelete: SetNull)
   /// Added Sprint 4.3 — Procurement (docs/domains/procurement.md). Only products whose
   /// `type` is Raw Material/Packaging Material/Consumable may actually appear here — see
   /// `PurchaseOrderService`'s product-type validation.
@@ -464,7 +476,80 @@ model Product {
   @@unique([organisationId, slug])
   @@index([organisationId])
   @@index([organisationId, status])
+  @@index([productVariantId])
   @@map("products")
+}
+
+/// Added Sprint 4.7 — Product Family, Variant & SKU Architecture
+/// (docs/domains/catalogue.md). A logical commercial/manufacturing grouping used purely
+/// for organisation, navigation, and future reporting — never a transactional target
+/// itself. BOM/Production/Inventory continue to reference `Product` (the SKU) directly;
+/// see `ProductVariant`/`Product.productVariantId`.
+enum ProductFamilyStatus {
+  ACTIVE
+  INACTIVE
+}
+
+model ProductFamily {
+  id             String              @id @default(cuid())
+  organisationId String
+  /// Auto-generated (`FAM-000001`, ...), globally unique, immutable — see
+  /// `ProductFamilyService.generateUniqueCode`.
+  code           String              @unique
+  name           String
+  description    String?
+  /// No delete — same "deactivate, never remove" convention as every other domain
+  /// entity. `ACTIVE`/`INACTIVE` only (not Product's 3-state Draft/Active/Archived
+  /// lifecycle) since a family's status only gates "is this selectable when creating a
+  /// new variant," not a cross-domain business rule — same shape as `LocationStatus`.
+  status         ProductFamilyStatus @default(ACTIVE)
+  createdById    String?
+  updatedById    String?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  organisation Organisation     @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  variants     ProductVariant[]
+
+  @@index([organisationId])
+  @@index([organisationId, status])
+  @@map("product_families")
+}
+
+/// A meaningful recipe/formulation variation within a `ProductFamily` (e.g. "Sweet &
+/// Spicy — Ripe Plantain"). Groups one or more `Product` SKUs (pack sizes); never itself
+/// a BOM/Production/Inventory target — see `Product.productVariantId`.
+enum ProductVariantStatus {
+  ACTIVE
+  INACTIVE
+}
+
+model ProductVariant {
+  id              String               @id @default(cuid())
+  organisationId  String
+  productFamilyId String
+  /// Auto-generated (`VAR-000001`, ...), globally unique, immutable — see
+  /// `ProductVariantService.generateUniqueCode`.
+  code            String               @unique
+  name            String
+  description     String?
+  status          ProductVariantStatus @default(ACTIVE)
+  createdById     String?
+  updatedById     String?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+
+  organisation  Organisation  @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  /// `onDelete: Restrict` — an internal domain FK (no delete endpoint exists for either
+  /// entity this sprint, but this is the safe default matching every other in-domain FK
+  /// in this codebase).
+  productFamily ProductFamily @relation(fields: [productFamilyId], references: [id], onDelete: Restrict)
+  products      Product[]
+
+  @@index([organisationId])
+  @@index([organisationId, status])
+  @@index([productFamilyId])
+  @@map("product_variants")
 }
 
 /// Hardcoded per the Sprint 4.2 brief ("Use an enum") — allows Procurement to later filter

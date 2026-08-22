@@ -96,16 +96,22 @@ delivered roughly in order, but later Epics may be reordered as priorities evolv
 ### Epic 3 — Product Catalogue
 
 - **Objective:** model what an organisation manufactures and sells.
-- **Includes:** Categories, Products, Variants, Packaging, Pricing, Units, Product Images.
+- **Includes:** Categories, Products, Product Families & Variants, Packaging, Pricing,
+  Units, Product Images.
 - **Status:** In progress — the Product Catalogue foundation (master product records:
   identity, classification, commercial fields, one image, Draft/Active/Archived
   lifecycle) shipped in Sprint 4.1, reusing the Sprint 3.4 `FileStorage` upload
   architecture and the same Owner/Administrator-write, Member-read-only authorization as
   every other domain. Sprint 4.3 added a fourth Product Type — Consumable — alongside
   Raw Material/Packaging Material, so Procurement has a complete set of purchasable
-  input types (`docs/domains/procurement.md` §2 "Relationships"). Variants, Packaging (as
-  a distinct concept from the Packaging category), Pricing, a tenant-configurable
-  Categories taxonomy, and inventory/production integration remain — see
+  input types (`docs/domains/procurement.md` §2 "Relationships"). Sprint 4.7 added a
+  `ProductFamily → ProductVariant` grouping hierarchy on top of the existing flat
+  catalogue (e.g. "Plantain Chips" family → "Sweet & Spicy" variant → individual 30g/
+  500g/1kg SKUs), purely as an organisational/reporting layer — every SKU (`Product`)
+  remains the actual entity BOM/Production/Inventory/Procurement transact against, never
+  the Family or Variant. A dedicated pack-size entity, an attribute/option engine,
+  Packaging (as a distinct concept from the Packaging category), Pricing, and a
+  tenant-configurable Categories taxonomy all remain — see
   [`docs/domains/catalogue.md`](domains/catalogue.md).
 
 ### Epic 4 — Procurement
@@ -268,6 +274,7 @@ delivered roughly in order, but later Epics may be reordered as priorities evolv
 - ✓ Sprint 4.4.1 — Goods Receiving, Inspection & Supplier Discrepancy Refinement
 - ✓ Sprint 4.5 — Inventory Control & Stock Management
 - ✓ Sprint 4.6 — Production Management & Bill of Materials Foundation
+- ✓ Sprint 4.7 — Product Family, Variant & SKU Architecture Refinement
 
 **Current focus:** Next sprint not yet scoped.
 

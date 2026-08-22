@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 
 import { ProductModule } from './catalogue/product/product.module';
+import { ProductFamilyModule } from './catalogue/product-family/product-family.module';
+import { ProductVariantModule } from './catalogue/product-variant/product-variant.module';
 import configuration from './config/configuration';
 import { validateEnv } from './config/env.validation';
 import { AccountModule } from './identity/account/account.module';
@@ -33,6 +35,8 @@ import { SupplierModule } from './suppliers/supplier/supplier.module';
     AccountModule,
     SettingsModule,
     ProductModule,
+    ProductFamilyModule,
+    ProductVariantModule,
     SupplierModule,
     PurchaseOrderModule,
     InventoryModule,

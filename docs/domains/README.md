@@ -9,7 +9,7 @@ workflows, key entities, and how it integrates with other domains.
 | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
 | [Identity](identity.md)             | Designed (1A/1A.1); database & domain layer (1B.1) and authentication layer (1B.2) implemented — no RBAC/user-management APIs yet |
 | Organisation                        | Folded into [Identity](identity.md) — see its "What is an Organisation?" business rule                                            |
-| [Product Catalogue](catalogue.md)   | Foundation implemented — Sprint 4.1                                                                                               |
+| [Product Catalogue](catalogue.md)   | Foundation implemented — Sprint 4.1, extended with a Family/Variant hierarchy — Sprint 4.7                                        |
 | [Supplier Management](suppliers.md) | Foundation implemented — Sprint 4.2                                                                                               |
 | [Procurement](procurement.md)       | Purchase Order management implemented — Sprint 4.3                                                                                |
 | [Inventory](inventory.md)           | Goods Receiving implemented — Sprint 4.4, refined 4.4.1, extended with locations & stock adjustments — Sprint 4.5                 |

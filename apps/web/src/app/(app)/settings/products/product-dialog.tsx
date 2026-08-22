@@ -1,7 +1,8 @@
 'use client';
 
+import { useState } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import {
   Button,
   Dialog,
@@ -23,7 +24,14 @@ import { useForm } from 'react-hook-form';
 import { ImageUploadCard } from '@/components/app/image-upload-card';
 import { ApiError } from '@/lib/api-client';
 
-import { createProduct, deleteProductImage, updateProduct, uploadProductImage } from './api';
+import {
+  createProduct,
+  deleteProductImage,
+  listProductFamilies,
+  listProductVariants,
+  updateProduct,
+  uploadProductImage,
+} from './api';
 import type { Product } from './api';
 
 const CATEGORY_OPTIONS: { value: Product['category']; label: string }[] = [
@@ -76,8 +84,33 @@ export function ProductDialog({
       unit: product?.unit ?? 'Piece',
       shortDescription: product?.shortDescription ?? '',
       longDescription: product?.longDescription ?? '',
+      productVariantId: product?.productVariantId ?? undefined,
     },
   });
+
+  // Local, non-submitted state — only `productVariantId` (resolved from this) goes into
+  // the payload. Seeded from the product's own existing variant in edit mode so its
+  // Family <Select> starts pre-selected and the Variant <Select> isn't stuck disabled.
+  const [selectedFamilyId, setSelectedFamilyId] = useState(
+    product?.productVariant?.productFamily.id ?? '',
+  );
+  const productType = form.watch('type');
+  const isFinishedProduct = productType === 'FINISHED_PRODUCT';
+
+  const { data: familiesData } = useQuery({
+    queryKey: ['product-families'],
+    queryFn: () => listProductFamilies(),
+    enabled: isFinishedProduct,
+  });
+  const { data: variantsData } = useQuery({
+    queryKey: ['product-variants', selectedFamilyId],
+    queryFn: () => listProductVariants(selectedFamilyId),
+    enabled: isFinishedProduct && selectedFamilyId.length > 0,
+  });
+  const activeFamilies = (familiesData?.items ?? []).filter((family) => family.status === 'ACTIVE');
+  const activeVariants = (variantsData?.items ?? []).filter(
+    (variant) => variant.status === 'ACTIVE',
+  );
 
   const mutation = useMutation({
     mutationFn: (values: CreateProductInput) => {
@@ -86,6 +119,7 @@ export function ProductDialog({
         displayName: values.displayName || undefined,
         shortDescription: values.shortDescription || undefined,
         longDescription: values.longDescription || undefined,
+        productVariantId: isFinishedProduct ? values.productVariantId || undefined : undefined,
       };
       return isEdit ? updateProduct(product.id, payload) : createProduct(payload);
     },
@@ -180,6 +214,42 @@ export function ProductDialog({
             </Select>
           </div>
         </div>
+
+        {isFinishedProduct && (
+          <div className="grid grid-cols-2 gap-4 rounded-md border border-dashed border-border p-3">
+            <div className="col-span-2 -mt-1 text-xs text-muted-foreground">
+              Optional — group this SKU under a Product Family/Variant (Sprint 4.7).
+            </div>
+            <div className="space-y-1.5">
+              <Label>Product Family (optional)</Label>
+              <Select
+                value={selectedFamilyId}
+                onChange={(event) => {
+                  setSelectedFamilyId(event.target.value);
+                  form.setValue('productVariantId', '');
+                }}
+              >
+                <option value="">No family</option>
+                {activeFamilies.map((family) => (
+                  <option key={family.id} value={family.id}>
+                    {family.name}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Product Variant (optional)</Label>
+              <Select disabled={!selectedFamilyId} {...form.register('productVariantId')}>
+                <option value="">No variant</option>
+                {activeVariants.map((variant) => (
+                  <option key={variant.id} value={variant.id}>
+                    {variant.name}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          </div>
+        )}
 
         <div className="space-y-1.5">
           <Label>Unit of Measure</Label>

@@ -364,7 +364,13 @@ this codebase uses.
   matches every status except `DRAFT`/`CANCELLED` — its job is closing the race against
   a _concurrent cancel_, not blocking repeat receiving.
 - **Product Catalogue** ([catalogue.md](catalogue.md)) — every stock/transaction/receipt
-  line references `Product.id`, read directly (no write access).
+  line references `Product.id`, read directly (no write access). Sprint 4.7 added an
+  optional `ProductFamily → ProductVariant` grouping on top of `Product`; `InventoryStock`
+  continues to be keyed to `(Organisation, Product, Location)` exactly as before — stock
+  for two SKUs in the same family/variant (e.g. two pack sizes of the same recipe) is
+  never combined into one balance. Family-level aggregation (e.g. "total stock across
+  every pack size of this variant") is a future reporting capability, not something this
+  table computes today.
 - **Production (future, not yet built)** — the natural next consumer of the
   `InventoryTransaction` ledger: raw materials will be issued (`ISSUE`) to a production
   batch, and finished output will be received (`RECEIPT`) back into stock, using the same
