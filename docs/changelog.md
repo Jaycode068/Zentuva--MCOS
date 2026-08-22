@@ -7,6 +7,88 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 4.8 Customer, Territory, Outlet, Retail Network & Sales Foundation] - 2026-08-21
+
+### Added
+
+- **Five new domains**: `Customer` (the commercial account — progressive onboarding,
+  only customer type/name/phone required, `customerType` purely descriptive and never a
+  sales restriction), `Territory` (a self-referential, tenant-defined hierarchy of
+  arbitrary depth — not fixed administrative boundaries — with a service-enforced cycle
+  guard on re-parenting), `Outlet` (the physical place of business, distinct from
+  `Customer`; optional territory and one-shot browser-geolocation coordinates, never
+  required), `DistributionNetworkRelationship` (an optional, separate concept from
+  commercial transactions — a customer never requires a distribution-network mapping to
+  be registered or to place an order, and adding one never rewrites historical sales),
+  and `SalesOrder`/`SalesOrderItem` (server-authoritative totals, SKU-level targeting
+  only via Sprint 4.7's Product Family/Variant/SKU architecture, `DRAFT → CONFIRMED`/
+  `CANCELLED` lifecycle). `apps/api/src/retail/{territory,customer,outlet,network}/` +
+  `apps/api/src/sales/` — six new tables plus `OutletPhoto`, the first
+  multi-file-per-entity model in this codebase (the existing single-file `FileStorage`
+  port is left unmodified; a new child model calls it once per file instead).
+- **The sprint's core architectural guarantee, enforced structurally**: `SalesModule`
+  never imports `NetworkRelationshipModule` or `InventoryModule` — creating or confirming
+  a Sales Order can neither be gated by a distribution-network relationship nor silently
+  move inventory, because the code that could do either isn't even reachable from the
+  Sales domain. A dedicated test file,
+  `apps/api/src/sales/direct-sales-independence.spec.ts`, verifies this both
+  behaviourally (every `CustomerType`, with zero network relationships, can place and
+  confirm a direct order; a relationship added later never rewrites a prior order) and
+  structurally (asserts the import never appears in `sales.module.ts`'s own source).
+- **Outlet photography** — `POST/DELETE /api/retail/outlets/:id/photos(/:photoId)`, the
+  first multi-file upload in this codebase (`FilesInterceptor`, up to 6 files per
+  request). Foundational capture/store/associate only — no image analysis.
+- **A brand-new mobile-first Field Sales workspace** (`apps/web/src/app/(field)/`) — a
+  completely separate route group from the desktop `(app)` Workspace shell, with its own
+  slim header, sticky bottom tab bar (Home/Customers/Outlets/Orders), and sticky
+  bottom-of-screen primary actions on every create/edit screen. Covers: Home (quick
+  actions, recent customers/orders), Customer search/detail/progressive-onboarding
+  create, Outlet search/detail/create (with location capture and photo staging), and a
+  3-step Sales Order flow (customer → outlet → SKU picker via a new bottom-sheet
+  component) ending in a clear success screen. Shares every API with the Admin surface —
+  no duplicated business logic.
+- **`Sheet`** (`packages/ui/src/components/sheet.tsx`) — a new bottom-sheet/full-screen
+  overlay primitive, a sibling to the existing centered-modal `Dialog` (which hardcodes
+  `max-w-md` with no size variant). A new `touch` `Button` size (`h-12`, ≥44px) was added
+  alongside the existing `default`/`sm`/`lg`/`icon` sizes.
+- **`MultiImageUploadCard`** (`apps/web/src/components/app/`) — the multi-photo
+  counterpart to the existing single-file `ImageUploadCard`, used by both the Field
+  Sales outlet screen and the Admin outlet dialog.
+- **Admin surfaces**: `/settings/retail` (Customers/Outlets/Territories/Network tabs,
+  responsive down to a card layout on narrow viewports — a new pattern introduced only
+  in this folder) and `/settings/sales` (Sales Order management), both following the
+  existing tabbed-page/dialog conventions from Production/Inventory.
+- **Seed data**: 7 territories (Oyo State hierarchy), 9 customers spanning every
+  `CustomerType` (including one seeded with only name/type/phone, proving the
+  minimum-onboarding path), 7 outlets, 3 network relationships (deliberately covering
+  only 4 of 9 customers — 5 remain un-networked and buy directly, by design), and 5
+  sales orders demonstrating an un-networked supermarket buying direct, an un-networked
+  retailer buying direct, a distributor's own bulk direct order, a _networked_ retailer
+  still buying direct, and an order with no outlet at all.
+- **New audit events** — `customer.created/updated/activated/deactivated`,
+  `territory.created/updated/activated/deactivated`,
+  `outlet.created/updated/activated/deactivated/photo_added/photo_removed`,
+  `network-relationship.created/updated/deactivated`,
+  `sales-order.created/updated/confirmed/cancelled`.
+
+### Fixed
+
+- **Two real bugs caught during this sprint's own live verification, not present in the
+  final code**: (1) an unselected native `<select>` with an empty-placeholder option
+  (e.g. Territory "Not set") always submits `""`, which `z.string().min(1).optional()`
+  rejects — `.optional()` only exempts `undefined`, and `""` fails `.min(1)`. Every
+  affected optional id/email field in `packages/validation/src/retail.ts` now
+  preprocesses `""` to `undefined` before validation. (2) `params` in a Next.js 14 Client
+  Component dynamic route is a plain object, not a `Promise` — three new `[id]` routes
+  had mistakenly used the Next.js 15 `use(params)` pattern, which throws
+  `An unsupported type was passed to use()`; fixed to the plain `params.id` access every
+  other dynamic route in this codebase already uses. Also fixed: an async-loaded
+  `<select>`'s preset value (e.g. arriving at "Add Outlet" from a customer's own detail
+  page) silently failing to show as selected when the option list resolves after
+  `react-hook-form`'s initial mount — the same race `ProductionOrderDialog` had already
+  worked around on its own BOM picker, now also applied to the Territory/Customer
+  pickers in the Outlet, Customer, and Territory dialogs.
+
 ## [Sprint 4.7 Product Family, Variant & SKU Architecture Refinement] - 2026-08-15
 
 ### Added

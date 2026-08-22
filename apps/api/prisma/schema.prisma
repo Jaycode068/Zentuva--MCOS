@@ -137,6 +137,15 @@ model Organisation {
   /// Added Sprint 4.7 — Product Family, Variant & SKU Architecture (docs/domains/catalogue.md).
   productFamilies                  ProductFamily[]
   productVariants                  ProductVariant[]
+  /// Added Sprint 4.8 — Customer, Territory, Outlet & Retail Network
+  /// (docs/domains/retail-network.md).
+  territories                      Territory[]
+  customers                        Customer[]
+  outlets                          Outlet[]
+  outletPhotos                     OutletPhoto[]
+  distributionNetworkRelationships DistributionNetworkRelationship[]
+  /// Added Sprint 4.8 — Sales (docs/domains/sales.md).
+  salesOrders                      SalesOrder[]
 
   @@map("organisations")
 }
@@ -472,6 +481,10 @@ model Product {
   productionOrders             ProductionOrder[]
   productionOrderItems         ProductionOrderItem[]
   productionMaterialIssueItems ProductionMaterialIssueItem[]
+  /// Added Sprint 4.8 — Sales (docs/domains/sales.md). Only `FINISHED_PRODUCT` SKUs may
+  /// actually appear here — service-enforced in `SalesOrderService.buildItems`, mirroring
+  /// `purchaseOrderItems`' inverse type restriction.
+  salesOrderItems              SalesOrderItem[]
 
   @@unique([organisationId, slug])
   @@index([organisationId])
@@ -1258,4 +1271,411 @@ model ProductionRun {
 
   @@index([organisationId])
   @@map("production_runs")
+}
+
+// ============================================================================
+// Sprint 4.8 — Customer, Territory, Outlet, Retail Network & Sales Foundation
+// (docs/domains/customers.md, outlets.md, territories.md, retail-network.md, sales.md)
+//
+// CORE PRINCIPLE: CAPTURE THE MARKET FIRST, STRUCTURE THE NETWORK PROGRESSIVELY.
+// A Customer never requires a distributor/territory/outlet mapping to be registered or
+// to place an order. `DistributionNetworkRelationship` is a separate, always-optional
+// concept from `SalesOrder` — no code path in this schema or the domain that consumes it
+// ever lets a network relationship gate or rewrite a commercial transaction.
+// ============================================================================
+
+/// Purely descriptive market intelligence — NEVER a sales restriction. No code anywhere
+/// in this codebase branches on `customerType` to decide whether a customer may place an
+/// order; a Distributor, Wholesaler, Retailer, and Supermarket can all buy directly from
+/// the organisation. Not modelled as mutually-exclusive-forever — correctable any time via
+/// `PATCH`.
+enum CustomerType {
+  DISTRIBUTOR
+  WHOLESALER
+  RETAILER
+  SUPERMARKET
+  CORPORATE
+  INSTITUTION
+  RESTAURANT
+  HOTEL
+  OTHER
+}
+
+/// ACTIVE/INACTIVE only — same "usable vs. retired, never physically deleted" shape as
+/// `SupplierStatus`/`LocationStatus`/`ProductFamilyStatus`.
+enum CustomerStatus {
+  ACTIVE
+  INACTIVE
+}
+
+/// Deliberately extensible: no business logic anywhere is keyed on a specific member of
+/// this enum, so adding a new outlet type later is a pure additive migration.
+enum OutletType {
+  SUPERMARKET
+  HYPERMARKET
+  WHOLESALE_STORE
+  RETAIL_SHOP
+  KIOSK
+  MARKET_STALL
+  DISTRIBUTOR_WAREHOUSE
+  WHOLESALER_WAREHOUSE
+  CONVENIENCE_STORE
+  RESTAURANT
+  HOTEL
+  CORPORATE
+  INSTITUTION
+  OTHER
+}
+
+enum OutletStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum TerritoryStatus {
+  ACTIVE
+  INACTIVE
+}
+
+/// An optional descriptive label for what an outlet photo shows. No AI/image analysis
+/// anywhere — this enum exists purely so the Admin/Field UI can group photos sensibly.
+enum OutletPhotoType {
+  FRONT
+  SIGNAGE
+  INTERIOR
+  SHELF_DISPLAY
+  OTHER
+}
+
+/// How the source customer relates to the target customer in the distribution network —
+/// a map of the market, never a prerequisite for a `SalesOrder`.
+enum DistributionRelationshipType {
+  DISTRIBUTES_TO
+  WHOLESALES_TO
+  SUPPLIES
+  OTHER
+}
+
+enum NetworkRelationshipStatus {
+  ACTIVE
+  INACTIVE
+}
+
+/// DRAFT -> CONFIRMED, or -> CANCELLED. Deliberately NOT extended with
+/// PICKED/DISPATCHED/DELIVERED/INVOICED/PAID this sprint — fulfilment and accounting are
+/// future work. Confirming a Sales Order never deducts or reserves inventory; it records
+/// demand only (docs/domains/sales.md).
+enum SalesOrderStatus {
+  DRAFT
+  CONFIRMED
+  CANCELLED
+}
+
+/// A self-referential, organisation-defined hierarchy of arbitrary depth (e.g. Oyo State
+/// -> Ibadan -> Ibadan North -> Bodija). Deliberately NOT modelled on Nigerian
+/// administrative boundaries or any fixed level count: `type` is free text (same
+/// convention as `Product.unit`) so one tenant can use State/City/LGA/Area and another
+/// Region/Zone/Route without a migration. No GIS, polygons, geofencing, or route
+/// optimisation — this is a naming tree, nothing more.
+model Territory {
+  id                String          @id @default(cuid())
+  organisationId    String
+  /// Auto-generated (`TER-000001`, ...), globally unique, immutable.
+  territoryCode     String          @unique
+  name              String
+  /// Free text, e.g. "State", "City", "LGA", "Area" — tenant-defined, no fixed levels.
+  type              String
+  /// `null` for a root territory. Self-referential; depth is unbounded (service-enforced
+  /// cycle guard, since a self-referential FK cannot express "no cycles" declaratively).
+  parentTerritoryId String?
+  status            TerritoryStatus @default(ACTIVE)
+  description       String?
+  createdById       String?
+  updatedById       String?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  organisation     Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  /// `SetNull` (not `Restrict`) for the same reason as `Product.productVariantId`: an
+  /// optional grouping pointer must never block or cascade the child row it labels. No
+  /// delete endpoint exists for territories anyway (deactivate-only convention).
+  parentTerritory  Territory?   @relation("TerritoryHierarchy", fields: [parentTerritoryId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  childTerritories Territory[]  @relation("TerritoryHierarchy")
+  customers        Customer[]
+  outlets          Outlet[]
+
+  @@index([organisationId])
+  @@index([organisationId, status])
+  @@index([parentTerritoryId])
+  @@map("territories")
+}
+
+/// The COMMERCIAL ACCOUNT: who the organisation bills and sells to. Distinct from
+/// `Outlet` (the physical place of business) — a customer may have zero, one, or many
+/// outlets, and zero is a fully valid steady state (e.g. a corporate account with no
+/// storefront, or a customer just onboarded).
+///
+/// Only `customerType`, `customerName`, and `phoneNumber` are required — everything else
+/// (territory, contact person, email, address, notes) is optional and addable later, so a
+/// field agent can register a market trader in under two minutes. There is deliberately
+/// NO `distributorId`/`parentCustomerId` column: distribution network structure lives in
+/// `DistributionNetworkRelationship`, a separate, always-optional entity that the Sales
+/// domain never consults.
+model Customer {
+  id                   String         @id @default(cuid())
+  organisationId       String
+  /// Auto-generated (`CUS-000001`, ...), globally unique, immutable.
+  customerCode         String         @unique
+  customerType         CustomerType
+  /// The business name for a registered company, or simply the trader's/shop's name for
+  /// an informal retailer — one column deliberately, since this model must not assume
+  /// every customer is a formal company. Named after `Supplier.supplierName`, its closest
+  /// sibling entity.
+  customerName         String
+  contactPersonName    String?
+  /// The one contact detail that is always required — a field agent can always get a
+  /// phone number, even from a market stall with no address or registration number.
+  phoneNumber          String
+  alternatePhoneNumber String?
+  email                String?
+  address              String?
+  city                 String?
+  state                String?
+  country              String?
+  /// Optional at onboarding and changeable later — never required to register a customer
+  /// or place an order.
+  territoryId          String?
+  status               CustomerStatus @default(ACTIVE)
+  notes                String?
+  createdById          String?
+  updatedById          String?
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+
+  organisation                 Organisation                      @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  /// `SetNull` — an optional grouping label; deactivating or restructuring a territory
+  /// must never block or orphan a commercial account.
+  territory                    Territory?                        @relation(fields: [territoryId], references: [id], onDelete: SetNull)
+  outlets                      Outlet[]
+  salesOrders                  SalesOrder[]
+  /// The distribution network map, both directions. Always optional; a customer with zero
+  /// rows in either relation buys directly and is fully first-class.
+  networkRelationshipsAsSource DistributionNetworkRelationship[] @relation("NetworkSource")
+  networkRelationshipsAsTarget DistributionNetworkRelationship[] @relation("NetworkTarget")
+
+  @@index([organisationId])
+  @@index([organisationId, status])
+  @@index([organisationId, customerType])
+  @@index([territoryId])
+  @@map("customers")
+}
+
+/// A PHYSICAL PLACE OF BUSINESS belonging to one commercial account. Customer != Outlet:
+/// a corporate customer may have none, a supermarket chain many. Creating a customer never
+/// requires creating an outlet.
+///
+/// `latitude`/`longitude` are optional, captured once from browser geolocation at outlet
+/// creation if the agent grants permission. There is NO continuous tracking, no
+/// `watchPosition`, no geofencing, and no route optimisation anywhere in this codebase.
+model Outlet {
+  id                String       @id @default(cuid())
+  organisationId    String
+  customerId        String
+  /// Auto-generated (`OUT-000001`, ...), globally unique, immutable.
+  outletCode        String       @unique
+  outletType        OutletType
+  name              String
+  contactPersonName String?
+  phoneNumber       String?
+  address           String?
+  city              String?
+  state             String?
+  country           String?
+  territoryId       String?
+  latitude          Float?
+  longitude         Float?
+  status            OutletStatus @default(ACTIVE)
+  notes             String?
+  createdById       String?
+  updatedById       String?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  organisation Organisation  @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  /// `Restrict` — an internal domain FK with no delete endpoint on either side, same
+  /// default as `ProductVariant.productFamilyId`. An outlet belongs to exactly one
+  /// customer; `customerId` is immutable on update (service-enforced) since moving it
+  /// would rewrite sales-order attribution.
+  customer     Customer      @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  territory    Territory?    @relation(fields: [territoryId], references: [id], onDelete: SetNull)
+  photos       OutletPhoto[]
+  salesOrders  SalesOrder[]
+
+  @@index([organisationId])
+  @@index([organisationId, status])
+  @@index([organisationId, customerId])
+  @@index([territoryId])
+  @@map("outlets")
+}
+
+/// One uploaded photo of one outlet — the first multi-file-per-entity model in this
+/// codebase. `Product.imageUrl`/`imageKey`, `Organisation.logoUrl`, and
+/// `User.avatarUrl`/`avatarKey` are all single-file columns on the owning row, which
+/// cannot express "front, signage, interior, shelf display". The `FileStorage` port
+/// itself is deliberately UNCHANGED — `OutletService` calls the existing `upload()` once
+/// per file and writes one row here per result, so a future S3 adapter still only
+/// implements the same two methods.
+///
+/// Foundational capture/store/associate only — no AI, no image recognition, no analytics.
+model OutletPhoto {
+  id             String           @id @default(cuid())
+  /// Carried explicitly (rather than joined through `outlet`) so every read/delete can be
+  /// tenant-scoped in a single query — same denormalisation rationale as
+  /// `GoodsReceipt.supplierId`.
+  organisationId String
+  outletId       String
+  /// Absolute URL from `FileStorage.upload` — ready to use as an `<img src>`.
+  url            String
+  /// Opaque storage key, needed to `FileStorage.delete` this exact file on removal.
+  key            String
+  photoType      OutletPhotoType?
+  caption        String?
+  createdById    String?
+  createdAt      DateTime         @default(now())
+
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  /// `Cascade` — a true child of the Outlet aggregate with no independent meaning, same as
+  /// `BillOfMaterialItem`/`SalesOrderItem`.
+  outlet       Outlet       @relation(fields: [outletId], references: [id], onDelete: Cascade)
+
+  @@index([organisationId])
+  @@index([outletId])
+  @@map("outlet_photos")
+}
+
+/// THE critical architectural piece. `sourceCustomer --[relationshipType]--> targetCustomer`
+/// describes how goods move through the market AFTER leaving the organisation. It is a
+/// separate, entirely optional concept from commercial transactions:
+///
+///   - A direct sale from the organisation to a Retailer is a `SalesOrder`, NOT a
+///     relationship. It needs no row here at all.
+///   - No code path anywhere validates "does this customer have a distributor" before
+///     allowing an order. The Sales module does not import the Network module, so it
+///     structurally cannot.
+///   - Adding, changing, or deactivating a relationship NEVER rewrites, re-parents, or
+///     recalculates any historical `SalesOrder`. `SalesOrder` has no FK to this table.
+///
+/// `effectiveFrom`/`effectiveTo` preserve the history of a relationship rather than editing
+/// it away, so a lapsed relationship can be re-established later as a new row — which is
+/// why there is deliberately NO `@@unique` on (source, target, type): the service rejects
+/// a duplicate *ACTIVE* pair, a database constraint would forbid the legitimate historical
+/// one.
+model DistributionNetworkRelationship {
+  id               String                       @id @default(cuid())
+  organisationId   String
+  sourceCustomerId String
+  targetCustomerId String
+  relationshipType DistributionRelationshipType
+  effectiveFrom    DateTime
+  effectiveTo      DateTime?
+  status           NetworkRelationshipStatus    @default(ACTIVE)
+  notes            String?
+  createdById      String?
+  updatedById      String?
+  createdAt        DateTime                     @default(now())
+  updatedAt        DateTime                     @updatedAt
+
+  organisation   Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  /// `Restrict` on both sides — a relationship is a historical record; neither endpoint
+  /// may be removed out from under it.
+  sourceCustomer Customer     @relation("NetworkSource", fields: [sourceCustomerId], references: [id], onDelete: Restrict)
+  targetCustomer Customer     @relation("NetworkTarget", fields: [targetCustomerId], references: [id], onDelete: Restrict)
+
+  @@index([organisationId])
+  @@index([organisationId, status])
+  @@index([sourceCustomerId])
+  @@index([targetCustomerId])
+  @@map("distribution_network_relationships")
+}
+
+/// A record of DEMAND: "this customer ordered this much of these SKUs." Creating or
+/// confirming one NEVER deducts, reserves, or otherwise touches
+/// `InventoryStock`/`InventoryTransaction` — stock availability may be shown while
+/// building an order, but only as a live informational read of the existing
+/// `GET /api/inventory/:productId` endpoint, exactly like Production's Material
+/// Availability Check, and it never gates anything.
+///
+/// `outletId` is optional: a corporate account with no storefront, or a customer whose
+/// outlets haven't been mapped yet, can still order. When supplied it MUST belong to the
+/// same customer (service-enforced) — see docs/domains/sales.md "Outlet Attribution".
+model SalesOrder {
+  id             String           @id @default(cuid())
+  organisationId String
+  /// Auto-generated (`SO-000001`, ...), globally unique, immutable. `PO-` is already
+  /// `PurchaseOrder`'s prefix, hence `SO-` here.
+  orderCode      String           @unique
+  customerId     String
+  outletId       String?
+  /// The user who took the order. Plain id, no FK relation — same convention as
+  /// `GoodsReceipt.receivedById`/`ProductionMaterialIssue.issuedById`. Always the
+  /// authenticated caller, never accepted as free-text input.
+  salesAgentId   String
+  status         SalesOrderStatus @default(DRAFT)
+  orderDate      DateTime
+  notes          String?
+  /// All three are server-calculated and never trusted from the client — same rule as
+  /// `PurchaseOrderService`'s totals and `ProductionRun.acceptedQuantity`.
+  subtotal       Float
+  /// An order-level discount amount (not a percentage, not per-line). Client-supplied but
+  /// validated `0 <= discount <= subtotal` server-side. No tax in this sprint.
+  discount       Float            @default(0)
+  /// `subtotal - discount`, computed server-side.
+  total          Float
+  createdById    String?
+  updatedById    String?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  organisation Organisation     @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  /// `Restrict` on both — a sales order is history and must never be silently re-pointed
+  /// or null-ed out. `outletId` is optional but deliberately declared `Restrict` rather
+  /// than letting it default to `SetNull`, which would rewrite history.
+  customer     Customer         @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  outlet       Outlet?          @relation(fields: [outletId], references: [id], onDelete: Restrict)
+  items        SalesOrderItem[]
+
+  @@index([organisationId])
+  @@index([organisationId, status])
+  @@index([organisationId, customerId])
+  @@index([organisationId, orderDate])
+  @@index([outletId])
+  @@map("sales_orders")
+}
+
+/// One line of a Sales Order. `productId` must reference a SKU-level `Product` whose
+/// `type` is `FINISHED_PRODUCT` — never a `ProductFamily` or `ProductVariant`, which are
+/// grouping labels and were never transactional targets. Enforced in
+/// `SalesOrderService.buildItems`, mirroring `PurchaseOrderService`'s identical
+/// purchasable-type restriction.
+model SalesOrderItem {
+  id           String   @id @default(cuid())
+  salesOrderId String
+  productId    String
+  quantity     Float
+  unitPrice    Float
+  /// Server-calculated as `roundCurrency(quantity * unitPrice)` — deliberately absent from
+  /// `salesOrderItemInputSchema` so the client cannot even express a value.
+  lineTotal    Float
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  salesOrder SalesOrder @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
+  product    Product    @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  /// DB-level defense-in-depth for "no duplicate SKU lines" (the Zod schema also rejects
+  /// duplicates) — same shape as `BillOfMaterialItem`'s own `@@unique`.
+  @@unique([salesOrderId, productId])
+  @@index([salesOrderId])
+  @@index([productId])
+  @@map("sales_order_items")
 }

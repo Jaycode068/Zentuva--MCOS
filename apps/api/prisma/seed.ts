@@ -1175,6 +1175,440 @@ async function seedProductFamilyProduction(
   });
 }
 
+// ============================================================================
+// Sprint 4.8 — Customer, Territory, Outlet, Retail Network & Sales Foundation
+// (docs/domains/customers.md, outlets.md, territories.md, retail-network.md, sales.md)
+// ============================================================================
+
+/** Oyo State -> Ibadan -> {Ibadan North, Ibadan South-West} -> areas. `parentCode` is
+ *  resolved against the map this same function builds up as it goes (parents always
+ *  appear before their children in this array), same "sequential, self-referencing
+ *  build order" convention used nowhere else yet in this file since Territory is the
+ *  first self-referential seed entity. */
+const BOBY_BITES_TERRITORIES = [
+  { code: 'TER-000001', name: 'Oyo State', type: 'State', parentCode: null },
+  { code: 'TER-000002', name: 'Ibadan', type: 'City', parentCode: 'TER-000001' },
+  { code: 'TER-000003', name: 'Ibadan North', type: 'LGA', parentCode: 'TER-000002' },
+  { code: 'TER-000004', name: 'Ibadan South-West', type: 'LGA', parentCode: 'TER-000002' },
+  { code: 'TER-000005', name: 'Bodija', type: 'Area', parentCode: 'TER-000003' },
+  { code: 'TER-000006', name: 'Mokola', type: 'Area', parentCode: 'TER-000003' },
+  { code: 'TER-000007', name: 'Challenge', type: 'Area', parentCode: 'TER-000004' },
+] as const;
+
+/** Returns a `code -> id` map so `seedCustomers`/`seedOutlets` can reference the
+ *  newly-seeded territories without a second round-trip lookup — same convention as
+ *  `seedProducts`'s own return value. Idempotent: every row is `upsert`ed by its own
+ *  unique `territoryCode`. */
+async function seedTerritories(
+  organisationId: string,
+  actorUserId: string,
+): Promise<Record<string, string>> {
+  console.log('Seeding Territories (Oyo State hierarchy)...');
+
+  const territoriesByCode: Record<string, string> = {};
+  for (const territory of BOBY_BITES_TERRITORIES) {
+    const row = await prisma.territory.upsert({
+      where: { territoryCode: territory.code },
+      update: {},
+      create: {
+        organisationId,
+        territoryCode: territory.code,
+        name: territory.name,
+        type: territory.type,
+        status: 'ACTIVE',
+        createdById: actorUserId,
+        updatedById: actorUserId,
+        ...(territory.parentCode
+          ? { parentTerritoryId: territoriesByCode[territory.parentCode] }
+          : {}),
+      },
+    });
+    territoriesByCode[territory.code] = row.id;
+  }
+  return territoriesByCode;
+}
+
+/**
+ * Nine customers spanning every `CustomerType`, deliberately demonstrating the sprint's
+ * core principle: `territoryCode` is present on most but absent on some (territory
+ * assignment is always optional), and — critically — `networked` marks only 4 of the 9
+ * as ever appearing in a `DistributionNetworkRelationship` (seeded below in
+ * `seedNetworkRelationships`). The other 5, including a supermarket, a retailer, a
+ * corporate account, a hotel, and a retailer onboarded with nothing but a name/type/
+ * phone, all buy directly from Boby Bites with zero network mapping — proving direct
+ * sales work completely independently of the distribution network (brief §33: "Do NOT
+ * make every customer part of a network").
+ */
+const BOBY_BITES_CUSTOMERS = [
+  {
+    code: 'CUS-000001',
+    customerType: 'DISTRIBUTOR',
+    customerName: 'Adeyemi Distribution Ltd',
+    contactPersonName: 'Tunde Adeyemi',
+    phoneNumber: '+2348021110001',
+    territoryCode: 'TER-000003',
+  },
+  {
+    code: 'CUS-000002',
+    customerType: 'WHOLESALER',
+    customerName: 'Bodija Wholesale Hub',
+    contactPersonName: 'Kemi Okonkwo',
+    phoneNumber: '+2348021110002',
+    territoryCode: 'TER-000005',
+  },
+  {
+    code: 'CUS-000003',
+    customerType: 'SUPERMARKET',
+    customerName: 'Bodija Supermart',
+    contactPersonName: 'Ngozi Eze',
+    phoneNumber: '+2348021110003',
+    territoryCode: 'TER-000005',
+  },
+  {
+    code: 'CUS-000004',
+    customerType: 'RETAILER',
+    customerName: 'Mama Ngozi Provisions',
+    contactPersonName: 'Ngozi Chukwu',
+    phoneNumber: '+2348021110004',
+    territoryCode: 'TER-000006',
+  },
+  {
+    code: 'CUS-000005',
+    customerType: 'RETAILER',
+    customerName: 'Challenge Corner Shop',
+    contactPersonName: 'Musa Bello',
+    phoneNumber: '+2348021110005',
+    territoryCode: 'TER-000007',
+  },
+  {
+    code: 'CUS-000006',
+    customerType: 'CORPORATE',
+    customerName: 'Oyo Foods Corporate Services',
+    contactPersonName: 'Funke Bakare',
+    phoneNumber: '+2348021110006',
+    territoryCode: 'TER-000002',
+  },
+  {
+    code: 'CUS-000007',
+    customerType: 'RESTAURANT',
+    customerName: 'Amala Spot Restaurant',
+    contactPersonName: 'Chidi Okafor',
+    phoneNumber: '+2348021110007',
+    territoryCode: 'TER-000004',
+  },
+  {
+    code: 'CUS-000008',
+    customerType: 'HOTEL',
+    customerName: 'Premier Hotel Ibadan',
+    contactPersonName: 'Grace Adeleke',
+    phoneNumber: '+2348021110008',
+    territoryCode: 'TER-000006',
+  },
+  {
+    // Minimum-onboarding proof: no territory, no contact person — just what a field
+    // agent could capture in under two minutes (brief §7).
+    code: 'CUS-000009',
+    customerType: 'RETAILER',
+    customerName: 'Ibadan North Trading Stores',
+    contactPersonName: null,
+    phoneNumber: '+2348021110009',
+    territoryCode: null,
+  },
+] as const;
+
+/** Returns a `code -> id` map. Idempotent: every row is `upsert`ed by its own unique
+ *  `customerCode`. */
+async function seedCustomers(
+  organisationId: string,
+  actorUserId: string,
+  territoriesByCode: Record<string, string>,
+): Promise<Record<string, string>> {
+  console.log('Seeding Customers (9 Boby Bites customers, 5 deliberately un-networked)...');
+
+  const customersByCode: Record<string, string> = {};
+  for (const customer of BOBY_BITES_CUSTOMERS) {
+    const row = await prisma.customer.upsert({
+      where: { customerCode: customer.code },
+      update: {},
+      create: {
+        organisationId,
+        customerCode: customer.code,
+        customerType: customer.customerType,
+        customerName: customer.customerName,
+        contactPersonName: customer.contactPersonName,
+        phoneNumber: customer.phoneNumber,
+        status: 'ACTIVE',
+        createdById: actorUserId,
+        updatedById: actorUserId,
+        ...(customer.territoryCode
+          ? { territoryId: territoriesByCode[customer.territoryCode] }
+          : {}),
+      },
+    });
+    customersByCode[customer.code] = row.id;
+  }
+  return customersByCode;
+}
+
+const BOBY_BITES_OUTLETS = [
+  {
+    code: 'OUT-000001',
+    customerCode: 'CUS-000001',
+    outletType: 'DISTRIBUTOR_WAREHOUSE',
+    name: 'Adeyemi Central Warehouse',
+    territoryCode: 'TER-000003',
+    latitude: 7.4106,
+    longitude: 3.9187,
+  },
+  {
+    code: 'OUT-000002',
+    customerCode: 'CUS-000002',
+    outletType: 'WHOLESALER_WAREHOUSE',
+    name: 'Bodija Wholesale Depot',
+    territoryCode: 'TER-000005',
+    latitude: null,
+    longitude: null,
+  },
+  {
+    code: 'OUT-000003',
+    customerCode: 'CUS-000003',
+    outletType: 'SUPERMARKET',
+    name: 'Bodija Supermart — Bodija Branch',
+    territoryCode: 'TER-000005',
+    latitude: 7.4306,
+    longitude: 3.9017,
+  },
+  {
+    code: 'OUT-000004',
+    customerCode: 'CUS-000004',
+    outletType: 'RETAIL_SHOP',
+    name: 'Mama Ngozi Provisions Shop',
+    territoryCode: 'TER-000006',
+    latitude: null,
+    longitude: null,
+  },
+  {
+    code: 'OUT-000005',
+    customerCode: 'CUS-000005',
+    outletType: 'MARKET_STALL',
+    name: 'Bodija Market Stall B12',
+    territoryCode: 'TER-000007',
+    latitude: 7.4291,
+    longitude: 3.9042,
+  },
+  {
+    code: 'OUT-000006',
+    customerCode: 'CUS-000007',
+    outletType: 'RESTAURANT',
+    name: 'Amala Spot — Ring Road',
+    territoryCode: 'TER-000004',
+    latitude: null,
+    longitude: null,
+  },
+  {
+    code: 'OUT-000007',
+    customerCode: 'CUS-000008',
+    outletType: 'HOTEL',
+    name: 'Premier Hotel Ibadan',
+    territoryCode: 'TER-000006',
+    latitude: 7.4188,
+    longitude: 3.8964,
+  },
+] as const;
+
+/** Returns a `code -> id` map. Idempotent: every row is `upsert`ed by its own unique
+ *  `outletCode`. No photos are seeded here — binary fixtures aren't idempotent and would
+ *  pollute the local uploads directory on every re-run; outlet photography is exercised
+ *  live during verification instead (docs/sprint-4.8-completion-report.md). */
+async function seedOutlets(
+  organisationId: string,
+  actorUserId: string,
+  customersByCode: Record<string, string>,
+  territoriesByCode: Record<string, string>,
+): Promise<Record<string, string>> {
+  console.log('Seeding Outlets (7 Boby Bites outlets)...');
+
+  const outletsByCode: Record<string, string> = {};
+  for (const outlet of BOBY_BITES_OUTLETS) {
+    const row = await prisma.outlet.upsert({
+      where: { outletCode: outlet.code },
+      update: {},
+      create: {
+        organisationId,
+        customerId: customersByCode[outlet.customerCode]!,
+        outletCode: outlet.code,
+        outletType: outlet.outletType,
+        name: outlet.name,
+        latitude: outlet.latitude,
+        longitude: outlet.longitude,
+        status: 'ACTIVE',
+        createdById: actorUserId,
+        updatedById: actorUserId,
+        ...(outlet.territoryCode ? { territoryId: territoriesByCode[outlet.territoryCode] } : {}),
+      },
+    });
+    outletsByCode[outlet.code] = row.id;
+  }
+  return outletsByCode;
+}
+
+/**
+ * Only 3 relationships across 9 customers — deliberately not a fully-mapped network
+ * (brief §33). Demonstrates every kind of link the model supports (distributor ->
+ * wholesaler, distributor -> a direct restaurant customer, wholesaler -> retailer)
+ * while leaving Bodija Supermart, Challenge Corner Shop, Oyo Foods Corporate, Premier
+ * Hotel, and Ibadan North Trading Stores completely un-networked.
+ */
+const BOBY_BITES_NETWORK_RELATIONSHIPS = [
+  {
+    sourceCode: 'CUS-000001', // Adeyemi Distribution Ltd
+    targetCode: 'CUS-000002', // Bodija Wholesale Hub
+    relationshipType: 'DISTRIBUTES_TO',
+  },
+  {
+    sourceCode: 'CUS-000001', // Adeyemi Distribution Ltd
+    targetCode: 'CUS-000007', // Amala Spot Restaurant
+    relationshipType: 'SUPPLIES',
+  },
+  {
+    sourceCode: 'CUS-000002', // Bodija Wholesale Hub
+    targetCode: 'CUS-000004', // Mama Ngozi Provisions
+    relationshipType: 'WHOLESALES_TO',
+  },
+] as const;
+
+/** No natural unique key on this tuple by design (see the model's schema comment on why
+ *  there's no `@@unique`) — idempotency here is `findFirst`-then-conditional-create,
+ *  same pattern as `seedInventoryLocations`. */
+async function seedNetworkRelationships(
+  organisationId: string,
+  actorUserId: string,
+  customersByCode: Record<string, string>,
+): Promise<void> {
+  console.log('Seeding Distribution Network Relationships (3 of 9 customers networked)...');
+
+  for (const relationship of BOBY_BITES_NETWORK_RELATIONSHIPS) {
+    const sourceCustomerId = customersByCode[relationship.sourceCode]!;
+    const targetCustomerId = customersByCode[relationship.targetCode]!;
+    const existing = await prisma.distributionNetworkRelationship.findFirst({
+      where: {
+        organisationId,
+        sourceCustomerId,
+        targetCustomerId,
+        relationshipType: relationship.relationshipType,
+      },
+    });
+    if (existing) {
+      continue;
+    }
+    await prisma.distributionNetworkRelationship.create({
+      data: {
+        organisationId,
+        sourceCustomerId,
+        targetCustomerId,
+        relationshipType: relationship.relationshipType,
+        effectiveFrom: new Date(),
+        status: 'ACTIVE',
+        createdById: actorUserId,
+        updatedById: actorUserId,
+      },
+    });
+  }
+}
+
+/**
+ * Five sales orders demonstrating: an un-networked supermarket buying direct
+ * (`SO-000001`), an un-networked retailer buying direct (`SO-000002`), a distributor's
+ * own bulk direct order (`SO-000003`), a *networked* retailer still buying direct —
+ * proving the network relationship above never routes or restricts anything
+ * (`SO-000004`), and an order with no outlet at all (`SO-000005`). Totals are
+ * pre-computed literally here since this script writes Prisma directly, bypassing
+ * `SalesOrderService`'s own server-side calculation.
+ */
+const BOBY_BITES_SALES_ORDERS = [
+  {
+    orderCode: 'SO-000001',
+    customerCode: 'CUS-000003', // Bodija Supermart — un-networked
+    outletCode: 'OUT-000003',
+    status: 'CONFIRMED',
+    items: [
+      { productCode: 'PRD-000030', quantity: 200, unitPrice: 250 },
+      { productCode: 'PRD-000027', quantity: 50, unitPrice: 3200 },
+    ],
+  },
+  {
+    orderCode: 'SO-000002',
+    customerCode: 'CUS-000005', // Challenge Corner Shop — un-networked
+    outletCode: 'OUT-000005',
+    status: 'CONFIRMED',
+    items: [{ productCode: 'PRD-000030', quantity: 40, unitPrice: 260 }],
+  },
+  {
+    orderCode: 'SO-000003',
+    customerCode: 'CUS-000001', // Adeyemi Distribution Ltd — buys directly too
+    outletCode: 'OUT-000001',
+    status: 'CONFIRMED',
+    items: [{ productCode: 'PRD-000022', quantity: 500, unitPrice: 5800 }],
+  },
+  {
+    orderCode: 'SO-000004',
+    customerCode: 'CUS-000004', // Mama Ngozi Provisions — networked, still buys direct
+    outletCode: 'OUT-000004',
+    status: 'DRAFT',
+    items: [{ productCode: 'PRD-000026', quantity: 30, unitPrice: 270 }],
+  },
+  {
+    orderCode: 'SO-000005',
+    customerCode: 'CUS-000006', // Oyo Foods Corporate — no outlet at all
+    outletCode: null,
+    status: 'CONFIRMED',
+    items: [{ productCode: 'PRD-000021', quantity: 100, unitPrice: 3100 }],
+  },
+] as const;
+
+/** Idempotent: every order is `upsert`ed by its own unique `orderCode`, with items
+ *  nested-created only on first insert (`update: {}` no-ops on repeated runs, same
+ *  pattern every other upsert-by-code helper in this file uses). */
+async function seedSalesOrders(
+  organisationId: string,
+  actorUserId: string,
+  customersByCode: Record<string, string>,
+  outletsByCode: Record<string, string>,
+  productsByCode: Record<string, string>,
+): Promise<void> {
+  console.log('Seeding Sales Orders (5 orders — direct sales independent of the network)...');
+
+  for (const order of BOBY_BITES_SALES_ORDERS) {
+    const items = order.items.map((item) => ({
+      productId: productsByCode[item.productCode]!,
+      quantity: item.quantity,
+      unitPrice: item.unitPrice,
+      lineTotal: item.quantity * item.unitPrice,
+    }));
+    const subtotal = items.reduce((sum, item) => sum + item.lineTotal, 0);
+
+    await prisma.salesOrder.upsert({
+      where: { orderCode: order.orderCode },
+      update: {},
+      create: {
+        organisationId,
+        orderCode: order.orderCode,
+        customerId: customersByCode[order.customerCode]!,
+        salesAgentId: actorUserId,
+        status: order.status,
+        orderDate: new Date(),
+        subtotal,
+        discount: 0,
+        total: subtotal,
+        createdById: actorUserId,
+        updatedById: actorUserId,
+        items: { create: items },
+        ...(order.outletCode ? { outletId: outletsByCode[order.outletCode]! } : {}),
+      },
+    });
+  }
+}
+
 async function main(): Promise<void> {
   // Read early (rather than inside `seedUser`) because the organisation's `businessEmail`
   // needs it before any user is created.
@@ -1315,6 +1749,23 @@ async function main(): Promise<void> {
   await seedProduction(organisation.id, ownerUser.id, productsByCode, mainWarehouseId);
   await seedProductFamilyProduction(organisation.id, ownerUser.id, productsByCode, mainWarehouseId);
 
+  const territoriesByCode = await seedTerritories(organisation.id, ownerUser.id);
+  const customersByCode = await seedCustomers(organisation.id, ownerUser.id, territoriesByCode);
+  const outletsByCode = await seedOutlets(
+    organisation.id,
+    ownerUser.id,
+    customersByCode,
+    territoriesByCode,
+  );
+  await seedNetworkRelationships(organisation.id, ownerUser.id, customersByCode);
+  await seedSalesOrders(
+    organisation.id,
+    ownerUser.id,
+    customersByCode,
+    outletsByCode,
+    productsByCode,
+  );
+
   console.log('Recording an audit log entry for this seed run...');
   await prisma.auditLog.create({
     data: {
@@ -1344,6 +1795,14 @@ async function main(): Promise<void> {
     productFamiliesSeeded: 1,
     productVariantsSeeded: PLANTAIN_CHIPS_VARIANTS.length,
     productFamilySkusSeeded: Object.keys(skusByCode).length,
+    territoriesSeeded: BOBY_BITES_TERRITORIES.length,
+    customersSeeded: BOBY_BITES_CUSTOMERS.length,
+    outletsSeeded: BOBY_BITES_OUTLETS.length,
+    networkRelationshipsSeeded: BOBY_BITES_NETWORK_RELATIONSHIPS.length,
+    salesOrdersSeeded: BOBY_BITES_SALES_ORDERS.length,
+    customersWithoutNetworkRelationship:
+      BOBY_BITES_CUSTOMERS.length -
+      new Set(BOBY_BITES_NETWORK_RELATIONSHIPS.flatMap((r) => [r.sourceCode, r.targetCode])).size,
   });
 }
 

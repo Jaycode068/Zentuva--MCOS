@@ -64,8 +64,18 @@ This roadmap tracks the intended build order. It is not a commitment to dates �
       server-computed Accepted quantity, finished-goods receipt back into Inventory);
       MRP/scheduling, costing, multi-level BOMs, and batch/lot tracking remain — see
       [`docs/domains/production.md`](domains/production.md)
-- [ ] Sales
-- [ ] Distribution
+- [x] Sales — foundation shipped Sprint 4.8 (Customer master record with progressive
+      onboarding; `SalesOrder`/`SalesOrderItem` targeting Sprint 4.7 SKUs only,
+      server-authoritative totals, never touching inventory); Invoicing/Payments/Returns
+      remain — see [`docs/domains/customers.md`](domains/customers.md),
+      [`docs/domains/sales.md`](domains/sales.md)
+- [x] Distribution — reframed as the Retail Intelligence Network, foundation shipped
+      Sprint 4.8 (`Outlet`, `Territory` hierarchy, `DistributionNetworkRelationship` kept
+      structurally separate from commercial transactions so direct sales never require a
+      distributor mapping); route planning/delivery tracking remain — see
+      [`docs/domains/outlets.md`](domains/outlets.md),
+      [`docs/domains/territories.md`](domains/territories.md),
+      [`docs/domains/retail-network.md`](domains/retail-network.md)
 - [ ] Finance
 
 ## Phase 3 — Extended Experiences

@@ -20,6 +20,10 @@ export const buttonVariants = cva(
         sm: 'h-8 rounded-md px-3 text-xs',
         lg: 'h-10 rounded-md px-8',
         icon: 'h-9 w-9',
+        /** Sprint 4.8, Field Sales — every existing size tops out at `h-10` (40px),
+         *  under the 44px minimum touch target a mobile-first interface needs. Purely
+         *  additive; no existing call site is affected. */
+        touch: 'h-12 rounded-md px-5 text-base',
       },
     },
     defaultVariants: {

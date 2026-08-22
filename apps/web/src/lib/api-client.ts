@@ -85,3 +85,38 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
   }
   return (await response.json()) as T;
 }
+
+/**
+ * Multipart POST — bypasses {@link apiFetch}'s forced JSON `Content-Type` so the browser
+ * sets its own multipart boundary. Added for Sprint 4.8's outlet-photo upload (multiple
+ * files per request); the three pre-existing single-image uploads (organisation logo,
+ * account avatar, product image) each hand-roll this identically today and are
+ * deliberately left untouched this sprint rather than refactored onto this helper, to
+ * keep this change additive-only.
+ */
+export async function apiFetchFormData<T>(
+  path: string,
+  formData: FormData,
+  init: RequestInit = {},
+): Promise<T> {
+  const token = getAccessToken();
+  const response = await fetch(`${env.NEXT_PUBLIC_API_URL}${path}`, {
+    ...init,
+    method: init.method ?? 'POST',
+    body: formData,
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...init.headers,
+    },
+  });
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => undefined);
+    throw new ApiError(response.status, body?.message ?? response.statusText, body);
+  }
+
+  if (response.status === 204) {
+    return undefined as T;
+  }
+  return (await response.json()) as T;
+}

@@ -51,8 +51,9 @@ const MODULE_DESCRIPTIONS: Record<string, string> = {
   '/settings/production': 'Bills of materials, production orders, and material issues.',
   '/assets': 'Manage factory equipment, vehicles and long-term business assets.',
   '/maintenance': 'Schedule preventive maintenance and manage equipment servicing.',
-  '/sales': 'Customers, orders, invoicing, and payments.',
-  '/distribution': 'Sales reps, distributors, and delivery tracking.',
+  '/settings/sales': 'Sales orders recording customer demand — direct sales, always.',
+  '/settings/retail': 'Customers, outlets, territories, and the distribution network.',
+  '/field': 'The mobile field-sales workspace for onboarding and taking orders.',
   '/finance': 'Financial records and reporting.',
   '/reports': 'Dashboards and business intelligence.',
 };

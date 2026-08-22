@@ -175,14 +175,38 @@ delivered roughly in order, but later Epics may be reordered as priorities evolv
 
 - **Objective:** manage the commercial transaction from order to payment.
 - **Includes:** Customers, Orders, Invoicing, Payments, Returns.
-- **Status:** Not started.
+- **Status:** In progress — Sprint 4.8 ("Customer, Territory, Outlet, Retail Network &
+  Sales Foundation") shipped the `Customer` master record (progressive onboarding — only
+  type/name/phone required, per-customer-type descriptive only, never a sales
+  restriction) and the `SalesOrder`/`SalesOrderItem` foundation: server-authoritative
+  totals, SKU-level targeting only (never a Sprint 4.7 Product Family/Variant directly),
+  `DRAFT → CONFIRMED`/`CANCELLED` lifecycle, and a deliberate, structurally-enforced
+  guarantee that creating or confirming an order never touches inventory. A mobile-first
+  Field Sales workspace (`/field`) and a desktop Admin surface (`/settings/sales`) share
+  this one backend. Invoicing, Payments, and Returns remain — see
+  [`docs/domains/customers.md`](domains/customers.md) and
+  [`docs/domains/sales.md`](domains/sales.md).
 
 ### Epic 8 — Distribution
 
-- **Objective:** connect production to the people who move goods to market.
+- **Objective:** connect production to the people who move goods to market — reframed in
+  Sprint 4.8 as the **Retail Intelligence Network**: a living digital map of the market
+  around the manufacturer, captured progressively as the sales team discovers it in the
+  field, never pre-modelled in advance.
 - **Includes:** Sales Representatives, Distributors, Wholesalers, Retailers, Delivery
   Tracking, Route Planning.
-- **Status:** Not started.
+- **Status:** In progress — Sprint 4.8 shipped `Outlet` (the physical place of business,
+  distinct from the `Customer` commercial account, with foundational multi-photo
+  capture), `Territory` (a self-referential, tenant-defined hierarchy of arbitrary depth
+  — not fixed administrative boundaries), and `DistributionNetworkRelationship` (an
+  optional, separate concept from commercial transactions — a customer never requires a
+  network mapping to be registered or to place an order, and historical sales are never
+  rewritten when a relationship is added or changed later). Sales Representative
+  territory ownership, Delivery Tracking, and Route Planning remain — see
+  [`docs/domains/outlets.md`](domains/outlets.md),
+  [`docs/domains/territories.md`](domains/territories.md), and
+  [`docs/domains/retail-network.md`](domains/retail-network.md) (the keystone
+  architectural document for this Epic).
 
 ### Epic 9 — CRM
 
@@ -275,6 +299,7 @@ delivered roughly in order, but later Epics may be reordered as priorities evolv
 - ✓ Sprint 4.5 — Inventory Control & Stock Management
 - ✓ Sprint 4.6 — Production Management & Bill of Materials Foundation
 - ✓ Sprint 4.7 — Product Family, Variant & SKU Architecture Refinement
+- ✓ Sprint 4.8 — Customer, Territory, Outlet, Retail Network & Sales Foundation
 
 **Current focus:** Next sprint not yet scoped.
 

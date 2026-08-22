@@ -17,6 +17,11 @@ import { InventoryModule } from './inventory/inventory.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { PurchaseOrderModule } from './procurement/purchase-order/purchase-order.module';
 import { ProductionModule } from './production/production.module';
+import { CustomerModule } from './retail/customer/customer.module';
+import { NetworkRelationshipModule } from './retail/network/network-relationship.module';
+import { OutletModule } from './retail/outlet/outlet.module';
+import { TerritoryModule } from './retail/territory/territory.module';
+import { SalesModule } from './sales/sales.module';
 import { SupplierModule } from './suppliers/supplier/supplier.module';
 
 @Module({
@@ -41,6 +46,11 @@ import { SupplierModule } from './suppliers/supplier/supplier.module';
     PurchaseOrderModule,
     InventoryModule,
     ProductionModule,
+    TerritoryModule,
+    CustomerModule,
+    OutletModule,
+    NetworkRelationshipModule,
+    SalesModule,
   ],
 })
 export class AppModule {}
