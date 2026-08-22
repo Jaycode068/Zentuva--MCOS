@@ -115,6 +115,7 @@ describe('SalesOrderService', () => {
         id: 'item-1',
         productId: 'product-1',
         quantity: 2,
+        quantityFulfilled: 0,
         unitPrice: 250,
         lineTotal: 500,
         product: { id: 'product-1', code: 'PRD-000030', name: finishedProduct.name, unit: 'Pack' },
@@ -452,6 +453,32 @@ describe('SalesOrderService', () => {
       await expect(service.cancel('org-1', 'order-1', 'user-1')).rejects.toThrow(
         BadRequestException,
       );
+    });
+
+    it('rejects cancelling a PARTIALLY_FULFILLED order with a distinct message (Sprint 4.9)', async () => {
+      const { service, salesOrderRepository } = makeService();
+      salesOrderRepository.findById.mockResolvedValue({
+        ...order,
+        status: SalesOrderStatus.PARTIALLY_FULFILLED,
+      });
+
+      await expect(service.cancel('org-1', 'order-1', 'user-1')).rejects.toThrow(
+        'Cannot cancel an order after fulfilment has started',
+      );
+      expect(salesOrderRepository.updateStatus).not.toHaveBeenCalled();
+    });
+
+    it('rejects cancelling a FULFILLED order with a distinct message (Sprint 4.9)', async () => {
+      const { service, salesOrderRepository } = makeService();
+      salesOrderRepository.findById.mockResolvedValue({
+        ...order,
+        status: SalesOrderStatus.FULFILLED,
+      });
+
+      await expect(service.cancel('org-1', 'order-1', 'user-1')).rejects.toThrow(
+        'Cannot cancel an order after fulfilment has started',
+      );
+      expect(salesOrderRepository.updateStatus).not.toHaveBeenCalled();
     });
   });
 

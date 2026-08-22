@@ -1,15 +1,23 @@
 import { z } from 'zod';
 
 /**
- * Shared validation schemas for the Sales Order domain (Sprint 4.8), matching the API
- * contract in docs/domains/sales.md. Split into its own file, same "one file per domain"
- * convention as `production.ts`/`retail.ts`.
+ * Shared validation schemas for the Sales Order domain (Sprint 4.8) and its Fulfilment
+ * extension (Sprint 4.9), matching the API contract in docs/domains/sales.md. Split into
+ * its own file, same "one file per domain" convention as `production.ts`/`retail.ts`.
  *
- * Creating or confirming a Sales Order never touches inventory — nothing in this file (or
- * the service that consumes it) has any notion of stock reservation or deduction.
+ * Creating or confirming a Sales Order never touches inventory — nothing in
+ * `createSalesOrderSchema`/`updateSalesOrderSchema` (or the service that consumes them)
+ * has any notion of stock reservation or deduction. `createSalesFulfilmentSchema` below
+ * is the one schema in this file that backs an inventory-moving write.
  */
 
-export const salesOrderStatusSchema = z.enum(['DRAFT', 'CONFIRMED', 'CANCELLED']);
+export const salesOrderStatusSchema = z.enum([
+  'DRAFT',
+  'CONFIRMED',
+  'PARTIALLY_FULFILLED',
+  'FULFILLED',
+  'CANCELLED',
+]);
 export type SalesOrderStatusInput = z.infer<typeof salesOrderStatusSchema>;
 
 /** Rejects an item list containing the same `productId` more than once — same pattern as
@@ -67,3 +75,39 @@ export const updateSalesOrderSchema = z
     path: ['items'],
   });
 export type UpdateSalesOrderInput = z.infer<typeof updateSalesOrderSchema>;
+
+/** Rejects a fulfilment item list containing the same `salesOrderItemId` more than once —
+ *  same pattern as `hasNoDuplicateProducts`. */
+function hasNoDuplicateFulfilmentItems(items: { salesOrderItemId: string }[]): boolean {
+  const ids = items.map((item) => item.salesOrderItemId);
+  return new Set(ids).size === ids.length;
+}
+
+/** One line of a `POST /:id/fulfil` request. `productId` is deliberately absent — the
+ *  server resolves it from `salesOrderItemId`, never trusted from the client (same rule
+ *  as `salesOrderItemInputSchema`'s omitted `lineTotal`). */
+export const salesFulfilmentItemInputSchema = z.object({
+  salesOrderItemId: z.string().trim().min(1, 'Sales order item is required'),
+  quantity: z.number().positive('Quantity must be greater than zero'),
+});
+export type SalesFulfilmentItemInput = z.infer<typeof salesFulfilmentItemInputSchema>;
+
+/**
+ * `POST /api/sales/orders/:id/fulfil` (Sprint 4.9) — the one write in this domain that
+ * actually moves inventory (docs/domains/sales.md "Fulfilment"). `idempotencyKey` is
+ * optional, client-generated (e.g. `crypto.randomUUID()`), reused across retries of the
+ * same submit action so a double-tap or flaky-network retry never double-deducts stock.
+ */
+export const createSalesFulfilmentSchema = z
+  .object({
+    locationId: z.string().trim().min(1, 'Location is required'),
+    fulfilmentDate: z.coerce.date(),
+    notes: z.string().trim().max(2000).optional(),
+    idempotencyKey: z.string().trim().min(1).max(100).optional(),
+    items: z.array(salesFulfilmentItemInputSchema).min(1, 'At least one item is required'),
+  })
+  .refine((data) => hasNoDuplicateFulfilmentItems(data.items), {
+    message: 'Duplicate order lines are not allowed on the same fulfilment',
+    path: ['items'],
+  });
+export type CreateSalesFulfilmentInput = z.infer<typeof createSalesFulfilmentSchema>;

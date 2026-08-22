@@ -7,6 +7,68 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 4.9 Sales Execution & Order Fulfilment Foundation] - 2026-08-22
+
+### Added
+
+- **`SalesFulfilment`/`SalesFulfilmentItem`** — the one explicit, atomic, audited
+  operation that actually moves inventory for a Sales Order. `SalesOrderStatus` gains
+  `PARTIALLY_FULFILLED`/`FULFILLED` (`DRAFT → CONFIRMED → PARTIALLY_FULFILLED →
+FULFILLED`, derived from `Σ SalesOrderItem.quantityFulfilled` vs `Σ quantity` after
+  every fulfilment, never stored independently). Modelled directly on Production's
+  `ProductionMaterialIssue`/`ProductionMaterialIssueItem`: a Sales Order may have many
+  fulfilment batches over time (partial shipments), each pinned to one
+  `InventoryLocation`.
+- **New endpoints**: `GET /api/sales/orders/:id/availability` (read-only
+  ordered/fulfilled/remaining/availableStock/shortfall per line, never gates
+  fulfilment), `GET /api/sales/orders/:id/fulfilments` (history), `POST
+/api/sales/orders/:id/fulfil` (Owner/Administrator only) — the atomic write.
+- **Atomicity, mirroring `ProductionMaterialIssueRepository.issue()` exactly**:
+  `SalesFulfilmentRepository.create()` runs an idempotency check, a conditional
+  eligibility re-check, a per-item `InventoryStock` read-guard-decrement (negative stock
+  structurally impossible), the fulfilment+items write, paired `InventoryTransaction`
+  `ISSUE` rows (`referenceType: 'SalesFulfilment'` — the same shared ledger Production's
+  Material Issue already writes to, no new transaction type), and the item/order status
+  recomputation, all inside one `$transaction`, rolled back together on any failure.
+- **Idempotency** — a new `SalesFulfilment.idempotencyKey` column +
+  `@@unique([salesOrderId, idempotencyKey])`. Both the Admin dialog and the Field Sales
+  sheet generate one via `crypto.randomUUID()` per fulfilment attempt; a retried request
+  with the same key returns the original fulfilment instead of double-deducting stock —
+  verified live (a duplicate submit produced exactly one stock deduction, one
+  `InventoryTransaction`, and no duplicate audit event).
+- **Cancellation guard** — once any fulfilment is recorded, `POST /:id/cancel` returns a
+  clear `400` ("Cannot cancel an order after fulfilment has started") instead of
+  silently succeeding or 404ing.
+- **A deliberate, documented, narrow exception to Sprint 4.8's "Sales never touches
+  Inventory" rule**: `sales.module.ts` now imports `InventoryModule` — but only so the
+  new `SalesFulfilmentService`/`SalesFulfilmentRepository` can reach it.
+  `SalesOrderService` (order create/update/confirm/cancel) still has zero Inventory
+  imports of its own, and `direct-sales-independence.spec.ts`'s structural guard was
+  narrowed (not deleted) to assert this precisely against `sales-order.service.ts`'s own
+  source rather than the whole module.
+- **Admin UI**: a new `SalesFulfilmentDialog` (mirrors `MaterialIssueDialog`'s
+  Ordered/Already Fulfilled/Remaining/Available grid, plus a Location picker), wired into
+  `sales-order-detail-dialog.tsx`'s footer; a "Fulfilment History" section and a
+  "Fulfilled" items column.
+- **Field Sales UI**: a full-screen (`Sheet side="full"`) fulfilment flow off the sticky
+  action bar on the order detail screen, and an informational, non-blocking "In stock: X
+  {unit}" line under each item card on the new-order screen.
+- **Seed data**: `SO-000001` now demonstrates a partial fulfilment (one line partially,
+  one fully — order lands on `PARTIALLY_FULFILLED`); new `SO-000008`
+  (`CONFIRMED`/unfulfilled fixture) and `SO-000009` (fully `FULFILLED` in one batch); a
+  new finished-goods stock top-up for the two SKUs these orders sell. Verified idempotent
+  (seed run twice, zero double-deduction, identical summary counts).
+
+### Verified live
+
+Full Boby Bites fulfilment walkthrough against the running application (not just unit
+tests): partial fulfilment → full fulfilment → terminal-state rejection (fulfil and
+cancel both correctly blocked once `FULFILLED`) → over-fulfilment rejected with an exact
+message → insufficient-stock rejected with an exact message → RBAC (Member 200 on both
+`GET`s, 403 on `POST .../fulfil`) → idempotent duplicate-submit protection → Field Sales
+mobile flow at 360/375/430px, including the full-screen fulfilment sheet and the
+new-order stock hint.
+
 ## [Sprint 4.8 Customer, Territory, Outlet, Retail Network & Sales Foundation] - 2026-08-21
 
 ### Added

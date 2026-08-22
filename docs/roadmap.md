@@ -66,8 +66,11 @@ This roadmap tracks the intended build order. It is not a commitment to dates �
       [`docs/domains/production.md`](domains/production.md)
 - [x] Sales — foundation shipped Sprint 4.8 (Customer master record with progressive
       onboarding; `SalesOrder`/`SalesOrderItem` targeting Sprint 4.7 SKUs only,
-      server-authoritative totals, never touching inventory); Invoicing/Payments/Returns
-      remain — see [`docs/domains/customers.md`](domains/customers.md),
+      server-authoritative totals, never touching inventory); Sprint 4.9 added
+      Fulfilment — the one atomic, audited bridge into Inventory (`DRAFT → CONFIRMED →
+    PARTIALLY_FULFILLED → FULFILLED`, idempotent, multi-batch); Invoicing/Payments/
+      Returns/inventory reservation remain — see
+      [`docs/domains/customers.md`](domains/customers.md),
       [`docs/domains/sales.md`](domains/sales.md)
 - [x] Distribution — reframed as the Retail Intelligence Network, foundation shipped
       Sprint 4.8 (`Outlet`, `Territory` hierarchy, `DistributionNetworkRelationship` kept

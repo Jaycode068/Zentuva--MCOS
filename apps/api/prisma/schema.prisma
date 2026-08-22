@@ -146,6 +146,8 @@ model Organisation {
   distributionNetworkRelationships DistributionNetworkRelationship[]
   /// Added Sprint 4.8 — Sales (docs/domains/sales.md).
   salesOrders                      SalesOrder[]
+  /// Added Sprint 4.9 — Sales Fulfilment (docs/domains/sales.md "Fulfilment").
+  salesFulfilments                 SalesFulfilment[]
 
   @@map("organisations")
 }
@@ -485,6 +487,8 @@ model Product {
   /// actually appear here — service-enforced in `SalesOrderService.buildItems`, mirroring
   /// `purchaseOrderItems`' inverse type restriction.
   salesOrderItems              SalesOrderItem[]
+  /// Added Sprint 4.9 — Sales Fulfilment (docs/domains/sales.md "Fulfilment").
+  salesFulfilmentItems         SalesFulfilmentItem[]
 
   @@unique([organisationId, slug])
   @@index([organisationId])
@@ -766,6 +770,8 @@ model InventoryLocation {
   transactions     InventoryTransaction[]
   /// Added Sprint 4.6 — Production & Bill of Materials (docs/domains/production.md).
   productionOrders ProductionOrder[]
+  /// Added Sprint 4.9 — Sales Fulfilment (docs/domains/sales.md "Fulfilment").
+  salesFulfilments SalesFulfilment[]
 
   @@index([organisationId])
   @@index([organisationId, status])
@@ -1361,13 +1367,18 @@ enum NetworkRelationshipStatus {
   INACTIVE
 }
 
-/// DRAFT -> CONFIRMED, or -> CANCELLED. Deliberately NOT extended with
-/// PICKED/DISPATCHED/DELIVERED/INVOICED/PAID this sprint — fulfilment and accounting are
-/// future work. Confirming a Sales Order never deducts or reserves inventory; it records
-/// demand only (docs/domains/sales.md).
+/// DRAFT -> CONFIRMED -> PARTIALLY_FULFILLED -> FULFILLED, or -> CANCELLED from DRAFT or
+/// CONFIRMED only (Sprint 4.9). Confirming a Sales Order still never deducts or reserves
+/// inventory — it records demand only. `PARTIALLY_FULFILLED`/`FULFILLED` are driven
+/// exclusively by `SalesFulfilment` records, the ONE place inventory is actually deducted
+/// (docs/domains/sales.md "Fulfilment"). Once any fulfilment has been recorded, an order
+/// can no longer be cancelled (`SalesOrderService.cancel`) — reversing partially-shipped
+/// goods is out of scope this sprint (see docs/backlog.md "Sales Returns").
 enum SalesOrderStatus {
   DRAFT
   CONFIRMED
+  PARTIALLY_FULFILLED
+  FULFILLED
   CANCELLED
 }
 
@@ -1643,6 +1654,7 @@ model SalesOrder {
   customer     Customer         @relation(fields: [customerId], references: [id], onDelete: Restrict)
   outlet       Outlet?          @relation(fields: [outletId], references: [id], onDelete: Restrict)
   items        SalesOrderItem[]
+  fulfilments  SalesFulfilment[]
 
   @@index([organisationId])
   @@index([organisationId, status])
@@ -1658,19 +1670,26 @@ model SalesOrder {
 /// `SalesOrderService.buildItems`, mirroring `PurchaseOrderService`'s identical
 /// purchasable-type restriction.
 model SalesOrderItem {
-  id           String   @id @default(cuid())
-  salesOrderId String
-  productId    String
-  quantity     Float
-  unitPrice    Float
+  id                String   @id @default(cuid())
+  salesOrderId      String
+  productId         String
+  quantity          Float
+  /// Cumulative quantity physically supplied across every `SalesFulfilmentItem` ever
+  /// recorded against this line (Sprint 4.9) — never decremented, only ever incremented
+  /// by `SalesFulfilmentRepository.create`'s own transaction. Always
+  /// `0 <= quantityFulfilled <= quantity` (service-enforced; over-fulfilment is a 400).
+  /// Drives `SalesOrder.status` derivation — see docs/domains/sales.md "Fulfilment".
+  quantityFulfilled Float    @default(0)
+  unitPrice         Float
   /// Server-calculated as `roundCurrency(quantity * unitPrice)` — deliberately absent from
   /// `salesOrderItemInputSchema` so the client cannot even express a value.
-  lineTotal    Float
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  lineTotal         Float
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
-  salesOrder SalesOrder @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
-  product    Product    @relation(fields: [productId], references: [id], onDelete: Restrict)
+  salesOrder      SalesOrder            @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
+  product         Product               @relation(fields: [productId], references: [id], onDelete: Restrict)
+  fulfilmentItems SalesFulfilmentItem[]
 
   /// DB-level defense-in-depth for "no duplicate SKU lines" (the Zod schema also rejects
   /// duplicates) — same shape as `BillOfMaterialItem`'s own `@@unique`.
@@ -1678,4 +1697,73 @@ model SalesOrderItem {
   @@index([salesOrderId])
   @@index([productId])
   @@map("sales_order_items")
+}
+
+/// One physical-supply event against a Sales Order — immutable once created, same
+/// "header + item rows, paired 1:1 with `InventoryTransaction` rows" shape as
+/// `ProductionMaterialIssue`. A Sales Order may have many of these over time (partial
+/// shipments), same as Production's material issues (Sprint 4.9, docs/domains/sales.md
+/// "Fulfilment"). THE only place a Sales Order's inventory is ever deducted.
+model SalesFulfilment {
+  id             String   @id @default(cuid())
+  organisationId String
+  salesOrderId   String
+  /// The `InventoryLocation` every item in this batch was deducted from — one location
+  /// per fulfilment event, same "one location per batch" shape as
+  /// `ProductionMaterialIssue`/`GoodsReceipt`. Multi-location fulfilment of a single order
+  /// is out of scope this sprint (docs/backlog.md).
+  locationId     String
+  fulfilmentDate DateTime
+  /// Plain id, no FK relation — same convention as `ProductionMaterialIssue.issuedById`.
+  /// Always the authenticated caller.
+  fulfilledById  String?
+  notes          String?
+  /// Client-supplied, optional. When present, a retried request (double-tap, flaky
+  /// mobile network) with the SAME key against the SAME order returns the original
+  /// `SalesFulfilment` instead of creating a duplicate. A practical, database-backed
+  /// dedup key (not a distributed idempotency system) — same spirit as
+  /// `ProductionRun.productionOrderId`'s `@@unique` being the only other hard
+  /// duplicate-protection constraint in this codebase. Postgres treats every `NULL` as
+  /// distinct, so a caller that never sends a key is never blocked.
+  idempotencyKey String?
+  createdAt      DateTime @default(now())
+
+  organisation Organisation          @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  /// `Restrict`, not `Cascade` — a fulfilment is history and must survive even if a
+  /// future feature ever allowed deleting a Sales Order (it doesn't today), same
+  /// rationale as `ProductionMaterialIssue.productionOrder`.
+  salesOrder   SalesOrder            @relation(fields: [salesOrderId], references: [id], onDelete: Restrict)
+  /// `Restrict` — same rationale as every other `InventoryLocation` FK: a location that
+  /// has been used in a real stock movement can never be silently deleted out from under
+  /// history.
+  location     InventoryLocation     @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  items        SalesFulfilmentItem[]
+
+  @@unique([salesOrderId, idempotencyKey])
+  @@index([organisationId])
+  @@index([organisationId, salesOrderId])
+  @@map("sales_fulfilments")
+}
+
+/// One product's fulfilled quantity within a `SalesFulfilment` batch. Pairs 1:1 with an
+/// `InventoryTransaction` `ISSUE` row (`referenceType: 'SalesFulfilment'`, `referenceId:`
+/// this fulfilment's id) — exact mirror of `ProductionMaterialIssueItem` -> `ISSUE`.
+model SalesFulfilmentItem {
+  id                String   @id @default(cuid())
+  salesFulfilmentId String
+  productId         String
+  /// The `SalesOrderItem` this fulfils — needed to atomically increment that line's own
+  /// `quantityFulfilled` inside the same transaction.
+  salesOrderItemId  String
+  quantityFulfilled Float
+  createdAt         DateTime @default(now())
+
+  salesFulfilment SalesFulfilment @relation(fields: [salesFulfilmentId], references: [id], onDelete: Cascade)
+  product         Product         @relation(fields: [productId], references: [id], onDelete: Restrict)
+  salesOrderItem  SalesOrderItem  @relation(fields: [salesOrderItemId], references: [id], onDelete: Restrict)
+
+  @@index([salesFulfilmentId])
+  @@index([productId])
+  @@index([salesOrderItemId])
+  @@map("sales_fulfilment_items")
 }

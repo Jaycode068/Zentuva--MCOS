@@ -181,10 +181,16 @@ delivered roughly in order, but later Epics may be reordered as priorities evolv
   restriction) and the `SalesOrder`/`SalesOrderItem` foundation: server-authoritative
   totals, SKU-level targeting only (never a Sprint 4.7 Product Family/Variant directly),
   `DRAFT → CONFIRMED`/`CANCELLED` lifecycle, and a deliberate, structurally-enforced
-  guarantee that creating or confirming an order never touches inventory. A mobile-first
-  Field Sales workspace (`/field`) and a desktop Admin surface (`/settings/sales`) share
-  this one backend. Invoicing, Payments, and Returns remain — see
-  [`docs/domains/customers.md`](domains/customers.md) and
+  guarantee that creating or confirming an order never touches inventory. Sprint 4.9
+  ("Sales Execution & Order Fulfilment Foundation") added **Fulfilment**: the one
+  explicit, atomic, audited, idempotent operation that actually supplies goods and
+  deducts `InventoryStock` (`DRAFT → CONFIRMED → PARTIALLY_FULFILLED → FULFILLED`,
+  multiple fulfilment batches per order, over-fulfilment/negative-stock structurally
+  impossible, cancellation blocked once fulfilment starts) — confirmation itself still
+  never touches inventory. A mobile-first Field Sales workspace (`/field`) and a desktop
+  Admin surface (`/settings/sales`) share this one backend, including the new Fulfilment
+  UI. Invoicing, Payments, Returns, inventory reservation, delivery/route tracking, and
+  a pricing engine remain — see [`docs/domains/customers.md`](domains/customers.md) and
   [`docs/domains/sales.md`](domains/sales.md).
 
 ### Epic 8 — Distribution
@@ -300,6 +306,7 @@ delivered roughly in order, but later Epics may be reordered as priorities evolv
 - ✓ Sprint 4.6 — Production Management & Bill of Materials Foundation
 - ✓ Sprint 4.7 — Product Family, Variant & SKU Architecture Refinement
 - ✓ Sprint 4.8 — Customer, Territory, Outlet, Retail Network & Sales Foundation
+- ✓ Sprint 4.9 — Sales Execution & Order Fulfilment Foundation
 
 **Current focus:** Next sprint not yet scoped.
 

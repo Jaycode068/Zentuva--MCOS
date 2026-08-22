@@ -165,12 +165,16 @@ free-text `notes` field on the `InventoryTransaction` row itself. Same "structur
   insert-only, never updated or deleted. Remains the sole authoritative source of stock
   history; `InventoryStock` is only ever a derived cache of it.
 - **`transactionType`:** `RECEIPT` | `ISSUE` | `ADJUSTMENT`. Inventory writes `RECEIPT`
-  rows for the **accepted** portion of a Goods Receipt, and — new in Sprint 4.5 —
-  `ADJUSTMENT` rows for manual corrections via `POST /api/inventory/adjustments`.
-  `ISSUE` (Production consumption, Sales) still has no endpoint — deliberately not added
-  this sprint (brief: "do not add a generic 'remove stock' button"; `ISSUE` stays
-  reserved for a future Production/Sales domain that has a real business operation to
-  attach it to) — see "Future Production Consumption" below.
+  rows for the **accepted** portion of a Goods Receipt, and — Sprint 4.5 — `ADJUSTMENT`
+  rows for manual corrections via `POST /api/inventory/adjustments`. `ISSUE` has no
+  endpoint of its own in this module — deliberately not added (brief: "do not add a
+  generic 'remove stock' button"). Instead, `ISSUE` is written directly by the two
+  domains that have a real business operation to attach it to, each inside its own
+  self-owned atomic transaction (a narrow, documented exception to ADR-002 — see "Future
+  Production Consumption" below): **Production** (`ProductionMaterialIssueRepository.
+issue`, `referenceType: 'ProductionMaterialIssue'`, Sprint 4.6) and **Sales**
+  (`SalesFulfilmentRepository.create`, `referenceType: 'SalesFulfilment'`, Sprint 4.9).
+  One shared ledger, no bespoke per-domain movement table.
 - **`quantity`:** positive for `RECEIPT` (direction carried by `transactionType`), but
   **signed** for `ADJUSTMENT` — a positive delta increases stock, a negative delta
   decreases it. This is the one place in the ledger where `quantity`'s sign itself
@@ -598,12 +602,14 @@ SQL.
 ## 10. Future Production Consumption
 
 Per the Sprint 4.4 brief's "One Architectural Improvement," `InventoryTransaction` is
-meant to be the source of truth for every future stock movement, not just receiving:
+the source of truth for every stock movement, not just receiving — now realized by two
+domains:
 
-- **Production** will `ISSUE` raw materials/packaging/consumables to a production batch
-  (decreasing `InventoryStock`), and `RECEIPT` finished output back into stock once a
-  batch completes.
-- **Sales** will `ISSUE` finished goods as orders are fulfilled.
+- **Production** (Sprint 4.6) `ISSUE`s raw materials/packaging/consumables to a
+  production batch (decreasing `InventoryStock`), and `RECEIPT`s finished output back
+  into stock once a batch completes.
+- **Sales** (Sprint 4.9) `ISSUE`s finished goods as orders are fulfilled — see
+  [sales.md](sales.md) §4a "Fulfilment."
 
 `ADJUSTMENT` (Sprint 4.5) already writes into this same `inventory_transactions` table
 for manual corrections — cycle counts, damage, shrinkage — so `RECEIPT`/`ISSUE`/
@@ -622,9 +628,11 @@ domain.
   (always `0` today) so a future Sales/Production reservation workflow doesn't need a
   shape change, but nothing writes to it yet — `quantityAvailable` always equals
   `quantityOnHand` in practice.
-- **No `ISSUE` endpoint.** The enum value exists, but there is deliberately no generic
-  "remove stock" button — `ISSUE` stays reserved for a future Production/Sales domain
-  with a real business operation to attach it to (see "Future Production Consumption").
+- **No generic `ISSUE` endpoint in this module.** There is deliberately no generic
+  "remove stock" button in Inventory itself — `ISSUE` rows are written only by
+  Production's Material Issue (Sprint 4.6) and Sales's Fulfilment (Sprint 4.9), each a
+  real business operation with its own validation, not a bare stock-removal form (see
+  "Future Production Consumption").
 - **No Low Stock / reorder-level alerting.** Deferred — it would require a schema change
   to `Product` (Product Catalogue's own table, a cross-domain change out of this sprint's
   scope) to add a `reorderLevel` field.

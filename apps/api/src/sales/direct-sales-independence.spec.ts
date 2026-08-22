@@ -296,6 +296,16 @@ describe('Direct sales independence from the distribution network (Sprint 4.8)',
   it('structural guard: SalesModule never imports NetworkRelationshipModule', () => {
     const salesModuleSource = readFileSync(join(__dirname, 'sales.module.ts'), 'utf-8');
     expect(salesModuleSource).not.toMatch(/from ['"].*retail\/network/);
-    expect(salesModuleSource).not.toMatch(/from ['"].*inventory\/inventory\.module/);
+    // Sprint 4.9: SalesModule now legitimately imports InventoryModule for the
+    // SalesFulfilment bridge — see the guard below, which narrows to the one file the
+    // "confirmation never touches inventory" guarantee is actually about.
+  });
+
+  it('structural guard: SalesOrderService (order create/update/confirm/cancel) never imports Inventory — confirmation still never touches stock (Sprint 4.9)', () => {
+    const salesOrderServiceSource = readFileSync(
+      join(__dirname, 'sales-order.service.ts'),
+      'utf-8',
+    );
+    expect(salesOrderServiceSource).not.toMatch(/from ['"].*inventory\//);
   });
 });

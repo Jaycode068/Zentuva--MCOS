@@ -19,6 +19,7 @@ import { ApiError } from '@/lib/api-client';
 
 import {
   createSalesOrder,
+  getInventoryStockByProduct,
   listCustomers,
   listOutlets,
   listProducts,
@@ -234,6 +235,7 @@ function NewFieldOrderForm() {
                       {(item.quantity * item.unitPrice).toFixed(2)}
                     </span>
                   </div>
+                  <ItemStockHint productId={item.productId} />
                 </div>
               );
             })}
@@ -312,5 +314,23 @@ function NewFieldOrderForm() {
         </SheetFooter>
       </Sheet>
     </div>
+  );
+}
+
+/** Read-only, purely informational stock line under an item card (Sprint 4.9) — a live
+ *  read of the existing Inventory endpoint, same convention this file's own docblock
+ *  already commits to. Never blocks adding items or submitting the order regardless of
+ *  what it shows. */
+function ItemStockHint({ productId }: { productId: string }) {
+  const { data } = useQuery({
+    queryKey: ['inventory-stock', productId],
+    queryFn: () => getInventoryStockByProduct(productId),
+  });
+
+  if (!data) return null;
+  return (
+    <p className="mt-1 text-xs text-muted-foreground">
+      In stock: {data.quantityOnHand} {data.product.unit}
+    </p>
   );
 }

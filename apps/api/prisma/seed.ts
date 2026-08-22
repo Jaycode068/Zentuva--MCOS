@@ -1517,13 +1517,17 @@ async function seedNetworkRelationships(
 }
 
 /**
- * Five sales orders demonstrating: an un-networked supermarket buying direct
+ * Seven sales orders demonstrating: an un-networked supermarket buying direct
  * (`SO-000001`), an un-networked retailer buying direct (`SO-000002`), a distributor's
  * own bulk direct order (`SO-000003`), a *networked* retailer still buying direct —
  * proving the network relationship above never routes or restricts anything
- * (`SO-000004`), and an order with no outlet at all (`SO-000005`). Totals are
- * pre-computed literally here since this script writes Prisma directly, bypassing
- * `SalesOrderService`'s own server-side calculation.
+ * (`SO-000004`), an order with no outlet at all (`SO-000005`), a fresh `CONFIRMED`
+ * order with no fulfilment yet (`SO-000008`), and an order that ends up fully
+ * `FULFILLED` (`SO-000009`) — the latter two support Sprint 4.9's
+ * `seedSalesFulfilments` below. Totals are pre-computed literally here since this script
+ * writes Prisma directly, bypassing `SalesOrderService`'s own server-side calculation.
+ * `status` here is each order's state as first created — `seedSalesFulfilments` mutates
+ * `SO-000001`/`SO-000009` onward to `PARTIALLY_FULFILLED`/`FULFILLED` afterward.
  */
 const BOBY_BITES_SALES_ORDERS = [
   {
@@ -1564,20 +1568,215 @@ const BOBY_BITES_SALES_ORDERS = [
     status: 'CONFIRMED',
     items: [{ productCode: 'PRD-000021', quantity: 100, unitPrice: 3100 }],
   },
+  {
+    orderCode: 'SO-000008',
+    customerCode: 'CUS-000002', // Bodija Wholesale Hub — confirmed, ready to fulfil
+    outletCode: 'OUT-000002',
+    status: 'CONFIRMED',
+    items: [{ productCode: 'PRD-000030', quantity: 60, unitPrice: 250 }],
+  },
+  {
+    orderCode: 'SO-000009',
+    customerCode: 'CUS-000007', // Amala Spot Restaurant — fully fulfilled in one batch
+    outletCode: 'OUT-000006',
+    status: 'CONFIRMED',
+    items: [{ productCode: 'PRD-000027', quantity: 20, unitPrice: 3200 }],
+  },
 ] as const;
+
+/**
+ * Tops up finished-goods stock for the two SKUs the seeded Sales Orders above actually
+ * sell (`PRD-000030`/`PRD-000027`), so `seedSalesFulfilments` below — and a live
+ * "fulfil this order" walkthrough — has real stock to deduct from without going
+ * negative. Neither SKU carries any stock from Goods Receiving/Production seed data
+ * (Sprint 4.9). Recorded as an `ADJUSTMENT`/`FOUND_STOCK` transaction, never written
+ * straight to `InventoryStock` — same rule `seedProductionRawMaterialTopUp` follows, and
+ * idempotent the same way (a `referenceType: 'SalesSeedTopUp'` existence check per
+ * product).
+ */
+const SALES_FULFILMENT_STOCK_TOPUPS = [
+  { productCode: 'PRD-000030', quantity: 250 },
+  { productCode: 'PRD-000027', quantity: 100 },
+] as const;
+
+async function seedSalesFulfilmentStockTopUp(
+  organisationId: string,
+  actorUserId: string,
+  productsByCode: Record<string, string>,
+  locationId: string,
+): Promise<void> {
+  console.log('Topping up finished-goods stock for Sales Fulfilment testing...');
+  for (const topUp of SALES_FULFILMENT_STOCK_TOPUPS) {
+    const productId = productsByCode[topUp.productCode]!;
+    const existing = await prisma.inventoryTransaction.findFirst({
+      where: { organisationId, productId, locationId, referenceType: 'SalesSeedTopUp' },
+    });
+    if (existing) {
+      continue;
+    }
+
+    const stock = await prisma.inventoryStock.findUnique({
+      where: { organisationId_productId_locationId: { organisationId, productId, locationId } },
+    });
+    const newQuantity = (stock?.quantityOnHand ?? 0) + topUp.quantity;
+
+    await prisma.$transaction([
+      prisma.inventoryStock.upsert({
+        where: { organisationId_productId_locationId: { organisationId, productId, locationId } },
+        create: { organisationId, productId, locationId, quantityOnHand: newQuantity },
+        update: { quantityOnHand: newQuantity },
+      }),
+      prisma.inventoryTransaction.create({
+        data: {
+          organisationId,
+          productId,
+          locationId,
+          transactionType: 'ADJUSTMENT',
+          quantity: topUp.quantity,
+          referenceType: 'SalesSeedTopUp',
+          adjustmentReason: 'FOUND_STOCK',
+          notes: 'Sprint 4.9 seed — finished-goods top-up for Sales Fulfilment testing.',
+          createdById: actorUserId,
+        },
+      }),
+    ]);
+  }
+}
+
+/**
+ * Two fulfilment batches demonstrating the Sprint 4.9 lifecycle: `SO-000001` is
+ * partially fulfilled (one line partially, one line fully — the order itself lands on
+ * `PARTIALLY_FULFILLED`); `SO-000009` is fully fulfilled in a single batch (lands on
+ * `FULFILLED`). `SO-000008` is deliberately left `CONFIRMED`/unfulfilled as a fresh
+ * "ready to fulfil" fixture for live testing. Idempotent via each fulfilment's own
+ * `idempotencyKey` — re-running seed finds the existing row and skips, never
+ * double-deducting stock (the same `@@unique([salesOrderId, idempotencyKey])` guarantee
+ * `SalesFulfilmentRepository.create` itself relies on).
+ */
+const BOBY_BITES_SALES_FULFILMENTS = [
+  {
+    orderCode: 'SO-000001',
+    idempotencyKey: 'seed-SO-000001-1',
+    items: [
+      { productCode: 'PRD-000030', quantity: 120 },
+      { productCode: 'PRD-000027', quantity: 50 },
+    ],
+  },
+  {
+    orderCode: 'SO-000009',
+    idempotencyKey: 'seed-SO-000009-1',
+    items: [{ productCode: 'PRD-000027', quantity: 20 }],
+  },
+] as const;
+
+/** Bypasses `SalesFulfilmentService`/`SalesFulfilmentRepository` and writes the same
+ *  shape of data directly, same convention as every other seed helper in this file.
+ *  Mirrors `SalesFulfilmentRepository.create`'s own step order (stock guard+decrement ->
+ *  fulfilment+items -> paired `InventoryTransaction` rows -> item `quantityFulfilled`
+ *  increment -> recomputed order status) so the seeded data is byte-consistent with what
+ *  the real atomic write would have produced. */
+async function seedSalesFulfilments(
+  organisationId: string,
+  actorUserId: string,
+  salesOrdersByCode: Record<string, { id: string }>,
+  productsByCode: Record<string, string>,
+  locationId: string,
+): Promise<void> {
+  console.log('Seeding Sales Fulfilments (partial + full)...');
+
+  for (const fulfilment of BOBY_BITES_SALES_FULFILMENTS) {
+    const salesOrderId = salesOrdersByCode[fulfilment.orderCode]!.id;
+    const existing = await prisma.salesFulfilment.findFirst({
+      where: { organisationId, salesOrderId, idempotencyKey: fulfilment.idempotencyKey },
+    });
+    if (existing) {
+      continue;
+    }
+
+    await prisma.$transaction(async (tx) => {
+      for (const item of fulfilment.items) {
+        const productId = productsByCode[item.productCode]!;
+        const stock = await tx.inventoryStock.findUnique({
+          where: { organisationId_productId_locationId: { organisationId, productId, locationId } },
+        });
+        const newQuantity = (stock?.quantityOnHand ?? 0) - item.quantity;
+        await tx.inventoryStock.upsert({
+          where: { organisationId_productId_locationId: { organisationId, productId, locationId } },
+          create: { organisationId, productId, locationId, quantityOnHand: newQuantity },
+          update: { quantityOnHand: newQuantity },
+        });
+      }
+
+      const orderItems = await tx.salesOrderItem.findMany({ where: { salesOrderId } });
+      const itemIdByProduct = new Map(orderItems.map((item) => [item.productId, item.id]));
+
+      const created = await tx.salesFulfilment.create({
+        data: {
+          organisationId,
+          salesOrderId,
+          locationId,
+          fulfilmentDate: new Date(),
+          fulfilledById: actorUserId,
+          idempotencyKey: fulfilment.idempotencyKey,
+          notes: 'Seed data — Sprint 4.9.',
+          items: {
+            create: fulfilment.items.map((item) => ({
+              productId: productsByCode[item.productCode]!,
+              salesOrderItemId: itemIdByProduct.get(productsByCode[item.productCode]!)!,
+              quantityFulfilled: item.quantity,
+            })),
+          },
+        },
+      });
+
+      await tx.inventoryTransaction.createMany({
+        data: fulfilment.items.map((item) => ({
+          organisationId,
+          productId: productsByCode[item.productCode]!,
+          locationId,
+          transactionType: 'ISSUE' as const,
+          quantity: item.quantity,
+          referenceType: 'SalesFulfilment',
+          referenceId: created.id,
+        })),
+      });
+
+      for (const item of fulfilment.items) {
+        await tx.salesOrderItem.update({
+          where: { id: itemIdByProduct.get(productsByCode[item.productCode]!)! },
+          data: { quantityFulfilled: { increment: item.quantity } },
+        });
+      }
+
+      const updatedItems = await tx.salesOrderItem.findMany({ where: { salesOrderId } });
+      const totalOrdered = updatedItems.reduce((sum, item) => sum + item.quantity, 0);
+      const totalFulfilled = updatedItems.reduce((sum, item) => sum + item.quantityFulfilled, 0);
+      const newStatus = totalFulfilled >= totalOrdered ? 'FULFILLED' : 'PARTIALLY_FULFILLED';
+
+      await tx.salesOrder.update({
+        where: { id: salesOrderId },
+        data: { status: newStatus, updatedById: actorUserId },
+      });
+    });
+  }
+}
 
 /** Idempotent: every order is `upsert`ed by its own unique `orderCode`, with items
  *  nested-created only on first insert (`update: {}` no-ops on repeated runs, same
- *  pattern every other upsert-by-code helper in this file uses). */
+ *  pattern every other upsert-by-code helper in this file uses). Returns an
+ *  `orderCode -> id` map so `seedSalesFulfilments` can reference the real rows. */
 async function seedSalesOrders(
   organisationId: string,
   actorUserId: string,
   customersByCode: Record<string, string>,
   outletsByCode: Record<string, string>,
   productsByCode: Record<string, string>,
-): Promise<void> {
-  console.log('Seeding Sales Orders (5 orders — direct sales independent of the network)...');
+): Promise<Record<string, { id: string }>> {
+  console.log(
+    `Seeding Sales Orders (${BOBY_BITES_SALES_ORDERS.length} orders — direct sales independent of the network)...`,
+  );
 
+  const salesOrdersByCode: Record<string, { id: string }> = {};
   for (const order of BOBY_BITES_SALES_ORDERS) {
     const items = order.items.map((item) => ({
       productId: productsByCode[item.productCode]!,
@@ -1587,7 +1786,7 @@ async function seedSalesOrders(
     }));
     const subtotal = items.reduce((sum, item) => sum + item.lineTotal, 0);
 
-    await prisma.salesOrder.upsert({
+    const row = await prisma.salesOrder.upsert({
       where: { orderCode: order.orderCode },
       update: {},
       create: {
@@ -1606,7 +1805,9 @@ async function seedSalesOrders(
         ...(order.outletCode ? { outletId: outletsByCode[order.outletCode]! } : {}),
       },
     });
+    salesOrdersByCode[order.orderCode] = { id: row.id };
   }
+  return salesOrdersByCode;
 }
 
 async function main(): Promise<void> {
@@ -1758,12 +1959,25 @@ async function main(): Promise<void> {
     territoriesByCode,
   );
   await seedNetworkRelationships(organisation.id, ownerUser.id, customersByCode);
-  await seedSalesOrders(
+  const salesOrdersByCode = await seedSalesOrders(
     organisation.id,
     ownerUser.id,
     customersByCode,
     outletsByCode,
     productsByCode,
+  );
+  await seedSalesFulfilmentStockTopUp(
+    organisation.id,
+    ownerUser.id,
+    productsByCode,
+    mainWarehouseId,
+  );
+  await seedSalesFulfilments(
+    organisation.id,
+    ownerUser.id,
+    salesOrdersByCode,
+    productsByCode,
+    mainWarehouseId,
   );
 
   console.log('Recording an audit log entry for this seed run...');
@@ -1800,6 +2014,7 @@ async function main(): Promise<void> {
     outletsSeeded: BOBY_BITES_OUTLETS.length,
     networkRelationshipsSeeded: BOBY_BITES_NETWORK_RELATIONSHIPS.length,
     salesOrdersSeeded: BOBY_BITES_SALES_ORDERS.length,
+    salesFulfilmentsSeeded: BOBY_BITES_SALES_FULFILMENTS.length,
     customersWithoutNetworkRelationship:
       BOBY_BITES_CUSTOMERS.length -
       new Set(BOBY_BITES_NETWORK_RELATIONSHIPS.flatMap((r) => [r.sourceCode, r.targetCode])).size,

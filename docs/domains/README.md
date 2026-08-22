@@ -5,21 +5,21 @@ workflows, key entities, and how it integrates with other domains.
 
 ## Status
 
-| Domain                              | Status                                                                                                                            |
-| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| [Identity](identity.md)             | Designed (1A/1A.1); database & domain layer (1B.1) and authentication layer (1B.2) implemented — no RBAC/user-management APIs yet |
-| Organisation                        | Folded into [Identity](identity.md) — see its "What is an Organisation?" business rule                                            |
-| [Product Catalogue](catalogue.md)   | Foundation implemented — Sprint 4.1, extended with a Family/Variant hierarchy — Sprint 4.7                                        |
-| [Supplier Management](suppliers.md) | Foundation implemented — Sprint 4.2                                                                                               |
-| [Procurement](procurement.md)       | Purchase Order management implemented — Sprint 4.3                                                                                |
-| [Inventory](inventory.md)           | Goods Receiving implemented — Sprint 4.4, refined 4.4.1, extended with locations & stock adjustments — Sprint 4.5                 |
-| [Production](production.md)         | Manufacturing foundation implemented — Sprint 4.6 (BOM, Production Orders, Material Issue, Production Execution)                  |
-| [Customers](customers.md)           | Foundation implemented — Sprint 4.8                                                                                               |
-| [Outlets](outlets.md)               | Foundation implemented — Sprint 4.8                                                                                               |
-| [Territories](territories.md)       | Foundation implemented — Sprint 4.8                                                                                               |
-| [Retail Network](retail-network.md) | Foundation implemented — Sprint 4.8 (distribution network relationships, kept structurally separate from Sales)                   |
-| [Sales](sales.md)                   | Foundation implemented — Sprint 4.8 (Sales Orders; a mobile-first Field Sales workspace + Admin surface share this backend)       |
-| Finance                             | Not started                                                                                                                       |
+| Domain                              | Status                                                                                                                                                                                                                                          |
+| ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [Identity](identity.md)             | Designed (1A/1A.1); database & domain layer (1B.1) and authentication layer (1B.2) implemented — no RBAC/user-management APIs yet                                                                                                               |
+| Organisation                        | Folded into [Identity](identity.md) — see its "What is an Organisation?" business rule                                                                                                                                                          |
+| [Product Catalogue](catalogue.md)   | Foundation implemented — Sprint 4.1, extended with a Family/Variant hierarchy — Sprint 4.7                                                                                                                                                      |
+| [Supplier Management](suppliers.md) | Foundation implemented — Sprint 4.2                                                                                                                                                                                                             |
+| [Procurement](procurement.md)       | Purchase Order management implemented — Sprint 4.3                                                                                                                                                                                              |
+| [Inventory](inventory.md)           | Goods Receiving implemented — Sprint 4.4, refined 4.4.1, extended with locations & stock adjustments — Sprint 4.5                                                                                                                               |
+| [Production](production.md)         | Manufacturing foundation implemented — Sprint 4.6 (BOM, Production Orders, Material Issue, Production Execution)                                                                                                                                |
+| [Customers](customers.md)           | Foundation implemented — Sprint 4.8                                                                                                                                                                                                             |
+| [Outlets](outlets.md)               | Foundation implemented — Sprint 4.8                                                                                                                                                                                                             |
+| [Territories](territories.md)       | Foundation implemented — Sprint 4.8                                                                                                                                                                                                             |
+| [Retail Network](retail-network.md) | Foundation implemented — Sprint 4.8 (distribution network relationships, kept structurally separate from Sales)                                                                                                                                 |
+| [Sales](sales.md)                   | Foundation implemented — Sprint 4.8 (Sales Orders; a mobile-first Field Sales workspace + Admin surface share this backend); Fulfilment added — Sprint 4.9 (atomic, audited inventory deduction; DRAFT→CONFIRMED→PARTIALLY_FULFILLED→FULFILLED) |
+| Finance                             | Not started                                                                                                                                                                                                                                     |
 
 As each domain is designed/built, add a `<domain>.md` here covering:
 

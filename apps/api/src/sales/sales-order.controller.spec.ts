@@ -3,6 +3,7 @@ import { Request } from 'express';
 import { AuditService } from '../identity/audit/audit.service';
 import { TokenPayload } from '../identity/auth/ports/token.port';
 import { SALES_AUDIT_ACTIONS } from './sales-audit-actions';
+import { SalesFulfilmentService } from './sales-fulfilment.service';
 import { SalesOrderWithRelations } from './sales-order.repository';
 import { SalesOrderController } from './sales-order.controller';
 import { SalesOrderService } from './sales-order.service';
@@ -38,6 +39,7 @@ describe('SalesOrderController', () => {
         id: 'item-1',
         productId: 'product-1',
         quantity: 2,
+        quantityFulfilled: 0,
         unitPrice: 250,
         lineTotal: 500,
         product: {
@@ -59,10 +61,19 @@ describe('SalesOrderController', () => {
       confirm: jest.fn(),
       cancel: jest.fn(),
     } as unknown as jest.Mocked<SalesOrderService>;
+    const salesFulfilmentService = {
+      getAvailability: jest.fn(),
+      listFulfilments: jest.fn(),
+      fulfil: jest.fn(),
+    } as unknown as jest.Mocked<SalesFulfilmentService>;
     const auditService = { record: jest.fn() } as unknown as jest.Mocked<AuditService>;
 
-    const controller = new SalesOrderController(salesOrderService, auditService);
-    return { controller, salesOrderService, auditService };
+    const controller = new SalesOrderController(
+      salesOrderService,
+      salesFulfilmentService,
+      auditService,
+    );
+    return { controller, salesOrderService, salesFulfilmentService, auditService };
   }
 
   const req = { ip: '127.0.0.1', headers: { 'user-agent': 'jest' } } as unknown as Request;
@@ -125,6 +136,94 @@ describe('SalesOrderController', () => {
       expect(auditService.record).toHaveBeenCalledWith(
         expect.objectContaining({ action: SALES_AUDIT_ACTIONS.ORDER_CANCELLED }),
       );
+    });
+  });
+
+  describe('availability / fulfilments / fulfil (Sprint 4.9)', () => {
+    it('returns availability rows from the fulfilment service', async () => {
+      const { controller, salesFulfilmentService } = makeController();
+      const rows = [
+        {
+          salesOrderItemId: 'item-1',
+          productId: 'product-1',
+          product: { id: 'product-1', code: 'PRD-000030', name: 'Plantain Chips', unit: 'Pack' },
+          ordered: 100,
+          fulfilled: 0,
+          remaining: 100,
+          availableStock: 72,
+          shortfall: 28,
+        },
+      ];
+      salesFulfilmentService.getAvailability.mockResolvedValue(rows);
+
+      const result = await controller.getAvailability(tokenUser, 'order-1', undefined);
+
+      expect(salesFulfilmentService.getAvailability).toHaveBeenCalledWith(
+        'org-1',
+        'order-1',
+        undefined,
+      );
+      expect(result).toEqual({ items: rows });
+    });
+
+    it('lists fulfilment history from the fulfilment service', async () => {
+      const { controller, salesFulfilmentService } = makeController();
+      salesFulfilmentService.listFulfilments.mockResolvedValue([]);
+
+      const result = await controller.listFulfilments(tokenUser, 'order-1');
+
+      expect(salesFulfilmentService.listFulfilments).toHaveBeenCalledWith('org-1', 'order-1');
+      expect(result).toEqual({ items: [] });
+    });
+
+    it('records an audit entry when a new fulfilment is created', async () => {
+      const { controller, salesFulfilmentService, auditService } = makeController();
+      const fulfilledOrder = { ...order, status: 'PARTIALLY_FULFILLED' } as SalesOrderWithRelations;
+      salesFulfilmentService.fulfil.mockResolvedValue({
+        fulfilment: { id: 'fulfilment-1', items: [{}] } as never,
+        order: fulfilledOrder,
+        wasCreated: true,
+      });
+
+      await controller.fulfil(
+        'order-1',
+        {
+          locationId: 'location-1',
+          fulfilmentDate: new Date('2026-08-21'),
+          items: [{ salesOrderItemId: 'item-1', quantity: 1 }],
+        },
+        tokenUser,
+        req,
+      );
+
+      expect(auditService.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: SALES_AUDIT_ACTIONS.ORDER_FULFILLED,
+          entityId: 'order-1',
+        }),
+      );
+    });
+
+    it('does NOT record a second audit entry when a replayed idempotent request returns an existing fulfilment', async () => {
+      const { controller, salesFulfilmentService, auditService } = makeController();
+      salesFulfilmentService.fulfil.mockResolvedValue({
+        fulfilment: { id: 'fulfilment-1', items: [{}] } as never,
+        order,
+        wasCreated: false,
+      });
+
+      await controller.fulfil(
+        'order-1',
+        {
+          locationId: 'location-1',
+          fulfilmentDate: new Date('2026-08-21'),
+          items: [{ salesOrderItemId: 'item-1', quantity: 1 }],
+        },
+        tokenUser,
+        req,
+      );
+
+      expect(auditService.record).not.toHaveBeenCalled();
     });
   });
 });

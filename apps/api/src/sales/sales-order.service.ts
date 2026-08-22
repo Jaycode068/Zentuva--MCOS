@@ -157,13 +157,21 @@ export class SalesOrderService {
   }
 
   /** `POST /:id/cancel` — reachable from `DRAFT` or `CONFIRMED`. Since confirming never
-   *  moved any stock, cancelling never needs to reverse anything. */
+   *  moved any stock, cancelling never needs to reverse anything. Once any fulfilment has
+   *  been recorded (Sprint 4.9), cancellation is blocked outright — reversing
+   *  partially-shipped goods is a future "Sales Returns" capability, not this one. */
   async cancel(
     organisationId: string,
     id: string,
     actorUserId: string,
   ): Promise<SalesOrderWithRelations> {
     const existing = await this.getByIdOrThrow(organisationId, id);
+    if (
+      existing.status === SalesOrderStatus.PARTIALLY_FULFILLED ||
+      existing.status === SalesOrderStatus.FULFILLED
+    ) {
+      throw new BadRequestException('Cannot cancel an order after fulfilment has started');
+    }
     if (existing.status === SalesOrderStatus.CANCELLED) {
       throw new BadRequestException('Sales order is already cancelled');
     }

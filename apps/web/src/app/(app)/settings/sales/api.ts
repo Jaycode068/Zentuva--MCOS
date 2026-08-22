@@ -1,11 +1,15 @@
 import { apiFetch } from '@/lib/api-client';
 
-export type SalesOrderStatus = 'DRAFT' | 'CONFIRMED' | 'CANCELLED';
+export type SalesOrderStatus =
+  'DRAFT' | 'CONFIRMED' | 'PARTIALLY_FULFILLED' | 'FULFILLED' | 'CANCELLED';
 
 export interface SalesOrderItem {
   id: string;
   product: { id: string; code: string; name: string; unit: string };
   quantity: number;
+  /** Cumulative quantity physically supplied so far (Sprint 4.9) — never client-writable,
+   *  only ever moved by `fulfilSalesOrder`. */
+  quantityFulfilled: number;
   unitPrice: number;
   lineTotal: number;
 }
@@ -97,4 +101,74 @@ export function confirmSalesOrder(id: string): Promise<SalesOrder> {
 
 export function cancelSalesOrder(id: string): Promise<SalesOrder> {
   return apiFetch<SalesOrder>(`/sales/orders/${id}/cancel`, { method: 'POST' });
+}
+
+/** One line of `GET /:id/availability` (Sprint 4.9) — read-only, purely informational,
+ *  never gates `fulfilSalesOrder`. */
+export interface SalesOrderAvailabilityRow {
+  salesOrderItemId: string;
+  productId: string;
+  product: { id: string; code: string; name: string; unit: string };
+  ordered: number;
+  fulfilled: number;
+  remaining: number;
+  availableStock: number;
+  shortfall: number;
+}
+
+export interface SalesFulfilmentItem {
+  id: string;
+  product: { id: string; code: string; name: string; unit: string };
+  quantityFulfilled: number;
+}
+
+/** `GET /:id/fulfilments` response shape — see
+ *  `apps/api/src/sales/sales-order.controller.ts`'s `toSalesFulfilmentResponse`. */
+export interface SalesFulfilment {
+  id: string;
+  fulfilmentDate: string;
+  location: { id: string; name: string };
+  notes: string | null;
+  items: SalesFulfilmentItem[];
+  createdAt: string;
+}
+
+export interface SalesFulfilmentItemPayload {
+  salesOrderItemId: string;
+  quantity: number;
+}
+
+export interface CreateSalesFulfilmentPayload {
+  locationId: string;
+  fulfilmentDate: string;
+  notes?: string;
+  /** Client-generated once per fulfilment attempt (`crypto.randomUUID()`) and reused
+   *  across retries of the same submit — lets a double-tap or flaky-network retry return
+   *  the original fulfilment instead of deducting stock twice (Sprint 4.9). */
+  idempotencyKey?: string;
+  items: SalesFulfilmentItemPayload[];
+}
+
+export function getSalesOrderAvailability(
+  id: string,
+  locationId?: string,
+): Promise<{ items: SalesOrderAvailabilityRow[] }> {
+  const query = locationId ? `?locationId=${encodeURIComponent(locationId)}` : '';
+  return apiFetch<{ items: SalesOrderAvailabilityRow[] }>(
+    `/sales/orders/${id}/availability${query}`,
+  );
+}
+
+export function listSalesFulfilments(id: string): Promise<{ items: SalesFulfilment[] }> {
+  return apiFetch<{ items: SalesFulfilment[] }>(`/sales/orders/${id}/fulfilments`);
+}
+
+export function fulfilSalesOrder(
+  id: string,
+  input: CreateSalesFulfilmentPayload,
+): Promise<SalesOrder> {
+  return apiFetch<SalesOrder>(`/sales/orders/${id}/fulfil`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
 }

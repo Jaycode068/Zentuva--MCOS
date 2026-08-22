@@ -21,6 +21,9 @@ export type SalesOrderWithRelations = SalesOrder & {
     id: string;
     productId: string;
     quantity: number;
+    /** Cumulative quantity fulfilled so far (Sprint 4.9) — see
+     *  `SalesOrderItem.quantityFulfilled`'s schema doc comment. */
+    quantityFulfilled: number;
     unitPrice: number;
     lineTotal: number;
     product: { id: string; code: string; name: string; unit: string };

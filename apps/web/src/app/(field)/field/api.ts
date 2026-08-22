@@ -9,4 +9,8 @@
 export * from '@/app/(app)/settings/retail/api';
 export * from '@/app/(app)/settings/sales/api';
 export { listProducts } from '@/app/(app)/settings/products/api';
+export {
+  getInventoryStockByProduct,
+  listInventoryLocations,
+} from '@/app/(app)/settings/inventory/api';
 export { captureCoordinates } from '@/lib/geolocation';
