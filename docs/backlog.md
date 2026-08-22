@@ -152,7 +152,18 @@ delivered roughly in order, but later Epics may be reordered as priorities evolv
 - **Objective:** plan and record the manufacturing process itself.
 - **Includes:** Recipes/BOM, Batch Production, Production Planning, Waste, Quality
   Control.
-- **Status:** Not started.
+- **Status:** Foundation implemented — Sprint 4.6 ("Production Management & Bill of
+  Materials Foundation"). A Bill of Materials (recipe) defines how much of each raw
+  material/packaging/consumable a finished product needs; a Production Order pins a
+  BOM's requirement snapshot at creation (immune to later BOM edits); Material Issue
+  consumes raw materials out of Inventory via `InventoryTransaction` `ISSUE` rows,
+  atomically, with over-issue and insufficient-stock rejected; Production Execution
+  records Planned/Produced/Rejected/Accepted as distinct figures (Accepted always
+  server-computed); completion receipts the accepted quantity into Inventory via
+  `InventoryTransaction` `RECEIPT` rows. Deliberately not a full MRP or Quality
+  Management System — no scheduling, no multi-level BOMs, no costing/labour/machine
+  allocation, no batch/lot/expiry tracking, no automatic procurement from a shortfall —
+  see [`docs/domains/production.md`](domains/production.md).
 
 ### Epic 7 — Sales
 
@@ -256,8 +267,9 @@ delivered roughly in order, but later Epics may be reordered as priorities evolv
 - ✓ Sprint 4.4 — Inventory Management (Goods Receiving)
 - ✓ Sprint 4.4.1 — Goods Receiving, Inspection & Supplier Discrepancy Refinement
 - ✓ Sprint 4.5 — Inventory Control & Stock Management
+- ✓ Sprint 4.6 — Production Management & Bill of Materials Foundation
 
-**Current focus:** Sprint 4.6 — not yet scoped.
+**Current focus:** Next sprint not yet scoped.
 
 ## 6. Future Ideas (Not Prioritised Yet)
 

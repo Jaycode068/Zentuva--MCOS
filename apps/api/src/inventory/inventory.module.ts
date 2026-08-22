@@ -18,6 +18,18 @@ import { InventoryTransactionRepository } from './inventory-transaction.reposito
  * `PurchaseOrderModule`/`ProductModule` are imported directly so `InventoryService` can
  * inject their exported repositories to validate a Purchase Order and its items without
  * duplicating Prisma access (ADR-002).
+ *
+ * `exports` (Sprint 4.6) — `GoodsReceiptRepository` is deliberately NOT exported;
+ * Production never needs to read/write Goods Receipts. The other three are exported so
+ * `ProductionModule` can inject them read-only (material-availability checks, location
+ * validation) via ADR-002's "consume another domain only through its exported
+ * repository" convention — same shape as `ProductModule`/`PurchaseOrderModule` already
+ * exporting their own repositories for this module's own use. Production's actual
+ * stock-moving *writes* (material issue, finished-goods receipt) do not go through these
+ * exports — they follow `GoodsReceiptRepository.receive`'s own precedent of writing
+ * directly to another domain's tables inside a self-owned `$transaction`, a narrow,
+ * documented exception to ADR-002 justified by atomicity (see
+ * docs/domains/production.md "Integration Points").
  */
 @Module({
   imports: [IdentityModule, AuthModule, ProductModule, PurchaseOrderModule],
@@ -29,5 +41,6 @@ import { InventoryTransactionRepository } from './inventory-transaction.reposito
     InventoryLocationRepository,
     InventoryService,
   ],
+  exports: [InventoryStockRepository, InventoryTransactionRepository, InventoryLocationRepository],
 })
 export class InventoryModule {}

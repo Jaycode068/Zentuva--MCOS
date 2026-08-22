@@ -48,7 +48,7 @@ const MODULE_DESCRIPTIONS: Record<string, string> = {
   '/settings/procurement': 'Purchase orders for raw materials, packaging, and supplies.',
   '/settings/suppliers': 'The master record of every vendor you buy from.',
   '/settings/inventory': 'Live stock levels and the goods receipts that built them.',
-  '/production': 'Recipes, batch production, and quality control.',
+  '/settings/production': 'Bills of materials, production orders, and material issues.',
   '/assets': 'Manage factory equipment, vehicles and long-term business assets.',
   '/maintenance': 'Schedule preventive maintenance and manage equipment servicing.',
   '/sales': 'Customers, orders, invoicing, and payments.',
@@ -175,7 +175,7 @@ export default function WorkspaceDashboardPage() {
               </li>
               <li className="flex items-center justify-between">
                 <span className="text-foreground">Production</span>
-                <span className="text-muted-foreground">Coming Next</span>
+                <span className="text-primary">✓ Complete</span>
               </li>
             </ul>
             <p className="mt-3 text-xs text-muted-foreground">

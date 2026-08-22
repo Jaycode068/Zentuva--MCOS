@@ -7,6 +7,74 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 4.6 Production Management & Bill of Materials Foundation] - 2026-08-15
+
+### Added
+
+- **`BillOfMaterial`/`BillOfMaterialItem`** — a recipe defining how much of each
+  Raw Material/Packaging Material/Consumable a `FINISHED_PRODUCT` needs to produce a
+  given yield quantity. `DRAFT → ACTIVE → INACTIVE` lifecycle; only one `ACTIVE` BOM
+  per finished product at a time (activating one atomically deactivates any prior
+  `ACTIVE` BOM for the same product); editable only while `DRAFT` — a BOM that has
+  ever been active is superseded by creating a new version, never edited in place.
+  `GET/POST /api/production/boms`, `PATCH .../:id`, `POST .../:id/activate`,
+  `POST .../:id/deactivate` (Owner/Administrator write, Member read-only).
+- **`ProductionOrder`/`ProductionOrderItem`** — an instruction to manufacture a
+  planned quantity of a finished product against one pinned Bill of Materials at one
+  `InventoryLocation`. Material requirements are computed once at creation
+  (`bomItem.quantity × plannedQuantity ÷ bom.yieldQuantity`) and snapshotted into
+  `ProductionOrderItem`, never recalculated even if the source BOM is later edited or
+  superseded. Status lifecycle `DRAFT → PLANNED → IN_PROGRESS → COMPLETED`, with
+  `CANCELLED` reachable only from `DRAFT`/`PLANNED` — once material is issued,
+  cancellation is structurally impossible (documented limitation, not a silent
+  inventory reversal). `GET/POST /api/production/orders`, `PATCH .../:id`,
+  `POST .../:id/plan`, `POST .../:id/cancel`.
+- **Material Availability Check** — `GET /api/production/orders/:id/availability`
+  returns Required/Available/Shortfall per component, purely informational — it never
+  gates planning, issuing, or completing an order (no stock-reservation engine this
+  sprint).
+- **`ProductionMaterialIssue`/`ProductionMaterialIssueItem`** —
+  `POST /api/production/orders/:id/material-issues` atomically consumes raw materials
+  out of Inventory: decrements `InventoryStock` and appends a paired
+  `InventoryTransaction` `ISSUE` row per component, inside one transaction (all
+  components succeed together or the whole issue rolls back). Over-issue (cumulative
+  issued exceeding required) and insufficient stock are both rejected with a `400`.
+  Supports multiple partial issues over time. The _first_ successful issue against an
+  order automatically transitions it from `PLANNED` to `IN_PROGRESS` — there is no
+  separate manual "Start" endpoint.
+- **`ProductionRun` — Production Execution** —
+  `POST /api/production/orders/:id/complete` records
+  Planned/Produced/Rejected/Accepted as distinct figures; `acceptedQuantity` is always
+  server-computed (`produced - rejected`) and never accepted from the client. A small
+  controlled `ProductionRejectionReason` enum (`BURNT`/`UNDERWEIGHT`/
+  `PACKAGING_DEFECT`/`POOR_SEAL`/`OTHER`) + free-text notes, not a full Quality
+  Management System. Only reachable from `IN_PROGRESS`; on success the order becomes
+  `COMPLETED` and, only when `acceptedQuantity > 0`, the finished product's
+  `InventoryStock` increases via a paired `InventoryTransaction` `RECEIPT` row — a
+  fully-rejected run writes no stock/ledger row at all.
+- **`InventoryModule` now exports** `InventoryStockRepository`,
+  `InventoryTransactionRepository`, `InventoryLocationRepository` (previously exported
+  nothing), so Production can read stock/location data directly. The atomic
+  stock-_moving_ writes (Material Issue, Finished Goods Receipt) reuse
+  `GoodsReceiptRepository.receive`'s own precedent — a narrow, documented exception to
+  ADR-002's domain-ownership convention, made for atomicity — writing directly into
+  `inventory_stock`/`inventory_transactions` from Production's own repositories rather
+  than through Inventory's controller/service.
+- **Frontend `/settings/production`** — Bills of Materials and Production Orders tabs,
+  consistent with the existing Zentuva Workspace UI. `BillOfMaterialDialog`
+  (create/edit with a component grid, Add/Remove rows); `ProductionOrderDialog`
+  (select an active BOM → live client-computed Material Requirements preview scaling
+  with planned quantity); `ProductionOrderDetailDialog` (requirement snapshot,
+  availability banner, material issue history, production result, and every reachable
+  status-transition action); `MaterialIssueDialog` (Required/Already Issued/
+  Remaining/Available per component, blocks over-issue/over-available client-side);
+  `ProductionRunDialog` (live-computed, read-only Accepted preview). Production nav
+  item activated (`/settings/production`, no longer "Coming Soon").
+- **New audit events** — `production.bom.created/updated/activated/deactivated`,
+  `production.order.created/updated/planned/started/cancelled`,
+  `production.material-issued`, `production.completed`,
+  `production.finished-goods-received`.
+
 ## [Sprint 4.5 Inventory Control & Stock Management] - 2026-08-15
 
 ### Added

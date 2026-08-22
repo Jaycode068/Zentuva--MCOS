@@ -4,5 +4,6 @@ export * from './identity';
 export * from './inventory';
 export * from './pagination';
 export * from './procurement';
+export * from './production';
 export * from './suppliers';
 export { z } from 'zod';

@@ -126,6 +126,20 @@ export class InventoryStockRepository {
     });
   }
 
+  /** Batch read for a Production Order's material-availability check and material-issue
+   *  pre-validation (Sprint 4.6) — one query for every BOM component instead of N.
+   *  Consumed by `ProductionOrderService` via `InventoryModule`'s exported repository. */
+  findManyByProductsAndLocation(
+    organisationId: string,
+    productIds: string[],
+    locationId: string,
+  ): Promise<InventoryStockWithProduct[]> {
+    return this.prisma.inventoryStock.findMany({
+      where: { organisationId, locationId, productId: { in: productIds } },
+      include: { product: { select: PRODUCT_SELECT }, location: { select: LOCATION_SELECT } },
+    });
+  }
+
   /** The one write path for stock corrections (brief §7 "Atomicity": validate stock →
    *  create `InventoryTransaction` → update `InventoryStock`, all inside one
    *  transaction, rolled back together on any failure). Reads the current balance

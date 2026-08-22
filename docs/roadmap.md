@@ -55,7 +55,12 @@ This roadmap tracks the intended build order. It is not a commitment to dates �
       adjustments, into a live stock balance + immutable transaction ledger;
       warehouse transfers, reservation, valuation, and a full WMS remain — see
       [`docs/domains/inventory.md`](domains/inventory.md)
-- [ ] Production
+- [x] Production — manufacturing foundation shipped Sprint 4.6 (Bill of Materials,
+      Production Orders with an immutable requirement snapshot, Material Issue against
+      Inventory's `InventoryTransaction` ledger, Production Execution with
+      server-computed Accepted quantity, finished-goods receipt back into Inventory);
+      MRP/scheduling, costing, multi-level BOMs, and batch/lot tracking remain — see
+      [`docs/domains/production.md`](domains/production.md)
 - [ ] Sales
 - [ ] Distribution
 - [ ] Finance

@@ -111,24 +111,29 @@ model Organisation {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  users                 User[]
-  roles                 Role[]
-  invitations           Invitation[]
-  auditLogs             AuditLog[]
-  sessions              Session[]
-  userRoles             UserRole[]
+  users                            User[]
+  roles                            Role[]
+  invitations                      Invitation[]
+  auditLogs                        AuditLog[]
+  sessions                         Session[]
+  userRoles                        UserRole[]
   /// Added Sprint 4.1 — Product Catalogue (docs/domains/catalogue.md).
-  products              Product[]
+  products                         Product[]
   /// Added Sprint 4.2 — Supplier Management (docs/domains/suppliers.md).
-  suppliers             Supplier[]
+  suppliers                        Supplier[]
   /// Added Sprint 4.3 — Procurement (docs/domains/procurement.md).
-  purchaseOrders        PurchaseOrder[]
+  purchaseOrders                   PurchaseOrder[]
   /// Added Sprint 4.4 — Inventory (docs/domains/inventory.md).
-  goodsReceipts         GoodsReceipt[]
-  inventoryStock        InventoryStock[]
-  inventoryTransactions InventoryTransaction[]
+  goodsReceipts                    GoodsReceipt[]
+  inventoryStock                   InventoryStock[]
+  inventoryTransactions            InventoryTransaction[]
   /// Added Sprint 4.5 — Inventory Locations (docs/domains/inventory.md).
-  inventoryLocations    InventoryLocation[]
+  inventoryLocations               InventoryLocation[]
+  /// Added Sprint 4.6 — Production & Bill of Materials (docs/domains/production.md).
+  billOfMaterials                  BillOfMaterial[]
+  productionOrders                 ProductionOrder[]
+  productionMaterialIssues         ProductionMaterialIssue[]
+  productionRuns                   ProductionRun[]
 
   @@map("organisations")
 }
@@ -436,15 +441,25 @@ model Product {
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
 
-  organisation          Organisation           @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  organisation                 Organisation                  @relation(fields: [organisationId], references: [id], onDelete: Cascade)
   /// Added Sprint 4.3 — Procurement (docs/domains/procurement.md). Only products whose
   /// `type` is Raw Material/Packaging Material/Consumable may actually appear here — see
   /// `PurchaseOrderService`'s product-type validation.
-  purchaseOrderItems    PurchaseOrderItem[]
+  purchaseOrderItems           PurchaseOrderItem[]
   /// Added Sprint 4.4 — Inventory (docs/domains/inventory.md).
-  goodsReceiptItems     GoodsReceiptItem[]
-  inventoryStock        InventoryStock[]
-  inventoryTransactions InventoryTransaction[]
+  goodsReceiptItems            GoodsReceiptItem[]
+  inventoryStock               InventoryStock[]
+  inventoryTransactions        InventoryTransaction[]
+  /// Added Sprint 4.6 — Production & Bill of Materials (docs/domains/production.md).
+  /// `billOfMaterials`/`billOfMaterialItems` cover this product appearing as either the
+  /// finished output of a recipe or one of its components — a product may legitimately
+  /// be referenced by both relations, just never within the same `BillOfMaterial` row
+  /// (see `BillOfMaterialItem`'s finished-vs-component type restriction, service-enforced).
+  billOfMaterials              BillOfMaterial[]
+  billOfMaterialItems          BillOfMaterialItem[]
+  productionOrders             ProductionOrder[]
+  productionOrderItems         ProductionOrderItem[]
+  productionMaterialIssueItems ProductionMaterialIssueItem[]
 
   @@unique([organisationId, slug])
   @@index([organisationId])
@@ -647,10 +662,12 @@ model InventoryLocation {
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
 
-  organisation  Organisation           @relation(fields: [organisationId], references: [id], onDelete: Cascade)
-  goodsReceipts GoodsReceipt[]
-  stock         InventoryStock[]
-  transactions  InventoryTransaction[]
+  organisation     Organisation           @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  goodsReceipts    GoodsReceipt[]
+  stock            InventoryStock[]
+  transactions     InventoryTransaction[]
+  /// Added Sprint 4.6 — Production & Bill of Materials (docs/domains/production.md).
+  productionOrders ProductionOrder[]
 
   @@index([organisationId])
   @@index([organisationId, status])
@@ -896,4 +913,264 @@ model InventoryTransaction {
   @@index([locationId])
   @@index([referenceType, referenceId])
   @@map("inventory_transactions")
+}
+
+/// Sprint 4.6 (docs/domains/production.md) — DRAFT/ACTIVE/INACTIVE, not a numbered
+/// version history: manufacturing formulas change over time, but rather than editing a
+/// BOM in place, the convention is "create a new BillOfMaterial row, activate it,
+/// deactivate the old one" — see `BillOfMaterialService.activate`. Exactly one `ACTIVE`
+/// row should exist per finished product at a time (service-enforced, not a DB
+/// constraint — same "Prisma has no native at-most-one-per-group constraint" situation
+/// as `InventoryLocation.isDefault`).
+enum BillOfMaterialStatus {
+  DRAFT
+  ACTIVE
+  INACTIVE
+}
+
+/// A recipe: how much of each raw material/packaging/consumable is required to produce
+/// a defined yield of one finished product. Deliberately single-level — a component here
+/// is never itself another `BillOfMaterial`'s finished product within this sprint's
+/// scope (multi-level/sub-assembly BOMs are explicitly deferred).
+model BillOfMaterial {
+  id             String               @id @default(cuid())
+  organisationId String
+  /// Auto-generated (`BOM-000001`, ...), globally unique, immutable — same
+  /// collision-avoidance pattern as `Product.code`/`PurchaseOrder.purchaseOrderNumber`/
+  /// `GoodsReceipt.goodsReceiptNumber`. See `BillOfMaterialService.generateUniqueNumber`.
+  bomNumber      String               @unique
+  /// The finished product this recipe produces. Must be `ProductType.FINISHED_PRODUCT`
+  /// — enforced in `BillOfMaterialService`, not the database, same convention as
+  /// `PurchaseOrderService`'s product-type restriction on `PurchaseOrderItem`.
+  productId      String
+  /// Optional cosmetic label distinguishing multiple DRAFT/INACTIVE versions of the same
+  /// product's recipe at a glance (e.g. "2026 Recipe"). Not the versioning mechanism
+  /// itself — `status` + "create new, activate" is.
+  name           String?
+  status         BillOfMaterialStatus @default(DRAFT)
+  /// The quantity of finished product this recipe yields, in the finished product's
+  /// `unit` (e.g. `1000` when the product's unit is "Pack" — "this recipe is per 1,000
+  /// packs"). Every `BillOfMaterialItem.quantity` is scoped to this amount; a Production
+  /// Order's `ProductionOrderItem.requiredQuantity` is always
+  /// `bomItem.quantity * plannedQuantity / yieldQuantity`. Must be positive.
+  yieldQuantity  Float
+  notes          String?
+  /// Plain ids, no FK relation — same convention as every other domain's actor fields.
+  createdById    String?
+  updatedById    String?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  organisation     Organisation         @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  product          Product              @relation(fields: [productId], references: [id], onDelete: Restrict)
+  items            BillOfMaterialItem[]
+  productionOrders ProductionOrder[]
+
+  @@index([organisationId])
+  @@index([organisationId, productId])
+  @@index([organisationId, productId, status])
+  @@map("bill_of_materials")
+}
+
+/// One component line of a Bill of Materials — the quantity of a raw material/packaging/
+/// consumable consumed per `billOfMaterial.yieldQuantity` of finished product.
+model BillOfMaterialItem {
+  id                 String   @id @default(cuid())
+  billOfMaterialId   String
+  /// Must be RAW_MATERIAL/PACKAGING_MATERIAL/CONSUMABLE — never FINISHED_PRODUCT —
+  /// enforced in `BillOfMaterialService`, mirroring `PurchaseOrderService`'s identical
+  /// component/purchasable-type restriction.
+  componentProductId String
+  /// Quantity of this component consumed per `billOfMaterial.yieldQuantity` of finished
+  /// product. Must be positive.
+  quantity           Float
+  /// Free text (same convention as `Product.unit`) — typically matches the component
+  /// product's own `unit`, but stored independently since a recipe may reasonably express
+  /// a quantity in a different unit than the product's stock-tracking unit. No unit
+  /// conversion is performed anywhere in this domain (see docs/domains/production.md
+  /// "Known Limitations").
+  unitOfMeasure      String
+  notes              String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  billOfMaterial   BillOfMaterial @relation(fields: [billOfMaterialId], references: [id], onDelete: Cascade)
+  componentProduct Product        @relation(fields: [componentProductId], references: [id], onDelete: Restrict)
+
+  /// DB-level defense-in-depth for "duplicate component lines prevented" (the Zod schema
+  /// also rejects duplicates at create/update time — this catches any path that bypasses
+  /// it).
+  @@unique([billOfMaterialId, componentProductId])
+  @@index([billOfMaterialId])
+  @@index([componentProductId])
+  @@map("bill_of_material_items")
+}
+
+/// DRAFT -> PLANNED -> IN_PROGRESS -> COMPLETED. `IN_PROGRESS` is entered only as a side
+/// effect of the first successful Material Issue against the order (no separate manual
+/// "Start" action) — see `ProductionMaterialIssueRepository.issue`. `CANCELLED` is only
+/// reachable from DRAFT/PLANNED: once material has been issued (i.e. once IN_PROGRESS),
+/// cancellation is deliberately blocked rather than triggering a silent inventory
+/// reversal — see docs/domains/production.md "Known Limitations".
+enum ProductionOrderStatus {
+  DRAFT
+  PLANNED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+/// An instruction to manufacture a defined quantity of a finished product, against one
+/// specific (pinned) Bill of Materials version. Sprint 4.6 (docs/domains/production.md).
+model ProductionOrder {
+  id                    String                @id @default(cuid())
+  organisationId        String
+  /// Auto-generated (`PROD-000001`, ...), globally unique, immutable. `PO-` is already
+  /// `PurchaseOrder.purchaseOrderNumber`'s prefix, hence `PROD-` here.
+  productionOrderNumber String                @unique
+  /// Denormalised from `billOfMaterial.productId` at creation time — the finished
+  /// product being manufactured. Never re-derived later; storing it directly avoids
+  /// every read joining through `billOfMaterial` just to know the product.
+  productId             String
+  /// The specific BOM version used, pinned at creation and never changed afterward — a
+  /// Bill of Materials is itself never edited in place once used (see
+  /// `BillOfMaterialService.update`'s DRAFT-only restriction), and the actual material
+  /// requirement snapshot lives on `ProductionOrderItem` below, so this reference alone
+  /// is enough to guarantee a later BOM edit can never retroactively change this order.
+  billOfMaterialId      String
+  /// The quantity of finished product this order intends to produce.
+  plannedQuantity       Float
+  /// The physical location this order consumes materials from and receives finished
+  /// goods into. Reuses `InventoryLocation` — no separate warehouse concept.
+  locationId            String
+  status                ProductionOrderStatus @default(DRAFT)
+  notes                 String?
+  createdById           String?
+  updatedById           String?
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+
+  organisation   Organisation              @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  product        Product                   @relation(fields: [productId], references: [id], onDelete: Restrict)
+  billOfMaterial BillOfMaterial            @relation(fields: [billOfMaterialId], references: [id], onDelete: Restrict)
+  location       InventoryLocation         @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  items          ProductionOrderItem[]
+  materialIssues ProductionMaterialIssue[]
+  productionRun  ProductionRun?
+
+  @@index([organisationId])
+  @@index([organisationId, status])
+  @@index([organisationId, productId])
+  @@index([billOfMaterialId])
+  @@index([locationId])
+  @@map("production_orders")
+}
+
+/// The immutable material-requirement snapshot for one Production Order — one row per
+/// BOM component, `requiredQuantity` computed exactly once at order-creation time
+/// (`bomItem.quantity * plannedQuantity / billOfMaterial.yieldQuantity`) and never
+/// recalculated afterward, even if the source Bill of Materials is later edited,
+/// deactivated, or superseded. This is what guarantees "later BOM changes must never
+/// retroactively change an existing Production Order's material requirements." Issued/
+/// remaining quantities are deliberately NOT stored here — always derived by summing
+/// `ProductionMaterialIssueItem` rows at read time (mirrors
+/// `GoodsReceiptRepository.getReceivingTotals`'s `groupBy` pattern, rather than a
+/// redundant running-total column that could drift).
+model ProductionOrderItem {
+  id                 String   @id @default(cuid())
+  productionOrderId  String
+  componentProductId String
+  requiredQuantity   Float
+  /// Copied from `BillOfMaterialItem.unitOfMeasure` at creation time — same
+  /// point-in-time-snapshot rationale as `requiredQuantity`.
+  unitOfMeasure      String
+  createdAt          DateTime @default(now())
+
+  productionOrder  ProductionOrder @relation(fields: [productionOrderId], references: [id], onDelete: Cascade)
+  componentProduct Product         @relation(fields: [componentProductId], references: [id], onDelete: Restrict)
+
+  @@index([productionOrderId])
+  @@index([componentProductId])
+  @@map("production_order_items")
+}
+
+/// One batch material-issue event against a Production Order — immutable once created,
+/// same "header + item rows, paired 1:1 with `InventoryTransaction` rows" shape as
+/// `GoodsReceipt`/`GoodsReceiptItem`. A Production Order may have many of these, to
+/// support partial/multiple issues over time (brief §14).
+model ProductionMaterialIssue {
+  id                String   @id @default(cuid())
+  organisationId    String
+  productionOrderId String
+  issuedDate        DateTime
+  /// Plain id, no FK relation, same convention as `GoodsReceipt.receivedById`. Always
+  /// the authenticated caller.
+  issuedById        String?
+  notes             String?
+  createdAt         DateTime @default(now())
+
+  organisation    Organisation                  @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  productionOrder ProductionOrder               @relation(fields: [productionOrderId], references: [id], onDelete: Restrict)
+  items           ProductionMaterialIssueItem[]
+
+  @@index([organisationId])
+  @@index([organisationId, productionOrderId])
+  @@map("production_material_issues")
+}
+
+/// One component's issued quantity within a `ProductionMaterialIssue` batch. Pairs 1:1
+/// with an `InventoryTransaction` `ISSUE` row (`referenceType: 'ProductionMaterialIssue'`,
+/// `referenceId: this issue's id`) — exact mirror of `GoodsReceiptItem` -> `RECEIPT`.
+model ProductionMaterialIssueItem {
+  id                        String   @id @default(cuid())
+  productionMaterialIssueId String
+  componentProductId        String
+  quantityIssued            Float
+  createdAt                 DateTime @default(now())
+
+  productionMaterialIssue ProductionMaterialIssue @relation(fields: [productionMaterialIssueId], references: [id], onDelete: Cascade)
+  componentProduct        Product                 @relation(fields: [componentProductId], references: [id], onDelete: Restrict)
+
+  @@index([productionMaterialIssueId])
+  @@index([componentProductId])
+  @@map("production_material_issue_items")
+}
+
+/// Controlled reasons for rejected production output (brief §17) — a simple structured
+/// field plus free-text `ProductionRun.rejectionNotes`, not a full Quality Management
+/// System.
+enum ProductionRejectionReason {
+  BURNT
+  UNDERWEIGHT
+  PACKAGING_DEFECT
+  POOR_SEAL
+  OTHER
+}
+
+/// The completion event for a Production Order — MVP: at most one per order (enforced by
+/// the `@@unique` below), kept as its own immutable table (not columns on
+/// `ProductionOrder`) for the same reason `GoodsReceipt` is its own table rather than
+/// columns on `PurchaseOrder`: an event record, paired with the `InventoryTransaction`
+/// `RECEIPT` row it produces, not a mutable running total. `acceptedQuantity` is always
+/// server-computed as `producedQuantity - rejectedQuantity` (brief: never trust the
+/// client) — only the accepted portion ever enters `InventoryStock`; rejected output does
+/// not.
+model ProductionRun {
+  id                String                     @id @default(cuid())
+  organisationId    String
+  productionOrderId String                     @unique
+  producedQuantity  Float
+  rejectedQuantity  Float                      @default(0)
+  acceptedQuantity  Float
+  rejectionReason   ProductionRejectionReason?
+  rejectionNotes    String?
+  /// Plain id, no FK relation, same convention as every other domain's actor fields.
+  completedById     String?
+  completedAt       DateTime                   @default(now())
+
+  organisation    Organisation    @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  productionOrder ProductionOrder @relation(fields: [productionOrderId], references: [id], onDelete: Restrict)
+
+  @@index([organisationId])
+  @@map("production_runs")
 }

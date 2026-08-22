@@ -14,6 +14,7 @@ import { UserModule } from './identity/user/user.module';
 import { InventoryModule } from './inventory/inventory.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { PurchaseOrderModule } from './procurement/purchase-order/purchase-order.module';
+import { ProductionModule } from './production/production.module';
 import { SupplierModule } from './suppliers/supplier/supplier.module';
 
 @Module({
@@ -35,6 +36,7 @@ import { SupplierModule } from './suppliers/supplier/supplier.module';
     SupplierModule,
     PurchaseOrderModule,
     InventoryModule,
+    ProductionModule,
   ],
 })
 export class AppModule {}

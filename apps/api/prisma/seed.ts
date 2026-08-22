@@ -807,6 +807,159 @@ async function seedInventoryAdjustment(
   ]);
 }
 
+/** Tops up raw-material stock at Main Warehouse before seeding Production data (Sprint
+ *  4.6 brief §30 "sufficient raw-material stock for availability/issue testing").
+ *  Vegetable Oil has zero stock at this point (its only Purchase Order, `PO-000002`, is
+ *  seeded `DRAFT` and never received) — every other input already carries stock from the
+ *  Sprint 4.4.1 goods-receiving seed data, but is topped up too for headroom against the
+ *  seeded Production Order plus a live "insufficient stock" test that over-requests
+ *  against these same balances. Recorded as an `ADJUSTMENT`/`FOUND_STOCK` transaction
+ *  (never written straight to `InventoryStock`), same rule `seedInventoryAdjustment`
+ *  itself follows. Idempotent via a `referenceType: 'ProductionSeedTopUp'` existence
+ *  check per product, since — unlike a goods receipt — a manual top-up has no natural
+ *  unique business key. */
+const PRODUCTION_RAW_MATERIAL_TOPUPS = [
+  { productCode: 'PRD-000011', quantity: 1000 }, // Plantain
+  { productCode: 'PRD-000012', quantity: 200 }, // Vegetable Oil
+  { productCode: 'PRD-000009', quantity: 100 }, // Salt
+  { productCode: 'PRD-000013', quantity: 500 }, // Printed Nylon
+] as const;
+
+async function seedProductionRawMaterialTopUp(
+  organisationId: string,
+  actorUserId: string,
+  productsByCode: Record<string, string>,
+  locationId: string,
+): Promise<void> {
+  console.log('Topping up raw-material stock for Production testing...');
+  for (const topUp of PRODUCTION_RAW_MATERIAL_TOPUPS) {
+    const productId = productsByCode[topUp.productCode]!;
+    const existing = await prisma.inventoryTransaction.findFirst({
+      where: { organisationId, productId, locationId, referenceType: 'ProductionSeedTopUp' },
+    });
+    if (existing) {
+      continue;
+    }
+
+    const stock = await prisma.inventoryStock.findUnique({
+      where: { organisationId_productId_locationId: { organisationId, productId, locationId } },
+    });
+    const newQuantity = (stock?.quantityOnHand ?? 0) + topUp.quantity;
+
+    await prisma.$transaction([
+      prisma.inventoryStock.upsert({
+        where: { organisationId_productId_locationId: { organisationId, productId, locationId } },
+        create: { organisationId, productId, locationId, quantityOnHand: newQuantity },
+        update: { quantityOnHand: newQuantity },
+      }),
+      prisma.inventoryTransaction.create({
+        data: {
+          organisationId,
+          productId,
+          locationId,
+          transactionType: 'ADJUSTMENT',
+          quantity: topUp.quantity,
+          referenceType: 'ProductionSeedTopUp',
+          adjustmentReason: 'FOUND_STOCK',
+          notes: 'Sprint 4.6 seed — raw material top-up for Production testing.',
+          createdById: actorUserId,
+        },
+      }),
+    ]);
+  }
+}
+
+/** One active Bill of Materials for Plantain Chips (Sprint 4.6 brief §30) — component
+ *  quantities are defined per `yieldQuantity: 1000` packs. Seeded `ACTIVE` directly
+ *  (bypassing the DRAFT-first lifecycle a real `POST .../activate` call goes through),
+ *  same "seed the end state directly" convention as `BOBY_BITES_PRODUCTS` seeding
+ *  `ACTIVE` instead of `DRAFT`. */
+const PLANTAIN_CHIPS_BOM = {
+  bomNumber: 'BOM-000001',
+  productCode: 'PRD-000001',
+  name: 'Plantain Chips v1',
+  yieldQuantity: 1000,
+  items: [
+    { productCode: 'PRD-000011', quantity: 500, unitOfMeasure: 'Kilogram' },
+    { productCode: 'PRD-000012', quantity: 50, unitOfMeasure: 'Litre' },
+    { productCode: 'PRD-000009', quantity: 5, unitOfMeasure: 'Kilogram' },
+    { productCode: 'PRD-000013', quantity: 1000, unitOfMeasure: 'Roll' },
+  ],
+} as const;
+
+/** `PROD-000001` plans 500 of the BOM's 1000-pack yield — exactly half — so its
+ *  requirement snapshot below is every component quantity halved, the same scaling
+ *  `ProductionOrderService.create` performs at request time. Seeded `PLANNED` (past
+ *  `DRAFT`, not yet `IN_PROGRESS`) so the live Boby Bites verification scenario (brief
+ *  §27) can exercise Material Issue immediately without an extra manual "plan" step. */
+const PLANTAIN_CHIPS_PRODUCTION_ORDER_NUMBER = 'PROD-000001';
+const PLANTAIN_CHIPS_PLANNED_QUANTITY = 500;
+
+async function seedProduction(
+  organisationId: string,
+  actorUserId: string,
+  productsByCode: Record<string, string>,
+  locationId: string,
+): Promise<void> {
+  console.log('Seeding Production (1 active Plantain Chips BOM + 1 Production Order)...');
+
+  const finishedProductId = productsByCode[PLANTAIN_CHIPS_BOM.productCode]!;
+  const existingBom = await prisma.billOfMaterial.findUnique({
+    where: { bomNumber: PLANTAIN_CHIPS_BOM.bomNumber },
+  });
+  const bom =
+    existingBom ??
+    (await prisma.billOfMaterial.create({
+      data: {
+        organisationId,
+        bomNumber: PLANTAIN_CHIPS_BOM.bomNumber,
+        productId: finishedProductId,
+        name: PLANTAIN_CHIPS_BOM.name,
+        status: 'ACTIVE',
+        yieldQuantity: PLANTAIN_CHIPS_BOM.yieldQuantity,
+        createdById: actorUserId,
+        updatedById: actorUserId,
+        items: {
+          create: PLANTAIN_CHIPS_BOM.items.map((item) => ({
+            componentProductId: productsByCode[item.productCode]!,
+            quantity: item.quantity,
+            unitOfMeasure: item.unitOfMeasure,
+          })),
+        },
+      },
+    }));
+
+  const existingOrder = await prisma.productionOrder.findUnique({
+    where: { productionOrderNumber: PLANTAIN_CHIPS_PRODUCTION_ORDER_NUMBER },
+  });
+  if (existingOrder) {
+    return;
+  }
+
+  await prisma.productionOrder.create({
+    data: {
+      organisationId,
+      productionOrderNumber: PLANTAIN_CHIPS_PRODUCTION_ORDER_NUMBER,
+      productId: finishedProductId,
+      billOfMaterialId: bom.id,
+      plannedQuantity: PLANTAIN_CHIPS_PLANNED_QUANTITY,
+      locationId,
+      status: 'PLANNED',
+      notes: 'First production run of Plantain Chips for the new Production module.',
+      createdById: actorUserId,
+      updatedById: actorUserId,
+      items: {
+        create: PLANTAIN_CHIPS_BOM.items.map((item) => ({
+          componentProductId: productsByCode[item.productCode]!,
+          requiredQuantity:
+            (item.quantity * PLANTAIN_CHIPS_PLANNED_QUANTITY) / PLANTAIN_CHIPS_BOM.yieldQuantity,
+          unitOfMeasure: item.unitOfMeasure,
+        })),
+      },
+    },
+  });
+}
+
 async function main(): Promise<void> {
   // Read early (rather than inside `seedUser`) because the organisation's `businessEmail`
   // needs it before any user is created.
@@ -936,6 +1089,13 @@ async function main(): Promise<void> {
     productsByCode['PRD-000009']!,
     mainWarehouseId,
   );
+  await seedProductionRawMaterialTopUp(
+    organisation.id,
+    ownerUser.id,
+    productsByCode,
+    mainWarehouseId,
+  );
+  await seedProduction(organisation.id, ownerUser.id, productsByCode, mainWarehouseId);
 
   console.log('Recording an audit log entry for this seed run...');
   await prisma.auditLog.create({
@@ -961,6 +1121,8 @@ async function main(): Promise<void> {
     purchaseOrdersSeeded: BOBY_BITES_PURCHASE_ORDERS.length,
     goodsReceiptsSeeded: BOBY_BITES_GOODS_RECEIPTS.length,
     inventoryLocationsSeeded: BOBY_BITES_INVENTORY_LOCATIONS.length,
+    billsOfMaterialSeeded: 2,
+    productionOrdersSeeded: 2,
   });
 }
 
