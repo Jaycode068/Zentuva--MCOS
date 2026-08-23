@@ -7,6 +7,69 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 5 Distribution & Delivery Operations Foundation] - 2026-08-23
+
+### Added
+
+- **`Dispatch`/`DispatchItem`** — the physical release of already-fulfilled goods toward
+  a destination, chained directly off an existing `SalesFulfilment`. Auto-generated
+  `dispatchCode` (`DSP-000001`, ..., globally unique). `DispatchStatus` lifecycle:
+  `READY → DISPATCHED → IN_TRANSIT → {PARTIALLY_DELIVERED → DELIVERED}`, with
+  `CANCELLED` (blocked once any delivery exists) and `FAILED` (terminal, requires a
+  non-empty explanation) as side-branches. `SalesFulfilmentItem` gains a new
+  `quantityDispatched` cumulative column.
+- **`Delivery`/`DeliveryItem`** — confirmation of what actually arrived, supporting
+  partial/short delivery (dispatched 500, delivered 480 → 20 short, captured via
+  free-text `notes` — no reason-code enum, no Returns/Claims Management system this
+  sprint). `DispatchItem` gains a new `quantityDelivered` cumulative column, completing
+  the chain `quantityFulfilled → quantityDispatched → quantityDelivered`. An optional
+  single proof-of-delivery photo (`photoUrl`/`photoKey`, mirroring `Product.imageUrl`'s
+  single-photo shape) is attached via a separate follow-up upload request.
+- **Inventory independence, proven executably**: `DispatchRepository`/
+  `DeliveryRepository`'s atomic `create()` transactions never touch `InventoryStock`/
+  `InventoryTransaction` — Sales Fulfilment remains the sole inventory-deducting event
+  in this codebase. A new `distribution-inventory-independence.spec.ts` structurally
+  guards this (source-scans for any forbidden import/usage) alongside a second guarantee
+  that `DistributionModule` never imports `NetworkRelationshipModule`/`TerritoryModule`
+  — the distribution network stays purely informational (an "Associated Distributor"
+  display on the dispatch detail view), never a gate on dispatch or delivery.
+- **New endpoints**: `GET/POST /api/distribution`, `GET /api/distribution/:id`, `POST
+/:id/dispatch`, `/:id/in-transit`, `/:id/cancel`, `/:id/fail`, `GET/POST /:id/
+deliveries`, `POST /deliveries/:deliveryId/photo`, `GET /fulfilments/:
+salesFulfilmentId/dispatch-availability`.
+- **Idempotency** — `Dispatch.idempotencyKey`/`Delivery.idempotencyKey`, same pattern as
+  `SalesFulfilment.idempotencyKey`; both the Admin dialogs and the Field Sales sheet
+  generate one via `crypto.randomUUID()` per attempt, protecting against a double-tap or
+  flaky-network retry duplicating a dispatch or delivery.
+- **`sales.module.ts` gains its first `exports` array** (`SalesOrderRepository`,
+  `SalesFulfilmentRepository`) so `DistributionModule` can read Sales Orders/Fulfilments
+  read-only, via the same "consume another domain only through its exported repository"
+  convention `InventoryModule`/`ProductModule` already established.
+- **Admin surface** (`/settings/distribution`) — a dispatches list with search/status
+  filters, a multi-step "Create Dispatch" dialog (search a fulfilled Sales Order → pick
+  its Sales Fulfilment → a Fulfilled/Already Dispatched/Remaining item grid), and a
+  detail dialog with delivery history, status-conditional actions, and the informational
+  "Associated Distributor" card.
+- **Field Sales surface** (`/field/deliveries`) — a new fifth bottom-nav tab, a card list
+  defaulting to dispatches still needing action, and a full-screen delivery-confirmation
+  sheet (`FieldDeliverySheet`) with a Dispatched/Delivered/Remaining grid, recipient
+  name, notes, and a proof-of-delivery photo step using `ImageUploadCard`'s new
+  `preferCamera` prop to open the device's rear camera directly.
+- **Seed data** — a new Boby Bites fixture (customer `CUS-000012` "Mama Nkechi Stores",
+  outlet `OUT-000009`, order `SO-000011`, `DSP-000001` at 500 dispatched, and a partial
+  delivery at 470/500 landing `PARTIALLY_DELIVERED`) exercising the full chain end to
+  end, plus the outlet-territory-takes-precedence-over-customer-territory display rule.
+
+### Fixed
+
+- **`DispatchDialog`'s Source Location default was cosmetic only** — the `<Select>`
+  visually showed the organisation's default location, but the underlying form state
+  never synced to it unless the user manually reopened the dropdown, so submitting
+  without touching the field sent an empty `sourceLocationId` and the server correctly
+  rejected it. Fixed by resolving the effective value once (`sourceLocationId ||
+defaultLocation?.id`) and using that resolved value consistently for the select's
+  display, the disabled-check, and the actual submitted payload.
+
 ## [Sprint 4.9 Sales Execution & Order Fulfilment Foundation] - 2026-08-22
 
 ### Added
@@ -68,6 +131,18 @@ message → insufficient-stock rejected with an exact message → RBAC (Member 2
 `GET`s, 403 on `POST .../fulfil`) → idempotent duplicate-submit protection → Field Sales
 mobile flow at 360/375/430px, including the full-screen fulfilment sheet and the
 new-order stock hint.
+
+### Note on commit history
+
+Sprints 4.6–4.9 had accumulated together in one uncommitted working tree across
+several sessions. When asked to commit and push, the changes were split into four
+separate commits — one per sprint, matching this repo's established one-commit-per-sprint
+convention — by reconstructing each sprint's exact file boundaries (using this
+codebase's own inline `Added Sprint X.Y` markers plus exact knowledge of this
+session's own edits for the 4.8/4.9 boundary) rather than committing everything as a
+single lump. Verified byte-identical to the original working tree afterward: `tsc`,
+`eslint`, the full Jest suite (39 suites / 419 tests), and both production builds all
+passed identically before and after the split.
 
 ## [Sprint 4.8 Customer, Territory, Outlet, Retail Network & Sales Foundation] - 2026-08-21
 

@@ -148,6 +148,9 @@ model Organisation {
   salesOrders                      SalesOrder[]
   /// Added Sprint 4.9 — Sales Fulfilment (docs/domains/sales.md "Fulfilment").
   salesFulfilments                 SalesFulfilment[]
+  /// Added Sprint 5 — Distribution & Delivery (docs/domains/distribution.md).
+  dispatches                       Dispatch[]
+  deliveries                       Delivery[]
 
   @@map("organisations")
 }
@@ -489,6 +492,9 @@ model Product {
   salesOrderItems              SalesOrderItem[]
   /// Added Sprint 4.9 — Sales Fulfilment (docs/domains/sales.md "Fulfilment").
   salesFulfilmentItems         SalesFulfilmentItem[]
+  /// Added Sprint 5 — Distribution & Delivery (docs/domains/distribution.md).
+  dispatchItems                DispatchItem[]
+  deliveryItems                DeliveryItem[]
 
   @@unique([organisationId, slug])
   @@index([organisationId])
@@ -772,6 +778,10 @@ model InventoryLocation {
   productionOrders ProductionOrder[]
   /// Added Sprint 4.9 — Sales Fulfilment (docs/domains/sales.md "Fulfilment").
   salesFulfilments SalesFulfilment[]
+  /// Added Sprint 5 — Distribution & Delivery (docs/domains/distribution.md). The only
+  /// relation this sprint adds to `InventoryLocation` — `InventoryStock`/
+  /// `InventoryTransaction` gain nothing, since Dispatch/Delivery never touch them.
+  dispatches       Dispatch[]
 
   @@index([organisationId])
   @@index([organisationId, status])
@@ -1473,6 +1483,8 @@ model Customer {
   /// rows in either relation buys directly and is fully first-class.
   networkRelationshipsAsSource DistributionNetworkRelationship[] @relation("NetworkSource")
   networkRelationshipsAsTarget DistributionNetworkRelationship[] @relation("NetworkTarget")
+  /// Added Sprint 5 — Distribution & Delivery (docs/domains/distribution.md).
+  dispatches                   Dispatch[]
 
   @@index([organisationId])
   @@index([organisationId, status])
@@ -1521,6 +1533,8 @@ model Outlet {
   territory    Territory?    @relation(fields: [territoryId], references: [id], onDelete: SetNull)
   photos       OutletPhoto[]
   salesOrders  SalesOrder[]
+  /// Added Sprint 5 — Distribution & Delivery (docs/domains/distribution.md).
+  dispatches   Dispatch[]
 
   @@index([organisationId])
   @@index([organisationId, status])
@@ -1655,6 +1669,9 @@ model SalesOrder {
   outlet       Outlet?          @relation(fields: [outletId], references: [id], onDelete: Restrict)
   items        SalesOrderItem[]
   fulfilments  SalesFulfilment[]
+  /// Added Sprint 5 — Distribution & Delivery (docs/domains/distribution.md). Denormalised
+  /// inverse of `Dispatch.salesOrderId`.
+  dispatches   Dispatch[]
 
   @@index([organisationId])
   @@index([organisationId, status])
@@ -1738,6 +1755,8 @@ model SalesFulfilment {
   /// history.
   location     InventoryLocation     @relation(fields: [locationId], references: [id], onDelete: Restrict)
   items        SalesFulfilmentItem[]
+  /// Added Sprint 5 — Distribution & Delivery (docs/domains/distribution.md).
+  dispatches   Dispatch[]
 
   @@unique([salesOrderId, idempotencyKey])
   @@index([organisationId])
@@ -1756,14 +1775,214 @@ model SalesFulfilmentItem {
   /// `quantityFulfilled` inside the same transaction.
   salesOrderItemId  String
   quantityFulfilled Float
+  /// Added Sprint 5 — cumulative quantity released across every `DispatchItem` ever
+  /// created against this line (via `DispatchItem.salesFulfilmentItemId`). Never
+  /// decremented, only incremented inside `DispatchRepository.create`'s own
+  /// transaction. Always `0 <= quantityDispatched <= quantityFulfilled`
+  /// (service-enforced). Mirrors `SalesOrderItem.quantityFulfilled`'s own
+  /// cumulative-progress convention one level further down the chain — see
+  /// docs/domains/distribution.md.
+  quantityDispatched Float    @default(0)
   createdAt         DateTime @default(now())
 
   salesFulfilment SalesFulfilment @relation(fields: [salesFulfilmentId], references: [id], onDelete: Cascade)
   product         Product         @relation(fields: [productId], references: [id], onDelete: Restrict)
   salesOrderItem  SalesOrderItem  @relation(fields: [salesOrderItemId], references: [id], onDelete: Restrict)
+  /// Added Sprint 5 (docs/domains/distribution.md).
+  dispatchItems   DispatchItem[]
 
   @@index([salesFulfilmentId])
   @@index([productId])
   @@index([salesOrderItemId])
   @@map("sales_fulfilment_items")
+}
+
+// ============================================================================
+// Sprint 5 — Distribution & Delivery Operations Foundation
+// (docs/domains/distribution.md)
+//
+// CORE PRINCIPLE: Sales Fulfilment (Sprint 4.9) remains the ONE place inventory is
+// ever deducted. Dispatch and Delivery are purely operational records about the
+// movement of already-fulfilled stock — neither ever touches `InventoryStock` or
+// `InventoryTransaction`. Distribution Network relationships remain purely
+// informational/contextual, never a gate on dispatch or delivery.
+// ============================================================================
+
+/// `READY` (created, not yet physically released) -> `DISPATCHED` (left the source
+/// location) -> `IN_TRANSIT` (optional intermediate) -> `PARTIALLY_DELIVERED`/
+/// `DELIVERED` (driven exclusively by `Delivery` records, never set directly). `CANCELLED`
+/// is reachable from `READY`/`DISPATCHED`/`IN_TRANSIT` only, blocked once any delivery
+/// exists. `FAILED` is reachable from `DISPATCHED`/`IN_TRANSIT` only ("goods dispatched
+/// but the customer could not receive them"). Both `CANCELLED` and `FAILED` are terminal.
+enum DispatchStatus {
+  READY
+  DISPATCHED
+  IN_TRANSIT
+  PARTIALLY_DELIVERED
+  DELIVERED
+  CANCELLED
+  FAILED
+}
+
+/// A batch of already-fulfilled goods physically released toward a destination
+/// (Sprint 5, docs/domains/distribution.md). Never touches `InventoryStock`/
+/// `InventoryTransaction` — Sales Fulfilment remains the sole inventory-deduction
+/// event. `status` is derived from `DispatchItem.quantityDelivered` vs
+/// `quantityDispatched` after every `Delivery`, never independently set except by the
+/// plain lifecycle transitions (`dispatch`/`in-transit`/`cancel`/`fail`).
+model Dispatch {
+  id                String         @id @default(cuid())
+  organisationId    String
+  /// Auto-generated (`DSP-000001`, ...), globally unique, immutable — same
+  /// collision-avoidance loop as `SO-`/`OUT-`/`CUS-`.
+  dispatchCode      String         @unique
+  salesFulfilmentId String
+  /// Denormalised from `salesFulfilment.salesOrderId` at creation time — lets
+  /// `GET /distribution?salesOrderId=` filter with one query instead of joining
+  /// through `SalesFulfilment`, same denormalisation rationale as
+  /// `OutletPhoto.organisationId`.
+  salesOrderId      String
+  customerId        String
+  /// Optional; defaults from the Sales Order's own `outletId` at creation time but may
+  /// be overridden — when supplied it must belong to the same `customerId`
+  /// (service-enforced, same check as `SalesOrderService.assertOutletBelongsToCustomer`).
+  outletId          String?
+  /// The `InventoryLocation` goods physically left from — read-only display context,
+  /// never a second inventory-deduction point.
+  sourceLocationId  String
+  dispatchDate      DateTime
+  status            DispatchStatus @default(READY)
+  notes             String?
+  /// Client-supplied, optional. A retried "create dispatch" request (double-tap, flaky
+  /// mobile network) with the SAME key against the SAME fulfilment returns the
+  /// original `Dispatch` instead of creating a duplicate — same convention as
+  /// `SalesFulfilment.idempotencyKey`.
+  idempotencyKey    String?
+  createdById       String?
+  updatedById       String?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  /// `Restrict` — a dispatch is history and must survive even if a future feature ever
+  /// allowed deleting a Sales Fulfilment (it doesn't today), same rationale as
+  /// `SalesFulfilment.salesOrder`.
+  salesFulfilment SalesFulfilment   @relation(fields: [salesFulfilmentId], references: [id], onDelete: Restrict)
+  /// `Restrict` — denormalised pointer, same immutability guarantee as the FK it
+  /// duplicates.
+  salesOrder      SalesOrder        @relation(fields: [salesOrderId], references: [id], onDelete: Restrict)
+  /// `Restrict` — a dispatch is history; a customer record must never be silently
+  /// re-pointed or null-ed out from under it (same rule as `SalesOrder.customer`).
+  customer        Customer          @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  /// `Restrict`, nullable — optional but, once set, must survive (same "optional but
+  /// Restrict, not SetNull" rule `SalesOrder.outlet` already uses).
+  outlet          Outlet?           @relation(fields: [outletId], references: [id], onDelete: Restrict)
+  /// `Restrict` — same rationale as every other `InventoryLocation` FK in this codebase.
+  sourceLocation  InventoryLocation @relation(fields: [sourceLocationId], references: [id], onDelete: Restrict)
+  items           DispatchItem[]
+  deliveries      Delivery[]
+
+  @@unique([salesFulfilmentId, idempotencyKey])
+  @@index([organisationId])
+  @@index([organisationId, status])
+  @@index([organisationId, salesOrderId])
+  @@index([organisationId, customerId])
+  @@map("dispatches")
+}
+
+/// One line of a Dispatch. No `@@unique([dispatchId, productId])` — a single Dispatch
+/// may legitimately draw the same product from two different `SalesFulfilmentItem`
+/// batches; duplicate-line prevention is Zod-only (`hasNoDuplicateDispatchItems`, keyed
+/// on `salesFulfilmentItemId`), same precedent `SalesFulfilmentItem` itself already
+/// sets (no DB-level unique there either).
+model DispatchItem {
+  id                    String   @id @default(cuid())
+  dispatchId            String
+  productId             String
+  /// The specific `SalesFulfilmentItem` this dispatch line releases — needed to
+  /// atomically increment that line's own `quantityDispatched` inside the same
+  /// transaction, and gives precise per-line traceability back to which fulfilment
+  /// batch's stock this dispatch line came from.
+  salesFulfilmentItemId String
+  quantityDispatched    Float
+  /// Cumulative quantity confirmed received across every `DeliveryItem` ever recorded
+  /// against this line. Never decremented, only incremented inside
+  /// `DeliveryRepository.create`'s own transaction. Always
+  /// `0 <= quantityDelivered <= quantityDispatched`. Drives `Dispatch.status`
+  /// derivation — see docs/domains/distribution.md "Status Derivation".
+  quantityDelivered     Float    @default(0)
+  createdAt             DateTime @default(now())
+
+  dispatch            Dispatch            @relation(fields: [dispatchId], references: [id], onDelete: Cascade)
+  product             Product             @relation(fields: [productId], references: [id], onDelete: Restrict)
+  salesFulfilmentItem SalesFulfilmentItem @relation(fields: [salesFulfilmentItemId], references: [id], onDelete: Restrict)
+  deliveryItems       DeliveryItem[]
+
+  @@index([dispatchId])
+  @@index([productId])
+  @@index([salesFulfilmentItemId])
+  @@map("dispatch_items")
+}
+
+/// One delivery-confirmation event against a Dispatch — immutable once created (except
+/// the two photo columns, populated by a separate follow-up request after the row
+/// already exists). Multiple allowed per Dispatch (partial-then-remainder), same "many
+/// child events over time" shape as `SalesFulfilment` against a `SalesOrder`.
+model Delivery {
+  id             String   @id @default(cuid())
+  organisationId String
+  dispatchId     String
+  deliveryDate   DateTime
+  /// Free text — who at the destination signed for / accepted the goods. Not a FK: the
+  /// recipient is very often not a system user (a shopkeeper, a security guard, ...).
+  receivedByName String?
+  /// Captures WHY there's a shortfall (damaged/lost/refused/etc.) for this sprint's
+  /// minimal auditable-foundation requirement — no reason-code enum, no Returns
+  /// workflow (docs/backlog.md "Deferred").
+  notes          String?
+  /// Populated by a separate follow-up `POST /distribution/deliveries/:id/photo`
+  /// request AFTER this row exists — same "single nullable scalar pair, not a
+  /// child-table" precedent as `Product.imageUrl`/`imageKey`, deliberately not
+  /// `OutletPhoto`'s multi-photo child-table shape since exactly one proof-of-delivery
+  /// photo is ever needed here.
+  photoUrl       String?
+  photoKey       String?
+  /// Client-supplied, optional. Same idempotency convention as
+  /// `SalesFulfilment.idempotencyKey`/`Dispatch.idempotencyKey`.
+  idempotencyKey String?
+  /// Plain id, no FK relation — same convention as `SalesFulfilment.fulfilledById`.
+  createdById    String?
+  createdAt      DateTime @default(now())
+
+  organisation Organisation   @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  /// `Restrict` — a delivery is history and must survive even if a future feature ever
+  /// allowed deleting a Dispatch (it doesn't today).
+  dispatch     Dispatch       @relation(fields: [dispatchId], references: [id], onDelete: Restrict)
+  items        DeliveryItem[]
+
+  @@unique([dispatchId, idempotencyKey])
+  @@index([organisationId])
+  @@index([organisationId, dispatchId])
+  @@map("deliveries")
+}
+
+/// One product's delivered quantity within a `Delivery` batch.
+model DeliveryItem {
+  id                String   @id @default(cuid())
+  deliveryId        String
+  productId         String
+  /// The `DispatchItem` this delivery confirms receipt against — needed to atomically
+  /// increment that line's own `quantityDelivered` inside the same transaction.
+  dispatchItemId    String
+  quantityDelivered Float
+  createdAt         DateTime @default(now())
+
+  delivery     Delivery     @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+  product      Product      @relation(fields: [productId], references: [id], onDelete: Restrict)
+  dispatchItem DispatchItem @relation(fields: [dispatchItemId], references: [id], onDelete: Restrict)
+
+  @@index([deliveryId])
+  @@index([productId])
+  @@index([dispatchItemId])
+  @@map("delivery_items")
 }

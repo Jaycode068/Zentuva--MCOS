@@ -1314,6 +1314,20 @@ const BOBY_BITES_CUSTOMERS = [
     phoneNumber: '+2348021110009',
     territoryCode: null,
   },
+  {
+    // Sprint 5's end-to-end Dispatch/Delivery fixture (brief §29) — deliberately
+    // un-networked at seed time; `seedNetworkRelationships` never touches this customer,
+    // proving a Distributor relationship can be added for her later with zero effect on
+    // any historical order/fulfilment/dispatch/delivery. `CUS-000012` (not `-000010`)
+    // because `-000010`/`-000011` were already claimed by earlier manual live-testing
+    // fixtures in this shared dev database before this sprint began.
+    code: 'CUS-000012',
+    customerType: 'RETAILER',
+    customerName: 'Mama Nkechi Stores',
+    contactPersonName: 'Nkechi Obi',
+    phoneNumber: '+2348021110010',
+    territoryCode: 'TER-000003', // Ibadan North — deliberately less specific than her outlet's
+  },
 ] as const;
 
 /** Returns a `code -> id` map. Idempotent: every row is `upsert`ed by its own unique
@@ -1323,7 +1337,7 @@ async function seedCustomers(
   actorUserId: string,
   territoriesByCode: Record<string, string>,
 ): Promise<Record<string, string>> {
-  console.log('Seeding Customers (9 Boby Bites customers, 5 deliberately un-networked)...');
+  console.log('Seeding Customers (10 Boby Bites customers, 6 deliberately un-networked)...');
 
   const customersByCode: Record<string, string> = {};
   for (const customer of BOBY_BITES_CUSTOMERS) {
@@ -1414,6 +1428,20 @@ const BOBY_BITES_OUTLETS = [
     latitude: 7.4188,
     longitude: 3.8964,
   },
+  {
+    // Deliberately more specific than CUS-000012's own `TER-000003` (Ibadan North) — this
+    // is the fixture that exercises Distribution's "outlet's territory takes precedence
+    // over the customer's" display rule live. `OUT-000009` (not `-000008`) because
+    // `-000008` was already claimed by an earlier manual live-testing fixture in this
+    // shared dev database before this sprint began.
+    code: 'OUT-000009',
+    customerCode: 'CUS-000012',
+    outletType: 'RETAIL_SHOP',
+    name: 'Mama Nkechi Stores – Bodija',
+    territoryCode: 'TER-000005',
+    latitude: null,
+    longitude: null,
+  },
 ] as const;
 
 /** Returns a `code -> id` map. Idempotent: every row is `upsert`ed by its own unique
@@ -1426,7 +1454,7 @@ async function seedOutlets(
   customersByCode: Record<string, string>,
   territoriesByCode: Record<string, string>,
 ): Promise<Record<string, string>> {
-  console.log('Seeding Outlets (7 Boby Bites outlets)...');
+  console.log('Seeding Outlets (8 Boby Bites outlets)...');
 
   const outletsByCode: Record<string, string> = {};
   for (const outlet of BOBY_BITES_OUTLETS) {
@@ -1582,6 +1610,15 @@ const BOBY_BITES_SALES_ORDERS = [
     status: 'CONFIRMED',
     items: [{ productCode: 'PRD-000027', quantity: 20, unitPrice: 3200 }],
   },
+  {
+    // Sprint 5's end-to-end fixture: fulfilled in full below, then dispatched and
+    // partially delivered by `seedDispatchesAndDeliveries`.
+    orderCode: 'SO-000011',
+    customerCode: 'CUS-000012', // Mama Nkechi Stores — un-networked
+    outletCode: 'OUT-000009',
+    status: 'CONFIRMED',
+    items: [{ productCode: 'PRD-000027', quantity: 500, unitPrice: 3200 }],
+  },
 ] as const;
 
 /**
@@ -1596,7 +1633,9 @@ const BOBY_BITES_SALES_ORDERS = [
  */
 const SALES_FULFILMENT_STOCK_TOPUPS = [
   { productCode: 'PRD-000030', quantity: 250 },
-  { productCode: 'PRD-000027', quantity: 100 },
+  // Bumped from 100 (Sprint 4.9) to comfortably cover Sprint 5's additional 500-unit
+  // SO-000010 fulfilment on top of the existing 70-unit draw from SO-000001/SO-000009.
+  { productCode: 'PRD-000027', quantity: 700 },
 ] as const;
 
 async function seedSalesFulfilmentStockTopUp(
@@ -1666,6 +1705,13 @@ const BOBY_BITES_SALES_FULFILMENTS = [
     orderCode: 'SO-000009',
     idempotencyKey: 'seed-SO-000009-1',
     items: [{ productCode: 'PRD-000027', quantity: 20 }],
+  },
+  {
+    // Fulfilled in full so Sprint 5's `seedDispatchesAndDeliveries` has a real
+    // SalesFulfilment to dispatch from.
+    orderCode: 'SO-000011',
+    idempotencyKey: 'seed-SO-000011-1',
+    items: [{ productCode: 'PRD-000027', quantity: 500 }],
   },
 ] as const;
 
@@ -1808,6 +1854,103 @@ async function seedSalesOrders(
     salesOrdersByCode[order.orderCode] = { id: row.id };
   }
   return salesOrdersByCode;
+}
+
+/**
+ * Sprint 5's end-to-end fixture (brief §29): Plantain Chips Classic Salted 500g sold to
+ * Mama Nkechi Stores — a retailer with no distributor relationship — dispatched from
+ * Main Warehouse to her Bodija outlet (`DSP-000001`, 500 units), then partially
+ * delivered (470 of 500, `PARTIALLY_DELIVERED`), leaving 30 units deliberately
+ * outstanding as a real "still needs a delivery" fixture for live verification.
+ *
+ * Bypasses `DispatchService`/`DeliveryService` and writes the same shape of data
+ * directly, same convention as `seedSalesFulfilments` — mirroring
+ * `DispatchRepository.create`'s and `DeliveryRepository.create`'s own step order
+ * (item guard+increment -> aggregate+items create -> cumulative-column increment ->
+ * status recomputation) so the seeded rows are byte-consistent with what the real atomic
+ * writes would have produced. Idempotent via `Dispatch.dispatchCode`'s own uniqueness.
+ */
+async function seedDispatchesAndDeliveries(
+  organisationId: string,
+  actorUserId: string,
+  salesOrdersByCode: Record<string, { id: string }>,
+  customersByCode: Record<string, string>,
+  outletsByCode: Record<string, string>,
+  productsByCode: Record<string, string>,
+  locationId: string,
+): Promise<void> {
+  console.log('Seeding Dispatches and Deliveries (Sprint 5 — Mama Nkechi Stores)...');
+
+  const existingDispatch = await prisma.dispatch.findUnique({
+    where: { dispatchCode: 'DSP-000001' },
+  });
+  if (existingDispatch) {
+    return;
+  }
+
+  const salesOrderId = salesOrdersByCode['SO-000011']!.id;
+  const productId = productsByCode['PRD-000027']!;
+  const fulfilment = await prisma.salesFulfilment.findFirstOrThrow({
+    where: { organisationId, salesOrderId, idempotencyKey: 'seed-SO-000011-1' },
+    include: { items: true },
+  });
+  const fulfilmentItem = fulfilment.items.find((item) => item.productId === productId)!;
+
+  await prisma.$transaction(async (tx) => {
+    await tx.salesFulfilmentItem.update({
+      where: { id: fulfilmentItem.id },
+      data: { quantityDispatched: { increment: 500 } },
+    });
+
+    const dispatch = await tx.dispatch.create({
+      data: {
+        organisationId,
+        dispatchCode: 'DSP-000001',
+        salesFulfilmentId: fulfilment.id,
+        salesOrderId,
+        customerId: customersByCode['CUS-000012']!,
+        outletId: outletsByCode['OUT-000009']!,
+        sourceLocationId: locationId,
+        dispatchDate: new Date(),
+        status: 'DISPATCHED',
+        idempotencyKey: 'seed-DSP-000001-1',
+        createdById: actorUserId,
+        updatedById: actorUserId,
+        items: {
+          create: [
+            { productId, salesFulfilmentItemId: fulfilmentItem.id, quantityDispatched: 500 },
+          ],
+        },
+      },
+      include: { items: true },
+    });
+    const dispatchItem = dispatch.items[0]!;
+
+    await tx.dispatchItem.update({
+      where: { id: dispatchItem.id },
+      data: { quantityDelivered: { increment: 470 } },
+    });
+
+    await tx.delivery.create({
+      data: {
+        organisationId,
+        dispatchId: dispatch.id,
+        deliveryDate: new Date(),
+        receivedByName: 'Nkechi Obi',
+        notes: '30 units damaged in transit — packaging crushed.',
+        idempotencyKey: 'seed-DELIVERY-000001-1',
+        createdById: actorUserId,
+        items: {
+          create: [{ productId, dispatchItemId: dispatchItem.id, quantityDelivered: 470 }],
+        },
+      },
+    });
+
+    await tx.dispatch.update({
+      where: { id: dispatch.id },
+      data: { status: 'PARTIALLY_DELIVERED', updatedById: actorUserId },
+    });
+  });
 }
 
 async function main(): Promise<void> {
@@ -1979,6 +2122,15 @@ async function main(): Promise<void> {
     productsByCode,
     mainWarehouseId,
   );
+  await seedDispatchesAndDeliveries(
+    organisation.id,
+    ownerUser.id,
+    salesOrdersByCode,
+    customersByCode,
+    outletsByCode,
+    productsByCode,
+    mainWarehouseId,
+  );
 
   console.log('Recording an audit log entry for this seed run...');
   await prisma.auditLog.create({
@@ -2015,6 +2167,8 @@ async function main(): Promise<void> {
     networkRelationshipsSeeded: BOBY_BITES_NETWORK_RELATIONSHIPS.length,
     salesOrdersSeeded: BOBY_BITES_SALES_ORDERS.length,
     salesFulfilmentsSeeded: BOBY_BITES_SALES_FULFILMENTS.length,
+    dispatchesSeeded: 1,
+    deliveriesSeeded: 1,
     customersWithoutNetworkRelationship:
       BOBY_BITES_CUSTOMERS.length -
       new Set(BOBY_BITES_NETWORK_RELATIONSHIPS.flatMap((r) => [r.sourceCode, r.targetCode])).size,

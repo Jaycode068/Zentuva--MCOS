@@ -28,6 +28,12 @@ import { SalesOrderService } from './sales-order.service';
  * zero Inventory imports of its own — enforced structurally by
  * `direct-sales-independence.spec.ts`'s narrowed guard, which now reads
  * `sales-order.service.ts`'s own source rather than this module's.
+ *
+ * `exports` (Sprint 5) — `SalesOrderRepository`/`SalesFulfilmentRepository` are exported
+ * so `DistributionModule` can inject them read-only (a Dispatch references an existing
+ * Sales Order/Fulfilment; it never creates or mutates one) via ADR-002's "consume
+ * another domain only through its exported repository" convention — same shape as
+ * `InventoryModule`/`ProductModule` already exporting their own repositories.
  */
 @Module({
   imports: [
@@ -45,5 +51,6 @@ import { SalesOrderService } from './sales-order.service';
     SalesFulfilmentRepository,
     SalesFulfilmentService,
   ],
+  exports: [SalesOrderRepository, SalesFulfilmentRepository],
 })
 export class SalesModule {}

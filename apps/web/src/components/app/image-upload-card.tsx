@@ -24,6 +24,7 @@ export function ImageUploadCard({
   isUploading,
   isRemoving,
   error,
+  preferCamera,
 }: {
   title: string;
   description: string;
@@ -35,6 +36,10 @@ export function ImageUploadCard({
   isUploading: boolean;
   isRemoving?: boolean;
   error?: string | null;
+  /** Adds `capture="environment"` so a phone opens its rear camera directly (Sprint 5,
+   *  same rationale/attribute as `MultiImageUploadCard`'s own `preferCamera` prop) —
+   *  used by Field Sales' proof-of-delivery photo capture. */
+  preferCamera?: boolean;
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [preview, setPreview] = useState<string | null>(null);
@@ -116,6 +121,7 @@ export function ImageUploadCard({
               ref={fileInputRef}
               type="file"
               accept="image/png,image/jpeg,image/svg+xml"
+              capture={preferCamera ? 'environment' : undefined}
               className="hidden"
               onChange={handleFileChange}
             />

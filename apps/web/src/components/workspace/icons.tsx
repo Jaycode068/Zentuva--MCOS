@@ -85,6 +85,13 @@ export const TruckIcon = icon(
   </>,
 );
 
+export const SendIcon = icon(
+  <>
+    <path d="M22 2 11 13" />
+    <path d="M22 2 15 22l-4-9-9-4 20-7Z" />
+  </>,
+);
+
 export const BanknoteIcon = icon(
   <>
     <rect x="2" y="6" width="20" height="12" rx="2" />

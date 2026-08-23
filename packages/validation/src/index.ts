@@ -1,4 +1,5 @@
 export * from './catalogue';
+export * from './distribution';
 export * from './env';
 export * from './identity';
 export * from './inventory';

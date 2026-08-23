@@ -68,17 +68,21 @@ This roadmap tracks the intended build order. It is not a commitment to dates �
       onboarding; `SalesOrder`/`SalesOrderItem` targeting Sprint 4.7 SKUs only,
       server-authoritative totals, never touching inventory); Sprint 4.9 added
       Fulfilment — the one atomic, audited bridge into Inventory (`DRAFT → CONFIRMED →
-    PARTIALLY_FULFILLED → FULFILLED`, idempotent, multi-batch); Invoicing/Payments/
+  PARTIALLY_FULFILLED → FULFILLED`, idempotent, multi-batch); Invoicing/Payments/
       Returns/inventory reservation remain — see
       [`docs/domains/customers.md`](domains/customers.md),
       [`docs/domains/sales.md`](domains/sales.md)
 - [x] Distribution — reframed as the Retail Intelligence Network, foundation shipped
       Sprint 4.8 (`Outlet`, `Territory` hierarchy, `DistributionNetworkRelationship` kept
       structurally separate from commercial transactions so direct sales never require a
-      distributor mapping); route planning/delivery tracking remain — see
+      distributor mapping); Sprint 5 added `Dispatch`/`Delivery` (the physical release of
+      already-fulfilled goods and confirmation of what arrived, chained off Sales
+      Fulfilment, inventory deducted exactly once and never again at either stage);
+      fleet/route planning and a full Returns/Claims workflow remain — see
       [`docs/domains/outlets.md`](domains/outlets.md),
       [`docs/domains/territories.md`](domains/territories.md),
-      [`docs/domains/retail-network.md`](domains/retail-network.md)
+      [`docs/domains/retail-network.md`](domains/retail-network.md),
+      [`docs/domains/distribution.md`](domains/distribution.md)
 - [ ] Finance
 
 ## Phase 3 — Extended Experiences

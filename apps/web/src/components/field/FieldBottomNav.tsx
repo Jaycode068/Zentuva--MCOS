@@ -9,6 +9,7 @@ const NAV_ITEMS = [
   { href: '/field/customers', label: 'Customers', icon: UsersIcon },
   { href: '/field/outlets', label: 'Outlets', icon: StoreIcon },
   { href: '/field/orders', label: 'Orders', icon: ReceiptIcon },
+  { href: '/field/deliveries', label: 'Deliveries', icon: TruckIcon },
 ] as const;
 
 /**
@@ -94,6 +95,25 @@ function ReceiptIcon(props: React.SVGProps<SVGSVGElement>) {
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} {...props}>
       <path d="M6 3h12v18l-3-2-3 2-3-2-3 2Z" strokeLinecap="round" strokeLinejoin="round" />
       <path d="M9 8h6M9 12h6" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function TruckIcon(props: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} {...props}>
+      <rect
+        x="2"
+        y="7"
+        width="13"
+        height="10"
+        rx="1"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path d="M15 10h4l3 3.5V17h-7" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="7" cy="18.5" r="1.5" />
+      <circle cx="17.5" cy="18.5" r="1.5" />
     </svg>
   );
 }

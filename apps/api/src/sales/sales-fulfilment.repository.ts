@@ -14,8 +14,18 @@ export type SalesFulfilmentWithItems = SalesFulfilment & {
     productId: string;
     salesOrderItemId: string;
     quantityFulfilled: number;
+    /** Cumulative quantity dispatched so far (Sprint 5) — see
+     *  `SalesFulfilmentItem.quantityDispatched`'s schema doc comment. */
+    quantityDispatched: number;
     product: { id: string; code: string; name: string; unit: string };
   }[];
+};
+
+/** Adds the parent Sales Order's own identity fields (Sprint 5) — `DispatchService`
+ *  needs `customerId`/`outletId` to resolve a Dispatch's destination without a second
+ *  round trip through `SalesOrderRepository`. */
+export type SalesFulfilmentWithOrder = SalesFulfilmentWithItems & {
+  salesOrder: { id: string; customerId: string; outletId: string | null };
 };
 
 const RELATIONS_INCLUDE = {
@@ -228,6 +238,19 @@ export class SalesFulfilmentRepository {
       where: { organisationId, salesOrderId },
       include: RELATIONS_INCLUDE,
       orderBy: { fulfilmentDate: 'desc' },
+    });
+  }
+
+  /** Single-fulfilment lookup with its parent order's identity fields (Sprint 5) — used
+   *  read-only by `DistributionModule` via `SalesModule`'s export, to resolve a
+   *  Dispatch's destination and to compute per-line dispatch availability. */
+  findById(organisationId: string, id: string): Promise<SalesFulfilmentWithOrder | null> {
+    return this.prisma.salesFulfilment.findFirst({
+      where: { id, organisationId },
+      include: {
+        ...RELATIONS_INCLUDE,
+        salesOrder: { select: { id: true, customerId: true, outletId: true } },
+      },
     });
   }
 }

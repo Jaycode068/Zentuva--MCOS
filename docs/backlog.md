@@ -207,12 +207,22 @@ delivered roughly in order, but later Epics may be reordered as priorities evolv
   — not fixed administrative boundaries), and `DistributionNetworkRelationship` (an
   optional, separate concept from commercial transactions — a customer never requires a
   network mapping to be registered or to place an order, and historical sales are never
-  rewritten when a relationship is added or changed later). Sales Representative
-  territory ownership, Delivery Tracking, and Route Planning remain — see
+  rewritten when a relationship is added or changed later). Sprint 5 ("Distribution &
+  Delivery Operations Foundation") added `Dispatch`/`DispatchItem` (the physical release
+  of already-fulfilled goods, chained off an existing `SalesFulfilment`) and
+  `Delivery`/`DeliveryItem` (confirmation of what actually arrived, supporting partial/
+  short delivery with free-text discrepancy notes — no reason-code enum, no Returns/
+  Claims Management system yet). Inventory is deducted exactly once at Fulfilment;
+  Dispatch and Delivery structurally cannot touch `InventoryStock`/`InventoryTransaction`
+  again (proven by `distribution-inventory-independence.spec.ts`), and the distribution
+  network remains purely informational at this stage too — an "Associated Distributor"
+  display, never a gate. Sales Representative territory ownership, fleet/route tracking,
+  and a full Returns/Claims workflow remain — see
   [`docs/domains/outlets.md`](domains/outlets.md),
-  [`docs/domains/territories.md`](domains/territories.md), and
+  [`docs/domains/territories.md`](domains/territories.md),
   [`docs/domains/retail-network.md`](domains/retail-network.md) (the keystone
-  architectural document for this Epic).
+  architectural document for this Epic), and
+  [`docs/domains/distribution.md`](domains/distribution.md).
 
 ### Epic 9 — CRM
 
@@ -307,6 +317,7 @@ delivered roughly in order, but later Epics may be reordered as priorities evolv
 - ✓ Sprint 4.7 — Product Family, Variant & SKU Architecture Refinement
 - ✓ Sprint 4.8 — Customer, Territory, Outlet, Retail Network & Sales Foundation
 - ✓ Sprint 4.9 — Sales Execution & Order Fulfilment Foundation
+- ✓ Sprint 5 — Distribution & Delivery Operations Foundation
 
 **Current focus:** Next sprint not yet scoped.
 

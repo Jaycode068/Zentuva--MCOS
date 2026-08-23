@@ -19,6 +19,7 @@ workflows, key entities, and how it integrates with other domains.
 | [Territories](territories.md)       | Foundation implemented — Sprint 4.8                                                                                                                                                                                                             |
 | [Retail Network](retail-network.md) | Foundation implemented — Sprint 4.8 (distribution network relationships, kept structurally separate from Sales)                                                                                                                                 |
 | [Sales](sales.md)                   | Foundation implemented — Sprint 4.8 (Sales Orders; a mobile-first Field Sales workspace + Admin surface share this backend); Fulfilment added — Sprint 4.9 (atomic, audited inventory deduction; DRAFT→CONFIRMED→PARTIALLY_FULFILLED→FULFILLED) |
+| [Distribution](distribution.md)     | Foundation implemented — Sprint 5 (Dispatch + Delivery, chained off Sales Fulfilment; inventory deducted exactly once, never again at dispatch or delivery)                                                                                     |
 | Finance                             | Not started                                                                                                                                                                                                                                     |
 
 As each domain is designed/built, add a `<domain>.md` here covering:
@@ -34,4 +35,5 @@ As each domain is designed/built, add a `<domain>.md` here covering:
 (entity design, Prisma schema, API contracts, sequence diagrams).
 
 Planned Version 1 domains: Identity, Product Catalogue, Supplier Management, Procurement,
-Inventory, Production, Customers, Outlets, Territories, Retail Network, Sales, Finance.
+Inventory, Production, Customers, Outlets, Territories, Retail Network, Sales,
+Distribution, Finance.
