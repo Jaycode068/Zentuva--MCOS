@@ -155,6 +155,10 @@ model Organisation {
   invoices                         Invoice[]
   payments                         Payment[]
   creditNotes                      CreditNote[]
+  /// Added Sprint 7 — Accounting (docs/domains/accounting.md).
+  chartOfAccounts                  ChartOfAccount[]
+  accountingPeriods                AccountingPeriod[]
+  journalEntries                   JournalEntry[]
 
   @@map("organisations")
 }
@@ -2271,4 +2275,178 @@ model CreditNote {
   @@index([organisationId])
   @@index([organisationId, customerId])
   @@map("credit_notes")
+}
+
+// ============================================================================
+// Accounting (Sprint 7, docs/domains/accounting.md) — Chart of Accounts,
+// Accounting Periods, Journal Entries, General Ledger. The accounting
+// consequence of what Finance (and, in future sprints, Procurement/
+// Production/Inventory/Sales/Distribution) has already recorded — never the
+// other direction. Deliberately NOT a complete accounting system — no
+// Trial-Balance-to-P&L/Balance-Sheet closing, no Accounts Payable, no tax
+// engine — see docs/domains/accounting.md "Deferred Accounting Work".
+// ============================================================================
+
+enum AccountType {
+  ASSET
+  LIABILITY
+  EQUITY
+  REVENUE
+  COST_OF_SALES
+  EXPENSE
+}
+
+enum AccountingPeriodStatus {
+  OPEN
+  CLOSED
+}
+
+/// `DRAFT → POSTED`, with `VOID` as a bare status flip (excludes the entry from
+/// every Ledger/Trial-Balance/running-balance query going forward) — never an
+/// automatic reversing entry. A system-generated entry (`sourceType` set) is
+/// always created directly `POSTED`; only a manually-created entry ever
+/// passes through `DRAFT`.
+enum JournalEntryStatus {
+  DRAFT
+  POSTED
+  VOID
+}
+
+/// One tenant-defined ledger account. Named `ChartOfAccount`, not `Account` —
+/// `Account` would collide with the unrelated, pre-existing self-service
+/// `AccountModule`/`AccountController` (apps/api/src/identity/account/, the
+/// "My Account" profile/password/sessions surface).
+model ChartOfAccount {
+  id             String      @id @default(cuid())
+  organisationId String
+  /// Tenant-defined, e.g. "1000"/"1110" — NOT globally unique like
+  /// `Invoice.invoiceCode`; every organisation maintains its own chart.
+  code           String
+  name           String
+  type           AccountType
+  parentId       String?
+  description    String?
+  isActive       Boolean     @default(true)
+  /// A system account can never be deactivated via the API — see
+  /// `ChartOfAccountService`. Immutable after creation.
+  isSystemAccount Boolean    @default(false)
+  /// Set only on a system account — lets `journal-posting.ts` resolve "the AR
+  /// account for this organisation" without ever hardcoding an id. One of
+  /// `SYSTEM_ACCOUNT_KEYS` (AR/SALES_REVENUE/SALES_RETURNS/CASH/BANK/
+  /// INVENTORY/COGS/AP). Immutable after creation.
+  systemKey      String?
+  createdById    String?
+  updatedById    String?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  organisation Organisation       @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  parent       ChartOfAccount?    @relation("AccountHierarchy", fields: [parentId], references: [id], onDelete: Restrict)
+  children     ChartOfAccount[]   @relation("AccountHierarchy")
+  journalLines JournalEntryLine[]
+
+  @@unique([organisationId, code])
+  /// Multiple `NULL`s are allowed in a Postgres unique index — only accounts
+  /// that actually set a `systemKey` constrain each other.
+  @@unique([organisationId, systemKey])
+  @@index([organisationId, type])
+  @@index([organisationId, parentId])
+  @@map("chart_of_accounts")
+}
+
+/// A lightweight named date range (e.g. "August 2026") a `JournalEntry` must
+/// belong to. Only `OPEN` periods may receive new postings — closing a
+/// period is a one-way action this sprint (no re-opening). Overlap between
+/// two periods of the same organisation is a service-level guard, not a DB
+/// constraint (no precedent for Postgres range-exclusion constraints in this
+/// schema).
+model AccountingPeriod {
+  id             String                 @id @default(cuid())
+  organisationId String
+  name           String
+  /// Inclusive, day-granularity — same convention as `Invoice.invoiceDate`.
+  startDate      DateTime
+  /// Inclusive.
+  endDate        DateTime
+  status         AccountingPeriodStatus @default(OPEN)
+  closedAt       DateTime?
+  closedById     String?
+  createdById    String?
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+
+  organisation   Organisation   @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  journalEntries JournalEntry[]
+
+  @@index([organisationId, status])
+  @@index([organisationId, startDate, endDate])
+  @@map("accounting_periods")
+}
+
+/// The core double-entry record. `accountingPeriodId` is always resolved
+/// server-side from `date` (see `journal-posting.ts`/`JournalEntryService`)
+/// — there is no independent client-supplied period selection, so a journal
+/// can never disagree with its own date about which period it belongs to.
+model JournalEntry {
+  id                 String             @id @default(cuid())
+  organisationId     String
+  /// Auto-generated (`JE-000001`, ...), unique per organisation (unlike
+  /// `Invoice.invoiceCode`, which is global — a tenant's own Chart of
+  /// Accounts is already org-scoped, so its journal numbering follows suit).
+  journalNumber      String
+  date               DateTime
+  accountingPeriodId String
+  description        String
+  reference          String?
+  /// Free-text, not an enum — "keep this architecture flexible" per the
+  /// brief: `"MANUAL"` | `"INVOICE"` | `"PAYMENT"` | `"CREDIT_NOTE"` today;
+  /// future sprints add more values here without a schema change. No hard FK
+  /// to any specific source table — `sourceId` is resolved by the reading
+  /// UI/API consumer based on `sourceType`, deliberately not a Prisma
+  /// relation (this table must never depend on every future domain).
+  sourceType         String?
+  /// `NULL` for `sourceType = "MANUAL"`.
+  sourceId           String?
+  status             JournalEntryStatus @default(DRAFT)
+  postedAt           DateTime?
+  createdById        String?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  organisation     Organisation       @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  accountingPeriod AccountingPeriod   @relation(fields: [accountingPeriodId], references: [id], onDelete: Restrict)
+  lines            JournalEntryLine[]
+
+  @@unique([organisationId, journalNumber])
+  /// Duplicate-posting guard for system-generated entries — a retried
+  /// `invoice.issued`-style event can never produce a second journal for the
+  /// same `(sourceType, sourceId)`. `NULL sourceId` (every `MANUAL` entry)
+  /// never collides with another `NULL`, by the same Postgres multi-NULL
+  /// unique-index semantics as `ChartOfAccount.systemKey`.
+  @@unique([organisationId, sourceType, sourceId])
+  @@index([organisationId, status])
+  @@index([organisationId, date])
+  @@map("journal_entries")
+}
+
+/// One debit or credit line of a `JournalEntry`. Exactly one of `debit`/
+/// `credit` is greater than zero; the other is exactly `0` — enforced by
+/// `JournalEntryService`/`journal-posting.ts`, never by a DB constraint
+/// (Postgres CHECK constraints aren't part of this schema's existing
+/// conventions).
+model JournalEntryLine {
+  id             String   @id @default(cuid())
+  journalEntryId String
+  accountId      String
+  description    String?
+  debit          Float    @default(0)
+  credit         Float    @default(0)
+  createdAt      DateTime @default(now())
+
+  journalEntry JournalEntry   @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
+  account      ChartOfAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  @@index([journalEntryId])
+  @@index([accountId])
+  @@map("journal_entry_lines")
 }

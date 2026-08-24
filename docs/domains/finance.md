@@ -1,15 +1,19 @@
 # Finance Domain
 
-- **Status:** Foundation implemented — Sprint 6 ("Finance Foundation"). **Not** a General
-  Ledger / accounting system — see §9.
-- **Sprint:** 6
+- **Status:** Foundation implemented — Sprint 6 ("Finance Foundation"), extended
+  Sprint 7 with automatic General Ledger posting — see [Accounting](accounting.md).
+  **Not** a General Ledger / accounting system itself — that layer lives in
+  `accounting.md`, see §9.
+- **Sprint:** 6 (Sprint 7 added the accounting integration described in §9)
 - **Depends on:** [Identity](identity.md) (tenant boundary, `RolesGuard`,
   `OrganisationService` for the currency snapshot), [Sales](sales.md)
   (`SalesOrderRepository`, read-only, via `SalesModule`'s existing export),
   [Customers](customers.md), [Outlets](outlets.md).
 - **Explicitly does not depend on:** [Inventory](inventory.md),
   [Distribution](distribution.md) — see §2.
-- **See also:** [Sprint 6 Completion Report](../sprint-6-completion-report.md).
+- **See also:** [Sprint 6 Completion Report](../sprint-6-completion-report.md),
+  [Sprint 7 Completion Report](../sprint-7-completion-report.md),
+  [Accounting](accounting.md).
 
 ## 1. Business Purpose
 
@@ -210,14 +214,17 @@ date — this is a known, intentional consequence of "due the same day," not a b
 Finance is an administrative workflow, not a field-agent surface — it deliberately does
 **not** get the mobile-first Field Sales treatment Distribution/Delivery received;
 responsive support means desktop/tablet/mobile all render cleanly (card layouts on
-narrow widths, full tables on wide), not a redesigned mobile-first flow. Five routes,
-each rendering a shared bespoke `FinanceTabs` component (no generic `Tabs` primitive
-exists in this codebase; `FinanceTabs` follows the exact precedent already set by
-`AccountTabs`): Overview (`/settings/finance`), Invoices, Payments, Receivables, Credit
-Notes. Invoice creation is a two-step dialog (pick an eligible Sales Order → the invoice
-form, with live client-side preview totals that are never trusted on submit); the
-Invoice detail dialog nests "Record Payment" and "Issue Credit Note" as their own
-dialogs, mirroring Distribution's `DispatchDetailDialog` → `DeliveryDialog` composition.
+narrow widths, full tables on wide), not a redesigned mobile-first flow. Five Finance
+routes, each rendering a shared bespoke `FinanceTabs` component (no generic `Tabs`
+primitive exists in this codebase; `FinanceTabs` follows the exact precedent already
+set by `AccountTabs`): Overview (`/settings/finance`), Invoices, Payments, Receivables,
+Credit Notes — plus five more Accounting routes Sprint 7 added to the same
+`FinanceTabs` bar (Chart of Accounts, Journal Entries, General Ledger, Trial Balance,
+Accounting Periods; see [Accounting](accounting.md) §8). Invoice creation is a two-step
+dialog (pick an eligible Sales Order → the invoice form, with live client-side preview
+totals that are never trusted on submit); the Invoice detail dialog nests "Record
+Payment" and "Issue Credit Note" as their own dialogs, mirroring Distribution's
+`DispatchDetailDialog` → `DeliveryDialog` composition.
 
 ## 8. RBAC / Tenant Isolation / Audit
 
@@ -230,23 +237,26 @@ reads and 403 on writes. Audit actions: `invoice.created`, `invoice.issued`,
 `credit-note.issued`, `credit-note.voided`. A replayed idempotent create
 (`wasCreated === false`) never emits a second audit event.
 
-## 9. Deferred Accounting Work — This Is Not the General Ledger
+## 9. Accounting Integration (Sprint 7) — No Longer Fully Deferred
 
-Sprint 6 is a financial **record-entry foundation**, not an accounting system. The
-following are explicitly out of scope and deferred to future sprints: Chart of
-Accounts, Journal Entries, General Ledger, Trial Balance, Profit & Loss, Balance Sheet,
-Cash Flow Statement, Bank Reconciliation, payroll, fixed assets, a full multi-
-jurisdiction tax engine, sophisticated customer/distributor pricing, credit scoring,
-Nigerian bank/payment-gateway integration, advanced financial analytics, budgeting, and
-financial forecasting.
+Sprint 6 shaped Finance's events so a future General Ledger sprint could post journal
+entries from them without a Finance rewrite. **Sprint 7 built that layer** — see
+[Accounting](accounting.md) for the full design. `Invoice.issue()`,
+`PaymentRepository.create()`, and `CreditNoteRepository.issue()` now each atomically
+post a double-entry `JournalEntry` (`DR Accounts Receivable / CR Sales Revenue`,
+`DR Cash-or-Bank / CR Accounts Receivable`, `DR Sales Returns / CR Accounts
+Receivable`, respectively) via `accounting/journal-posting.ts`'s plain, DI-free
+helpers — in the same transaction as the Finance write that triggered them, so an
+invoice can never end up `ISSUED` with no accounting behind it.
 
-Today's financial events are, however, shaped so a future General Ledger sprint could
-generate journal entries from them without a Finance rewrite: a `payment.recorded`
-event carries everything a future posting rule would need (amount, currency, method,
-the invoice it settled) to eventually generate `Debit Bank/Cash, Credit Accounts
-Receivable`; `invoice.issued` carries what a future rule would need to generate `Debit
-Accounts Receivable, Credit Revenue`. No GL posting logic exists yet — this is a design
-note for future integration, not an implemented feature.
+What remains genuinely deferred, unchanged by Sprint 7: Chart of Accounts →
+financial-statement closing (Trial Balance → Profit & Loss, Balance Sheet), Cash Flow
+Statement, Bank Reconciliation, Accounts Payable / supplier invoices, payroll, fixed
+assets, a full multi-jurisdiction tax engine, sophisticated customer/distributor
+pricing, credit scoring, Nigerian bank/payment-gateway integration, advanced financial
+analytics, budgeting, and financial forecasting. Accounting for Procurement,
+Production, Inventory, and Sales Fulfilment/Distribution is also not yet wired — see
+`accounting.md` §9 for the documented future integration shape.
 
 ## 10. API Reference
 

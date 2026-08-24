@@ -2,6 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { CreditNote, CreditNoteStatus, Prisma } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service';
+import { SYSTEM_ACCOUNT_KEYS } from './accounting/chart-of-account-keys';
+import { postSystemJournalEntry } from './accounting/journal-posting';
 import { PAYABLE_INVOICE_STATUSES } from './invoice.repository';
 import {
   deriveInvoiceStatusAfterApplication,
@@ -137,6 +139,22 @@ export class CreditNoteRepository {
         await tx.invoice.update({
           where: { id: existing.invoiceId },
           data: { amountCredited: newAmountCredited, status: newStatus, updatedById: actorUserId },
+        });
+
+        // DR Sales Returns/Adjustment, CR Accounts Receivable (docs/domains/
+        // accounting.md) — atomic with the credit-note+invoice writes above.
+        await postSystemJournalEntry(tx, {
+          organisationId,
+          date: existing.creditNoteDate,
+          description: `Credit note ${existing.creditNoteCode} issued against ${eligibleInvoice.invoiceCode}`,
+          reference: existing.creditNoteCode,
+          sourceType: 'CREDIT_NOTE',
+          sourceId: existing.id,
+          actorUserId,
+          lines: [
+            { systemKey: SYSTEM_ACCOUNT_KEYS.SALES_RETURNS, debit: existing.amount },
+            { systemKey: SYSTEM_ACCOUNT_KEYS.AR, credit: existing.amount },
+          ],
         });
       }
 

@@ -1,6 +1,11 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { CreatePaymentInput } from '@zentuva/validation';
 
+import {
+  MissingSystemAccountError,
+  NoOpenPeriodError,
+  UnbalancedPostingError,
+} from './accounting/journal-posting';
 import { InvoiceRepository, PAYABLE_INVOICE_STATUSES } from './invoice.repository';
 import {
   CreatePaymentResult,
@@ -69,7 +74,13 @@ export class PaymentService {
         createdById: actorUserId,
       });
     } catch (error) {
-      if (error instanceof OverPaymentError || error instanceof PaymentInvoiceConflictError) {
+      if (
+        error instanceof OverPaymentError ||
+        error instanceof PaymentInvoiceConflictError ||
+        error instanceof MissingSystemAccountError ||
+        error instanceof NoOpenPeriodError ||
+        error instanceof UnbalancedPostingError
+      ) {
         throw new BadRequestException(error.message);
       }
       throw error;

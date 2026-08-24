@@ -5,6 +5,11 @@ import { CreateInvoiceInput, VoidInvoiceInput } from '@zentuva/validation';
 
 import { OrganisationService } from '../identity/organisation/organisation.service';
 import { SalesOrderRepository, SalesOrderWithRelations } from '../sales/sales-order.repository';
+import {
+  MissingSystemAccountError,
+  NoOpenPeriodError,
+  UnbalancedPostingError,
+} from './accounting/journal-posting';
 import { InvoiceRepository, InvoiceWithRelations, ListInvoicesParams } from './invoice.repository';
 
 const INVOICE_CODE_PREFIX = 'INV';
@@ -161,7 +166,11 @@ export class InvoiceService {
     });
   }
 
-  /** `POST /:id/issue` — the only path from `DRAFT` to `ISSUED`. */
+  /** `POST /:id/issue` — the only path from `DRAFT` to `ISSUED`. Atomically posts the
+   *  `DR AR / CR Sales Revenue` journal entry (docs/domains/accounting.md) — if no
+   *  `OPEN` accounting period covers `invoiceDate`, or the organisation has no `AR`/
+   *  `SALES_REVENUE` system account configured, the whole issuance rolls back (never a
+   *  half-issued invoice with no accounting behind it). */
   async issue(
     organisationId: string,
     id: string,
@@ -172,13 +181,19 @@ export class InvoiceService {
       throw new BadRequestException('Only a draft invoice can be issued');
     }
 
-    const updated = await this.invoiceRepository.updateStatus(
-      organisationId,
-      id,
-      [InvoiceStatus.DRAFT],
-      InvoiceStatus.ISSUED,
-      actorUserId,
-    );
+    let updated: InvoiceWithRelations | null;
+    try {
+      updated = await this.invoiceRepository.issue(organisationId, id, actorUserId);
+    } catch (error) {
+      if (
+        error instanceof MissingSystemAccountError ||
+        error instanceof NoOpenPeriodError ||
+        error instanceof UnbalancedPostingError
+      ) {
+        throw new BadRequestException(error.message);
+      }
+      throw error;
+    }
     if (!updated) {
       throw new NotFoundException('Invoice not found');
     }

@@ -269,3 +269,289 @@ export function listArByCustomer(): Promise<{ items: CustomerArRow[] }> {
 export function getCustomerBalance(customerId: string): Promise<CustomerArRow> {
   return apiFetch<CustomerArRow>(`/finance/receivables/customers/${customerId}`);
 }
+
+// === Accounting (Sprint 7, docs/domains/accounting.md) ===
+
+export type AccountType =
+  'ASSET' | 'LIABILITY' | 'EQUITY' | 'REVENUE' | 'COST_OF_SALES' | 'EXPENSE';
+export type AccountingPeriodStatus = 'OPEN' | 'CLOSED';
+export type JournalEntryStatus = 'DRAFT' | 'POSTED' | 'VOID';
+
+/** `GET/POST /api/finance/accounts`, `GET .../:id` response shape — see
+ *  `apps/api/src/finance/accounting/chart-of-account.controller.ts`'s
+ *  `toChartOfAccountResponse`. */
+export interface ChartOfAccount {
+  id: string;
+  code: string;
+  name: string;
+  type: AccountType;
+  parentId: string | null;
+  description: string | null;
+  isActive: boolean;
+  isSystemAccount: boolean;
+  systemKey: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateChartOfAccountPayload {
+  code: string;
+  name: string;
+  type: AccountType;
+  parentId?: string;
+  description?: string;
+}
+
+export interface UpdateChartOfAccountPayload {
+  name?: string;
+  description?: string;
+  parentId?: string | null;
+}
+
+export interface ListChartOfAccountsParams {
+  type?: AccountType;
+  isActive?: boolean;
+  search?: string;
+}
+
+export function listChartOfAccounts(
+  params: ListChartOfAccountsParams = {},
+): Promise<{ items: ChartOfAccount[] }> {
+  const query = new URLSearchParams();
+  if (params.type) query.set('type', params.type);
+  if (params.isActive !== undefined) query.set('isActive', String(params.isActive));
+  if (params.search) query.set('search', params.search);
+  const queryString = query.toString();
+  return apiFetch<{ items: ChartOfAccount[] }>(
+    `/finance/accounts${queryString ? `?${queryString}` : ''}`,
+  );
+}
+
+export function createChartOfAccount(input: CreateChartOfAccountPayload): Promise<ChartOfAccount> {
+  return apiFetch<ChartOfAccount>('/finance/accounts', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateChartOfAccount(
+  id: string,
+  input: UpdateChartOfAccountPayload,
+): Promise<ChartOfAccount> {
+  return apiFetch<ChartOfAccount>(`/finance/accounts/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+}
+
+export function activateChartOfAccount(id: string): Promise<ChartOfAccount> {
+  return apiFetch<ChartOfAccount>(`/finance/accounts/${id}/activate`, { method: 'POST' });
+}
+
+export function deactivateChartOfAccount(id: string): Promise<ChartOfAccount> {
+  return apiFetch<ChartOfAccount>(`/finance/accounts/${id}/deactivate`, { method: 'POST' });
+}
+
+/** `GET /finance/accounting-periods`, `GET .../:id` response shape — see
+ *  `apps/api/src/finance/accounting/accounting-period.controller.ts`'s
+ *  `toAccountingPeriodResponse`. */
+export interface AccountingPeriod {
+  id: string;
+  name: string;
+  startDate: string;
+  endDate: string;
+  status: AccountingPeriodStatus;
+  closedAt: string | null;
+  createdAt: string;
+}
+
+export interface CreateAccountingPeriodPayload {
+  name: string;
+  startDate: string;
+  endDate: string;
+}
+
+export function listAccountingPeriods(): Promise<{ items: AccountingPeriod[] }> {
+  return apiFetch<{ items: AccountingPeriod[] }>('/finance/accounting-periods');
+}
+
+export function createAccountingPeriod(
+  input: CreateAccountingPeriodPayload,
+): Promise<AccountingPeriod> {
+  return apiFetch<AccountingPeriod>('/finance/accounting-periods', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function closeAccountingPeriod(id: string): Promise<AccountingPeriod> {
+  return apiFetch<AccountingPeriod>(`/finance/accounting-periods/${id}/close`, { method: 'POST' });
+}
+
+/** `GET/POST /api/finance/journal-entries`, `GET .../:id` response shape — see
+ *  `apps/api/src/finance/accounting/journal-entry.controller.ts`'s
+ *  `toJournalEntryResponse`. */
+export interface JournalEntryLine {
+  id: string;
+  account: { id: string; code: string; name: string; type: AccountType };
+  description: string | null;
+  debit: number;
+  credit: number;
+}
+
+export interface JournalEntry {
+  id: string;
+  journalNumber: string;
+  date: string;
+  accountingPeriod: { id: string; name: string; status: AccountingPeriodStatus };
+  description: string;
+  reference: string | null;
+  sourceType: string | null;
+  sourceId: string | null;
+  status: JournalEntryStatus;
+  postedAt: string | null;
+  lines: JournalEntryLine[];
+  createdAt: string;
+}
+
+export interface JournalEntryLineInputPayload {
+  accountId: string;
+  description?: string;
+  debit?: number;
+  credit?: number;
+}
+
+export interface CreateJournalEntryPayload {
+  date: string;
+  description: string;
+  reference?: string;
+  lines: JournalEntryLineInputPayload[];
+}
+
+export interface ListJournalEntriesParams {
+  status?: JournalEntryStatus;
+  sourceType?: string;
+  accountingPeriodId?: string;
+}
+
+export function listJournalEntries(
+  params: ListJournalEntriesParams = {},
+): Promise<{ items: JournalEntry[] }> {
+  const query = new URLSearchParams();
+  if (params.status) query.set('status', params.status);
+  if (params.sourceType) query.set('sourceType', params.sourceType);
+  if (params.accountingPeriodId) query.set('accountingPeriodId', params.accountingPeriodId);
+  const queryString = query.toString();
+  return apiFetch<{ items: JournalEntry[] }>(
+    `/finance/journal-entries${queryString ? `?${queryString}` : ''}`,
+  );
+}
+
+export function getJournalEntry(id: string): Promise<JournalEntry> {
+  return apiFetch<JournalEntry>(`/finance/journal-entries/${id}`);
+}
+
+export function createJournalEntry(input: CreateJournalEntryPayload): Promise<JournalEntry> {
+  return apiFetch<JournalEntry>('/finance/journal-entries', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function postJournalEntry(id: string): Promise<JournalEntry> {
+  return apiFetch<JournalEntry>(`/finance/journal-entries/${id}/post`, { method: 'POST' });
+}
+
+export function voidJournalEntry(id: string): Promise<JournalEntry> {
+  return apiFetch<JournalEntry>(`/finance/journal-entries/${id}/void`, { method: 'POST' });
+}
+
+/** `GET /finance/ledger` response line — see `LedgerService.getLedger`. */
+export interface LedgerLine {
+  id: string;
+  date: string;
+  journalNumber: string;
+  account: { id: string; code: string; name: string };
+  description: string | null;
+  reference: string | null;
+  sourceType: string | null;
+  sourceId: string | null;
+  status: JournalEntryStatus;
+  debit: number;
+  credit: number;
+  runningBalance: number;
+}
+
+export interface GetLedgerParams {
+  accountId?: string;
+  from?: string;
+  to?: string;
+  accountingPeriodId?: string;
+  sourceType?: string;
+  reference?: string;
+  status?: JournalEntryStatus;
+}
+
+export function getLedger(params: GetLedgerParams = {}): Promise<{ items: LedgerLine[] }> {
+  const query = new URLSearchParams();
+  if (params.accountId) query.set('accountId', params.accountId);
+  if (params.from) query.set('from', params.from);
+  if (params.to) query.set('to', params.to);
+  if (params.accountingPeriodId) query.set('accountingPeriodId', params.accountingPeriodId);
+  if (params.sourceType) query.set('sourceType', params.sourceType);
+  if (params.reference) query.set('reference', params.reference);
+  if (params.status) query.set('status', params.status);
+  const queryString = query.toString();
+  return apiFetch<{ items: LedgerLine[] }>(
+    `/finance/ledger${queryString ? `?${queryString}` : ''}`,
+  );
+}
+
+/** `GET /finance/trial-balance` response shape — see `LedgerService.getTrialBalance`. */
+export interface TrialBalanceRow {
+  accountId: string;
+  code: string;
+  name: string;
+  type: AccountType;
+  debit: number;
+  credit: number;
+}
+
+export interface TrialBalance {
+  rows: TrialBalanceRow[];
+  totalDebit: number;
+  totalCredit: number;
+}
+
+export function getTrialBalance(
+  params: { from?: string; to?: string; accountingPeriodId?: string } = {},
+): Promise<TrialBalance> {
+  const query = new URLSearchParams();
+  if (params.from) query.set('from', params.from);
+  if (params.to) query.set('to', params.to);
+  if (params.accountingPeriodId) query.set('accountingPeriodId', params.accountingPeriodId);
+  const queryString = query.toString();
+  return apiFetch<TrialBalance>(`/finance/trial-balance${queryString ? `?${queryString}` : ''}`);
+}
+
+/** `GET /finance/accounts/:id/activity` response shape — see
+ *  `LedgerService.getAccountActivity`. */
+export interface AccountActivity {
+  account: { id: string; code: string; name: string; type: AccountType };
+  openingBalance: number;
+  transactions: LedgerLine[];
+  closingBalance: number;
+}
+
+export function getAccountActivity(
+  id: string,
+  params: { from?: string; to?: string } = {},
+): Promise<AccountActivity> {
+  const query = new URLSearchParams();
+  if (params.from) query.set('from', params.from);
+  if (params.to) query.set('to', params.to);
+  const queryString = query.toString();
+  return apiFetch<AccountActivity>(
+    `/finance/accounts/${id}/activity${queryString ? `?${queryString}` : ''}`,
+  );
+}

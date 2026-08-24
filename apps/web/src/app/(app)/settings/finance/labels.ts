@@ -1,6 +1,14 @@
 import type { BadgeProps } from '@zentuva/ui';
 
-import type { CreditNoteStatus, InvoiceStatus, PaymentMethod, PaymentTermType } from './api';
+import type {
+  AccountingPeriodStatus,
+  AccountType,
+  CreditNoteStatus,
+  InvoiceStatus,
+  JournalEntryStatus,
+  PaymentMethod,
+  PaymentTermType,
+} from './api';
 
 export const INVOICE_STATUS_LABELS: Record<InvoiceStatus, string> = {
   DRAFT: 'Draft',
@@ -48,4 +56,50 @@ export const CREDIT_NOTE_STATUS_VARIANT: Record<
   DRAFT: 'default',
   ISSUED: 'success',
   VOID: 'destructive',
+};
+
+// === Accounting (Sprint 7, docs/domains/accounting.md) ===
+
+export const ACCOUNT_TYPE_LABELS: Record<AccountType, string> = {
+  ASSET: 'Asset',
+  LIABILITY: 'Liability',
+  EQUITY: 'Equity',
+  REVENUE: 'Revenue',
+  COST_OF_SALES: 'Cost of Sales',
+  EXPENSE: 'Expense',
+};
+
+export const ACCOUNTING_PERIOD_STATUS_LABELS: Record<AccountingPeriodStatus, string> = {
+  OPEN: 'Open',
+  CLOSED: 'Closed',
+};
+
+export const ACCOUNTING_PERIOD_STATUS_VARIANT: Record<
+  AccountingPeriodStatus,
+  NonNullable<BadgeProps['variant']>
+> = {
+  OPEN: 'success',
+  CLOSED: 'default',
+};
+
+export const JOURNAL_ENTRY_STATUS_LABELS: Record<JournalEntryStatus, string> = {
+  DRAFT: 'Draft',
+  POSTED: 'Posted',
+  VOID: 'Void',
+};
+
+export const JOURNAL_ENTRY_STATUS_VARIANT: Record<
+  JournalEntryStatus,
+  NonNullable<BadgeProps['variant']>
+> = {
+  DRAFT: 'default',
+  POSTED: 'success',
+  VOID: 'destructive',
+};
+
+export const JOURNAL_SOURCE_TYPE_LABELS: Record<string, string> = {
+  MANUAL: 'Manual',
+  INVOICE: 'Invoice',
+  PAYMENT: 'Payment',
+  CREDIT_NOTE: 'Credit Note',
 };

@@ -313,6 +313,34 @@ delivered roughly in order, but later Epics may be reordered as priorities evolv
   every read (no scheduler infrastructure exists in this codebase). Finance is structurally unable to
   read Dispatch/Delivery data or write to any upstream domain's tables
   (`finance-independence.spec.ts`) — see [`docs/domains/finance.md`](domains/finance.md).
+  Sprint 7 added the accounting layer described in Epic 17, below, and wired Finance's
+  three financial events to post to it automatically.
+
+### Epic 17 — Accounting
+
+- **Objective:** establish the accounting engine underneath Finance and every future
+  operational module — a Chart of Accounts, Accounting Periods, double-entry Journal
+  Entries, and a General Ledger. Explicitly the accounting _engine_, not accounting
+  _software_.
+- **Includes:** tenant-defined Chart of Accounts (self-referential hierarchy, system
+  accounts resolved by key, never hardcoded id), Accounting Periods (open/closed, only
+  open periods receive postings), Journal Entries (server-authoritative double-entry
+  validation, immutable once posted), General Ledger/Trial Balance/Account Activity
+  reporting, and automatic posting for Finance's `invoice.issued`/`payment.recorded`/
+  `credit-note.issued` events. Deliberately excludes Chart of Accounts → financial-
+  statement closing (P&L, Balance Sheet, Cash Flow Statement), Bank Reconciliation,
+  Accounts Payable/supplier invoices, payroll, fixed-asset accounting, a full tax
+  engine, budgeting, year-end closing, and accounting integration for any domain other
+  than Finance — all future sprints.
+- **Status:** Foundation implemented — Sprint 7 ("General Ledger & Accounting
+  Foundation"). `InvoiceRepository.issue()`/`PaymentRepository.create()`/
+  `CreditNoteRepository.issue()` each atomically post a double-entry `JournalEntry` via
+  a plain, dependency-injection-free posting boundary
+  (`accounting/journal-posting.ts`) designed so future Procurement/Production/
+  Inventory integrations can reuse the same functions without depending on
+  `FinanceModule`. Trial Balance always balances by double-entry construction; the
+  General Ledger's running balance is computed deterministically in application code,
+  never a SQL window function — see [`docs/domains/accounting.md`](domains/accounting.md).
 
 ## 5. Current Sprint Status
 
@@ -343,6 +371,7 @@ delivered roughly in order, but later Epics may be reordered as priorities evolv
 - ✓ Sprint 4.9 — Sales Execution & Order Fulfilment Foundation
 - ✓ Sprint 5 — Distribution & Delivery Operations Foundation
 - ✓ Sprint 6 — Finance Foundation
+- ✓ Sprint 7 — General Ledger & Accounting Foundation
 
 **Current focus:** Next sprint not yet scoped.
 

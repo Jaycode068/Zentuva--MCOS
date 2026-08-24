@@ -2,6 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { InvoiceStatus, Payment, PaymentMethod, PaymentStatus } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service';
+import { SYSTEM_ACCOUNT_KEYS } from './accounting/chart-of-account-keys';
+import { postSystemJournalEntry } from './accounting/journal-posting';
 import { PAYABLE_INVOICE_STATUSES } from './invoice.repository';
 
 export interface ListPaymentsParams {
@@ -191,6 +193,30 @@ export class PaymentRepository {
       const invoice = await tx.invoice.update({
         where: { id: data.invoiceId },
         data: { amountPaid: newAmountPaid, status: newStatus, updatedById: data.createdById },
+      });
+
+      // DR Cash/Bank, CR Accounts Receivable (docs/domains/accounting.md) — atomic
+      // with the payment+invoice writes above; a failed posting (no open period, no
+      // configured system account) rolls the whole payment back, never leaving a
+      // recorded payment with no accounting behind it.
+      await postSystemJournalEntry(tx, {
+        organisationId: data.organisationId,
+        date: data.paymentDate,
+        description: `Payment received against ${eligibleInvoice.invoiceCode}`,
+        reference: data.reference,
+        sourceType: 'PAYMENT',
+        sourceId: payment.id,
+        actorUserId: data.createdById,
+        lines: [
+          {
+            systemKey:
+              data.method === PaymentMethod.CASH
+                ? SYSTEM_ACCOUNT_KEYS.CASH
+                : SYSTEM_ACCOUNT_KEYS.BANK,
+            debit: data.amount,
+          },
+          { systemKey: SYSTEM_ACCOUNT_KEYS.AR, credit: data.amount },
+        ],
       });
 
       return {

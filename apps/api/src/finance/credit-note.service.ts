@@ -2,6 +2,11 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { CreditNoteStatus } from '@prisma/client';
 import { CreateCreditNoteInput } from '@zentuva/validation';
 
+import {
+  MissingSystemAccountError,
+  NoOpenPeriodError,
+  UnbalancedPostingError,
+} from './accounting/journal-posting';
 import { InvoiceRepository, PAYABLE_INVOICE_STATUSES } from './invoice.repository';
 import {
   CreditNoteInvoiceConflictError,
@@ -87,7 +92,10 @@ export class CreditNoteService {
       if (
         error instanceof CreditNoteStateError ||
         error instanceof CreditNoteInvoiceConflictError ||
-        error instanceof OverCreditError
+        error instanceof OverCreditError ||
+        error instanceof MissingSystemAccountError ||
+        error instanceof NoOpenPeriodError ||
+        error instanceof UnbalancedPostingError
       ) {
         throw new BadRequestException(error.message);
       }

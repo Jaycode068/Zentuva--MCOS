@@ -4,6 +4,7 @@ import { InvoiceStatus, SalesOrderStatus } from '@prisma/client';
 
 import { OrganisationService } from '../identity/organisation/organisation.service';
 import { SalesOrderRepository, SalesOrderWithRelations } from '../sales/sales-order.repository';
+import { MissingSystemAccountError, NoOpenPeriodError } from './accounting/journal-posting';
 import { InvoiceRepository, InvoiceWithRelations } from './invoice.repository';
 import { InvoiceService } from './invoice.service';
 
@@ -97,6 +98,7 @@ describe('InvoiceService', () => {
       findManyBySalesOrderExcludingVoid: jest.fn().mockResolvedValue([]),
       existsByCode: jest.fn().mockResolvedValue(false),
       updateStatus: jest.fn(),
+      issue: jest.fn(),
     } as unknown as jest.Mocked<InvoiceRepository>;
     const salesOrderRepository = {
       findById: jest.fn(),
@@ -281,13 +283,14 @@ describe('InvoiceService', () => {
     it('transitions DRAFT to ISSUED', async () => {
       const { service, invoiceRepository } = makeService();
       invoiceRepository.findById.mockResolvedValue(invoice);
-      invoiceRepository.updateStatus.mockResolvedValue({
+      invoiceRepository.issue.mockResolvedValue({
         ...invoice,
         status: InvoiceStatus.ISSUED,
       });
 
       const result = await service.issue('org-1', 'invoice-1', 'user-1');
       expect(result.status).toBe(InvoiceStatus.ISSUED);
+      expect(invoiceRepository.issue).toHaveBeenCalledWith('org-1', 'invoice-1', 'user-1');
     });
 
     it('rejects issuing a non-draft invoice', async () => {
@@ -296,6 +299,30 @@ describe('InvoiceService', () => {
 
       await expect(service.issue('org-1', 'invoice-1', 'user-1')).rejects.toThrow(
         'Only a draft invoice can be issued',
+      );
+    });
+
+    it('translates a NoOpenPeriodError from the atomic issue+post transaction into a BadRequestException — no invoice is left half-issued with no accounting behind it', async () => {
+      const { service, invoiceRepository } = makeService();
+      invoiceRepository.findById.mockResolvedValue(invoice);
+      invoiceRepository.issue.mockRejectedValue(
+        new NoOpenPeriodError('No open accounting period covers 2026-08-23'),
+      );
+
+      await expect(service.issue('org-1', 'invoice-1', 'user-1')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('translates a MissingSystemAccountError into a BadRequestException', async () => {
+      const { service, invoiceRepository } = makeService();
+      invoiceRepository.findById.mockResolvedValue(invoice);
+      invoiceRepository.issue.mockRejectedValue(
+        new MissingSystemAccountError('No "SALES_REVENUE" system account is configured'),
+      );
+
+      await expect(service.issue('org-1', 'invoice-1', 'user-1')).rejects.toThrow(
+        BadRequestException,
       );
     });
   });

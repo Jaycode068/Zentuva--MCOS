@@ -17,12 +17,67 @@ import {
  * writes (`invoice`, `payment`) — deterministic, no DB required, but the real repository
  * code under test, not a re-implementation of it.
  */
+/** Sprint 7 — `PaymentRepository.create()` now posts a `JournalEntry` inside the same
+ *  transaction (docs/domains/accounting.md). These three fakes let that posting
+ *  succeed deterministically: every `systemKey` resolves to a fake account, every date
+ *  falls inside a fake open period, and `journalEntries` tracks real
+ *  `(organisationId, sourceType, sourceId)` duplicates the same way the real table's
+ *  unique constraint would. */
 function makeFakeTx(
   invoices: Map<string, Record<string, unknown>>,
   payments: Map<string, Record<string, unknown>>,
+  journalEntries: Map<string, Record<string, unknown>> = new Map(),
 ) {
   let sequence = 0;
+  let journalSequence = 0;
   return {
+    chartOfAccount: {
+      findFirst: jest.fn(
+        async ({ where }: { where: { organisationId: string; systemKey: string } }) => ({
+          id: `account-${where.systemKey}`,
+          organisationId: where.organisationId,
+          systemKey: where.systemKey,
+        }),
+      ),
+    },
+    accountingPeriod: {
+      findFirst: jest.fn(async () => ({ id: 'period-1', status: 'OPEN' })),
+    },
+    journalEntry: {
+      findUnique: jest.fn(
+        async ({
+          where,
+        }: {
+          where: {
+            organisationId_sourceType_sourceId?: {
+              organisationId: string;
+              sourceType: string;
+              sourceId: string;
+            };
+          };
+        }) => {
+          const key = where.organisationId_sourceType_sourceId;
+          if (!key) return null;
+          for (const entry of journalEntries.values()) {
+            if (
+              entry.organisationId === key.organisationId &&
+              entry.sourceType === key.sourceType &&
+              entry.sourceId === key.sourceId
+            ) {
+              return entry;
+            }
+          }
+          return null;
+        },
+      ),
+      create: jest.fn(async ({ data }: { data: Record<string, unknown> }) => {
+        journalSequence += 1;
+        const id = `journal-${journalSequence}`;
+        const entry = { id, ...data };
+        journalEntries.set(id, entry);
+        return entry;
+      }),
+    },
     payment: {
       findFirst: jest.fn(async ({ where }: { where: { id: string; organisationId?: string } }) => {
         const payment = payments.get(where.id);
@@ -129,8 +184,9 @@ function makeFakeTx(
 function makePrisma(
   invoices: Map<string, Record<string, unknown>>,
   payments: Map<string, Record<string, unknown>>,
+  journalEntries: Map<string, Record<string, unknown>> = new Map(),
 ) {
-  const tx = makeFakeTx(invoices, payments);
+  const tx = makeFakeTx(invoices, payments, journalEntries);
   return {
     $transaction: jest.fn(async (callback: (tx: unknown) => Promise<unknown>) => callback(tx)),
   } as unknown as PrismaService;
@@ -169,6 +225,56 @@ describe('PaymentRepository (deliberate exception — real transaction logic und
     expect(result.wasCreated).toBe(true);
     expect(result.invoice.status).toBe(InvoiceStatus.PARTIALLY_PAID);
     expect(result.invoice.amountPaid).toBe(1_000_000);
+  });
+
+  it('posts DR Cash / CR Accounts Receivable for a CASH payment, and DR Bank for BANK_TRANSFER', async () => {
+    const invoices = new Map([
+      ['invoice-1', makeInvoice()],
+      ['invoice-2', makeInvoice()],
+    ]);
+    const payments = new Map<string, Record<string, unknown>>();
+    const journalEntries = new Map<string, Record<string, unknown>>();
+    const repository = new PaymentRepository(makePrisma(invoices, payments, journalEntries));
+
+    await repository.create({
+      organisationId: 'org-1',
+      customerId: 'customer-1',
+      invoiceId: 'invoice-1',
+      amount: 1_000_000,
+      method: PaymentMethod.CASH,
+      paymentDate: new Date(),
+      createdById: 'user-1',
+    });
+    await repository.create({
+      organisationId: 'org-1',
+      customerId: 'customer-1',
+      invoiceId: 'invoice-2',
+      amount: 500_000,
+      method: PaymentMethod.BANK_TRANSFER,
+      paymentDate: new Date(),
+      createdById: 'user-1',
+    });
+
+    const entries = [...journalEntries.values()] as {
+      lines: { create: { accountId: string; debit: number; credit: number }[] };
+    }[];
+    expect(entries).toHaveLength(2);
+
+    const cashLines = entries[0]!.lines.create;
+    expect(cashLines).toEqual(
+      expect.arrayContaining([
+        { accountId: 'account-CASH', description: undefined, debit: 1_000_000, credit: 0 },
+        { accountId: 'account-AR', description: undefined, debit: 0, credit: 1_000_000 },
+      ]),
+    );
+
+    const bankLines = entries[1]!.lines.create;
+    expect(bankLines).toEqual(
+      expect.arrayContaining([
+        { accountId: 'account-BANK', description: undefined, debit: 500_000, credit: 0 },
+        { accountId: 'account-AR', description: undefined, debit: 0, credit: 500_000 },
+      ]),
+    );
   });
 
   it('allows a payment landing exactly on the outstanding boundary and marks PAID', async () => {
@@ -262,10 +368,11 @@ describe('PaymentRepository (deliberate exception — real transaction logic und
     ).rejects.toThrow(PaymentInvoiceConflictError);
   });
 
-  it('idempotency replay returns the original payment without double-applying', async () => {
+  it('idempotency replay returns the original payment without double-applying, and posts exactly one journal entry', async () => {
     const invoices = new Map([['invoice-1', makeInvoice()]]);
     const payments = new Map<string, Record<string, unknown>>();
-    const repository = new PaymentRepository(makePrisma(invoices, payments));
+    const journalEntries = new Map<string, Record<string, unknown>>();
+    const repository = new PaymentRepository(makePrisma(invoices, payments, journalEntries));
 
     const first = await repository.create({
       organisationId: 'org-1',
@@ -293,6 +400,9 @@ describe('PaymentRepository (deliberate exception — real transaction logic und
     expect(second.payment.id).toBe(first.payment.id);
     // Only ONE payment's worth was ever applied — the invoice was not double-deducted.
     expect(second.invoice.amountPaid).toBe(1_000_000);
+    // And exactly one accounting journal was posted for this payment — a replay never
+    // creates a second one (docs/domains/accounting.md idempotency guarantee).
+    expect(journalEntries.size).toBe(1);
   });
 
   it('a concurrent-style double payment sequence: the second payment sees the first applied and is correctly bounded', async () => {

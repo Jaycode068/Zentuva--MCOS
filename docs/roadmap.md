@@ -87,10 +87,16 @@ PARTIALLY_FULFILLED → FULFILLED`, idempotent, multi-batch); Invoicing/Payments
       Sales Order with permanently-snapshotted commercial terms; Payments with
       partial-settlement support via a `PaymentAllocation` join table designed for
       future multi-invoice allocation without a rewrite; a lightweight, flat-amount
-      Credit Note; Accounts Receivable computed on read, never independently stored);
-      not the General Ledger — Chart of Accounts, Journal Entries, Trial Balance,
-      P&L, Balance Sheet, and Bank Reconciliation remain — see
-      [`docs/domains/finance.md`](domains/finance.md)
+      Credit Note; Accounts Receivable computed on read, never independently stored)
+      — see [`docs/domains/finance.md`](domains/finance.md)
+- [x] Accounting — foundation shipped Sprint 7 (tenant-defined Chart of Accounts,
+      Accounting Periods, double-entry Journal Entries, General Ledger/Trial Balance/
+      Account Activity; Finance's Invoice/Payment/Credit-Note events post
+      automatically via a reusable, dependency-injection-free posting boundary);
+      not a complete accounting system — financial-statement closing (P&L, Balance
+      Sheet), Cash Flow Statement, Bank Reconciliation, Accounts Payable, and
+      accounting integration for Procurement/Production/Inventory/Sales Fulfilment
+      remain — see [`docs/domains/accounting.md`](domains/accounting.md)
 
 ## Phase 3 — Extended Experiences
 

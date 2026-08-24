@@ -2,6 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { Invoice, InvoiceStatus, Prisma } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service';
+import { SYSTEM_ACCOUNT_KEYS } from './accounting/chart-of-account-keys';
+import { postSystemJournalEntry } from './accounting/journal-posting';
 
 export interface ListInvoicesParams {
   status?: InvoiceStatus;
@@ -126,7 +128,8 @@ export class InvoiceRepository {
   /** Tenant-scoped conditional status transition — `updateMany` only matches when the
    *  invoice's current status is one of `fromStatuses`, closing the race against a
    *  concurrent transition, same as `DispatchRepository.updateStatus`. Returns `null` on
-   *  no match; the service turns that into a specific `BadRequestException`. */
+   *  no match; the service turns that into a specific `BadRequestException`. Used for
+   *  `void()` only — `issue()` (below) has its own accounting-posting variant. */
   async updateStatus(
     organisationId: string,
     id: string,
@@ -142,6 +145,44 @@ export class InvoiceRepository {
       return null;
     }
     return this.prisma.invoice.findUniqueOrThrow({ where: { id }, include: RELATIONS_INCLUDE });
+  }
+
+  /** `DRAFT → ISSUED`, atomically with posting `DR Accounts Receivable / CR Sales
+   *  Revenue` (docs/domains/accounting.md) — both succeed or both roll back together,
+   *  so an invoice can never end up `ISSUED` with no journal behind it. Unlike the
+   *  generic `updateStatus` above, this needs its own `$transaction` since it must
+   *  share one atomic scope with `postSystemJournalEntry`. */
+  async issue(
+    organisationId: string,
+    id: string,
+    actorUserId: string,
+  ): Promise<InvoiceWithRelations | null> {
+    return this.prisma.$transaction(async (tx) => {
+      const result = await tx.invoice.updateMany({
+        where: { id, organisationId, status: InvoiceStatus.DRAFT },
+        data: { status: InvoiceStatus.ISSUED, updatedById: actorUserId },
+      });
+      if (result.count === 0) {
+        return null;
+      }
+
+      const invoice = await tx.invoice.findUniqueOrThrow({ where: { id } });
+      await postSystemJournalEntry(tx, {
+        organisationId,
+        date: invoice.invoiceDate,
+        description: `Invoice ${invoice.invoiceCode} issued`,
+        reference: invoice.invoiceCode,
+        sourceType: 'INVOICE',
+        sourceId: invoice.id,
+        actorUserId,
+        lines: [
+          { systemKey: SYSTEM_ACCOUNT_KEYS.AR, debit: invoice.total },
+          { systemKey: SYSTEM_ACCOUNT_KEYS.SALES_REVENUE, credit: invoice.total },
+        ],
+      });
+
+      return tx.invoice.findUniqueOrThrow({ where: { id }, include: RELATIONS_INCLUDE });
+    });
   }
 
   /** Org-wide Accounts Receivable aggregate — one row per customer with at least one

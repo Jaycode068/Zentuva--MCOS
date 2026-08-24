@@ -7,6 +7,86 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 7 General Ledger & Accounting Foundation] - 2026-08-24
+
+### Added
+
+- **`ChartOfAccount`** — a tenant-defined, self-referential account hierarchy (mirrors
+  `Territory`'s own parent/child cycle-prevention shape exactly). `code` is unique
+  _per organisation_ (unlike `Invoice.invoiceCode`'s global uniqueness — every tenant
+  maintains its own chart). System accounts (`isSystemAccount` + `systemKey`, one of
+  `AR`/`SALES_REVENUE`/`SALES_RETURNS`/`CASH`/`BANK`/`INVENTORY`/`COGS`/`AP`) let
+  posting code resolve "the AR account for this organisation" without ever hardcoding
+  an id, and can never be deactivated via the API. Named `ChartOfAccount`, not
+  `Account` — `Account` would collide with the pre-existing, unrelated self-service
+  `AccountModule`/`AccountController` (`apps/api/src/identity/account/`).
+- **`AccountingPeriod`** — a named date range only `OPEN` periods may receive postings
+  into; closing is one-way this sprint. Overlap against an existing period is rejected
+  service-side (no Postgres range-exclusion constraint precedent in this schema).
+- **`JournalEntry`/`JournalEntryLine`** — the core double-entry record.
+  `journalNumber` (`JE-000001`, ...) is unique per organisation. `accountingPeriodId`
+  is always server-resolved from `date`, never independently client-selected.
+  Server-authoritative double-entry validation throughout: exactly one of
+  `debit`/`credit` per line, at least two lines, `Σdebit === Σcredit` — re-validated
+  at every layer, never trusted from the client. Manually-created entries pass through
+  `DRAFT` (balance-validated at creation) before a separate `POST .../:id/post` action
+  re-validates balance + period-open-ness and flips to `POSTED`; system-generated
+  entries (invoice/payment/credit-note) post directly as `POSTED`. `VOID` is a bare
+  status flip — it never generates an automatic reversing entry (a true correction is
+  a new manual journal). Duplicate-posting prevention via
+  `@@unique([organisationId, sourceType, sourceId])`, independent of and in addition
+  to `Payment`/`CreditNote`'s own idempotency keys.
+- **Automatic Finance → General Ledger posting, atomic with the triggering write**:
+  `InvoiceRepository.issue()` (a new transactional method, replacing the generic
+  `updateStatus` call `InvoiceService.issue()` used before), `PaymentRepository.create()`,
+  and `CreditNoteRepository.issue()` each post a journal entry via
+  `accounting/journal-posting.ts`'s `postSystemJournalEntry` — a plain,
+  dependency-injection-free function taking a Prisma transaction client, called from
+  _inside_ the caller's own `$transaction` (a NestJS-injected service would open a
+  separate transaction and break atomicity). If posting fails (no open period, no
+  configured system account), the whole business operation rolls back — never an
+  invoice marked `ISSUED` with no journal behind it. `Invoice.issue()` posts
+  `DR Accounts Receivable / CR Sales Revenue`; a payment posts `DR Cash-or-Bank / CR
+Accounts Receivable` (`PaymentMethod.CASH` → the `CASH` system account, everything
+  else → `BANK`); a credit note posts `DR Sales Returns / CR Accounts Receivable`.
+- **General Ledger / Trial Balance / Account Activity** (`GET /finance/ledger`,
+  `/trial-balance`, `/accounts/:id/activity`) — entirely read-only, auth-only. Running
+  balance is computed deterministically in application code from an ordered query
+  result, never a SQL window function. Trial Balance splits each account's
+  `totalDebit − totalCredit` by sign into a classic two-column presentation; since the
+  whole ledger balances by double-entry construction, the two columns' totals always
+  match with zero per-account-type sign logic needed.
+- **New endpoints** (15 total): `GET/POST /finance/accounts`, `PATCH .../:id`,
+  `POST .../:id/{activate,deactivate}`, `GET .../:id/activity`,
+  `GET/POST /finance/accounting-periods`, `POST .../:id/close`,
+  `GET/POST /finance/journal-entries`, `GET .../:id`, `POST .../:id/{post,void}`,
+  `GET /finance/ledger`, `GET /finance/trial-balance`.
+- **Admin surface** — five new tabs on the existing `FinanceTabs` bar (now ten total,
+  horizontally scrollable at narrow widths rather than wrapping): Chart of Accounts (a
+  parent/child tree with System badges), Journal Entries (dynamic line rows with live
+  Total Debit/Credit/Difference, chaining create-then-post as one user action —
+  mirroring Sprint 6's `CreditNoteDialog` create-then-issue precedent), General Ledger,
+  Trial Balance, and Accounting Periods.
+- **Seed data** — a full worked Chart of Accounts (24 accounts, 8 marked as system
+  accounts) and two Accounting Periods ("July 2026", posted-into then closed to
+  demonstrate real closed-period history; "August 2026", left `OPEN`). `seedFinance`'s
+  existing four invoices/three payments/one credit note now each post a real journal
+  entry via a local, self-contained re-implementation of the posting logic
+  (`prisma/seed.ts` has never imported from `src/` — this sprint keeps that
+  convention rather than importing `journal-posting.ts` directly). Verified
+  idempotent and confirmed balanced (`Σdebit === Σcredit`) via direct database
+  inspection after both a first and a repeat `pnpm db:seed` run.
+
+### Fixed
+
+- **The only `window.confirm()` call anywhere in the frontend** — the Accounting
+  Periods "Close" button initially used a native `confirm()` dialog, foreign to this
+  codebase's convention (every other one-way action, e.g. Void on an Invoice/Payment/
+  Credit Note, executes directly on click with a loading state, no native dialog).
+  Caught during this sprint's own live verification (a native `confirm()` blocked
+  automated browser testing, surfacing the inconsistency); removed to match the
+  established pattern.
+
 ## [Sprint 6 Finance Foundation] - 2026-08-24
 
 ### Added

@@ -15,11 +15,64 @@ import {
  * full rationale). Exercises `CreditNoteRepository.issue()`/`.void()`'s actual
  * transaction-callback logic against a small in-memory fake of `invoice`/`creditNote`.
  */
+/** Sprint 7 — `CreditNoteRepository.issue()` now posts a `JournalEntry` inside the same
+ *  transaction when applying a credit to an invoice (docs/domains/accounting.md). Same
+ *  three fakes as `payment.repository.spec.ts`'s own extension — see that file's doc
+ *  comment for the full rationale. */
 function makeFakeTx(
   invoices: Map<string, Record<string, unknown>>,
   creditNotes: Map<string, Record<string, unknown>>,
+  journalEntries: Map<string, Record<string, unknown>> = new Map(),
 ) {
+  let journalSequence = 0;
   return {
+    chartOfAccount: {
+      findFirst: jest.fn(
+        async ({ where }: { where: { organisationId: string; systemKey: string } }) => ({
+          id: `account-${where.systemKey}`,
+          organisationId: where.organisationId,
+          systemKey: where.systemKey,
+        }),
+      ),
+    },
+    accountingPeriod: {
+      findFirst: jest.fn(async () => ({ id: 'period-1', status: 'OPEN' })),
+    },
+    journalEntry: {
+      findUnique: jest.fn(
+        async ({
+          where,
+        }: {
+          where: {
+            organisationId_sourceType_sourceId?: {
+              organisationId: string;
+              sourceType: string;
+              sourceId: string;
+            };
+          };
+        }) => {
+          const key = where.organisationId_sourceType_sourceId;
+          if (!key) return null;
+          for (const entry of journalEntries.values()) {
+            if (
+              entry.organisationId === key.organisationId &&
+              entry.sourceType === key.sourceType &&
+              entry.sourceId === key.sourceId
+            ) {
+              return entry;
+            }
+          }
+          return null;
+        },
+      ),
+      create: jest.fn(async ({ data }: { data: Record<string, unknown> }) => {
+        journalSequence += 1;
+        const id = `journal-${journalSequence}`;
+        const entry = { id, ...data };
+        journalEntries.set(id, entry);
+        return entry;
+      }),
+    },
     creditNote: {
       findFirst: jest.fn(async ({ where }: { where: { id: string; organisationId?: string } }) => {
         const creditNote = creditNotes.get(where.id);
@@ -77,8 +130,9 @@ function makeFakeTx(
 function makePrisma(
   invoices: Map<string, Record<string, unknown>>,
   creditNotes: Map<string, Record<string, unknown>>,
+  journalEntries: Map<string, Record<string, unknown>> = new Map(),
 ) {
-  const tx = makeFakeTx(invoices, creditNotes);
+  const tx = makeFakeTx(invoices, creditNotes, journalEntries);
   return {
     $transaction: jest.fn(async (callback: (tx: unknown) => Promise<unknown>) => callback(tx)),
   } as unknown as PrismaService;
@@ -89,6 +143,7 @@ function makeInvoice(overrides: Partial<Record<string, unknown>> = {}) {
     id: 'invoice-2',
     organisationId: 'org-1',
     customerId: 'customer-1',
+    invoiceCode: 'INV-000002',
     currency: 'NGN',
     status: InvoiceStatus.PARTIALLY_PAID,
     total: 2_500_000,
@@ -104,6 +159,8 @@ function makeCreditNote(overrides: Partial<Record<string, unknown>> = {}) {
     organisationId: 'org-1',
     customerId: 'customer-1',
     invoiceId: 'invoice-2',
+    creditNoteCode: 'CN-000001',
+    creditNoteDate: new Date('2026-08-22'),
     amount: 250_000,
     status: CreditNoteStatus.DRAFT,
     ...overrides,
@@ -122,6 +179,33 @@ describe('CreditNoteRepository (deliberate exception — real transaction logic 
     expect(invoices.get('invoice-2')!.amountCredited).toBe(250_000);
     // 1,000,000 paid + 250,000 credited = 1,250,000 < 2,500,000 total -> still PARTIALLY_PAID
     expect(invoices.get('invoice-2')!.status).toBe(InvoiceStatus.PARTIALLY_PAID);
+  });
+
+  it('posts DR Sales Returns / CR Accounts Receivable when issuing, exactly once even on a duplicate call', async () => {
+    const invoices = new Map([['invoice-2', makeInvoice()]]);
+    const creditNotes = new Map([['credit-note-1', makeCreditNote()]]);
+    const journalEntries = new Map<string, Record<string, unknown>>();
+    const repository = new CreditNoteRepository(makePrisma(invoices, creditNotes, journalEntries));
+
+    await repository.issue('org-1', 'credit-note-1', 'user-1');
+
+    expect(journalEntries.size).toBe(1);
+    const entry = [...journalEntries.values()][0] as {
+      lines: { create: { accountId: string; debit: number; credit: number }[] };
+    };
+    expect(entry.lines.create).toEqual(
+      expect.arrayContaining([
+        { accountId: 'account-SALES_RETURNS', description: undefined, debit: 250_000, credit: 0 },
+        { accountId: 'account-AR', description: undefined, debit: 0, credit: 250_000 },
+      ]),
+    );
+
+    // Re-issuing an already-issued credit note is rejected before ever reaching the
+    // posting step (CreditNoteStateError) — the journal count never changes.
+    await expect(repository.issue('org-1', 'credit-note-1', 'user-1')).rejects.toThrow(
+      CreditNoteStateError,
+    );
+    expect(journalEntries.size).toBe(1);
   });
 
   it('landing exactly on the outstanding boundary via payment+credit marks the invoice PAID', async () => {

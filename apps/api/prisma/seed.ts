@@ -2064,6 +2064,241 @@ async function seedDispatchesAndDeliveries(
 }
 
 /**
+ * Sprint 7's Chart of Accounts (docs/domains/accounting.md) — the worked example from
+ * the brief's own §30, ordered parent-before-child so a single linear pass can resolve
+ * every `parentCode` against an already-created account. `systemKey` marks the eight
+ * accounts Finance's automatic postings (and future Procurement/Production/Inventory
+ * integrations) resolve by key rather than by hardcoded id — see
+ * `SYSTEM_ACCOUNT_KEYS` in `apps/api/src/finance/accounting/chart-of-account-keys.ts`
+ * (deliberately re-declared as plain string literals here, not imported — see
+ * `seedFinance`'s own doc comment on why this script never imports from `src/`).
+ */
+const BOBY_BITES_CHART_OF_ACCOUNTS: {
+  code: string;
+  name: string;
+  type: string;
+  parentCode?: string;
+  systemKey?: string;
+}[] = [
+  { code: '1000', name: 'Assets', type: 'ASSET' },
+  { code: '1100', name: 'Cash & Bank', type: 'ASSET', parentCode: '1000' },
+  { code: '1110', name: 'Cash', type: 'ASSET', parentCode: '1100', systemKey: 'CASH' },
+  { code: '1120', name: 'Bank', type: 'ASSET', parentCode: '1100', systemKey: 'BANK' },
+  { code: '1200', name: 'Accounts Receivable', type: 'ASSET', parentCode: '1000', systemKey: 'AR' },
+  { code: '1300', name: 'Inventory', type: 'ASSET', parentCode: '1000', systemKey: 'INVENTORY' },
+  { code: '1310', name: 'Raw Materials', type: 'ASSET', parentCode: '1300' },
+  { code: '1320', name: 'Packaging Materials', type: 'ASSET', parentCode: '1300' },
+  { code: '1330', name: 'Finished Goods', type: 'ASSET', parentCode: '1300' },
+  { code: '2000', name: 'Liabilities', type: 'LIABILITY' },
+  {
+    code: '2100',
+    name: 'Accounts Payable',
+    type: 'LIABILITY',
+    parentCode: '2000',
+    systemKey: 'AP',
+  },
+  { code: '3000', name: 'Equity', type: 'EQUITY' },
+  { code: '3100', name: "Owner's Capital", type: 'EQUITY', parentCode: '3000' },
+  { code: '4000', name: 'Revenue', type: 'REVENUE' },
+  {
+    code: '4100',
+    name: 'Product Sales',
+    type: 'REVENUE',
+    parentCode: '4000',
+    systemKey: 'SALES_REVENUE',
+  },
+  {
+    code: '4200',
+    name: 'Sales Returns',
+    type: 'REVENUE',
+    parentCode: '4000',
+    systemKey: 'SALES_RETURNS',
+  },
+  { code: '5000', name: 'Cost of Sales', type: 'COST_OF_SALES' },
+  {
+    code: '5100',
+    name: 'Cost of Goods Sold',
+    type: 'COST_OF_SALES',
+    parentCode: '5000',
+    systemKey: 'COGS',
+  },
+  { code: '6000', name: 'Expenses', type: 'EXPENSE' },
+  { code: '6100', name: 'Salaries', type: 'EXPENSE', parentCode: '6000' },
+  { code: '6200', name: 'Utilities', type: 'EXPENSE', parentCode: '6000' },
+  { code: '6300', name: 'Rent', type: 'EXPENSE', parentCode: '6000' },
+  { code: '6400', name: 'Maintenance', type: 'EXPENSE', parentCode: '6000' },
+  { code: '6500', name: 'Transport', type: 'EXPENSE', parentCode: '6000' },
+];
+
+/** Idempotency-gated on the `AR` system account already existing for this
+ *  organisation. Returns nothing — every later lookup (including
+ *  `postSeedJournalEntry`, below) resolves accounts by `systemKey` at the point of
+ *  use, exactly like the real `journal-posting.ts`. */
+async function seedChartOfAccounts(organisationId: string, actorUserId: string): Promise<void> {
+  console.log('Seeding Chart of Accounts...');
+
+  const existing = await prisma.chartOfAccount.findFirst({
+    where: { organisationId, systemKey: 'AR' },
+  });
+  if (existing) {
+    return;
+  }
+
+  const idByCode = new Map<string, string>();
+  for (const account of BOBY_BITES_CHART_OF_ACCOUNTS) {
+    const created = await prisma.chartOfAccount.create({
+      data: {
+        organisationId,
+        code: account.code,
+        name: account.name,
+        type: account.type as never,
+        description: null,
+        isSystemAccount: Boolean(account.systemKey),
+        systemKey: account.systemKey,
+        createdById: actorUserId,
+        updatedById: actorUserId,
+        ...(account.parentCode ? { parentId: idByCode.get(account.parentCode) } : {}),
+      },
+    });
+    idByCode.set(account.code, created.id);
+  }
+}
+
+/** Two periods: "July 2026" (created, used to post `INV-000003`'s historical journal
+ *  inside `seedFinance`, then closed — demonstrating a real closed period with real
+ *  posted history) and "August 2026" (left `OPEN`, covering every other seeded
+ *  fixture's date and "today" for live verification). Idempotency-gated on "August
+ *  2026" already existing. */
+async function seedAccountingPeriods(organisationId: string, actorUserId: string): Promise<void> {
+  console.log('Seeding Accounting Periods...');
+
+  const existing = await prisma.accountingPeriod.findFirst({
+    where: { organisationId, name: 'August 2026' },
+  });
+  if (existing) {
+    return;
+  }
+
+  await prisma.accountingPeriod.create({
+    data: {
+      organisationId,
+      name: 'July 2026',
+      startDate: new Date('2026-07-01'),
+      endDate: new Date('2026-07-31'),
+      status: 'OPEN',
+      createdById: actorUserId,
+    },
+  });
+  await prisma.accountingPeriod.create({
+    data: {
+      organisationId,
+      name: 'August 2026',
+      startDate: new Date('2026-08-01'),
+      endDate: new Date('2026-08-31'),
+      status: 'OPEN',
+      createdById: actorUserId,
+    },
+  });
+}
+
+/**
+ * A local, self-contained equivalent of
+ * `apps/api/src/finance/accounting/journal-posting.ts`'s `postSystemJournalEntry` —
+ * deliberately re-implemented here rather than imported, matching this script's
+ * established convention (see this function's sibling `buildInvoiceItem`, which
+ * likewise re-derives `InvoiceService`'s own tax/subtotal math locally): `prisma/
+ * seed.ts` runs as a standalone `ts-node` script outside `src/`'s `tsconfig.json`
+ * `rootDir`, and every prior sprint's seed additions have written directly against
+ * Prisma rather than importing domain code. Kept behaviourally identical to the real
+ * function — same idempotency-by-`(organisationId, sourceType, sourceId)` guarantee,
+ * same `JE-000001` numbering, same system-account/open-period resolution — so the
+ * seeded ledger is indistinguishable from one the live application produced.
+ */
+async function postSeedJournalEntry(
+  organisationId: string,
+  input: {
+    date: Date;
+    description: string;
+    reference?: string;
+    sourceType: string;
+    sourceId: string;
+    actorUserId: string;
+    lines: { systemKey: string; debit?: number; credit?: number }[];
+  },
+): Promise<void> {
+  const existing = await prisma.journalEntry.findUnique({
+    where: {
+      organisationId_sourceType_sourceId: {
+        organisationId,
+        sourceType: input.sourceType,
+        sourceId: input.sourceId,
+      },
+    },
+  });
+  if (existing) {
+    return;
+  }
+
+  const period = await prisma.accountingPeriod.findFirst({
+    where: {
+      organisationId,
+      status: 'OPEN',
+      startDate: { lte: input.date },
+      endDate: { gte: input.date },
+    },
+  });
+  if (!period) {
+    throw new Error(
+      `seedFinance: no open accounting period covers ${input.date.toISOString().slice(0, 10)} — seedAccountingPeriods must run first`,
+    );
+  }
+
+  const lines = await Promise.all(
+    input.lines.map(async (line) => {
+      const account = await prisma.chartOfAccount.findFirst({
+        where: { organisationId, systemKey: line.systemKey },
+      });
+      if (!account) {
+        throw new Error(`seedFinance: no "${line.systemKey}" system account configured`);
+      }
+      return {
+        accountId: account.id,
+        debit: line.debit ?? 0,
+        credit: line.credit ?? 0,
+      };
+    }),
+  );
+
+  let sequence = 1;
+  let journalNumber = `JE-${String(sequence).padStart(6, '0')}`;
+  while (
+    await prisma.journalEntry.findUnique({
+      where: { organisationId_journalNumber: { organisationId, journalNumber } },
+    })
+  ) {
+    sequence += 1;
+    journalNumber = `JE-${String(sequence).padStart(6, '0')}`;
+  }
+
+  await prisma.journalEntry.create({
+    data: {
+      organisationId,
+      journalNumber,
+      date: input.date,
+      accountingPeriodId: period.id,
+      description: input.description,
+      reference: input.reference,
+      sourceType: input.sourceType,
+      sourceId: input.sourceId,
+      status: 'POSTED',
+      postedAt: new Date(),
+      createdById: input.actorUserId,
+      lines: { create: lines },
+    },
+  });
+}
+
+/**
  * Sprint 6's Finance fixtures (docs/domains/finance.md) — four invoices covering every
  * lifecycle state the brief asks to see seeded: a fully PAID invoice via two
  * installments, a PARTIALLY_PAID invoice with a Credit Note applied, an OVERDUE invoice
@@ -2145,7 +2380,19 @@ async function seedFinance(
     },
   });
   await prisma.invoice.update({ where: { id: invoice1.id }, data: { status: 'PAID' } });
-  await prisma.payment.create({
+  await postSeedJournalEntry(organisationId, {
+    date: invoice1.invoiceDate,
+    description: `Invoice ${invoice1.invoiceCode} issued`,
+    reference: invoice1.invoiceCode,
+    sourceType: 'INVOICE',
+    sourceId: invoice1.id,
+    actorUserId,
+    lines: [
+      { systemKey: 'AR', debit: invoice1.total },
+      { systemKey: 'SALES_REVENUE', credit: invoice1.total },
+    ],
+  });
+  const payment1a = await prisma.payment.create({
     data: {
       organisationId,
       customerId: customersByCode['CUS-000013']!,
@@ -2160,7 +2407,19 @@ async function seedFinance(
       allocations: { create: [{ invoiceId: invoice1.id, amount: 1_000_000 }] },
     },
   });
-  await prisma.payment.create({
+  await postSeedJournalEntry(organisationId, {
+    date: payment1a.paymentDate,
+    description: `Payment received against ${invoice1.invoiceCode}`,
+    reference: payment1a.reference ?? undefined,
+    sourceType: 'PAYMENT',
+    sourceId: payment1a.id,
+    actorUserId,
+    lines: [
+      { systemKey: 'BANK', debit: payment1a.amount },
+      { systemKey: 'AR', credit: payment1a.amount },
+    ],
+  });
+  const payment1b = await prisma.payment.create({
     data: {
       organisationId,
       customerId: customersByCode['CUS-000013']!,
@@ -2174,6 +2433,18 @@ async function seedFinance(
       createdById: actorUserId,
       allocations: { create: [{ invoiceId: invoice1.id, amount: 1_500_000 }] },
     },
+  });
+  await postSeedJournalEntry(organisationId, {
+    date: payment1b.paymentDate,
+    description: `Payment received against ${invoice1.invoiceCode}`,
+    reference: payment1b.reference ?? undefined,
+    sourceType: 'PAYMENT',
+    sourceId: payment1b.id,
+    actorUserId,
+    lines: [
+      { systemKey: 'BANK', debit: payment1b.amount },
+      { systemKey: 'AR', credit: payment1b.amount },
+    ],
   });
 
   // --- INV-000002 — SO-000013, ABC Supermarket, partially paid + a Credit Note for
@@ -2203,7 +2474,19 @@ async function seedFinance(
     },
   });
   await prisma.invoice.update({ where: { id: invoice2.id }, data: { status: 'PARTIALLY_PAID' } });
-  await prisma.payment.create({
+  await postSeedJournalEntry(organisationId, {
+    date: invoice2.invoiceDate,
+    description: `Invoice ${invoice2.invoiceCode} issued`,
+    reference: invoice2.invoiceCode,
+    sourceType: 'INVOICE',
+    sourceId: invoice2.id,
+    actorUserId,
+    lines: [
+      { systemKey: 'AR', debit: invoice2.total },
+      { systemKey: 'SALES_REVENUE', credit: invoice2.total },
+    ],
+  });
+  const payment2 = await prisma.payment.create({
     data: {
       organisationId,
       customerId: customersByCode['CUS-000013']!,
@@ -2218,7 +2501,19 @@ async function seedFinance(
       allocations: { create: [{ invoiceId: invoice2.id, amount: 1_000_000 }] },
     },
   });
-  await prisma.creditNote.create({
+  await postSeedJournalEntry(organisationId, {
+    date: payment2.paymentDate,
+    description: `Payment received against ${invoice2.invoiceCode}`,
+    reference: payment2.reference ?? undefined,
+    sourceType: 'PAYMENT',
+    sourceId: payment2.id,
+    actorUserId,
+    lines: [
+      { systemKey: 'BANK', debit: payment2.amount },
+      { systemKey: 'AR', credit: payment2.amount },
+    ],
+  });
+  const creditNote1 = await prisma.creditNote.create({
     data: {
       organisationId,
       creditNoteCode: 'CN-000001',
@@ -2234,13 +2529,25 @@ async function seedFinance(
       updatedById: actorUserId,
     },
   });
+  await postSeedJournalEntry(organisationId, {
+    date: creditNote1.creditNoteDate,
+    description: `Credit note ${creditNote1.creditNoteCode} issued against ${invoice2.invoiceCode}`,
+    reference: creditNote1.creditNoteCode,
+    sourceType: 'CREDIT_NOTE',
+    sourceId: creditNote1.id,
+    actorUserId,
+    lines: [
+      { systemKey: 'SALES_RETURNS', debit: creditNote1.amount },
+      { systemKey: 'AR', credit: creditNote1.amount },
+    ],
+  });
 
   // --- INV-000003 — SO-000011, Mama Nkechi Stores, backdated due date, no payment.
   // Deliberately seeded ISSUED (not OVERDUE) — `InvoiceRepository`'s lazy sweep flips it
   // live on first read, demonstrating that mechanism rather than pre-empting it here.
   const order3 = salesOrdersByCode['SO-000011']!;
   const item3 = await buildInvoiceItem(order3.id, 3200, 7.5);
-  await prisma.invoice.create({
+  const invoice3 = await prisma.invoice.create({
     data: {
       organisationId,
       invoiceCode: 'INV-000003',
@@ -2260,11 +2567,33 @@ async function seedFinance(
       items: { create: [item3.item] },
     },
   });
+  await postSeedJournalEntry(organisationId, {
+    date: invoice3.invoiceDate,
+    description: `Invoice ${invoice3.invoiceCode} issued`,
+    reference: invoice3.invoiceCode,
+    sourceType: 'INVOICE',
+    sourceId: invoice3.id,
+    actorUserId,
+    lines: [
+      { systemKey: 'AR', debit: invoice3.total },
+      { systemKey: 'SALES_REVENUE', credit: invoice3.total },
+    ],
+  });
+
+  // Close "July 2026" now that its only posting (INV-000003's journal, above) is
+  // recorded — demonstrates a real closed period with real posted history, and
+  // exercises the "closed periods reject new postings" rule live without the user
+  // needing to close a period themselves before they can even see one.
+  console.log('Closing accounting period "July 2026"...');
+  await prisma.accountingPeriod.updateMany({
+    where: { organisationId, name: 'July 2026', status: 'OPEN' },
+    data: { status: 'CLOSED', closedAt: new Date(), closedById: actorUserId },
+  });
 
   // --- INV-000004 — SO-000009, Amala Spot Restaurant, not yet due, no payment.
   const order4 = salesOrdersByCode['SO-000009']!;
   const item4 = await buildInvoiceItem(order4.id, 3200, 7.5);
-  await prisma.invoice.create({
+  const invoice4 = await prisma.invoice.create({
     data: {
       organisationId,
       invoiceCode: 'INV-000004',
@@ -2283,6 +2612,18 @@ async function seedFinance(
       updatedById: actorUserId,
       items: { create: [item4.item] },
     },
+  });
+  await postSeedJournalEntry(organisationId, {
+    date: invoice4.invoiceDate,
+    description: `Invoice ${invoice4.invoiceCode} issued`,
+    reference: invoice4.invoiceCode,
+    sourceType: 'INVOICE',
+    sourceId: invoice4.id,
+    actorUserId,
+    lines: [
+      { systemKey: 'AR', debit: invoice4.total },
+      { systemKey: 'SALES_REVENUE', credit: invoice4.total },
+    ],
   });
 }
 
@@ -2471,6 +2812,8 @@ async function main(): Promise<void> {
     productsByCode,
     mainWarehouseId,
   );
+  await seedChartOfAccounts(organisation.id, ownerUser.id);
+  await seedAccountingPeriods(organisation.id, ownerUser.id);
   await seedFinance(
     organisation.id,
     ownerUser.id,
@@ -2519,6 +2862,9 @@ async function main(): Promise<void> {
     invoicesSeeded: 4,
     paymentsSeeded: 3,
     creditNotesSeeded: 1,
+    chartOfAccountsSeeded: BOBY_BITES_CHART_OF_ACCOUNTS.length,
+    accountingPeriodsSeeded: 2,
+    journalEntriesSeeded: 8,
     customersWithoutNetworkRelationship:
       BOBY_BITES_CUSTOMERS.length -
       new Set(BOBY_BITES_NETWORK_RELATIONSHIPS.flatMap((r) => [r.sourceCode, r.targetCode])).size,
