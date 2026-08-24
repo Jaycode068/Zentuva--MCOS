@@ -68,7 +68,7 @@ This roadmap tracks the intended build order. It is not a commitment to dates �
       onboarding; `SalesOrder`/`SalesOrderItem` targeting Sprint 4.7 SKUs only,
       server-authoritative totals, never touching inventory); Sprint 4.9 added
       Fulfilment — the one atomic, audited bridge into Inventory (`DRAFT → CONFIRMED →
-  PARTIALLY_FULFILLED → FULFILLED`, idempotent, multi-batch); Invoicing/Payments/
+PARTIALLY_FULFILLED → FULFILLED`, idempotent, multi-batch); Invoicing/Payments/
       Returns/inventory reservation remain — see
       [`docs/domains/customers.md`](domains/customers.md),
       [`docs/domains/sales.md`](domains/sales.md)
@@ -83,7 +83,14 @@ This roadmap tracks the intended build order. It is not a commitment to dates �
       [`docs/domains/territories.md`](domains/territories.md),
       [`docs/domains/retail-network.md`](domains/retail-network.md),
       [`docs/domains/distribution.md`](domains/distribution.md)
-- [ ] Finance
+- [x] Finance — foundation shipped Sprint 6 (Invoices raised against a `FULFILLED`
+      Sales Order with permanently-snapshotted commercial terms; Payments with
+      partial-settlement support via a `PaymentAllocation` join table designed for
+      future multi-invoice allocation without a rewrite; a lightweight, flat-amount
+      Credit Note; Accounts Receivable computed on read, never independently stored);
+      not the General Ledger — Chart of Accounts, Journal Entries, Trial Balance,
+      P&L, Balance Sheet, and Bank Reconciliation remain — see
+      [`docs/domains/finance.md`](domains/finance.md)
 
 ## Phase 3 — Extended Experiences
 

@@ -31,6 +31,11 @@ export const envSchema = baseEnvSchema
       .int()
       .positive()
       .default(2 * 1024 * 1024),
+
+    // --- Finance (Sprint 6) — a configurable suggested default tax rate, never
+    // hardcoded into calculation logic. Has a default so no existing environment needs
+    // changes to boot.
+    FINANCE_DEFAULT_TAX_RATE_PERCENT: z.coerce.number().min(0).max(100).default(7.5),
   })
   .refine((env) => env.JWT_ACCESS_SECRET !== env.JWT_REFRESH_SECRET, {
     message: 'JWT_ACCESS_SECRET and JWT_REFRESH_SECRET must be different values',

@@ -20,7 +20,7 @@ workflows, key entities, and how it integrates with other domains.
 | [Retail Network](retail-network.md) | Foundation implemented — Sprint 4.8 (distribution network relationships, kept structurally separate from Sales)                                                                                                                                 |
 | [Sales](sales.md)                   | Foundation implemented — Sprint 4.8 (Sales Orders; a mobile-first Field Sales workspace + Admin surface share this backend); Fulfilment added — Sprint 4.9 (atomic, audited inventory deduction; DRAFT→CONFIRMED→PARTIALLY_FULFILLED→FULFILLED) |
 | [Distribution](distribution.md)     | Foundation implemented — Sprint 5 (Dispatch + Delivery, chained off Sales Fulfilment; inventory deducted exactly once, never again at dispatch or delivery)                                                                                     |
-| Finance                             | Not started                                                                                                                                                                                                                                     |
+| [Finance](finance.md)               | Foundation implemented — Sprint 6 (Invoices, Payments with partial-payment support, Credit Notes, Accounts Receivable; not the General Ledger — see finance.md §9)                                                                              |
 
 As each domain is designed/built, add a `<domain>.md` here covering:
 

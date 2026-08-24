@@ -7,6 +7,97 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 6 Finance Foundation] - 2026-08-24
+
+### Added
+
+- **Five new Prisma models**: `Invoice`/`InvoiceItem` (raised against a `FULFILLED`
+  Sales Order, snapshotting product/price/tax details permanently — never
+  reconstructed from the live Product Catalogue), `Payment`/`PaymentAllocation`
+  (customer-scoped, allocated to invoices via a join table designed for future
+  multi-invoice allocation without a `Payment` rewrite), `CreditNote` (a lightweight,
+  flat-amount financial adjustment — no line-item detail, no full Returns Management
+  system). Auto-generated immutable `INV-000001`/`CN-000001` codes.
+- **`InvoiceStatus` lifecycle**: `DRAFT → ISSUED → {PARTIALLY_PAID → PAID}`, plus
+  `OVERDUE` and `VOID`. `amountOutstanding` is never stored — always derived as
+  `total - amountPaid - amountCredited`. `OVERDUE` is kept authoritative via a lazy
+  sweep inside `InvoiceRepository`'s own read methods (no cron/scheduler
+  infrastructure exists anywhere in this codebase) and takes precedence over
+  `PARTIALLY_PAID` once a due date lapses — the underlying paid/outstanding figures
+  stay fully accurate regardless of which status label is showing.
+- **Server-authoritative money throughout**: every invoice total, payment
+  over-payment guard (`amount <= amountOutstanding`, exact-boundary tested), and
+  credit-note over-credit guard is computed and enforced server-side; the client
+  never supplies a trusted total. `PaymentRepository.create()`/
+  `CreditNoteRepository.issue()` both run the same atomic shape: idempotency
+  check-then-return, an eligibility guard re-reading the invoice's status inside the
+  transaction, an over-payment/over-credit guard, the child write, the cumulative
+  column increment, and a shared status-derivation helper both repositories reuse so
+  a payment and a credit note applied to the same invoice always agree on the result.
+- **Payment Terms** — a closed `PaymentTermType` enum
+  (`CASH`/`DUE_ON_RECEIPT`/`NET_7`/`NET_14`/`NET_30`), not a tenant-configurable
+  table, deriving `dueDate` server-side. No credit-limit/approval-workflow engine.
+- **Minimal, configurable tax foundation** — `finance.defaultTaxRatePercent` (env
+  `FINANCE_DEFAULT_TAX_RATE_PERCENT`, default `7.5`) applies only when an invoice
+  line omits its own rate; the rate actually used is permanently snapshotted onto the
+  line, never recomputed later. No header-level `Invoice.taxRate` — only
+  `InvoiceItem.taxRate` exists, since a header rate would drift the moment two lines
+  carry different rates.
+- **Currency** reuses `Organisation.currency` as-is (no second currency system);
+  `Invoice.currency` is snapshotted at creation, `Payment.currency`/
+  `CreditNote.currency` are always server-derived from their target invoice, never
+  client-supplied.
+- **Structural independence, proven executably**: `FinanceModule` imports only
+  `IdentityModule`/`AuthModule`/`SalesModule`/`CustomerModule`/`OutletModule` — never
+  `InventoryModule`/`DistributionModule`. `finance-independence.spec.ts` guards that
+  Finance's own repositories never write to any upstream domain's tables. This drove
+  the key interpretive decision that invoice eligibility is
+  `SalesOrder.status === 'FULFILLED'` only, since Dispatch/Delivery data is
+  architecturally unreachable from Finance.
+- **New endpoints** (19 total): `GET /finance/eligible-sales-orders`,
+  `GET/POST /finance/invoices`, `GET/POST /finance/invoices/:id/{issue,void}`,
+  `GET /finance/invoices/:id/{payments,credit-notes}`, `GET/POST /finance/payments`,
+  `POST /finance/payments/:id/void`, `GET/POST /finance/credit-notes`,
+  `POST /finance/credit-notes/:id/{issue,void}`,
+  `GET /finance/receivables/{summary,by-customer,customers/:id}`.
+- **Admin surface** (`/settings/finance`) — Overview/Invoices/Payments/Receivables/
+  Credit Notes tabs via a new bespoke `FinanceTabs` component (following the existing
+  `AccountTabs` precedent; no generic `Tabs` primitive exists in this codebase yet).
+  A two-step "Create Invoice" dialog (pick an eligible Sales Order → the invoice form,
+  with live client-side preview totals never trusted on submit); the Invoice detail
+  dialog nests "Record Payment"/"Issue Credit Note" as their own dialogs, mirroring
+  Distribution's `DispatchDetailDialog` → `DeliveryDialog` composition. New shared
+  `apps/web/src/lib/format-currency.ts` — the first currency-formatting helper in
+  this codebase not hardcoded to a single currency.
+- **Seed data** — a new customer (ABC Supermarket) and two new Sales Orders exercising
+  the brief's own headline scenario end to end: `INV-000001` fully paid via two
+  payments (₦1,000,000 + ₦1,500,000 against a ₦2,500,000 invoice); `INV-000002`
+  partially paid (₦1,000,000) plus a `CN-000001` credit note (₦250,000 for damaged
+  goods), landing on `PARTIALLY_PAID` with a correct ₦1,250,000 outstanding balance;
+  `INV-000003` backdated to demonstrate the `OVERDUE` lazy sweep firing live;
+  `INV-000004` issued and not yet due, demonstrating the configured 7.5% tax default.
+  Verified idempotent (`pnpm db:seed` run twice, identical results).
+
+### Fixed
+
+- **`workspace/page.tsx`'s `MODULE_DESCRIPTIONS` map never gained a
+  `/settings/distribution` entry when Distribution shipped in Sprint 5** — the
+  Workspace dashboard's Platform Modules grid silently fell back to "Coming soon." for
+  a module that had been fully live for a full sprint. Caught during this sprint's own
+  live verification (Distribution appeared disabled on the dashboard despite working
+  correctly everywhere else); fixed by adding the missing entry.
+- **`PaymentDialog`/`CreditNoteDialog` were missing the `max-h-[75vh] overflow-y-auto`
+  wrapper** every other multi-field Finance dialog (`InvoiceDialog`,
+  `InvoiceDetailDialog`) already uses — on shorter viewports their Cancel/Submit
+  footer buttons fell outside the fixed-height `Dialog` panel with no way to scroll to
+  them. Caught live while recording a payment at a reduced browser height; fixed by
+  applying the same scroll wrapper both dialogs' sibling components already use.
+- **`payments/page.tsx`/`receivables/page.tsx` had no mobile card view** — unlike
+  `invoices/page.tsx`/`credit-notes/page.tsx`, which both follow the established
+  desktop-table/mobile-card responsive split, these two only rendered a
+  horizontally-scrolling table at every width. Caught during this sprint's own mobile
+  responsiveness pass (375px); fixed by adding the matching card layout to both.
+
 ## [Sprint 5 Distribution & Delivery Operations Foundation] - 2026-08-23
 
 ### Added

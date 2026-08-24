@@ -189,8 +189,10 @@ delivered roughly in order, but later Epics may be reordered as priorities evolv
   impossible, cancellation blocked once fulfilment starts) — confirmation itself still
   never touches inventory. A mobile-first Field Sales workspace (`/field`) and a desktop
   Admin surface (`/settings/sales`) share this one backend, including the new Fulfilment
-  UI. Invoicing, Payments, Returns, inventory reservation, delivery/route tracking, and
-  a pricing engine remain — see [`docs/domains/customers.md`](domains/customers.md) and
+  UI. Sprint 6 ("Finance Foundation") shipped Invoicing/Payments as their own domain
+  (Epic 16, below) rather than folding them into Sales. Returns, inventory reservation,
+  delivery/route tracking, and a pricing engine remain — see
+  [`docs/domains/customers.md`](domains/customers.md) and
   [`docs/domains/sales.md`](domains/sales.md).
 
 ### Epic 8 — Distribution
@@ -290,6 +292,28 @@ delivered roughly in order, but later Epics may be reordered as priorities evolv
   Owner/Administrator-write, Member-read-only authorization) — see
   [`docs/domains/suppliers.md`](domains/suppliers.md).
 
+### Epic 16 — Finance
+
+- **Objective:** record the financial consequence of what Sales, Inventory, and
+  Distribution have already recorded — what a customer was billed, what they've paid,
+  what they still owe. Explicitly **not** a General Ledger / accounting system.
+- **Includes:** Invoices, Payments (with partial-payment support), Credit Notes,
+  Accounts Receivable, Payment Terms, a minimal tax foundation. Deliberately excludes
+  Chart of Accounts, Journal Entries, General Ledger, Trial Balance, Profit & Loss,
+  Balance Sheet, Cash Flow Statement, Bank Reconciliation, payroll, fixed assets, a full
+  tax engine, sophisticated pricing, credit scoring, and payment-gateway integration —
+  all future sprints.
+- **Status:** Foundation implemented — Sprint 6 ("Finance Foundation"). Invoices are
+  raised against a `FULFILLED` Sales Order, snapshotting commercial terms permanently;
+  Payments support partial settlement via a `PaymentAllocation` join table designed for
+  future multi-invoice allocation without a `Payment` rewrite; Credit Notes are a
+  lightweight, flat-amount foundation (no line-item detail); Accounts Receivable is
+  computed on read (`groupBy`/`aggregate`), never independently stored;
+  `Invoice.status`'s `OVERDUE` transition is kept authoritative via a lazy sweep on
+  every read (no scheduler infrastructure exists in this codebase). Finance is structurally unable to
+  read Dispatch/Delivery data or write to any upstream domain's tables
+  (`finance-independence.spec.ts`) — see [`docs/domains/finance.md`](domains/finance.md).
+
 ## 5. Current Sprint Status
 
 **Completed:**
@@ -318,6 +342,7 @@ delivered roughly in order, but later Epics may be reordered as priorities evolv
 - ✓ Sprint 4.8 — Customer, Territory, Outlet, Retail Network & Sales Foundation
 - ✓ Sprint 4.9 — Sales Execution & Order Fulfilment Foundation
 - ✓ Sprint 5 — Distribution & Delivery Operations Foundation
+- ✓ Sprint 6 — Finance Foundation
 
 **Current focus:** Next sprint not yet scoped.
 

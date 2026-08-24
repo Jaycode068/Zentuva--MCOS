@@ -151,6 +151,10 @@ model Organisation {
   /// Added Sprint 5 — Distribution & Delivery (docs/domains/distribution.md).
   dispatches                       Dispatch[]
   deliveries                       Delivery[]
+  /// Added Sprint 6 — Finance (docs/domains/finance.md).
+  invoices                         Invoice[]
+  payments                         Payment[]
+  creditNotes                      CreditNote[]
 
   @@map("organisations")
 }
@@ -495,6 +499,8 @@ model Product {
   /// Added Sprint 5 — Distribution & Delivery (docs/domains/distribution.md).
   dispatchItems                DispatchItem[]
   deliveryItems                DeliveryItem[]
+  /// Added Sprint 6 — Finance (docs/domains/finance.md).
+  invoiceItems                 InvoiceItem[]
 
   @@unique([organisationId, slug])
   @@index([organisationId])
@@ -1485,6 +1491,10 @@ model Customer {
   networkRelationshipsAsTarget DistributionNetworkRelationship[] @relation("NetworkTarget")
   /// Added Sprint 5 — Distribution & Delivery (docs/domains/distribution.md).
   dispatches                   Dispatch[]
+  /// Added Sprint 6 — Finance (docs/domains/finance.md).
+  invoices                     Invoice[]
+  payments                     Payment[]
+  creditNotes                  CreditNote[]
 
   @@index([organisationId])
   @@index([organisationId, status])
@@ -1535,6 +1545,8 @@ model Outlet {
   salesOrders  SalesOrder[]
   /// Added Sprint 5 — Distribution & Delivery (docs/domains/distribution.md).
   dispatches   Dispatch[]
+  /// Added Sprint 6 — Finance (docs/domains/finance.md).
+  invoices     Invoice[]
 
   @@index([organisationId])
   @@index([organisationId, status])
@@ -1672,6 +1684,9 @@ model SalesOrder {
   /// Added Sprint 5 — Distribution & Delivery (docs/domains/distribution.md). Denormalised
   /// inverse of `Dispatch.salesOrderId`.
   dispatches   Dispatch[]
+  /// Added Sprint 6 — Finance (docs/domains/finance.md). Denormalised inverse of
+  /// `Invoice.salesOrderId`.
+  invoices     Invoice[]
 
   @@index([organisationId])
   @@index([organisationId, status])
@@ -1707,6 +1722,8 @@ model SalesOrderItem {
   salesOrder      SalesOrder            @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
   product         Product               @relation(fields: [productId], references: [id], onDelete: Restrict)
   fulfilmentItems SalesFulfilmentItem[]
+  /// Added Sprint 6 — Finance (docs/domains/finance.md).
+  invoiceItems    InvoiceItem[]
 
   /// DB-level defense-in-depth for "no duplicate SKU lines" (the Zod schema also rejects
   /// duplicates) — same shape as `BillOfMaterialItem`'s own `@@unique`.
@@ -1985,4 +2002,273 @@ model DeliveryItem {
   @@index([productId])
   @@index([dispatchItemId])
   @@map("delivery_items")
+}
+
+// ============================================================================
+// Finance (Sprint 6, docs/domains/finance.md) — Invoices, Payments, Credit
+// Notes, Accounts Receivable. Deliberately NOT a General Ledger/Chart of
+// Accounts/accounting system — see docs/domains/finance.md "Deferred
+// Accounting Work". Finance reads Sales Order data read-only (via
+// SalesModule's exported SalesOrderRepository) and never writes to
+// SalesOrder/Dispatch/Delivery/InventoryStock — proven by
+// finance-independence.spec.ts, not just documented here.
+// ============================================================================
+
+/// Determines an Invoice's due date, server-computed from `invoiceDate` at
+/// creation time. A fixed enum (not a lookup table) — same convention as
+/// `DispatchStatus`/`CustomerType`; a genuinely tenant-configurable Payment
+/// Terms table is deferred future work, not needed for this sprint's fixed
+/// set of terms.
+enum PaymentTermType {
+  CASH
+  DUE_ON_RECEIPT
+  NET_7
+  NET_14
+  NET_30
+}
+
+/// `DRAFT → ISSUED → {PARTIALLY_PAID → PAID}`, with `VOID` (from `DRAFT`
+/// freely, or from `ISSUED` only while nothing has been paid/credited yet)
+/// and `OVERDUE` (a lazy, read-time sweep — see `InvoiceRepository`'s doc
+/// comment — since this codebase has no cron/scheduler infrastructure) as
+/// side-branches. Never mutated arbitrarily; every transition is a named,
+/// guarded repository method.
+enum InvoiceStatus {
+  DRAFT
+  ISSUED
+  PARTIALLY_PAID
+  PAID
+  OVERDUE
+  VOID
+}
+
+enum PaymentMethod {
+  CASH
+  BANK_TRANSFER
+  POS
+  OTHER
+}
+
+/// `VOIDED` is a corrective reversal, never a delete — see `Payment`'s own
+/// doc comment.
+enum PaymentStatus {
+  RECORDED
+  VOIDED
+}
+
+/// `DRAFT → ISSUED` (applies the credit to its invoice) `→ VOID` (reverses
+/// it). Mirrors `InvoiceStatus`'s own DRAFT/ISSUED split.
+enum CreditNoteStatus {
+  DRAFT
+  ISSUED
+  VOID
+}
+
+/// The financial consequence of a fulfilled Sales Order — created explicitly
+/// by Finance, never automatically on order creation/confirmation (brief's
+/// own "Critical Architectural Rule"). `salesOrderId` is nullable at the
+/// schema level (a future non-order invoice path is conceivable) but
+/// `InvoiceService.create()` always requires one in Sprint 6.
+model Invoice {
+  id             String   @id @default(cuid())
+  organisationId String
+  /// Auto-generated (`INV-000001`, ...), globally unique, immutable — same
+  /// collision-avoidance loop as `SO-`/`DSP-`.
+  invoiceCode    String   @unique
+  customerId     String
+  outletId       String?
+  salesOrderId   String?
+  invoiceDate    DateTime
+  /// Computed server-side from `invoiceDate + paymentTermDays(paymentTerms)`
+  /// at creation — never client-supplied, never recomputed later even if
+  /// `paymentTerms` display changes.
+  dueDate        DateTime
+  paymentTerms   PaymentTermType
+  status         InvoiceStatus @default(DRAFT)
+  /// Snapshotted from `Organisation.currency` at creation — never re-read
+  /// from the organisation later, same "snapshot, don't re-derive" rule as
+  /// every commercial value on this model.
+  currency       String
+  subtotal       Float
+  discount       Float         @default(0)
+  /// Sum of `InvoiceItem.taxAmount` — deliberately no header-level `taxRate`
+  /// column (would drift from per-line reality the moment two lines carry
+  /// different rates; nothing would force them to agree).
+  taxAmount      Float         @default(0)
+  /// `subtotal - discount + taxAmount`, server-computed.
+  total          Float
+  /// Cumulative, incremented only inside `PaymentRepository.create()`'s
+  /// transaction. `amountOutstanding` is deliberately never stored — always
+  /// derived as `total - amountPaid - amountCredited` at every read site.
+  amountPaid     Float         @default(0)
+  /// Cumulative, incremented only inside `CreditNoteRepository.issue()`'s
+  /// transaction.
+  amountCredited Float         @default(0)
+  notes          String?
+  /// Client-supplied, optional. Protects `InvoiceService.create()` against a
+  /// double-tap/flaky-network retry — same convention as
+  /// `SalesFulfilment.idempotencyKey`. NOT a one-invoice-per-order
+  /// constraint (that's a separate service-level business-rule check, so a
+  /// future partial-invoicing feature needs no migration here).
+  idempotencyKey String?
+  createdById    String?
+  updatedById    String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  organisation Organisation        @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  customer     Customer            @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  outlet       Outlet?             @relation(fields: [outletId], references: [id], onDelete: Restrict)
+  salesOrder   SalesOrder?         @relation(fields: [salesOrderId], references: [id], onDelete: Restrict)
+  items        InvoiceItem[]
+  allocations  PaymentAllocation[]
+  creditNotes  CreditNote[]
+
+  @@unique([salesOrderId, idempotencyKey])
+  @@index([organisationId, status])
+  @@index([organisationId, customerId])
+  @@map("invoices")
+}
+
+/// One product line on an `Invoice`, snapshotting commercial detail so
+/// historical invoices remain accurate even if the `Product` record's name
+/// changes, price assumptions change, or the product later becomes inactive
+/// — mirrors `SalesOrderItem`'s own "never reconstruct from the live catalog"
+/// rule.
+model InvoiceItem {
+  id          String   @id @default(cuid())
+  invoiceId   String
+  productId   String?
+  /// Snapshot — never re-read from `Product` at display time.
+  productCode String
+  /// Snapshot.
+  productName String
+  description String?
+  quantity    Float
+  unitPrice   Float
+  discount    Float    @default(0)
+  /// Percent (e.g. `7.5`) — the only place a tax rate lives on an invoice;
+  /// defaults to `ConfigService`'s `finance.defaultTaxRatePercent` when the
+  /// client omits it, but whatever value is actually used is permanently
+  /// snapshotted here, never recomputed from a "current" default later.
+  taxRate     Float    @default(0)
+  taxAmount   Float    @default(0)
+  /// Server-calculated as `roundCurrency(quantity * unitPrice - discount +
+  /// taxAmount)` — deliberately absent from `invoiceItemInputSchema` so the
+  /// client cannot even express a value.
+  lineTotal   Float
+  /// Traceability back to the source `SalesOrderItem` this line was
+  /// invoiced from.
+  salesOrderItemId String?
+  createdAt   DateTime @default(now())
+
+  invoice        Invoice         @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  product        Product?        @relation(fields: [productId], references: [id], onDelete: Restrict)
+  salesOrderItem SalesOrderItem? @relation(fields: [salesOrderItemId], references: [id], onDelete: Restrict)
+
+  @@index([invoiceId])
+  @@map("invoice_items")
+}
+
+/// A customer-scoped (NOT invoice-scoped) record of money received.
+/// Deliberately not FK'd directly to one `Invoice` — see `PaymentAllocation`
+/// below for why, and docs/domains/finance.md §"Payment Allocation
+/// Limitation" for the documented Sprint 6 constraint this enables lifting
+/// later without a schema rewrite.
+model Payment {
+  id             String        @id @default(cuid())
+  organisationId String
+  customerId     String
+  paymentDate    DateTime
+  /// Total amount of this payment — may be allocated across one or more
+  /// invoices via `PaymentAllocation` (Sprint 6 only ever creates exactly
+  /// one allocation row per payment; the join table already supports more).
+  amount         Float
+  /// Derived server-side from the target Invoice's own snapshotted
+  /// `currency` at recording time — never client-supplied (a payment can
+  /// only ever apply to its target invoice's own currency).
+  currency       String
+  method         PaymentMethod
+  /// Free-text bank/transaction reference supplied by the customer/payer —
+  /// NOT a system-generated code (this codebase's `<PREFIX>-000001` code
+  /// numbering is reserved for `Invoice`/`CreditNote` per the brief).
+  reference      String?
+  notes          String?
+  status         PaymentStatus @default(RECORDED)
+  /// Client-supplied, optional. Same double-submit protection as every
+  /// other idempotency key in this codebase.
+  idempotencyKey String?
+  createdById    String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  organisation Organisation        @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  customer     Customer            @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  allocations  PaymentAllocation[]
+
+  @@unique([customerId, idempotencyKey])
+  @@index([organisationId])
+  @@index([organisationId, customerId])
+  @@map("payments")
+}
+
+/// The join between a `Payment` and the `Invoice`(s) it was applied to. This
+/// is THE design decision satisfying the brief's explicit "design the schema
+/// so multi-invoice allocation can be added later without rewriting
+/// Payment": a direct `invoiceId` FK on `Payment` itself would require a
+/// full schema migration the day multi-invoice allocation is ever needed.
+/// This table costs nothing extra today (Sprint 6's `PaymentService.create()`
+/// always creates exactly one row here, atomically, alongside its `Payment`)
+/// and needs zero migration later — only a service-layer change.
+model PaymentAllocation {
+  id        String   @id @default(cuid())
+  paymentId String
+  invoiceId String
+  /// Portion of the payment applied to this invoice.
+  amount    Float
+  createdAt DateTime @default(now())
+
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+
+  @@index([paymentId])
+  @@index([invoiceId])
+  @@map("payment_allocations")
+}
+
+/// The financial consequence of a customer return or commercial adjustment
+/// — NOT the physical return itself, which belongs to Sales/Logistics/
+/// Inventory (out of scope for this sprint entirely). A lightweight
+/// foundation only: a single flat `amount`, no line-item breakdown
+/// (`CreditNoteItem` is deferred future work) — matches the brief's own
+/// "lightweight" framing and its flat-amount scenario.
+model CreditNote {
+  id             String           @id @default(cuid())
+  organisationId String
+  /// Auto-generated (`CN-000001`, ...), globally unique, immutable.
+  creditNoteCode String           @unique
+  customerId     String
+  invoiceId      String?
+  reason         String
+  amount         Float
+  /// Derived server-side from the target Invoice's own snapshotted
+  /// `currency` — never client-supplied, same rule as `Payment.currency`.
+  currency       String
+  status         CreditNoteStatus @default(DRAFT)
+  creditNoteDate DateTime
+  notes          String?
+  idempotencyKey String?
+  createdById    String?
+  updatedById    String?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  customer     Customer     @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  invoice      Invoice?     @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+
+  @@unique([invoiceId, idempotencyKey])
+  @@index([organisationId])
+  @@index([organisationId, customerId])
+  @@map("credit_notes")
 }

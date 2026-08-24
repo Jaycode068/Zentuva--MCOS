@@ -52,9 +52,10 @@ const MODULE_DESCRIPTIONS: Record<string, string> = {
   '/assets': 'Manage factory equipment, vehicles and long-term business assets.',
   '/maintenance': 'Schedule preventive maintenance and manage equipment servicing.',
   '/settings/sales': 'Sales orders recording customer demand — direct sales, always.',
+  '/settings/distribution': 'Dispatch and delivery of already-fulfilled sales orders.',
   '/settings/retail': 'Customers, outlets, territories, and the distribution network.',
   '/field': 'The mobile field-sales workspace for onboarding and taking orders.',
-  '/finance': 'Financial records and reporting.',
+  '/settings/finance': 'Invoices, payments, credit notes, and accounts receivable.',
   '/reports': 'Dashboards and business intelligence.',
 };
 

@@ -16,6 +16,7 @@ import { UserModule } from './identity/user/user.module';
 import { InventoryModule } from './inventory/inventory.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { DistributionModule } from './distribution/distribution.module';
+import { FinanceModule } from './finance/finance.module';
 import { PurchaseOrderModule } from './procurement/purchase-order/purchase-order.module';
 import { ProductionModule } from './production/production.module';
 import { CustomerModule } from './retail/customer/customer.module';
@@ -53,6 +54,7 @@ import { SupplierModule } from './suppliers/supplier/supplier.module';
     NetworkRelationshipModule,
     SalesModule,
     DistributionModule,
+    FinanceModule,
   ],
 })
 export class AppModule {}

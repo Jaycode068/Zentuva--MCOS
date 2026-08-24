@@ -222,10 +222,13 @@ request (`wasCreated === false`) never emits a second audit event.
 
 ## 9. Known Limitations
 
-- No delivery/route tracking — a fulfilment records "supplied," not "delivered" or "in
-  transit."
-- No invoicing, payments, or accounts-receivable integration — `FULFILLED` is a
-  fulfilment-lifecycle terminal state only.
+- No delivery/route tracking within Sales itself — a fulfilment records "supplied," not
+  "delivered" or "in transit"; see [Distribution](distribution.md) (Sprint 5) for
+  Dispatch/Delivery, chained off Fulfilment.
+- Invoicing, Payments, Credit Notes, and Accounts Receivable now live in their own
+  domain — see [Finance](finance.md) (Sprint 6). `FULFILLED` remains Sales' own
+  fulfilment-lifecycle terminal state; Finance reads `SalesOrder.status` read-only to
+  gate invoice eligibility, but Sales itself has no invoicing/payment concept.
 - No pricing engine, price lists, or customer-specific pricing — `unitPrice` is frozen at
   order-creation time and never re-priced at fulfilment.
 - No inventory reservation on confirmation — `InventoryStock.quantityReserved` remains

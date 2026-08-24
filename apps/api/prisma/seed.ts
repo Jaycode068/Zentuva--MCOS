@@ -1328,6 +1328,19 @@ const BOBY_BITES_CUSTOMERS = [
     phoneNumber: '+2348021110010',
     territoryCode: 'TER-000003', // Ibadan North — deliberately less specific than her outlet's
   },
+  {
+    // Sprint 6's end-to-end Finance fixture — the brief's own "ABC Supermarket" scenario
+    // (500 packs @ ₦5,000 = ₦2,500,000). `CUS-000013` (not `-000010`/`-000011`) for the
+    // same reason as `CUS-000012` above — those two codes are already claimed by earlier
+    // manual live-testing fixtures in this shared dev database, verified live before
+    // this sprint began.
+    code: 'CUS-000013',
+    customerType: 'SUPERMARKET',
+    customerName: 'ABC Supermarket',
+    contactPersonName: 'Chidinma Eze',
+    phoneNumber: '+2348021110011',
+    territoryCode: 'TER-000005',
+  },
 ] as const;
 
 /** Returns a `code -> id` map. Idempotent: every row is `upsert`ed by its own unique
@@ -1337,7 +1350,7 @@ async function seedCustomers(
   actorUserId: string,
   territoriesByCode: Record<string, string>,
 ): Promise<Record<string, string>> {
-  console.log('Seeding Customers (10 Boby Bites customers, 6 deliberately un-networked)...');
+  console.log('Seeding Customers (11 Boby Bites customers, 7 deliberately un-networked)...');
 
   const customersByCode: Record<string, string> = {};
   for (const customer of BOBY_BITES_CUSTOMERS) {
@@ -1442,6 +1455,18 @@ const BOBY_BITES_OUTLETS = [
     latitude: null,
     longitude: null,
   },
+  {
+    // Sprint 6's Finance fixture destination. `OUT-000010` verified free live against
+    // the dev database before this sprint began (same collision-avoidance discipline as
+    // `CUS-000013` above).
+    code: 'OUT-000010',
+    customerCode: 'CUS-000013',
+    outletType: 'SUPERMARKET',
+    name: 'ABC Supermarket — Bodija Branch',
+    territoryCode: 'TER-000005',
+    latitude: null,
+    longitude: null,
+  },
 ] as const;
 
 /** Returns a `code -> id` map. Idempotent: every row is `upsert`ed by its own unique
@@ -1454,7 +1479,7 @@ async function seedOutlets(
   customersByCode: Record<string, string>,
   territoriesByCode: Record<string, string>,
 ): Promise<Record<string, string>> {
-  console.log('Seeding Outlets (8 Boby Bites outlets)...');
+  console.log('Seeding Outlets (9 Boby Bites outlets)...');
 
   const outletsByCode: Record<string, string> = {};
   for (const outlet of BOBY_BITES_OUTLETS) {
@@ -1619,6 +1644,26 @@ const BOBY_BITES_SALES_ORDERS = [
     status: 'CONFIRMED',
     items: [{ productCode: 'PRD-000027', quantity: 500, unitPrice: 3200 }],
   },
+  {
+    // Sprint 6's Finance fixture #1 — fulfilled in full below, then invoiced (INV-000001)
+    // and paid in two installments to PAID, matching the brief's own exact arithmetic
+    // (500 packs @ ₦5,000 = ₦2,500,000).
+    orderCode: 'SO-000012',
+    customerCode: 'CUS-000013', // ABC Supermarket
+    outletCode: 'OUT-000010',
+    status: 'CONFIRMED',
+    items: [{ productCode: 'PRD-000027', quantity: 500, unitPrice: 5000 }],
+  },
+  {
+    // Sprint 6's Finance fixture #2 — fulfilled in full below, then invoiced
+    // (INV-000002), partially paid, then a Credit Note (CN-000001) issued for returned
+    // goods, matching the brief's own second scenario exactly.
+    orderCode: 'SO-000013',
+    customerCode: 'CUS-000013', // ABC Supermarket
+    outletCode: 'OUT-000010',
+    status: 'CONFIRMED',
+    items: [{ productCode: 'PRD-000027', quantity: 500, unitPrice: 5000 }],
+  },
 ] as const;
 
 /**
@@ -1683,6 +1728,59 @@ async function seedSalesFulfilmentStockTopUp(
 }
 
 /**
+ * Sprint 6's two new Finance fixture orders (`SO-000012`/`SO-000013`) each fulfil 500
+ * more units of `PRD-000027` — a distinct `referenceType: 'FinanceSeedTopUp'` (not
+ * `'SalesSeedTopUp'`) so this top-up is genuinely additive even against an
+ * already-seeded dev database, where the old Sprint 4.9 top-up's own existence check
+ * would otherwise silently no-op and leave stock 1,000 units short.
+ */
+const FINANCE_STOCK_TOPUPS = [{ productCode: 'PRD-000027', quantity: 1000 }] as const;
+
+async function seedFinanceStockTopUp(
+  organisationId: string,
+  actorUserId: string,
+  productsByCode: Record<string, string>,
+  locationId: string,
+): Promise<void> {
+  console.log('Topping up finished-goods stock for Finance testing...');
+  for (const topUp of FINANCE_STOCK_TOPUPS) {
+    const productId = productsByCode[topUp.productCode]!;
+    const existing = await prisma.inventoryTransaction.findFirst({
+      where: { organisationId, productId, locationId, referenceType: 'FinanceSeedTopUp' },
+    });
+    if (existing) {
+      continue;
+    }
+
+    const stock = await prisma.inventoryStock.findUnique({
+      where: { organisationId_productId_locationId: { organisationId, productId, locationId } },
+    });
+    const newQuantity = (stock?.quantityOnHand ?? 0) + topUp.quantity;
+
+    await prisma.$transaction([
+      prisma.inventoryStock.upsert({
+        where: { organisationId_productId_locationId: { organisationId, productId, locationId } },
+        create: { organisationId, productId, locationId, quantityOnHand: newQuantity },
+        update: { quantityOnHand: newQuantity },
+      }),
+      prisma.inventoryTransaction.create({
+        data: {
+          organisationId,
+          productId,
+          locationId,
+          transactionType: 'ADJUSTMENT',
+          quantity: topUp.quantity,
+          referenceType: 'FinanceSeedTopUp',
+          adjustmentReason: 'FOUND_STOCK',
+          notes: 'Sprint 6 seed — finished-goods top-up for Finance testing.',
+          createdById: actorUserId,
+        },
+      }),
+    ]);
+  }
+}
+
+/**
  * Two fulfilment batches demonstrating the Sprint 4.9 lifecycle: `SO-000001` is
  * partially fulfilled (one line partially, one line fully — the order itself lands on
  * `PARTIALLY_FULFILLED`); `SO-000009` is fully fulfilled in a single batch (lands on
@@ -1711,6 +1809,18 @@ const BOBY_BITES_SALES_FULFILMENTS = [
     // SalesFulfilment to dispatch from.
     orderCode: 'SO-000011',
     idempotencyKey: 'seed-SO-000011-1',
+    items: [{ productCode: 'PRD-000027', quantity: 500 }],
+  },
+  {
+    // Fulfilled in full so Sprint 6's `seedFinance` has a real, invoiceable
+    // (FULFILLED) Sales Order to invoice from.
+    orderCode: 'SO-000012',
+    idempotencyKey: 'seed-SO-000012-1',
+    items: [{ productCode: 'PRD-000027', quantity: 500 }],
+  },
+  {
+    orderCode: 'SO-000013',
+    idempotencyKey: 'seed-SO-000013-1',
     items: [{ productCode: 'PRD-000027', quantity: 500 }],
   },
 ] as const;
@@ -1953,6 +2063,229 @@ async function seedDispatchesAndDeliveries(
   });
 }
 
+/**
+ * Sprint 6's Finance fixtures (docs/domains/finance.md) — four invoices covering every
+ * lifecycle state the brief asks to see seeded: a fully PAID invoice via two
+ * installments, a PARTIALLY_PAID invoice with a Credit Note applied, an OVERDUE invoice
+ * (backdated due date — flips live via `InvoiceRepository`'s lazy sweep on first read,
+ * not pre-set here), and a plain outstanding ISSUED invoice not yet due.
+ *
+ * Bypasses `InvoiceService`/`PaymentService`/`CreditNoteService` and writes the same
+ * shape of data directly, same convention as `seedDispatchesAndDeliveries` — mirroring
+ * each real atomic write's own step order so the seeded rows are byte-consistent with
+ * what those services would themselves have produced. Idempotent via a single upfront
+ * `INV-000001` existence check.
+ */
+async function seedFinance(
+  organisationId: string,
+  actorUserId: string,
+  salesOrdersByCode: Record<string, { id: string }>,
+  customersByCode: Record<string, string>,
+  productsByCode: Record<string, string>,
+): Promise<void> {
+  console.log('Seeding Finance fixtures (invoices, payments, credit note)...');
+
+  const existingInvoice = await prisma.invoice.findUnique({ where: { invoiceCode: 'INV-000001' } });
+  if (existingInvoice) {
+    return;
+  }
+
+  const productId = productsByCode['PRD-000027']!;
+  const productCode = 'PRD-000027';
+  const productName = 'Plantain Chips Classic Salted 500g';
+
+  async function buildInvoiceItem(salesOrderId: string, unitPrice: number, taxRate: number) {
+    const orderItem = await prisma.salesOrderItem.findFirstOrThrow({
+      where: { salesOrderId, productId },
+    });
+    const quantity = orderItem.quantity;
+    const lineSubtotal = quantity * unitPrice;
+    const taxAmount = (lineSubtotal * taxRate) / 100;
+    return {
+      subtotal: lineSubtotal,
+      taxAmount,
+      total: lineSubtotal + taxAmount,
+      item: {
+        productId,
+        productCode,
+        productName,
+        quantity,
+        unitPrice,
+        discount: 0,
+        taxRate,
+        taxAmount,
+        lineTotal: lineSubtotal + taxAmount,
+        salesOrderItemId: orderItem.id,
+      },
+    };
+  }
+
+  // --- INV-000001 — SO-000012, ABC Supermarket, paid in full across two installments.
+  const order1 = salesOrdersByCode['SO-000012']!;
+  const item1 = await buildInvoiceItem(order1.id, 5000, 0);
+  const invoice1 = await prisma.invoice.create({
+    data: {
+      organisationId,
+      invoiceCode: 'INV-000001',
+      customerId: customersByCode['CUS-000013']!,
+      salesOrderId: order1.id,
+      invoiceDate: new Date('2026-08-20'),
+      dueDate: new Date('2026-08-20'),
+      paymentTerms: 'DUE_ON_RECEIPT',
+      status: 'ISSUED',
+      currency: 'NGN',
+      subtotal: item1.subtotal,
+      discount: 0,
+      taxAmount: item1.taxAmount,
+      total: item1.total,
+      amountPaid: 2_500_000,
+      createdById: actorUserId,
+      updatedById: actorUserId,
+      items: { create: [item1.item] },
+    },
+  });
+  await prisma.invoice.update({ where: { id: invoice1.id }, data: { status: 'PAID' } });
+  await prisma.payment.create({
+    data: {
+      organisationId,
+      customerId: customersByCode['CUS-000013']!,
+      paymentDate: new Date('2026-08-21'),
+      amount: 1_000_000,
+      currency: 'NGN',
+      method: 'BANK_TRANSFER',
+      reference: 'TXN-ABC-001',
+      status: 'RECORDED',
+      idempotencyKey: 'seed-PAY-INV-000001-1',
+      createdById: actorUserId,
+      allocations: { create: [{ invoiceId: invoice1.id, amount: 1_000_000 }] },
+    },
+  });
+  await prisma.payment.create({
+    data: {
+      organisationId,
+      customerId: customersByCode['CUS-000013']!,
+      paymentDate: new Date('2026-08-22'),
+      amount: 1_500_000,
+      currency: 'NGN',
+      method: 'BANK_TRANSFER',
+      reference: 'TXN-ABC-002',
+      status: 'RECORDED',
+      idempotencyKey: 'seed-PAY-INV-000001-2',
+      createdById: actorUserId,
+      allocations: { create: [{ invoiceId: invoice1.id, amount: 1_500_000 }] },
+    },
+  });
+
+  // --- INV-000002 — SO-000013, ABC Supermarket, partially paid + a Credit Note for
+  // returned goods. Outstanding must correctly reflect both the payment and the credit.
+  const order2 = salesOrdersByCode['SO-000013']!;
+  const item2 = await buildInvoiceItem(order2.id, 5000, 0);
+  const invoice2 = await prisma.invoice.create({
+    data: {
+      organisationId,
+      invoiceCode: 'INV-000002',
+      customerId: customersByCode['CUS-000013']!,
+      salesOrderId: order2.id,
+      invoiceDate: new Date('2026-08-20'),
+      dueDate: new Date('2026-08-20'),
+      paymentTerms: 'DUE_ON_RECEIPT',
+      status: 'ISSUED',
+      currency: 'NGN',
+      subtotal: item2.subtotal,
+      discount: 0,
+      taxAmount: item2.taxAmount,
+      total: item2.total,
+      amountPaid: 1_000_000,
+      amountCredited: 250_000,
+      createdById: actorUserId,
+      updatedById: actorUserId,
+      items: { create: [item2.item] },
+    },
+  });
+  await prisma.invoice.update({ where: { id: invoice2.id }, data: { status: 'PARTIALLY_PAID' } });
+  await prisma.payment.create({
+    data: {
+      organisationId,
+      customerId: customersByCode['CUS-000013']!,
+      paymentDate: new Date('2026-08-21'),
+      amount: 1_000_000,
+      currency: 'NGN',
+      method: 'BANK_TRANSFER',
+      reference: 'TXN-ABC-003',
+      status: 'RECORDED',
+      idempotencyKey: 'seed-PAY-INV-000002-1',
+      createdById: actorUserId,
+      allocations: { create: [{ invoiceId: invoice2.id, amount: 1_000_000 }] },
+    },
+  });
+  await prisma.creditNote.create({
+    data: {
+      organisationId,
+      creditNoteCode: 'CN-000001',
+      customerId: customersByCode['CUS-000013']!,
+      invoiceId: invoice2.id,
+      reason: 'Returned goods — damaged in transit, 25 packs',
+      amount: 250_000,
+      currency: 'NGN',
+      status: 'ISSUED',
+      creditNoteDate: new Date('2026-08-22'),
+      idempotencyKey: 'seed-CN-000001-1',
+      createdById: actorUserId,
+      updatedById: actorUserId,
+    },
+  });
+
+  // --- INV-000003 — SO-000011, Mama Nkechi Stores, backdated due date, no payment.
+  // Deliberately seeded ISSUED (not OVERDUE) — `InvoiceRepository`'s lazy sweep flips it
+  // live on first read, demonstrating that mechanism rather than pre-empting it here.
+  const order3 = salesOrdersByCode['SO-000011']!;
+  const item3 = await buildInvoiceItem(order3.id, 3200, 7.5);
+  await prisma.invoice.create({
+    data: {
+      organisationId,
+      invoiceCode: 'INV-000003',
+      customerId: customersByCode['CUS-000012']!,
+      salesOrderId: order3.id,
+      invoiceDate: new Date('2026-07-01'),
+      dueDate: new Date('2026-07-15'),
+      paymentTerms: 'NET_14',
+      status: 'ISSUED',
+      currency: 'NGN',
+      subtotal: item3.subtotal,
+      discount: 0,
+      taxAmount: item3.taxAmount,
+      total: item3.total,
+      createdById: actorUserId,
+      updatedById: actorUserId,
+      items: { create: [item3.item] },
+    },
+  });
+
+  // --- INV-000004 — SO-000009, Amala Spot Restaurant, not yet due, no payment.
+  const order4 = salesOrdersByCode['SO-000009']!;
+  const item4 = await buildInvoiceItem(order4.id, 3200, 7.5);
+  await prisma.invoice.create({
+    data: {
+      organisationId,
+      invoiceCode: 'INV-000004',
+      customerId: customersByCode['CUS-000007']!,
+      salesOrderId: order4.id,
+      invoiceDate: new Date('2026-08-20'),
+      dueDate: new Date('2026-09-03'),
+      paymentTerms: 'NET_14',
+      status: 'ISSUED',
+      currency: 'NGN',
+      subtotal: item4.subtotal,
+      discount: 0,
+      taxAmount: item4.taxAmount,
+      total: item4.total,
+      createdById: actorUserId,
+      updatedById: actorUserId,
+      items: { create: [item4.item] },
+    },
+  });
+}
+
 async function main(): Promise<void> {
   // Read early (rather than inside `seedUser`) because the organisation's `businessEmail`
   // needs it before any user is created.
@@ -1972,7 +2305,12 @@ async function main(): Promise<void> {
   console.log('Seeding organisation "Boby Bites"...');
   const organisation = await prisma.organisation.upsert({
     where: { slug: BOBY_BITES_SLUG },
-    update: {},
+    // Sprint 6 — every financial record snapshots `Organisation.currency` at creation
+    // time, so it must be deterministically NGN for this Nigerian manufacturer. Set on
+    // `update` too (not just `create`) so re-seeding an already-existing organisation
+    // (`Organisation.currency` defaults to `"USD"` at the schema level) is corrected
+    // rather than silently left on the default.
+    update: { currency: 'NGN' },
     create: {
       name: 'Boby Bites',
       slug: BOBY_BITES_SLUG,
@@ -1980,6 +2318,7 @@ async function main(): Promise<void> {
       businessEmail: adminEmail,
       country: 'Nigeria',
       status: 'ACTIVE',
+      currency: 'NGN',
     },
   });
 
@@ -2115,6 +2454,7 @@ async function main(): Promise<void> {
     productsByCode,
     mainWarehouseId,
   );
+  await seedFinanceStockTopUp(organisation.id, ownerUser.id, productsByCode, mainWarehouseId);
   await seedSalesFulfilments(
     organisation.id,
     ownerUser.id,
@@ -2130,6 +2470,13 @@ async function main(): Promise<void> {
     outletsByCode,
     productsByCode,
     mainWarehouseId,
+  );
+  await seedFinance(
+    organisation.id,
+    ownerUser.id,
+    salesOrdersByCode,
+    customersByCode,
+    productsByCode,
   );
 
   console.log('Recording an audit log entry for this seed run...');
@@ -2169,6 +2516,9 @@ async function main(): Promise<void> {
     salesFulfilmentsSeeded: BOBY_BITES_SALES_FULFILMENTS.length,
     dispatchesSeeded: 1,
     deliveriesSeeded: 1,
+    invoicesSeeded: 4,
+    paymentsSeeded: 3,
+    creditNotesSeeded: 1,
     customersWithoutNetworkRelationship:
       BOBY_BITES_CUSTOMERS.length -
       new Set(BOBY_BITES_NETWORK_RELATIONSHIPS.flatMap((r) => [r.sourceCode, r.targetCode])).size,

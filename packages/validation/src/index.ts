@@ -1,6 +1,7 @@
 export * from './catalogue';
 export * from './distribution';
 export * from './env';
+export * from './finance';
 export * from './identity';
 export * from './inventory';
 export * from './pagination';

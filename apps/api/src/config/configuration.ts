@@ -22,4 +22,10 @@ export default () => ({
       10,
     ),
   },
+  finance: {
+    // Sprint 6 — a configurable *suggested default*, never hardcoded into invoice
+    // calculation logic; whatever rate is actually used gets permanently snapshotted
+    // onto InvoiceItem, never recomputed later. Not a tax engine.
+    defaultTaxRatePercent: parseFloat(process.env.FINANCE_DEFAULT_TAX_RATE_PERCENT ?? '7.5'),
+  },
 });
