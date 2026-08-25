@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import {
@@ -89,6 +89,11 @@ export function GoodsReceivingDialog({
   onOpenChange: (open: boolean) => void;
   onReceived: () => void;
 }) {
+  // Sprint 8 — same double-submit protection every other create dialog in this
+  // codebase generates: a fresh key per dialog open, so a retried submission (a
+  // double-click, a flaky network retry) never creates a second Goods Receipt.
+  const [idempotencyKey] = useState(() => crypto.randomUUID());
+
   const { data: purchaseOrdersData } = useQuery({
     queryKey: ['purchase-orders'],
     queryFn: () => listPurchaseOrders(),
@@ -166,6 +171,7 @@ export function GoodsReceivingDialog({
         receivedDate: values.receivedDate,
         remarks: values.remarks || undefined,
         items,
+        idempotencyKey,
       });
     },
     onSuccess: onReceived,

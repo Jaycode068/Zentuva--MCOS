@@ -4,11 +4,15 @@ import {
   GoodsReceipt,
   GoodsReceiptItem,
   InventoryTransactionType,
+  JournalEntryStatus,
+  Prisma,
   PurchaseOrderStatus,
   RejectionReason,
 } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service';
+import { SYSTEM_ACCOUNT_KEYS } from '../finance/accounting/chart-of-account-keys';
+import { postSystemJournalEntry } from '../finance/accounting/journal-posting';
 
 export interface ListGoodsReceiptsParams {
   purchaseOrderId?: string;
@@ -40,6 +44,9 @@ export interface ReceivingTotals {
   deliveredQuantity: number;
   acceptedQuantity: number;
   rejectedQuantity: number;
+  /** Added Sprint 8 — cumulative `payableQuantity` across every receipt against this
+   *  Purchase Order item, see `GoodsReceiptItem.payableQuantity`. */
+  payableQuantity: number;
 }
 
 export interface ReceiveGoodsItemData {
@@ -48,6 +55,11 @@ export interface ReceiveGoodsItemData {
   deliveredQuantity: number;
   rejectedQuantity: number;
   acceptedQuantity: number;
+  /** Added Sprint 8 — the Purchase Order item's own frozen `unitPrice`, supplied by
+   *  `InventoryService` (already has it from `PurchaseOrderRepository.findById`). Used
+   *  only for the accounting posting below — never written to `InventoryStock`, which
+   *  stays purely a quantity ledger. */
+  unitPrice: number;
   rejectionReason?: RejectionReason;
   rejectionNotes?: string;
 }
@@ -60,6 +72,9 @@ export interface ReceiveGoodsData {
    *  this transaction never needs to read `purchase_order_items` itself; only the final
    *  `purchase_orders.status` write below touches Procurement's tables at all. */
   purchaseOrderItems: { id: string; quantity: number }[];
+  /** Added Sprint 8 — used only in the Journal Entry's `description`; cheap to pass
+   *  since the caller already has it, avoids a second in-transaction read. */
+  purchaseOrderNumber: string;
   goodsReceiptNumber: string;
   supplierId: string;
   /** Sprint 4.5 — the physical location this delivery is received into. Resolved by
@@ -71,12 +86,37 @@ export interface ReceiveGoodsData {
   receivedById: string;
   remarks?: string;
   discrepancyStatus: DiscrepancyStatus;
+  /** Added Sprint 8 — same double-submit protection every other write-path in this
+   *  codebase has. Optional: a caller that omits it gets no dedup protection, same
+   *  convention as `SalesFulfilmentRepository.create`/`DeliveryRepository.create`. */
+  idempotencyKey?: string;
   items: ReceiveGoodsItemData[];
+}
+
+/** Minimal Journal Entry summary surfaced on the goods-receipt response so Procurement/
+ *  Inventory UI can show "Accounting: JE-000123" without a second round trip.
+ *  `totalAmount` is the posting's total debit (== total credit, by construction) —
+ *  not a persisted `JournalEntry` column, computed at posting time. */
+export interface JournalEntrySummary {
+  id: string;
+  journalNumber: string;
+  status: JournalEntryStatus;
+  totalAmount: number;
 }
 
 export interface ReceiveGoodsResult {
   goodsReceipt: GoodsReceiptWithRelations;
   purchaseOrderStatus: PurchaseOrderStatus;
+  /** `null` only when nothing on this receipt was accepted (an all-rejected receipt) —
+   *  see docs/domains/accounting.md "Goods Receipt Posting": rejected quantity must
+   *  never create accounting value, so no journal entry is posted at all in that case,
+   *  not even a zero-amount one. */
+  journalEntry: JournalEntrySummary | null;
+  /** `true` only when this call created a new `GoodsReceipt`; `false` when an existing
+   *  `(purchaseOrderId, idempotencyKey)` match was returned instead — the caller uses
+   *  this to skip re-emitting audit events on a replay, same convention as `wasCreated`
+   *  on `PaymentRepository.create()`/`SalesFulfilmentRepository.create()`. */
+  wasCreated: boolean;
 }
 
 /** Thrown when the Purchase Order is `DRAFT`/`CANCELLED` at the moment the transaction
@@ -91,28 +131,38 @@ export class GoodsReceiptConflictError extends Error {}
 
 /**
  * Thin Prisma access for the GoodsReceipt aggregate (Sprint 4.4, refined Sprint 4.4.1,
- * docs/domains/inventory.md).
+ * extended Sprint 8 with automatic accounting posting, docs/domains/inventory.md).
  *
  * `receive` runs the entire "record one delivery event against a Purchase Order"
- * operation inside a single `$transaction`: creating the GoodsReceipt + items,
- * incrementing `InventoryStock` by each item's *accepted* quantity (never delivered —
- * see docs/domains/inventory.md "Important Business Rule"), appending `InventoryTransaction`
- * (`RECEIPT`) rows, and setting the Purchase Order's status to `PARTIALLY_RECEIVED` or
- * `RECEIVED` depending on whether every item's cumulative delivered quantity (across this
- * and every prior receipt) now meets its ordered quantity. Sprint 4.4.1 removed the old
- * "received once" restriction — a Purchase Order may have many `GoodsReceipt` rows,
- * including against an order already `RECEIVED` (a supplier's later replacement
- * shipment, brief §6/§7). The transaction's own conditional `updateMany` (matching every
- * status except `DRAFT`/`CANCELLED`) exists to close the race against a *concurrent
- * cancel*, not to block legitimate repeat receiving.
+ * operation inside a single `$transaction`: an idempotency check-then-return, creating
+ * the GoodsReceipt + items (each item's `payableQuantity` capped at what the Purchase
+ * Order's own ordered quantity still commercially covers — see
+ * docs/domains/accounting.md "Accepted vs. Payable"), incrementing `InventoryStock` by
+ * each item's *accepted* quantity (never delivered — see docs/domains/inventory.md
+ * "Important Business Rule"), appending `InventoryTransaction` (`RECEIPT`) rows, setting
+ * the Purchase Order's status to `PARTIALLY_RECEIVED`/`RECEIVED`, and — new in Sprint 8
+ * — posting a Journal Entry (`DR Inventory` for the full accepted value, `CR Accounts
+ * Payable` for the payable portion, `CR Goods Received – Pending Approval` for any
+ * accepted-but-unapproved excess) via `postSystemJournalEntry`, sharing this same
+ * transaction so the whole business event is atomic: either everything succeeds
+ * together, or everything (including the journal) rolls back together. Sprint 4.4.1
+ * removed the old "received once" restriction — a Purchase Order may have many
+ * `GoodsReceipt` rows, including against an order already `RECEIVED` (a supplier's
+ * later replacement shipment, brief §6/§7). The transaction's own conditional
+ * `updateMany` (matching every status except `DRAFT`/`CANCELLED`) exists to close the
+ * race against a *concurrent cancel*, not to block legitimate repeat receiving.
  *
  * The `purchaseOrder.updateMany` call is a deliberate, narrow exception to ADR-002's
  * domain-ownership convention — see the Sprint 4.4 completion report and
  * docs/domains/inventory.md §6 for the full rationale (atomicity: splitting the status
  * write into a second call after this transaction commits would reintroduce the
- * non-atomicity this design exists to avoid). Every *read* this domain needs stays
- * within its own tables or goes through Procurement's exported `PurchaseOrderRepository`
- * — see `InventoryService`.
+ * non-atomicity this design exists to avoid). `postSystemJournalEntry` is the same
+ * narrow, documented exception applied to Finance's tables — a plain, non-DI function
+ * import (not a NestJS module dependency), exactly the pattern
+ * `PaymentRepository.create()`/`CreditNoteRepository.issue()` already established in
+ * Sprint 7 (see docs/domains/accounting.md "Accounting Posting Boundary"). Every other
+ * *read* this domain needs stays within its own tables or goes through Procurement's
+ * exported `PurchaseOrderRepository` — see `InventoryService`.
  */
 @Injectable()
 export class GoodsReceiptRepository {
@@ -155,12 +205,13 @@ export class GoodsReceiptRepository {
     return count > 0;
   }
 
-  /** Cumulative delivered/accepted/rejected quantity per `PurchaseOrderItem`, summed
-   *  across every `GoodsReceipt` ever recorded against this Purchase Order — the raw
-   *  material `InventoryService` combines with each item's *ordered* quantity (read via
-   *  `PurchaseOrderRepository`, not here) to compute outstanding/excess. Scoped through
-   *  `goodsReceipt.organisationId` — same tenant-safety convention as every other
-   *  lookup, even though `purchaseOrderId` alone is already a globally unique cuid. */
+  /** Cumulative delivered/accepted/rejected/payable quantity per `PurchaseOrderItem`,
+   *  summed across every `GoodsReceipt` ever recorded against this Purchase Order — the
+   *  raw material `InventoryService` combines with each item's *ordered* quantity (read
+   *  via `PurchaseOrderRepository`, not here) to compute outstanding/excess. Scoped
+   *  through `goodsReceipt.organisationId` — same tenant-safety convention as every
+   *  other lookup, even though `purchaseOrderId` alone is already a globally unique
+   *  cuid. */
   async getReceivingTotals(
     organisationId: string,
     purchaseOrderId: string,
@@ -168,7 +219,12 @@ export class GoodsReceiptRepository {
     const rows = await this.prisma.goodsReceiptItem.groupBy({
       by: ['purchaseOrderItemId'],
       where: { goodsReceipt: { organisationId, purchaseOrderId } },
-      _sum: { deliveredQuantity: true, acceptedQuantity: true, rejectedQuantity: true },
+      _sum: {
+        deliveredQuantity: true,
+        acceptedQuantity: true,
+        rejectedQuantity: true,
+        payableQuantity: true,
+      },
     });
     const totals = new Map<string, ReceivingTotals>();
     for (const row of rows) {
@@ -176,13 +232,99 @@ export class GoodsReceiptRepository {
         deliveredQuantity: row._sum.deliveredQuantity ?? 0,
         acceptedQuantity: row._sum.acceptedQuantity ?? 0,
         rejectedQuantity: row._sum.rejectedQuantity ?? 0,
+        payableQuantity: row._sum.payableQuantity ?? 0,
       });
     }
     return totals;
   }
 
+  /** Batch lookup of the Journal Entry (if any) posted for each of the given Goods
+   *  Receipts — used by `InventoryService.listGoodsReceipts`/`getGoodsReceiptById` so
+   *  the read paths (not just the create response) can surface "Accounting: JE-000123"
+   *  in the UI. Same polymorphic `sourceType`/`sourceId` lookup as `findJournalEntry`,
+   *  batched via `sourceId: { in: ids } }` rather than one query per receipt. */
+  async findJournalEntriesByGoodsReceiptIds(
+    organisationId: string,
+    goodsReceiptIds: string[],
+  ): Promise<Map<string, JournalEntrySummary>> {
+    if (goodsReceiptIds.length === 0) {
+      return new Map();
+    }
+    const journalEntries = await this.prisma.journalEntry.findMany({
+      where: { organisationId, sourceType: 'GOODS_RECEIPT', sourceId: { in: goodsReceiptIds } },
+      include: { lines: { select: { debit: true } } },
+    });
+    const map = new Map<string, JournalEntrySummary>();
+    for (const journalEntry of journalEntries) {
+      if (!journalEntry.sourceId) {
+        continue;
+      }
+      map.set(journalEntry.sourceId, {
+        id: journalEntry.id,
+        journalNumber: journalEntry.journalNumber,
+        status: journalEntry.status,
+        totalAmount: roundCurrency(journalEntry.lines.reduce((sum, line) => sum + line.debit, 0)),
+      });
+    }
+    return map;
+  }
+
+  /** Looks up the Journal Entry (if any) posted for a given Goods Receipt, via the
+   *  same polymorphic `sourceType`/`sourceId` `JournalEntry` already uses for every
+   *  other system posting — no FK exists (deliberately, see `journal-posting.ts`). */
+  private async findJournalEntry(
+    tx: Prisma.TransactionClient,
+    organisationId: string,
+    goodsReceiptId: string,
+  ): Promise<JournalEntrySummary | null> {
+    const journalEntry = await tx.journalEntry.findUnique({
+      where: {
+        organisationId_sourceType_sourceId: {
+          organisationId,
+          sourceType: 'GOODS_RECEIPT',
+          sourceId: goodsReceiptId,
+        },
+      },
+      include: { lines: { select: { debit: true } } },
+    });
+    if (!journalEntry) {
+      return null;
+    }
+    return {
+      id: journalEntry.id,
+      journalNumber: journalEntry.journalNumber,
+      status: journalEntry.status,
+      totalAmount: roundCurrency(journalEntry.lines.reduce((sum, line) => sum + line.debit, 0)),
+    };
+  }
+
   async receive(data: ReceiveGoodsData): Promise<ReceiveGoodsResult> {
     return this.prisma.$transaction(async (tx) => {
+      if (data.idempotencyKey) {
+        const existing = await tx.goodsReceipt.findUnique({
+          where: {
+            purchaseOrderId_idempotencyKey: {
+              purchaseOrderId: data.purchaseOrderId,
+              idempotencyKey: data.idempotencyKey,
+            },
+          },
+          include: RELATIONS_INCLUDE,
+        });
+        if (existing) {
+          const purchaseOrder = await tx.purchaseOrder.findUniqueOrThrow({
+            where: { id: data.purchaseOrderId },
+            select: { status: true },
+          });
+          const journalEntry = await this.findJournalEntry(tx, data.organisationId, existing.id);
+          return {
+            goodsReceipt: existing,
+            purchaseOrderStatus: purchaseOrder.status,
+            journalEntry,
+            wasCreated: false,
+          };
+        }
+      }
+
       const priorTotalsRows = await tx.goodsReceiptItem.groupBy({
         by: ['purchaseOrderItemId'],
         where: {
@@ -191,10 +333,16 @@ export class GoodsReceiptRepository {
             purchaseOrderId: data.purchaseOrderId,
           },
         },
-        _sum: { deliveredQuantity: true },
+        _sum: { deliveredQuantity: true, payableQuantity: true },
       });
       const priorDelivered = new Map(
         priorTotalsRows.map((row) => [row.purchaseOrderItemId, row._sum.deliveredQuantity ?? 0]),
+      );
+      const priorPayable = new Map(
+        priorTotalsRows.map((row) => [row.purchaseOrderItemId, row._sum.payableQuantity ?? 0]),
+      );
+      const orderedQuantityById = new Map(
+        data.purchaseOrderItems.map((poItem) => [poItem.id, poItem.quantity]),
       );
       const newlyDelivered = new Map<string, number>();
       for (const item of data.items) {
@@ -234,6 +382,28 @@ export class GoodsReceiptRepository {
         throw new GoodsReceiptConflictError('Purchase order is no longer eligible to be received');
       }
 
+      // Accepted-vs-payable (Sprint 8, docs/domains/accounting.md "Accepted vs.
+      // Payable"): physically accepting goods into inventory does not by itself create
+      // a supplier liability for more than the Purchase Order's own ordered quantity
+      // commercially covers. `payableQuantity` is capped per item at whatever's still
+      // "remaining" on the order after every prior receipt's own payable total — never
+      // accepted from the client, computed here alongside `acceptedQuantity`. This
+      // tracks *cumulative payable consumed*, independent of `priorDelivered`: a
+      // replacement receipt's accepted quantity was never counted as payable by the
+      // receipt it replaces (that receipt's rejected portion contributed nothing to
+      // `payableQuantity`), so it correctly still has room against the order.
+      const itemsWithPayable = data.items.map((item) => {
+        const orderedQuantity = orderedQuantityById.get(item.purchaseOrderItemId) ?? 0;
+        const remainingOrderedQuantity = Math.max(
+          0,
+          orderedQuantity - (priorPayable.get(item.purchaseOrderItemId) ?? 0),
+        );
+        const payableQuantity = roundQuantity(
+          Math.min(item.acceptedQuantity, remainingOrderedQuantity),
+        );
+        return { ...item, payableQuantity };
+      });
+
       const goodsReceipt = await tx.goodsReceipt.create({
         data: {
           organisationId: data.organisationId,
@@ -245,13 +415,15 @@ export class GoodsReceiptRepository {
           receivedById: data.receivedById,
           remarks: data.remarks,
           discrepancyStatus: data.discrepancyStatus,
+          idempotencyKey: data.idempotencyKey,
           items: {
-            create: data.items.map((item) => ({
+            create: itemsWithPayable.map((item) => ({
               purchaseOrderItemId: item.purchaseOrderItemId,
               productId: item.productId,
               deliveredQuantity: item.deliveredQuantity,
               rejectedQuantity: item.rejectedQuantity,
               acceptedQuantity: item.acceptedQuantity,
+              payableQuantity: item.payableQuantity,
               rejectionReason: item.rejectionReason,
               rejectionNotes: item.rejectionNotes,
             })),
@@ -264,7 +436,7 @@ export class GoodsReceiptRepository {
       // Business Rule": inventory must only increase by Accepted Quantity, never
       // Delivered Quantity) — a line that was entirely rejected writes no stock/ledger
       // row at all.
-      const acceptedItems = data.items.filter((item) => item.acceptedQuantity > 0);
+      const acceptedItems = itemsWithPayable.filter((item) => item.acceptedQuantity > 0);
       for (const item of acceptedItems) {
         await tx.inventoryStock.upsert({
           where: {
@@ -297,7 +469,51 @@ export class GoodsReceiptRepository {
         });
       }
 
-      return { goodsReceipt, purchaseOrderStatus: newStatus };
+      // Accounting posting (Sprint 8, docs/domains/accounting.md "Goods Receipt
+      // Posting") — shares this same transaction, so it either succeeds together with
+      // everything above or rolls back together with it (e.g. `NoOpenPeriodError` for a
+      // closed accounting period, `MissingSystemAccountError` for a misconfigured
+      // Chart of Accounts). `DR Inventory` always carries the *full* accepted value;
+      // the credit side splits into the commercially-payable portion (`AP`) and any
+      // accepted-but-unapproved excess (`GRNI_PENDING_APPROVAL`) — see decision #2-#4
+      // in the Sprint 8 plan. Rejected quantity never contributes to any of these sums.
+      const inventoryValue = roundCurrency(
+        acceptedItems.reduce((sum, item) => sum + item.acceptedQuantity * item.unitPrice, 0),
+      );
+      const payableValue = roundCurrency(
+        acceptedItems.reduce((sum, item) => sum + item.payableQuantity * item.unitPrice, 0),
+      );
+      const excessValue = roundCurrency(inventoryValue - payableValue);
+
+      let journalEntry: JournalEntrySummary | null = null;
+      if (inventoryValue > 0) {
+        const posted = await postSystemJournalEntry(tx, {
+          organisationId: data.organisationId,
+          date: data.receivedDate,
+          description: `Goods receipt ${data.goodsReceiptNumber} — PO ${data.purchaseOrderNumber}`,
+          reference: data.goodsReceiptNumber,
+          sourceType: 'GOODS_RECEIPT',
+          sourceId: goodsReceipt.id,
+          actorUserId: data.receivedById,
+          lines: [
+            { systemKey: SYSTEM_ACCOUNT_KEYS.INVENTORY, debit: inventoryValue },
+            ...(payableValue > 0
+              ? [{ systemKey: SYSTEM_ACCOUNT_KEYS.AP, credit: payableValue }]
+              : []),
+            ...(excessValue > 0
+              ? [{ systemKey: SYSTEM_ACCOUNT_KEYS.GRNI_PENDING_APPROVAL, credit: excessValue }]
+              : []),
+          ],
+        });
+        journalEntry = {
+          id: posted.journalEntry.id,
+          journalNumber: posted.journalEntry.journalNumber,
+          status: posted.journalEntry.status,
+          totalAmount: inventoryValue,
+        };
+      }
+
+      return { goodsReceipt, purchaseOrderStatus: newStatus, journalEntry, wasCreated: true };
     });
   }
 
@@ -323,4 +539,16 @@ export class GoodsReceiptRepository {
       include: RELATIONS_INCLUDE,
     });
   }
+}
+
+/** Rounds to 6 decimal places purely to clear floating-point noise — same convention as
+ *  `InventoryStockRepository.adjustStock`'s own rounding helper. */
+function roundQuantity(value: number): number {
+  return Math.round(value * 1_000_000) / 1_000_000;
+}
+
+/** Same 2-decimal-place money rounding convention as every other file that computes
+ *  currency values in this codebase (`journal-posting.ts`, Finance's repositories). */
+function roundCurrency(value: number): number {
+  return Math.round(value * 100) / 100;
 }

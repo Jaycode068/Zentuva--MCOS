@@ -614,15 +614,31 @@ const BOBY_BITES_GOODS_RECEIPTS = [
   },
 ] as const;
 
-/** Mirrors `GoodsReceiptRepository.receive`'s transaction (recompute each item's
- *  cumulative delivered quantity, decide `PARTIALLY_RECEIVED` vs `RECEIVED`, create
- *  GoodsReceipt + items, increment `InventoryStock` by *accepted* quantity, append
- *  `InventoryTransaction` RECEIPT rows) rather than calling through the NestJS service
- *  layer — same "talks to Prisma directly" convention as the rest of this script.
- *  Idempotent on re-run: skips any GRN that already exists. `GRN-000004` (the
- *  replacement for `GRN-000003`'s rejected cartons) is seeded *after* `GRN-000003`
- *  precisely so its "cumulative delivered" calculation sees the first receipt's totals —
- *  same order a real user would receive them in. */
+/** Mirrors `GoodsReceiptRepository.receive`'s transaction (decide `PARTIALLY_RECEIVED`
+ *  vs `RECEIVED`, create GoodsReceipt + items, increment `InventoryStock` by *accepted*
+ *  quantity, append `InventoryTransaction` RECEIPT rows) rather than calling through the
+ *  NestJS service layer — same "talks to Prisma directly" convention as the rest of
+ *  this script. Idempotent on re-run: a GRN that already exists is not re-created.
+ *  `GRN-000004` (the replacement for `GRN-000003`'s rejected cartons) is seeded *after*
+ *  `GRN-000003` precisely so its "cumulative delivered" calculation sees the first
+ *  receipt's totals — same order a real user would receive them in.
+ *
+ *  Sprint 8 — `payableQuantity` (accepted-vs-payable, see
+ *  docs/domains/accounting.md "Accepted vs. Payable") is tracked in-memory,
+ *  cumulatively, across this function's single pass over `BOBY_BITES_GOODS_RECEIPTS`
+ *  in its own fixed array order — simpler than re-deriving "prior payable" from the
+ *  database on every iteration (as the real `GoodsReceiptRepository.receive` must,
+ *  since it can't assume request order) because this script fully controls and knows
+ *  that order already. This same computation runs for **both** a fresh receipt (a
+ *  brand-new database) and a receipt a pre-Sprint-8 seed run already created (an
+ *  existing dev database) — for the latter, `payableQuantity` is backfilled onto the
+ *  existing rows (the migration's own backfill set it equal to `acceptedQuantity`,
+ *  which is *not* correct for `GRN-000005`'s excess scenario) and the Journal Entry is
+ *  posted for the first time, via the same `postSeedJournalEntry` idempotency check
+ *  every other call site in this script already relies on. `GRN-000005` (`PO-000011`,
+ *  1,100 accepted against a 1,000-unit order) is this script's live demonstration of
+ *  the split: `payableQuantity` caps at 1,000, and the excess 100 units post to
+ *  `GRNI_PENDING_APPROVAL`, not `AP`. */
 async function seedGoodsReceipts(
   organisationId: string,
   actorUserId: string,
@@ -631,19 +647,18 @@ async function seedGoodsReceipts(
   defaultLocationId: string,
 ): Promise<void> {
   console.log('Seeding Inventory (5 Boby Bites goods receipts across 4 purchase orders)...');
-  for (const grn of BOBY_BITES_GOODS_RECEIPTS) {
-    const existing = await prisma.goodsReceipt.findUnique({
-      where: { goodsReceiptNumber: grn.goodsReceiptNumber },
-    });
-    if (existing) {
-      continue;
-    }
+  const cumulativePayableByPoItemId = new Map<string, number>();
 
+  for (const grn of BOBY_BITES_GOODS_RECEIPTS) {
     const purchaseOrder = await prisma.purchaseOrder.findUniqueOrThrow({
       where: { purchaseOrderNumber: grn.purchaseOrderNumber },
       include: { items: true },
     });
     const seededPurchaseOrder = purchaseOrdersByNumber[grn.purchaseOrderNumber]!;
+    const orderedQuantityById = new Map(
+      purchaseOrder.items.map((item) => [item.id, item.quantity]),
+    );
+    const unitPriceById = new Map(purchaseOrder.items.map((item) => [item.id, item.unitPrice]));
 
     const items = grn.items.map((item) => ({
       purchaseOrderItemId: seededPurchaseOrder.itemIdByProductCode[item.productCode]!,
@@ -656,8 +671,35 @@ async function seedGoodsReceipts(
     }));
     const hasDiscrepancy = items.some((item) => item.rejectedQuantity > 0);
 
-    await prisma.$transaction(async (tx) => {
-      const priorTotalsRows = await tx.goodsReceiptItem.groupBy({
+    const itemsWithPayable = items.map((item) => {
+      const orderedQuantity = orderedQuantityById.get(item.purchaseOrderItemId) ?? 0;
+      const priorPayable = cumulativePayableByPoItemId.get(item.purchaseOrderItemId) ?? 0;
+      const remainingOrderedQuantity = Math.max(0, orderedQuantity - priorPayable);
+      const payableQuantity = Math.min(item.acceptedQuantity, remainingOrderedQuantity);
+      cumulativePayableByPoItemId.set(item.purchaseOrderItemId, priorPayable + payableQuantity);
+      return { ...item, payableQuantity };
+    });
+
+    let goodsReceiptId: string;
+    const existing = await prisma.goodsReceipt.findUnique({
+      where: { goodsReceiptNumber: grn.goodsReceiptNumber },
+      include: { items: true },
+    });
+    if (existing) {
+      goodsReceiptId = existing.id;
+      for (const item of itemsWithPayable) {
+        const existingItem = existing.items.find(
+          (row) => row.purchaseOrderItemId === item.purchaseOrderItemId,
+        );
+        if (existingItem && existingItem.payableQuantity !== item.payableQuantity) {
+          await prisma.goodsReceiptItem.update({
+            where: { id: existingItem.id },
+            data: { payableQuantity: item.payableQuantity },
+          });
+        }
+      }
+    } else {
+      const priorTotalsRows = await prisma.goodsReceiptItem.groupBy({
         by: ['purchaseOrderItemId'],
         where: { goodsReceipt: { organisationId, purchaseOrderId: purchaseOrder.id } },
         _sum: { deliveredQuantity: true },
@@ -679,59 +721,93 @@ async function seedGoodsReceipts(
       });
       const newStatus = fullyDelivered ? 'RECEIVED' : 'PARTIALLY_RECEIVED';
 
-      await tx.purchaseOrder.update({
-        where: { id: purchaseOrder.id },
-        data: { status: newStatus, updatedById: actorUserId },
-      });
+      const created = await prisma.$transaction(async (tx) => {
+        await tx.purchaseOrder.update({
+          where: { id: purchaseOrder.id },
+          data: { status: newStatus, updatedById: actorUserId },
+        });
 
-      const goodsReceipt = await tx.goodsReceipt.create({
-        data: {
-          organisationId,
-          goodsReceiptNumber: grn.goodsReceiptNumber,
-          purchaseOrderId: purchaseOrder.id,
-          supplierId: purchaseOrder.supplierId,
-          locationId: defaultLocationId,
-          receivedDate: grn.receivedDate,
-          receivedById: actorUserId,
-          remarks: grn.remarks,
-          discrepancyStatus: hasDiscrepancy ? 'PENDING_SUPPLIER' : 'NONE',
-          items: { create: items },
-        },
-      });
+        const goodsReceipt = await tx.goodsReceipt.create({
+          data: {
+            organisationId,
+            goodsReceiptNumber: grn.goodsReceiptNumber,
+            purchaseOrderId: purchaseOrder.id,
+            supplierId: purchaseOrder.supplierId,
+            locationId: defaultLocationId,
+            receivedDate: grn.receivedDate,
+            receivedById: actorUserId,
+            remarks: grn.remarks,
+            discrepancyStatus: hasDiscrepancy ? 'PENDING_SUPPLIER' : 'NONE',
+            idempotencyKey: `seed-${grn.goodsReceiptNumber}`,
+            items: { create: itemsWithPayable },
+          },
+        });
 
-      const acceptedItems = items.filter((item) => item.acceptedQuantity > 0);
-      for (const item of acceptedItems) {
-        await tx.inventoryStock.upsert({
-          where: {
-            organisationId_productId_locationId: {
+        const acceptedItems = itemsWithPayable.filter((item) => item.acceptedQuantity > 0);
+        for (const item of acceptedItems) {
+          await tx.inventoryStock.upsert({
+            where: {
+              organisationId_productId_locationId: {
+                organisationId,
+                productId: item.productId,
+                locationId: defaultLocationId,
+              },
+            },
+            create: {
               organisationId,
               productId: item.productId,
               locationId: defaultLocationId,
+              quantityOnHand: item.acceptedQuantity,
             },
-          },
-          create: {
-            organisationId,
-            productId: item.productId,
-            locationId: defaultLocationId,
-            quantityOnHand: item.acceptedQuantity,
-          },
-          update: { quantityOnHand: { increment: item.acceptedQuantity } },
-        });
-      }
-      if (acceptedItems.length > 0) {
-        await tx.inventoryTransaction.createMany({
-          data: acceptedItems.map((item) => ({
-            organisationId,
-            productId: item.productId,
-            locationId: defaultLocationId,
-            transactionType: 'RECEIPT',
-            quantity: item.acceptedQuantity,
-            referenceType: 'GoodsReceipt',
-            referenceId: goodsReceipt.id,
-          })),
-        });
-      }
-    });
+            update: { quantityOnHand: { increment: item.acceptedQuantity } },
+          });
+        }
+        if (acceptedItems.length > 0) {
+          await tx.inventoryTransaction.createMany({
+            data: acceptedItems.map((item) => ({
+              organisationId,
+              productId: item.productId,
+              locationId: defaultLocationId,
+              transactionType: 'RECEIPT',
+              quantity: item.acceptedQuantity,
+              referenceType: 'GoodsReceipt',
+              referenceId: goodsReceipt.id,
+            })),
+          });
+        }
+
+        return goodsReceipt;
+      });
+      goodsReceiptId = created.id;
+    }
+
+    const acceptedItems = itemsWithPayable.filter((item) => item.acceptedQuantity > 0);
+    const inventoryValue = acceptedItems.reduce(
+      (sum, item) =>
+        sum + item.acceptedQuantity * (unitPriceById.get(item.purchaseOrderItemId) ?? 0),
+      0,
+    );
+    const payableValue = acceptedItems.reduce(
+      (sum, item) =>
+        sum + item.payableQuantity * (unitPriceById.get(item.purchaseOrderItemId) ?? 0),
+      0,
+    );
+    const excessValue = inventoryValue - payableValue;
+    if (inventoryValue > 0) {
+      await postSeedJournalEntry(organisationId, {
+        date: grn.receivedDate,
+        description: `Goods receipt ${grn.goodsReceiptNumber} — PO ${grn.purchaseOrderNumber}`,
+        reference: grn.goodsReceiptNumber,
+        sourceType: 'GOODS_RECEIPT',
+        sourceId: goodsReceiptId,
+        actorUserId,
+        lines: [
+          { systemKey: 'INVENTORY', debit: inventoryValue },
+          ...(payableValue > 0 ? [{ systemKey: 'AP', credit: payableValue }] : []),
+          ...(excessValue > 0 ? [{ systemKey: 'GRNI_PENDING_APPROVAL', credit: excessValue }] : []),
+        ],
+      });
+    }
   }
 
   // GRN-000004 fully replaces the 50 cartons GRN-000003 rejected — mark that original
@@ -2097,6 +2173,13 @@ const BOBY_BITES_CHART_OF_ACCOUNTS: {
     parentCode: '2000',
     systemKey: 'AP',
   },
+  {
+    code: '2110',
+    name: 'Goods Received – Pending Approval',
+    type: 'LIABILITY',
+    parentCode: '2000',
+    systemKey: 'GRNI_PENDING_APPROVAL',
+  },
   { code: '3000', name: 'Equity', type: 'EQUITY' },
   { code: '3100', name: "Owner's Capital", type: 'EQUITY', parentCode: '3000' },
   { code: '4000', name: 'Revenue', type: 'REVENUE' },
@@ -2133,7 +2216,12 @@ const BOBY_BITES_CHART_OF_ACCOUNTS: {
 /** Idempotency-gated on the `AR` system account already existing for this
  *  organisation. Returns nothing — every later lookup (including
  *  `postSeedJournalEntry`, below) resolves accounts by `systemKey` at the point of
- *  use, exactly like the real `journal-posting.ts`. */
+ *  use, exactly like the real `journal-posting.ts`.
+ *
+ *  Sprint 8 adds a standalone backfill afterward (`seedGrniPendingApprovalAccount`,
+ *  below) for the one new account this sprint introduces (`GRNI_PENDING_APPROVAL`) —
+ *  the single early-return gate above means a dev database that already ran this
+ *  function pre-Sprint-8 would otherwise never receive the new row on a re-seed. */
 async function seedChartOfAccounts(organisationId: string, actorUserId: string): Promise<void> {
   console.log('Seeding Chart of Accounts...');
 
@@ -2162,6 +2250,42 @@ async function seedChartOfAccounts(organisationId: string, actorUserId: string):
     });
     idByCode.set(account.code, created.id);
   }
+}
+
+/** Sprint 8 — standalone, independently idempotency-gated backfill for the
+ *  `GRNI_PENDING_APPROVAL` account, so a dev database that already ran
+ *  `seedChartOfAccounts` before Sprint 8 (and therefore hit that function's own
+ *  early-return gate) still receives the new account on a re-seed. Resolves `2100`'s
+ *  id as the parent since `seedChartOfAccounts`'s own `idByCode` map is local to that
+ *  function and unavailable here. */
+async function seedGrniPendingApprovalAccount(
+  organisationId: string,
+  actorUserId: string,
+): Promise<void> {
+  const existing = await prisma.chartOfAccount.findFirst({
+    where: { organisationId, systemKey: 'GRNI_PENDING_APPROVAL' },
+  });
+  if (existing) {
+    return;
+  }
+
+  const parent = await prisma.chartOfAccount.findFirst({
+    where: { organisationId, code: '2100' },
+  });
+  await prisma.chartOfAccount.create({
+    data: {
+      organisationId,
+      code: '2110',
+      name: 'Goods Received – Pending Approval',
+      type: 'LIABILITY',
+      description: null,
+      isSystemAccount: true,
+      systemKey: 'GRNI_PENDING_APPROVAL',
+      createdById: actorUserId,
+      updatedById: actorUserId,
+      parentId: parent?.id,
+    },
+  });
 }
 
 /** Two periods: "July 2026" (created, used to post `INV-000003`'s historical journal
@@ -2744,6 +2868,14 @@ async function main(): Promise<void> {
   Object.assign(productsByCode, skusByCode);
   const suppliersByCode = await seedSuppliers(organisation.id, ownerUser.id);
   const locationsByName = await seedInventoryLocations(organisation.id, ownerUser.id);
+  // Sprint 8 — moved ahead of `seedPurchaseOrders`/`seedGoodsReceipts` (previously ran
+  // much later, alongside `seedFinance`): `seedGoodsReceipts` now posts a Journal Entry
+  // per receipt via `postSeedJournalEntry`, which needs the Chart of Accounts/
+  // Accounting Periods to already exist. Neither function depends on anything seeded
+  // between the old and new call sites, so this reorder is safe.
+  await seedChartOfAccounts(organisation.id, ownerUser.id);
+  await seedGrniPendingApprovalAccount(organisation.id, ownerUser.id);
+  await seedAccountingPeriods(organisation.id, ownerUser.id);
   const purchaseOrdersByNumber = await seedPurchaseOrders(
     organisation.id,
     ownerUser.id,
@@ -2812,8 +2944,9 @@ async function main(): Promise<void> {
     productsByCode,
     mainWarehouseId,
   );
-  await seedChartOfAccounts(organisation.id, ownerUser.id);
-  await seedAccountingPeriods(organisation.id, ownerUser.id);
+  // Sprint 8 — `seedChartOfAccounts`/`seedAccountingPeriods` now run earlier (see
+  // above, ahead of `seedGoodsReceipts`); not re-called here since both are already
+  // idempotency-gated no-ops by this point.
   await seedFinance(
     organisation.id,
     ownerUser.id,
@@ -2864,7 +2997,10 @@ async function main(): Promise<void> {
     creditNotesSeeded: 1,
     chartOfAccountsSeeded: BOBY_BITES_CHART_OF_ACCOUNTS.length,
     accountingPeriodsSeeded: 2,
-    journalEntriesSeeded: 8,
+    // 8 from Finance's Invoice/Payment/Credit-Note fixtures (Sprint 7) + 5 from Goods
+    // Receipts (Sprint 8, one per BOBY_BITES_GOODS_RECEIPTS entry — every seeded
+    // receipt accepts something, so every one posts a journal).
+    journalEntriesSeeded: 8 + BOBY_BITES_GOODS_RECEIPTS.length,
     customersWithoutNetworkRelationship:
       BOBY_BITES_CUSTOMERS.length -
       new Set(BOBY_BITES_NETWORK_RELATIONSHIPS.flatMap((r) => [r.sourceCode, r.targetCode])).size,

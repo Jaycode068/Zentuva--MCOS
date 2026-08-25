@@ -124,7 +124,9 @@ delivered roughly in order, but later Epics may be reordered as priorities evolv
   (Epic 15, Sprint 4.2) instead of a free-text supplier name. Its status lifecycle now
   also reaches `PARTIALLY_RECEIVED`/`RECEIVED`, set exclusively by Epic 5's receiving
   workflow (Sprint 4.4.1) — see [`docs/domains/procurement.md`](domains/procurement.md).
-  Supplier Performance, Purchase Approval Workflow, and Invoices remain.
+  Sprint 8 wired that same receiving workflow to Epic 17's accounting layer (see below);
+  Purchase Order confirmation itself still creates no accounting entry. Supplier
+  Performance, Purchase Approval Workflow, and Invoices remain.
 
 ### Epic 5 — Inventory
 
@@ -149,9 +151,15 @@ delivered roughly in order, but later Epics may be reordered as priorities evolv
   signed quantity delta, hard negative-stock prevention) — the immutable
   `InventoryTransaction` ledger now carries `RECEIPT` and `ADJUSTMENT` rows side by side,
   the same source of truth every future stock movement (Production issue/output, Sales
-  issue) is expected to write into. Warehouse Transfers, Reservation/Allocation,
-  Valuation (FIFO/weighted-average/COGS), Low Stock alerting, and a full Warehouse
-  Management System remain — see [`docs/domains/inventory.md`](domains/inventory.md).
+  issue) is expected to write into. Sprint 8 ("Procurement, Inventory & Accounting
+  Integration") wired Goods Receipt to the General Ledger — `DR Inventory / CR
+Accounts Payable`, with any quantity accepted beyond a Purchase Order's own ordered
+  amount posting instead to a `GRNI — Pending Approval` account rather than inflating
+  `AP` — and closed a real idempotency gap (`GoodsReceipt` had no double-submission
+  protection before this sprint). Warehouse Transfers, Reservation/Allocation, a
+  running inventory Valuation ledger (FIFO/weighted-average/COGS), Low Stock alerting,
+  and a full Warehouse Management System remain — see
+  [`docs/domains/inventory.md`](domains/inventory.md).
 
 ### Epic 6 — Production
 
@@ -326,12 +334,14 @@ delivered roughly in order, but later Epics may be reordered as priorities evolv
   accounts resolved by key, never hardcoded id), Accounting Periods (open/closed, only
   open periods receive postings), Journal Entries (server-authoritative double-entry
   validation, immutable once posted), General Ledger/Trial Balance/Account Activity
-  reporting, and automatic posting for Finance's `invoice.issued`/`payment.recorded`/
-  `credit-note.issued` events. Deliberately excludes Chart of Accounts → financial-
-  statement closing (P&L, Balance Sheet, Cash Flow Statement), Bank Reconciliation,
-  Accounts Payable/supplier invoices, payroll, fixed-asset accounting, a full tax
-  engine, budgeting, year-end closing, and accounting integration for any domain other
-  than Finance — all future sprints.
+  reporting, automatic posting for Finance's `invoice.issued`/`payment.recorded`/
+  `credit-note.issued` events, and (Sprint 8) automatic posting for Inventory's Goods
+  Receipt event. Deliberately excludes Chart of Accounts → financial-statement closing
+  (P&L, Balance Sheet, Cash Flow Statement), Bank Reconciliation, a full Accounts
+  Payable module (supplier invoice matching, payment runs, AP ageing, an approval
+  workflow to reclassify `GRNI — Pending Approval` balances into `AP`), payroll,
+  fixed-asset accounting, a full tax engine, budgeting, year-end closing, and
+  accounting integration for Production or Sales Fulfilment — all future sprints.
 - **Status:** Foundation implemented — Sprint 7 ("General Ledger & Accounting
   Foundation"). `InvoiceRepository.issue()`/`PaymentRepository.create()`/
   `CreditNoteRepository.issue()` each atomically post a double-entry `JournalEntry` via
@@ -340,7 +350,13 @@ delivered roughly in order, but later Epics may be reordered as priorities evolv
   Inventory integrations can reuse the same functions without depending on
   `FinanceModule`. Trial Balance always balances by double-entry construction; the
   General Ledger's running balance is computed deterministically in application code,
-  never a SQL window function — see [`docs/domains/accounting.md`](domains/accounting.md).
+  never a SQL window function. Sprint 8 ("Procurement, Inventory & Accounting
+  Integration") proved that reusability out: `GoodsReceiptRepository.receive()` now
+  calls the same `postSystemJournalEntry` from inside its own transaction, adding one
+  new system account (`GRNI_PENDING_APPROVAL`) so goods physically accepted beyond a
+  Purchase Order's own commercially-agreed quantity post to a distinct clearing
+  account rather than inflating `AP` — see
+  [`docs/domains/accounting.md`](domains/accounting.md) §9.
 
 ## 5. Current Sprint Status
 
@@ -372,6 +388,7 @@ delivered roughly in order, but later Epics may be reordered as priorities evolv
 - ✓ Sprint 5 — Distribution & Delivery Operations Foundation
 - ✓ Sprint 6 — Finance Foundation
 - ✓ Sprint 7 — General Ledger & Accounting Foundation
+- ✓ Sprint 8 — Procurement, Inventory & Accounting Integration
 
 **Current focus:** Next sprint not yet scoped.
 

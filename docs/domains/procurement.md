@@ -200,6 +200,13 @@ rather than an arbitrary-precision `Decimal` type.
   for the receiving transaction's atomicity (see `inventory.md` §6).
 - **Purchase Approval Workflow (future, not yet built)** — `APPROVED` and `approvedById`
   already exist in the schema, unused, reserved for whenever that workflow is designed.
+- **Accounting** ([accounting.md](accounting.md), Sprint 8) — indirect only: it is
+  **Inventory's** Goods Receipt event, not any Procurement action, that triggers a
+  Journal Entry posting (`DR Inventory / CR Accounts Payable`, with any
+  accepted-beyond-ordered excess split into `GRNI — Pending Approval` — see
+  accounting.md §9). Confirming, issuing, or otherwise progressing a `PurchaseOrder`'s
+  own status creates no accounting entry by itself; a supplier's commercial liability
+  is still recognised only once goods are actually received.
 
 ## 7. API Reference
 

@@ -7,6 +7,55 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 8 Procurement, Inventory & Accounting Integration] - 2026-08-25
+
+### Added
+
+- **Goods Receipt → General Ledger posting, atomic with the receipt itself**:
+  `GoodsReceiptRepository.receive()` now calls `postSystemJournalEntry` (Sprint 7's
+  plain, dependency-injection-free posting boundary) from inside its own existing
+  `$transaction` — the entire business event (Goods Receipt, `InventoryStock`
+  increment, `InventoryTransaction` rows, and the Journal Entry) either succeeds
+  together or rolls back together. A closed accounting period or a misconfigured
+  Chart of Accounts now correctly prevents inventory from silently increasing with no
+  accounting behind it.
+- **Accepted vs. Payable** — a new `payableQuantity` on `GoodsReceiptItem`,
+  server-computed as `min(acceptedQuantity, remainingOrderedQuantity)`, where the
+  remaining figure is the Purchase Order item's own ordered quantity minus every
+  prior receipt's cumulative payable total against it. Physically accepting goods
+  beyond a Purchase Order's commercially-agreed quantity no longer inflates the
+  supplier's recognised liability: the Journal Entry's credit side splits into
+  `CR Accounts Payable` (the payable portion) and, only when excess exists,
+  `CR GRNI — Pending Approval` (a new system account, Chart of Accounts code `2110`).
+  Worked example: a 1,000-unit Purchase Order receiving 1,100 delivered / 50 rejected
+  / 1,050 accepted posts `DR Inventory ₦1,050,000 / CR AP ₦1,000,000 / CR GRNI —
+Pending Approval ₦50,000` — never `CR AP ₦1,050,000`.
+- **`GoodsReceipt.idempotencyKey`** + `@@unique([purchaseOrderId, idempotencyKey])` —
+  closes a real gap every other Sprint 6/7 write path already had. A retried
+  `POST /goods-receipts` with the same key now returns the original receipt instead of
+  creating a second one, a second `InventoryStock` increment, and a second Journal
+  Entry; every audit event this endpoint fires is now gated on the request actually
+  having created something (`wasCreated`), not fired unconditionally.
+- **`GoodsReceiptRepository.receive()`/`findJournalEntriesByGoodsReceiptIds`** now
+  surface the linked Journal Entry (`{ id, journalNumber, status, totalAmount } |
+null`) on the create response and on `GET /goods-receipts`/`GET
+/goods-receipts/:id`, so the Inventory UI can show "Accounting: JE-000123 · Posted ·
+  ₦300,000" without a second round trip; a new `goods-receipt.journal-entry-posted`
+  audit event fires alongside it.
+
+### Changed
+
+- Chart of Accounts gains a ninth seeded system account, `GRNI_PENDING_APPROVAL`
+  ("Goods Received – Pending Approval," code `2110`, under Liabilities).
+  `SYSTEM_ACCOUNT_KEYS` starts posting to `INVENTORY` and `AP` for the first time
+  (seeded Sprint 7, unposted until now).
+- Seed data (`apps/api/prisma/seed.ts`): every seeded Goods Receipt now posts its
+  Journal Entry (13 total, up from Finance's own 8), and `seedChartOfAccounts`/
+  `seedAccountingPeriods` now run earlier in the seed sequence — ahead of
+  `seedGoodsReceipts`, which depends on them — with a standalone idempotent backfill
+  (`seedGrniPendingApprovalAccount`) so an already-seeded database still receives the
+  new account on a re-seed.
+
 ## [Sprint 7 General Ledger & Accounting Foundation] - 2026-08-24
 
 ### Added

@@ -113,8 +113,23 @@ export interface GoodsReceiptItem {
   deliveredQuantity: number;
   rejectedQuantity: number;
   acceptedQuantity: number;
+  /** Added Sprint 8 — the portion of `acceptedQuantity` the organisation is
+   *  commercially liable to pay for, capped at what the Purchase Order's own ordered
+   *  quantity still covers. `acceptedQuantity > payableQuantity` means goods were
+   *  accepted beyond the order — see `journalEntry` on the parent `GoodsReceipt`. */
+  payableQuantity: number;
   rejectionReason: RejectionReason | null;
   rejectionNotes: string | null;
+}
+
+/** Added Sprint 8 — the automatically-posted Journal Entry for a Goods Receipt's
+ *  accepted value, `null` when nothing was accepted (see
+ *  docs/domains/accounting.md "Goods Receipt Posting"). */
+export interface GoodsReceiptJournalEntry {
+  id: string;
+  journalNumber: string;
+  status: 'DRAFT' | 'POSTED' | 'VOID';
+  totalAmount: number;
 }
 
 export interface GoodsReceipt {
@@ -129,6 +144,10 @@ export interface GoodsReceipt {
   items: GoodsReceiptItem[];
   createdAt: string;
   receivedById: string | null;
+  /** Present on `listGoodsReceipts`/`getGoodsReceipt`/`createGoodsReceipt`'s response;
+   *  absent (not `null`) on the receipts embedded in
+   *  `getPurchaseOrderReceivingSummary`'s response, which doesn't look it up. */
+  journalEntry?: GoodsReceiptJournalEntry | null;
 }
 
 /** `GET /api/inventory/purchase-orders/:purchaseOrderId/receiving` response shape (Sprint
@@ -171,6 +190,10 @@ export interface CreateGoodsReceiptPayload {
   receivedDate: string;
   remarks?: string;
   items: GoodsReceiptItemPayload[];
+  /** Added Sprint 8 — same double-submit protection every other create-payload in this
+   *  codebase has. A retried submission with the same key against the same Purchase
+   *  Order returns the original receipt instead of creating a second one. */
+  idempotencyKey?: string;
 }
 
 export interface UpdateGoodsReceiptDiscrepancyPayload {

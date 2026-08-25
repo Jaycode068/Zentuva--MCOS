@@ -206,13 +206,18 @@ export class InventoryController {
       search: search?.trim() || undefined,
       purchaseOrderId,
     });
-    return { items: goodsReceipts.map(toGoodsReceiptResponse) };
+    return {
+      items: goodsReceipts.map((goodsReceipt) => ({
+        ...toGoodsReceiptResponse(goodsReceipt),
+        journalEntry: goodsReceipt.journalEntry,
+      })),
+    };
   }
 
   @Get('goods-receipts/:id')
   async getGoodsReceipt(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const goodsReceipt = await this.inventoryService.getGoodsReceiptById(user.organisationId, id);
-    return toGoodsReceiptResponse(goodsReceipt);
+    return { ...toGoodsReceiptResponse(goodsReceipt), journalEntry: goodsReceipt.journalEntry };
   }
 
   @Post('goods-receipts')
@@ -223,69 +228,22 @@ export class InventoryController {
     @CurrentUser() user: TokenPayload,
     @Req() req: Request,
   ) {
-    const { goodsReceipt, purchaseOrderStatus, isFirstReceipt, hasDiscrepancy } =
-      await this.inventoryService.receiveGoods(user.organisationId, body, user.sub);
+    const {
+      goodsReceipt,
+      purchaseOrderStatus,
+      isFirstReceipt,
+      hasDiscrepancy,
+      journalEntry,
+      wasCreated,
+    } = await this.inventoryService.receiveGoods(user.organisationId, body, user.sub);
 
-    await this.auditService.record({
-      action: INVENTORY_AUDIT_ACTIONS.GOODS_RECEIVED,
-      entityType: 'GoodsReceipt',
-      entityId: goodsReceipt.id,
-      organisationId: user.organisationId,
-      actorUserId: user.sub,
-      metadata: {
-        goodsReceiptNumber: goodsReceipt.goodsReceiptNumber,
-        purchaseOrderId: goodsReceipt.purchaseOrderId,
-        purchaseOrderNumber: goodsReceipt.purchaseOrder.purchaseOrderNumber,
-        purchaseOrderStatus,
-      },
-      ipAddress: req.ip,
-      userAgent: req.headers['user-agent'],
-    });
-
-    const acceptedItems = goodsReceipt.items.filter((item) => item.acceptedQuantity > 0);
-    if (acceptedItems.length > 0) {
+    // Sprint 8: every audit block below is gated on `wasCreated` — an idempotent
+    // replay (a retried request with the same `idempotencyKey`) returns the original
+    // receipt but must never re-emit any of these events, matching the brief's "must
+    // never produce duplicate audit entries" requirement.
+    if (wasCreated) {
       await this.auditService.record({
-        action: INVENTORY_AUDIT_ACTIONS.INVENTORY_INCREASED,
-        entityType: 'GoodsReceipt',
-        entityId: goodsReceipt.id,
-        organisationId: user.organisationId,
-        actorUserId: user.sub,
-        metadata: {
-          items: acceptedItems.map((item) => ({
-            productId: item.productId,
-            productName: item.product.name,
-            acceptedQuantity: item.acceptedQuantity,
-          })),
-        },
-        ipAddress: req.ip,
-        userAgent: req.headers['user-agent'],
-      });
-    }
-
-    if (hasDiscrepancy) {
-      const rejectedItems = goodsReceipt.items.filter((item) => item.rejectedQuantity > 0);
-      await this.auditService.record({
-        action: INVENTORY_AUDIT_ACTIONS.DISCREPANCY_RECORDED,
-        entityType: 'GoodsReceipt',
-        entityId: goodsReceipt.id,
-        organisationId: user.organisationId,
-        actorUserId: user.sub,
-        metadata: {
-          items: rejectedItems.map((item) => ({
-            productId: item.productId,
-            productName: item.product.name,
-            rejectedQuantity: item.rejectedQuantity,
-            rejectionReason: item.rejectionReason,
-          })),
-        },
-        ipAddress: req.ip,
-        userAgent: req.headers['user-agent'],
-      });
-    }
-
-    if (!isFirstReceipt) {
-      await this.auditService.record({
-        action: INVENTORY_AUDIT_ACTIONS.REPLACEMENT_RECEIVED,
+        action: INVENTORY_AUDIT_ACTIONS.GOODS_RECEIVED,
         entityType: 'GoodsReceipt',
         entityId: goodsReceipt.id,
         organisationId: user.organisationId,
@@ -293,13 +251,90 @@ export class InventoryController {
         metadata: {
           goodsReceiptNumber: goodsReceipt.goodsReceiptNumber,
           purchaseOrderId: goodsReceipt.purchaseOrderId,
+          purchaseOrderNumber: goodsReceipt.purchaseOrder.purchaseOrderNumber,
+          purchaseOrderStatus,
         },
         ipAddress: req.ip,
         userAgent: req.headers['user-agent'],
       });
+
+      const acceptedItems = goodsReceipt.items.filter((item) => item.acceptedQuantity > 0);
+      if (acceptedItems.length > 0) {
+        await this.auditService.record({
+          action: INVENTORY_AUDIT_ACTIONS.INVENTORY_INCREASED,
+          entityType: 'GoodsReceipt',
+          entityId: goodsReceipt.id,
+          organisationId: user.organisationId,
+          actorUserId: user.sub,
+          metadata: {
+            items: acceptedItems.map((item) => ({
+              productId: item.productId,
+              productName: item.product.name,
+              acceptedQuantity: item.acceptedQuantity,
+              payableQuantity: item.payableQuantity,
+            })),
+          },
+          ipAddress: req.ip,
+          userAgent: req.headers['user-agent'],
+        });
+      }
+
+      if (hasDiscrepancy) {
+        const rejectedItems = goodsReceipt.items.filter((item) => item.rejectedQuantity > 0);
+        await this.auditService.record({
+          action: INVENTORY_AUDIT_ACTIONS.DISCREPANCY_RECORDED,
+          entityType: 'GoodsReceipt',
+          entityId: goodsReceipt.id,
+          organisationId: user.organisationId,
+          actorUserId: user.sub,
+          metadata: {
+            items: rejectedItems.map((item) => ({
+              productId: item.productId,
+              productName: item.product.name,
+              rejectedQuantity: item.rejectedQuantity,
+              rejectionReason: item.rejectionReason,
+            })),
+          },
+          ipAddress: req.ip,
+          userAgent: req.headers['user-agent'],
+        });
+      }
+
+      if (!isFirstReceipt) {
+        await this.auditService.record({
+          action: INVENTORY_AUDIT_ACTIONS.REPLACEMENT_RECEIVED,
+          entityType: 'GoodsReceipt',
+          entityId: goodsReceipt.id,
+          organisationId: user.organisationId,
+          actorUserId: user.sub,
+          metadata: {
+            goodsReceiptNumber: goodsReceipt.goodsReceiptNumber,
+            purchaseOrderId: goodsReceipt.purchaseOrderId,
+          },
+          ipAddress: req.ip,
+          userAgent: req.headers['user-agent'],
+        });
+      }
+
+      if (journalEntry) {
+        await this.auditService.record({
+          action: INVENTORY_AUDIT_ACTIONS.JOURNAL_ENTRY_POSTED,
+          entityType: 'GoodsReceipt',
+          entityId: goodsReceipt.id,
+          organisationId: user.organisationId,
+          actorUserId: user.sub,
+          metadata: {
+            journalEntryId: journalEntry.id,
+            journalNumber: journalEntry.journalNumber,
+            amount: journalEntry.totalAmount,
+          },
+          ipAddress: req.ip,
+          userAgent: req.headers['user-agent'],
+        });
+      }
     }
 
-    return toGoodsReceiptResponse(goodsReceipt);
+    return { ...toGoodsReceiptResponse(goodsReceipt), journalEntry };
   }
 
   @Patch('goods-receipts/:id/discrepancy')
@@ -409,6 +444,10 @@ function toGoodsReceiptResponse(goodsReceipt: GoodsReceiptWithRelations) {
       deliveredQuantity: item.deliveredQuantity,
       rejectedQuantity: item.rejectedQuantity,
       acceptedQuantity: item.acceptedQuantity,
+      // Added Sprint 8 — see `GoodsReceiptItem.payableQuantity`. May be less than
+      // `acceptedQuantity` when goods were accepted beyond the Purchase Order's own
+      // ordered quantity (docs/domains/accounting.md "Accepted vs. Payable").
+      payableQuantity: item.payableQuantity,
       rejectionReason: item.rejectionReason,
       rejectionNotes: item.rejectionNotes,
     })),

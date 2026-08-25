@@ -30,6 +30,7 @@ describe('InventoryController', () => {
       remarks: null,
       discrepancyStatus: DiscrepancyStatus.NONE,
       discrepancyNotes: null,
+      idempotencyKey: null,
       locationId: 'loc-1',
       location: { id: 'loc-1', name: 'Main Warehouse' },
       createdAt: new Date('2026-08-05'),
@@ -43,6 +44,7 @@ describe('InventoryController', () => {
           deliveredQuantity: 500,
           rejectedQuantity: 0,
           acceptedQuantity: 500,
+          payableQuantity: 500,
           rejectionReason: null,
           rejectionNotes: null,
           createdAt: new Date('2026-08-05'),
@@ -120,6 +122,8 @@ describe('InventoryController', () => {
         purchaseOrderStatus: PurchaseOrderStatus.RECEIVED,
         isFirstReceipt: true,
         hasDiscrepancy: false,
+        journalEntry: null,
+        wasCreated: true,
       };
       inventoryService.receiveGoods.mockResolvedValue(receiveResult);
 
@@ -169,6 +173,8 @@ describe('InventoryController', () => {
         purchaseOrderStatus: PurchaseOrderStatus.RECEIVED,
         isFirstReceipt: true,
         hasDiscrepancy: true,
+        journalEntry: null,
+        wasCreated: true,
       });
 
       await controller.createGoodsReceipt(
@@ -201,6 +207,8 @@ describe('InventoryController', () => {
         purchaseOrderStatus: PurchaseOrderStatus.PARTIALLY_RECEIVED,
         isFirstReceipt: false,
         hasDiscrepancy: false,
+        journalEntry: null,
+        wasCreated: true,
       });
 
       await controller.createGoodsReceipt(
@@ -231,6 +239,8 @@ describe('InventoryController', () => {
         purchaseOrderStatus: PurchaseOrderStatus.PARTIALLY_RECEIVED,
         isFirstReceipt: false,
         hasDiscrepancy: true,
+        journalEntry: null,
+        wasCreated: true,
       });
 
       await controller.createGoodsReceipt(

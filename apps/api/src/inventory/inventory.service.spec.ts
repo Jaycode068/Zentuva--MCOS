@@ -94,6 +94,7 @@ describe('InventoryService', () => {
     remarks: null,
     discrepancyStatus: DiscrepancyStatus.NONE,
     discrepancyNotes: null,
+    idempotencyKey: null,
     locationId: 'loc-1',
     location: { id: 'loc-1', name: 'Main Warehouse' },
     createdAt: new Date('2026-08-05'),
@@ -107,6 +108,7 @@ describe('InventoryService', () => {
         deliveredQuantity: 500,
         rejectedQuantity: 0,
         acceptedQuantity: 500,
+        payableQuantity: 500,
         rejectionReason: null,
         rejectionNotes: null,
         createdAt: new Date('2026-08-05'),
@@ -179,6 +181,8 @@ describe('InventoryService', () => {
       goodsReceiptRepository.receive.mockResolvedValue({
         goodsReceipt: baseGoodsReceipt,
         purchaseOrderStatus: PurchaseOrderStatus.RECEIVED,
+        journalEntry: null,
+        wasCreated: true,
       });
 
       const result = await service.receiveGoods(
@@ -218,6 +222,8 @@ describe('InventoryService', () => {
       goodsReceiptRepository.receive.mockResolvedValue({
         goodsReceipt: baseGoodsReceipt,
         purchaseOrderStatus: PurchaseOrderStatus.RECEIVED,
+        journalEntry: null,
+        wasCreated: true,
       });
 
       const result = await service.receiveGoods(
@@ -262,6 +268,8 @@ describe('InventoryService', () => {
       goodsReceiptRepository.receive.mockResolvedValue({
         goodsReceipt: baseGoodsReceipt,
         purchaseOrderStatus: PurchaseOrderStatus.RECEIVED,
+        journalEntry: null,
+        wasCreated: true,
       });
 
       await service.receiveGoods(
@@ -288,12 +296,22 @@ describe('InventoryService', () => {
       );
       goodsReceiptRepository.getReceivingTotals.mockResolvedValue(
         new Map([
-          ['poi-1', { deliveredQuantity: 450, acceptedQuantity: 450, rejectedQuantity: 0 }],
+          [
+            'poi-1',
+            {
+              deliveredQuantity: 450,
+              acceptedQuantity: 450,
+              rejectedQuantity: 0,
+              payableQuantity: 450,
+            },
+          ],
         ]),
       );
       goodsReceiptRepository.receive.mockResolvedValue({
         goodsReceipt: baseGoodsReceipt,
         purchaseOrderStatus: PurchaseOrderStatus.RECEIVED,
+        journalEntry: null,
+        wasCreated: true,
       });
 
       const result = await service.receiveGoods(
@@ -355,12 +373,22 @@ describe('InventoryService', () => {
       );
       goodsReceiptRepository.getReceivingTotals.mockResolvedValue(
         new Map([
-          ['poi-1', { deliveredQuantity: 1000, acceptedQuantity: 950, rejectedQuantity: 50 }],
+          [
+            'poi-1',
+            {
+              deliveredQuantity: 1000,
+              acceptedQuantity: 950,
+              rejectedQuantity: 50,
+              payableQuantity: 950,
+            },
+          ],
         ]),
       );
       goodsReceiptRepository.receive.mockResolvedValue({
         goodsReceipt: baseGoodsReceipt,
         purchaseOrderStatus: PurchaseOrderStatus.RECEIVED,
+        journalEntry: null,
+        wasCreated: true,
       });
 
       const result = await service.receiveGoods(
@@ -450,6 +478,8 @@ describe('InventoryService', () => {
       goodsReceiptRepository.receive.mockResolvedValue({
         goodsReceipt: baseGoodsReceipt,
         purchaseOrderStatus: PurchaseOrderStatus.RECEIVED,
+        journalEntry: null,
+        wasCreated: true,
       });
 
       await service.receiveGoods(
@@ -480,9 +510,33 @@ describe('InventoryService', () => {
       purchaseOrderRepository.findById.mockResolvedValue(po);
       goodsReceiptRepository.getReceivingTotals.mockResolvedValue(
         new Map([
-          ['poi-short', { deliveredQuantity: 450, acceptedQuantity: 450, rejectedQuantity: 0 }],
-          ['poi-exact', { deliveredQuantity: 500, acceptedQuantity: 480, rejectedQuantity: 20 }],
-          ['poi-excess', { deliveredQuantity: 1100, acceptedQuantity: 1050, rejectedQuantity: 50 }],
+          [
+            'poi-short',
+            {
+              deliveredQuantity: 450,
+              acceptedQuantity: 450,
+              rejectedQuantity: 0,
+              payableQuantity: 450,
+            },
+          ],
+          [
+            'poi-exact',
+            {
+              deliveredQuantity: 500,
+              acceptedQuantity: 480,
+              rejectedQuantity: 20,
+              payableQuantity: 480,
+            },
+          ],
+          [
+            'poi-excess',
+            {
+              deliveredQuantity: 1100,
+              acceptedQuantity: 1050,
+              rejectedQuantity: 50,
+              payableQuantity: 1050,
+            },
+          ],
         ]),
       );
       goodsReceiptRepository.findManyByOrganisation.mockResolvedValue([]);

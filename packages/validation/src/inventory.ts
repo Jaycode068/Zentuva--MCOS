@@ -78,6 +78,11 @@ export const createGoodsReceiptSchema = z.object({
   receivedDate: z.coerce.date(),
   remarks: z.string().trim().max(2000).optional(),
   items: z.array(goodsReceiptItemInputSchema).min(1, 'At least one item is required'),
+  /** Added Sprint 8 — same double-submit protection `createPaymentSchema`'s own
+   *  `idempotencyKey` already has. A retried submission with the same key against the
+   *  same Purchase Order returns the original receipt instead of creating a second
+   *  one. */
+  idempotencyKey: z.string().trim().min(1).optional(),
 });
 export type CreateGoodsReceiptInput = z.infer<typeof createGoodsReceiptSchema>;
 

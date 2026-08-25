@@ -3,9 +3,11 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Badge, Button, Input, Select, cn } from '@zentuva/ui';
+import Link from 'next/link';
 
 import { ArchiveIcon } from '@/components/workspace/icons';
 import { ApiError } from '@/lib/api-client';
+import { formatCurrency } from '@/lib/format-currency';
 
 import {
   listGoodsReceipts,
@@ -504,6 +506,7 @@ function GoodsReceiptCard({ receipt }: { receipt: GoodsReceipt }) {
               <th className="px-3 py-2 font-medium">Delivered</th>
               <th className="px-3 py-2 font-medium">Rejected</th>
               <th className="px-3 py-2 font-medium">Accepted</th>
+              <th className="px-3 py-2 font-medium">Payable</th>
               <th className="px-3 py-2 font-medium">Reason</th>
             </tr>
           </thead>
@@ -517,6 +520,14 @@ function GoodsReceiptCard({ receipt }: { receipt: GoodsReceipt }) {
                 <td className="px-3 py-2">{item.deliveredQuantity}</td>
                 <td className="px-3 py-2">{item.rejectedQuantity}</td>
                 <td className="px-3 py-2">{item.acceptedQuantity}</td>
+                <td className="px-3 py-2">
+                  {item.payableQuantity}
+                  {item.acceptedQuantity > item.payableQuantity && (
+                    <span className="ml-1 text-xs text-amber-500">
+                      ({item.acceptedQuantity - item.payableQuantity} pending approval)
+                    </span>
+                  )}
+                </td>
                 <td className="px-3 py-2 text-muted-foreground">
                   {item.rejectionReason ? REJECTION_REASON_LABELS[item.rejectionReason] : '—'}
                   {item.rejectionNotes && (
@@ -531,6 +542,27 @@ function GoodsReceiptCard({ receipt }: { receipt: GoodsReceipt }) {
 
       {receipt.remarks && (
         <p className="mt-2 text-xs text-muted-foreground">Remarks: {receipt.remarks}</p>
+      )}
+
+      {/* Sprint 8 — the automatically-posted accounting consequence of this receipt
+          (docs/domains/accounting.md "Goods Receipt Posting"). `journalEntry` is
+          `undefined` only on the receiving-summary's embedded list, `null` when nothing
+          was accepted. */}
+      {receipt.journalEntry !== undefined && (
+        <p className="mt-2 text-xs text-muted-foreground">
+          Accounting:{' '}
+          {receipt.journalEntry ? (
+            <Link
+              href="/settings/finance/journal-entries"
+              className="font-medium text-foreground underline-offset-2 hover:underline"
+            >
+              {receipt.journalEntry.journalNumber} · Posted ·{' '}
+              {formatCurrency(receipt.journalEntry.totalAmount, 'NGN')}
+            </Link>
+          ) : (
+            'No accounting entry — nothing was accepted'
+          )}
+        </p>
       )}
 
       {hasDiscrepancy ? (

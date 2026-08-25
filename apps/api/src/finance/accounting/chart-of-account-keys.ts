@@ -6,10 +6,18 @@
  * marked as that system account.
  *
  * `AR`/`SALES_REVENUE`/`SALES_RETURNS`/`CASH`/`BANK` are the five keys Sprint 7's
- * Finance integration actually posts to. `INVENTORY`/`COGS`/`AP` are seeded now but
- * not yet posted to by any code — reserved for the documented future Procurement/
- * Production/Inventory integrations (docs/domains/accounting.md "Future
- * Integrations").
+ * Finance integration posts to. `INVENTORY`/`AP` are posted to starting Sprint 8
+ * (Goods Receipt → Inventory/Accounts Payable, see `GoodsReceiptRepository.receive`).
+ * `COGS` remains unposted — reserved for the documented future Production integration
+ * (docs/domains/accounting.md "Future Integrations").
+ *
+ * `GRNI_PENDING_APPROVAL` (Sprint 8, docs/domains/accounting.md "Accepted vs.
+ * Payable") is a distinct liability/clearing account for goods physically accepted
+ * into inventory whose value exceeds what the Purchase Order's own ordered quantity
+ * commercially covers — that excess is deliberately never posted to `AP`, which
+ * represents only the commercially-agreed, PO-capped liability. A future AP/
+ * three-way-matching module would move value out of `GRNI_PENDING_APPROVAL` into `AP`
+ * once the excess is explicitly approved for payment.
  */
 export const SYSTEM_ACCOUNT_KEYS = {
   AR: 'AR',
@@ -20,6 +28,7 @@ export const SYSTEM_ACCOUNT_KEYS = {
   INVENTORY: 'INVENTORY',
   COGS: 'COGS',
   AP: 'AP',
+  GRNI_PENDING_APPROVAL: 'GRNI_PENDING_APPROVAL',
 } as const;
 
 export type SystemAccountKey = (typeof SYSTEM_ACCOUNT_KEYS)[keyof typeof SYSTEM_ACCOUNT_KEYS];

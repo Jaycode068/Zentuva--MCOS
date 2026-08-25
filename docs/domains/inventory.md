@@ -3,16 +3,21 @@
 - **Status:** Goods Receiving implemented — Sprint 4.4 ("Inventory Management (Goods
   Receiving)"), refined Sprint 4.4.1 ("Goods Receiving, Inspection & Supplier
   Discrepancy Refinement"), extended Sprint 4.5 ("Inventory Control & Stock Management")
-  with physical locations and controlled manual stock adjustments.
-- **Sprint:** 4.4, 4.4.1, 4.5
+  with physical locations and controlled manual stock adjustments, extended Sprint 8
+  ("Procurement, Inventory & Accounting Integration") with automatic accounting posting
+  and idempotency protection on Goods Receipt.
+- **Sprint:** 4.4, 4.4.1, 4.5, 8
 - **Depends on:** [Identity](identity.md) (tenant boundary, authentication, `RolesGuard`),
   [Procurement](procurement.md) (every Goods Receipt receives an existing Purchase
   Order), [Product Catalogue](catalogue.md) (every stock balance/transaction/receipt line
-  references a Product), [ADR-002 — Modular Monolith](../adr/ADR-002-modular-monolith.md),
+  references a Product), [Accounting](accounting.md) (Sprint 8 — `postSystemJournalEntry`,
+  a plain function import, not a module dependency),
+  [ADR-002 — Modular Monolith](../adr/ADR-002-modular-monolith.md),
   [ADR-003 — Multi-Tenancy](../adr/ADR-003-multi-tenancy.md)
 - **See also:** [Sprint 4.4 Completion Report](../sprint-4.4-completion-report.md),
   [Sprint 4.4.1 Completion Report](../sprint-4.4.1-completion-report.md),
-  [Sprint 4.5 Completion Report](../sprint-4.5-completion-report.md) for what was
+  [Sprint 4.5 Completion Report](../sprint-4.5-completion-report.md),
+  [Sprint 8 Completion Report](../sprint-8-completion-report.md) for what was
   implemented and why.
 
 ## 1. Business Purpose
@@ -418,14 +423,18 @@ what was actually received.
 | `inventory.increased`                | Same call, only when at least one item's `acceptedQuantity > 0`                      |
 | `goods-receipt.discrepancy-recorded` | Same call, only when at least one item was rejected                                  |
 | `goods-receipt.replacement-received` | Same call, only when this wasn't the first `GoodsReceipt` recorded against the order |
+| `goods-receipt.journal-entry-posted` | Same call, only when a Journal Entry was actually posted (Sprint 8)                  |
 | `goods-receipt.resolved`             | `PATCH .../discrepancy`, only when the new status is `RESOLVED`                      |
 | `inventory.adjusted`                 | `POST /api/inventory/adjustments` — every call                                       |
 | `inventory.location.created`         | `POST /api/inventory/locations` — every call                                         |
 | `inventory.location.updated`         | `PATCH /api/inventory/locations/:id`, when the new status isn't `INACTIVE`           |
 | `inventory.location.deactivated`     | `PATCH /api/inventory/locations/:id`, only when the new status is `INACTIVE`         |
 
-Only these nine events exist — no audit action was invented for functionality that
-isn't actually implemented (Sprint 4.4.1 brief §14, extended Sprint 4.5).
+Only these ten events exist — no audit action was invented for functionality that
+isn't actually implemented (Sprint 4.4.1 brief §14, extended Sprint 4.5, extended
+Sprint 8). Sprint 8 also gates every event on this list fired from `POST
+.../goods-receipts` on `wasCreated === true` — an idempotent replay (a retried request
+with the same `idempotencyKey`) re-emits none of them.
 
 ## 9. Prisma Schema (excerpt)
 
@@ -617,6 +626,29 @@ for manual corrections — cycle counts, damage, shrinkage — so `RECEIPT`/`ISS
 `AuditLog` (identity.md §8). No new ledger table, no bespoke movement-tracking per
 domain.
 
+## 11a. Accounting Integration (Sprint 8)
+
+`GoodsReceiptRepository.receive()` now posts a Journal Entry (`DR Inventory` for the
+full accepted value, split across `CR Accounts Payable`/`CR GRNI — Pending Approval`
+per the accepted-vs-payable rule — see [Accounting](accounting.md) §9) inside the same
+`$transaction` that writes the `GoodsReceipt`/`InventoryStock`/`InventoryTransaction`
+rows, via a plain function import (`postSystemJournalEntry`, not a NestJS module
+dependency — `InventoryModule` gains no new `imports` entry). If the receipt's date has
+no open accounting period, or a required system account is missing, the **entire**
+receipt rolls back — inventory can never increase while accounting silently fails.
+
+`GoodsReceipt` also gained `idempotencyKey String?` +
+`@@unique([purchaseOrderId, idempotencyKey])` this sprint — closing a gap every other
+Sprint 6/7 write path already had: a retried `POST /goods-receipts` with the same key
+against the same Purchase Order now returns the original receipt instead of creating a
+second one, a second `InventoryStock` increment, and a second Journal Entry.
+
+Each `GoodsReceiptItem` also gained `payableQuantity` — see
+[Accounting](accounting.md) §9.2 for the full accepted-vs-payable computation. The
+`GET`/`POST /goods-receipts` responses include a `journalEntry` field
+(`{ id, journalNumber, status, totalAmount } | null`) so Procurement/Inventory UI can
+show the linked accounting entry without a second round trip.
+
 ## 11. Known Limitations (Sprint 4.5)
 
 - **No full Warehouse Management System.** `InventoryLocation` is deliberately minimal —
@@ -636,16 +668,23 @@ domain.
 - **No Low Stock / reorder-level alerting.** Deferred — it would require a schema change
   to `Product` (Product Catalogue's own table, a cross-domain change out of this sprint's
   scope) to add a `reorderLevel` field.
-- **No valuation.** No FIFO/weighted-average costing, no COGS, no monetary value on any
-  stock balance — inventory here is purely a quantity ledger, not a financial one. A
-  future Finance domain would build valuation on top of this ledger, not inside it.
+- **No running inventory valuation.** `InventoryStock`/`InventoryTransaction` remain a
+  purely quantity ledger — no FIFO/weighted-average costing, no per-unit cost basis
+  tracked over time. Sprint 8's Goods Receipt → Accounting posting (§11a) is a one-time
+  monetary snapshot at receipt time (`acceptedQuantity × PurchaseOrderItem.unitPrice`),
+  not a costing system — it values the accounting _event_, not the ongoing stock
+  balance. `COGS` remains unposted; a future Production/Sales integration would still
+  need to build that valuation, on top of this ledger, not inside it.
 - **No Inventory Counts (cycle counts as a first-class workflow), Batch/Lot Tracking, or
   Expiry Tracking** — a physical count today is recorded as one `ADJUSTMENT` with reason
   `PHYSICAL_COUNT`, not a dedicated count-session entity.
 - **No Quality Management module, Supplier Claims module, Supplier Returns module,
-  Accounts Payable, Credit Notes, or automated supplier communication** —
+  full Accounts Payable module (supplier invoice matching, payment runs, AP ageing,
+  vendor statements), Credit Notes, or automated supplier communication** —
   `discrepancyStatus` is deliberately lightweight (a status + free-text notes), not a
-  workflow engine (Sprint 4.4.1 brief §18).
+  workflow engine (Sprint 4.4.1 brief §18). Sprint 8 posts to a basic `AP` system
+  account (see §11a/[Accounting](accounting.md) §9), which is a liability-recognition
+  foundation, not a full AP module.
 - **No automatic linkage between a rejected `GoodsReceipt` and the later replacement**
   that resolves it — a human must mark the original `RESOLVED`; the system doesn't infer
   the connection.

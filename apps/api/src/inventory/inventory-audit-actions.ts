@@ -15,6 +15,13 @@ export const INVENTORY_AUDIT_ACTIONS = {
   REPLACEMENT_RECEIVED: 'goods-receipt.replacement-received',
   RESOLVED: 'goods-receipt.resolved',
   INVENTORY_INCREASED: 'inventory.increased',
+  /** Added Sprint 8 — recorded only when `POST /goods-receipts` actually posted a
+   *  Journal Entry (i.e. something was accepted), only on a fresh receipt (never on an
+   *  idempotent replay). Kept in this file's own `goods-receipt.*` namespace, not
+   *  Finance's `journal-entry.posted` (which is scoped to the *manual* journal-entry
+   *  controller's own `/post` action, a different call site) — see
+   *  docs/domains/accounting.md "Goods Receipt Posting". */
+  JOURNAL_ENTRY_POSTED: 'goods-receipt.journal-entry-posted',
   /** Sprint 4.5 brief's explicit event list — one event per manual correction,
    *  recorded on every `POST /api/inventory/adjustments` regardless of direction
    *  (increase or decrease), same "no duplicate events" instruction as the rest of

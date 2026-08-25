@@ -14,12 +14,17 @@ import {
   UpdateInventoryLocationInput,
 } from '@zentuva/validation';
 
+import {
+  MissingSystemAccountError,
+  NoOpenPeriodError,
+} from '../finance/accounting/journal-posting';
 import { ProductRepository } from '../catalogue/product/product.repository';
 import { PurchaseOrderRepository } from '../procurement/purchase-order/purchase-order.repository';
 import {
   GoodsReceiptConflictError,
   GoodsReceiptRepository,
   GoodsReceiptWithRelations,
+  JournalEntrySummary,
   ListGoodsReceiptsParams,
   ReceiveGoodsItemData,
 } from './goods-receipt.repository';
@@ -77,6 +82,13 @@ export interface InventoryStockSummary {
   updatedAt: Date | null;
 }
 
+/** Sprint 8 — a `GoodsReceipt` with its linked Journal Entry (if any) merged in, for
+ *  the `GET /goods-receipts`/`GET /goods-receipts/:id` read paths. See
+ *  `InventoryService.listGoodsReceipts`/`getGoodsReceiptById`. */
+export type GoodsReceiptWithAccounting = GoodsReceiptWithRelations & {
+  journalEntry: JournalEntrySummary | null;
+};
+
 export interface ReceiveGoodsResult {
   goodsReceipt: GoodsReceiptWithRelations;
   purchaseOrderStatus: PurchaseOrderStatus;
@@ -88,6 +100,13 @@ export interface ReceiveGoodsResult {
    *  `goods-receipt.discrepancy-recorded` audit event. Matches
    *  `discrepancyStatus !== NONE` for this receipt. */
   hasDiscrepancy: boolean;
+  /** Added Sprint 8 — the automatically-posted Journal Entry for this receipt's
+   *  accepted value, `null` when nothing was accepted. See
+   *  `GoodsReceiptRepository.receive`. */
+  journalEntry: JournalEntrySummary | null;
+  /** Added Sprint 8 — `true` only on a fresh receipt, `false` on an idempotent replay.
+   *  Drives whether the controller re-emits audit events. */
+  wasCreated: boolean;
 }
 
 export interface PurchaseOrderItemReceivingSummary {
@@ -242,22 +261,41 @@ export class InventoryService {
     return this.inventoryTransactionRepository.findManyByOrganisation(organisationId, params);
   }
 
-  listGoodsReceipts(
+  /** Sprint 8 — each receipt's linked Journal Entry (`null` when nothing was accepted)
+   *  is batch-looked-up and merged in, so the list/detail read paths surface the same
+   *  "Accounting: JE-000123" reference the create response already does, not just the
+   *  moment right after receiving. */
+  async listGoodsReceipts(
     organisationId: string,
     params?: ListGoodsReceiptsParams,
-  ): Promise<GoodsReceiptWithRelations[]> {
-    return this.goodsReceiptRepository.findManyByOrganisation(organisationId, params);
+  ): Promise<GoodsReceiptWithAccounting[]> {
+    const goodsReceipts = await this.goodsReceiptRepository.findManyByOrganisation(
+      organisationId,
+      params,
+    );
+    const journalEntries = await this.goodsReceiptRepository.findJournalEntriesByGoodsReceiptIds(
+      organisationId,
+      goodsReceipts.map((goodsReceipt) => goodsReceipt.id),
+    );
+    return goodsReceipts.map((goodsReceipt) => ({
+      ...goodsReceipt,
+      journalEntry: journalEntries.get(goodsReceipt.id) ?? null,
+    }));
   }
 
   async getGoodsReceiptById(
     organisationId: string,
     id: string,
-  ): Promise<GoodsReceiptWithRelations> {
+  ): Promise<GoodsReceiptWithAccounting> {
     const goodsReceipt = await this.goodsReceiptRepository.findById(organisationId, id);
     if (!goodsReceipt) {
       throw new NotFoundException('Goods receipt not found');
     }
-    return goodsReceipt;
+    const journalEntries = await this.goodsReceiptRepository.findJournalEntriesByGoodsReceiptIds(
+      organisationId,
+      [goodsReceipt.id],
+    );
+    return { ...goodsReceipt, journalEntry: journalEntries.get(goodsReceipt.id) ?? null };
   }
 
   /** `POST /api/inventory/goods-receipts`. See "Receiving Rules" (brief): a `DRAFT`,
@@ -308,6 +346,7 @@ export class InventoryService {
         deliveredQuantity: inputItem.deliveredQuantity,
         rejectedQuantity: inputItem.rejectedQuantity,
         acceptedQuantity: roundQuantity(inputItem.deliveredQuantity - inputItem.rejectedQuantity),
+        unitPrice: purchaseOrderItem.unitPrice,
         rejectionReason: inputItem.rejectionReason,
         rejectionNotes: inputItem.rejectionNotes,
       };
@@ -337,6 +376,7 @@ export class InventoryService {
           id: item.id,
           quantity: item.quantity,
         })),
+        purchaseOrderNumber: purchaseOrder.purchaseOrderNumber,
         goodsReceiptNumber,
         supplierId: purchaseOrder.supplierId,
         locationId: defaultLocation.id,
@@ -344,6 +384,7 @@ export class InventoryService {
         receivedById: actorUserId,
         remarks: input.remarks,
         discrepancyStatus,
+        idempotencyKey: input.idempotencyKey,
         items,
       });
       return { ...result, isFirstReceipt, hasDiscrepancy };
@@ -352,6 +393,15 @@ export class InventoryService {
       // out of a receivable status between our pre-check above and now) — translate to
       // the same `400` a pre-check failure would have produced.
       if (error instanceof GoodsReceiptConflictError) {
+        throw new BadRequestException(error.message);
+      }
+      // The accounting posting's own guards, propagated from inside the same
+      // transaction (see `GoodsReceiptRepository.receive` — the whole receipt rolls
+      // back with it, so nothing partially applies).
+      if (error instanceof NoOpenPeriodError) {
+        throw new BadRequestException(error.message);
+      }
+      if (error instanceof MissingSystemAccountError) {
         throw new BadRequestException(error.message);
       }
       throw error;

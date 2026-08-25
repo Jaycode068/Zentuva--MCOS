@@ -30,6 +30,13 @@ import { InventoryTransactionRepository } from './inventory-transaction.reposito
  * directly to another domain's tables inside a self-owned `$transaction`, a narrow,
  * documented exception to ADR-002 justified by atomicity (see
  * docs/domains/production.md "Integration Points").
+ *
+ * Sprint 8 — `GoodsReceiptRepository.receive` also posts a Journal Entry via
+ * `postSystemJournalEntry` (`../finance/accounting/journal-posting`). This is a plain
+ * TypeScript function import, not a NestJS provider, so it introduces **no** module
+ * dependency on `FinanceModule` here — `InventoryModule`'s own `imports` array is
+ * unchanged by that integration (see docs/domains/accounting.md "Accounting Posting
+ * Boundary").
  */
 @Module({
   imports: [IdentityModule, AuthModule, ProductModule, PurchaseOrderModule],

@@ -1,16 +1,19 @@
 # Accounting Domain
 
 - **Status:** Foundation implemented — Sprint 7 ("General Ledger & Accounting
-  Foundation"). **Not** a complete accounting system — see §9.
-- **Sprint:** 7
+  Foundation"), extended Sprint 8 ("Procurement, Inventory & Accounting Integration")
+  with automatic posting for Goods Receipts. **Not** a complete accounting system — see
+  §9.
+- **Sprint:** 7, 8
 - **Depends on:** [Identity](identity.md) (tenant boundary, `RolesGuard`,
-  `AuditService`), [Finance](finance.md) (the three business events this domain posts
-  journals for — invoice issued, payment recorded, credit note issued).
-- **Explicitly does not depend on:** [Sales](sales.md), [Inventory](inventory.md),
-  [Distribution](distribution.md), [Procurement](procurement.md),
-  [Production](production.md) — this sprint only wires Finance's own three events; every
-  other domain's accounting consequence is deferred future work — see §9.
-- **See also:** [Sprint 7 Completion Report](../sprint-7-completion-report.md).
+  `AuditService`), [Finance](finance.md) (invoice issued, payment recorded, credit note
+  issued), [Inventory](inventory.md) (goods receipt — Sprint 8).
+- **Explicitly does not depend on:** [Sales](sales.md), [Distribution](distribution.md),
+  [Procurement](procurement.md), [Production](production.md) — Inventory's Goods
+  Receipt is the only operational-domain event wired so far; every other domain's
+  accounting consequence remains deferred future work — see §9.
+- **See also:** [Sprint 7 Completion Report](../sprint-7-completion-report.md),
+  [Sprint 8 Completion Report](../sprint-8-completion-report.md).
 
 ## 1. Business Purpose
 
@@ -74,17 +77,18 @@ to provide.
   (`apps/api/src/identity/account/`, the "My Account" profile/password/sessions
   surface).
 - **System accounts.** `systemKey` (one of `SYSTEM_ACCOUNT_KEYS` —
-  `AR`/`SALES_REVENUE`/`SALES_RETURNS`/`CASH`/`BANK`/`INVENTORY`/`COGS`/`AP`) lets
-  `journal-posting.ts` resolve "the AR account for this organisation" without ever
-  hardcoding an id — every tenant can use whatever codes/names it likes as long as
-  exactly one account per key is marked as that system account
-  (`@@unique([organisationId, systemKey])`, with Postgres's multi-`NULL` semantics
-  letting every non-system account coexist under a `NULL` key). A system account can
-  **never be deactivated** via the API — a blunt, unconditional rule, not a dynamic
-  "would this break anything" check.
-- Sprint 7 seeds eight system accounts but only **posts** to five of them (`AR`,
-  `SALES_REVENUE`, `SALES_RETURNS`, `CASH`, `BANK`) — `INVENTORY`/`COGS`/`AP` are
-  reserved for the documented future integrations in §9.
+  `AR`/`SALES_REVENUE`/`SALES_RETURNS`/`CASH`/`BANK`/`INVENTORY`/`COGS`/`AP`/
+  `GRNI_PENDING_APPROVAL`) lets `journal-posting.ts` resolve "the AR account for this
+  organisation" without ever hardcoding an id — every tenant can use whatever
+  codes/names it likes as long as exactly one account per key is marked as that system
+  account (`@@unique([organisationId, systemKey])`, with Postgres's multi-`NULL`
+  semantics letting every non-system account coexist under a `NULL` key). A system
+  account can **never be deactivated** via the API — a blunt, unconditional rule, not a
+  dynamic "would this break anything" check.
+- Sprint 7 seeded eight system accounts but only posted to five (`AR`,
+  `SALES_REVENUE`, `SALES_RETURNS`, `CASH`, `BANK`). Sprint 8 adds a ninth
+  (`GRNI_PENDING_APPROVAL`) and starts posting to two more — `INVENTORY` and `AP` — see
+  §9.1. `COGS` remains unposted, reserved for a future Production integration.
 
 ### AccountingPeriod
 
@@ -195,10 +199,15 @@ Member), tenant-scoped repository methods, cross-tenant direct-by-id access retu
 `account.updated`, `account.activated`, `account.deactivated`,
 `accounting-period.created`, `accounting-period.closed`, `journal-entry.created`,
 `journal-entry.posted`, `journal-entry.voided`. A system-generated posting does **not**
-independently audit-log itself as a separate "journal-entry.posted" event — the
-originating action (`invoice.issued`, `payment.recorded`, `credit-note.issued`, all
-Sprint 6 audit actions) is the auditable event; the journal it produced is visible by
-following `sourceType`/`sourceId`, not double-logged as its own thing.
+independently audit-log itself as a separate "journal-entry.posted" event under
+Accounting's own action list — the originating action (`invoice.issued`,
+`payment.recorded`, `credit-note.issued`) is the auditable event; the journal it
+produced is visible by following `sourceType`/`sourceId`. **Exception, Sprint 8:**
+Inventory's own audit vocabulary (`INVENTORY_AUDIT_ACTIONS`, not this domain's) is
+already more granular than Finance's (it fires both `goods-receipt.received` and
+`inventory.increased` per receipt) — consistent with that existing granularity, a
+`goods-receipt.journal-entry-posted` event fires there (not here) when a receipt
+actually posts a journal — see [Inventory](inventory.md) §8.
 
 ## 8. Admin Surface (`apps/web/src/app/(app)/settings/finance/`)
 
@@ -213,29 +222,106 @@ Ledger** (account/date/source filters, running balance column), **Trial Balance*
 (period selector, a visible "Debit and Credit totals match" confirmation), and
 **Accounting Periods** (list, Open/Close).
 
-## 9. Deferred Accounting Work — Future Integrations
+## 9. Goods Receipt Posting (Sprint 8) and Remaining Deferred Work
 
-This sprint wires exactly three Finance events. The intended future architecture for
-every other domain, per the brief's own diagram, reproduced here as documentation —
-**none of it is implemented yet**:
+### 9.1 Goods Receipt → Inventory / Accounts Payable
+
+When `InventoryService.receiveGoods()` records a delivery, `GoodsReceiptRepository.
+receive()` posts a Journal Entry inside the **same** `$transaction` that creates the
+`GoodsReceipt`, increments `InventoryStock`, and appends `InventoryTransaction` rows —
+either the entire business event succeeds together, or it all rolls back together
+(a closed accounting period, for instance, rolls back the whole receipt, not just the
+posting — see [Inventory](inventory.md) §11 and §3 "Receiving Rules").
+
+- `sourceType: 'GOODS_RECEIPT'`, `sourceId` = the `GoodsReceipt.id`, `reference` = its
+  `goodsReceiptNumber`, `description` names both the receipt and its Purchase Order.
+- Rejected quantity never contributes to any posted value — an all-rejected receipt
+  posts no journal at all, not even a zero-amount one (mirrors the existing
+  `INVENTORY_INCREASED` audit event's own gating).
+- Valuation uses `PurchaseOrderItem.unitPrice` — the PO's own frozen price — since no
+  separate inventory-valuation policy (FIFO/weighted-average) exists in this codebase;
+  see [Inventory](inventory.md) §11 "No valuation."
+
+### 9.2 Accepted vs. Payable — why the credit side sometimes splits into two accounts
+
+Physically accepting goods into inventory does **not** by itself create a supplier
+liability for more than the Purchase Order's own ordered quantity commercially covers.
+A supplier may intentionally (or by error) deliver more than was ordered; the receiving
+team may accept it as physically usable stock without that implying the organisation
+owes payment for the excess. Sprint 8 therefore tracks a **fifth** quantity per
+`GoodsReceiptItem` — `payableQuantity`, alongside `deliveredQuantity`/
+`rejectedQuantity`/`acceptedQuantity` — computed server-side as:
 
 ```
-Goods Receipt            Material Issue            Sales Fulfilment
-     ↓                        ↓                          ↓
-Inventory increases     Raw material consumed    Finished goods leave inventory
-     ↓                        ↓                          ↓
-DR Inventory             DR WIP / Production Cost   DR Cost of Goods Sold
-CR Accounts Payable/GRNI CR Raw Material Inventory  CR Finished Goods Inventory
+payableQuantity = min(acceptedQuantity, remainingOrderedQuantity)
+remainingOrderedQuantity = max(0, PurchaseOrderItem.quantity − Σ payableQuantity already
+                                   recorded across every prior receipt against that item)
 ```
 
-Also explicitly out of scope this sprint: Chart of Accounts → financial-statement
-closing (Trial Balance → P&L/Balance Sheet), Cash Flow Statement, Accounts Payable /
-supplier invoices, a multi-jurisdiction tax engine, payroll accounting, fixed-asset
-accounting and depreciation, budgeting, multi-currency accounting, consolidated
-accounting, manufacturing variance accounting, inventory valuation accounting, COGS
-automation for any inventory movement, year-end closing, and retained-earnings closing
-automation. The `INVENTORY`/`COGS`/`AP` system account keys are already seeded and
-waiting for exactly these future integrations to reference.
+The Journal Entry's credit side is built from this split, not from `acceptedQuantity`
+directly:
+
+```
+DR Inventory                  = Σ acceptedQuantity × unitPrice           (always)
+CR Accounts Payable           = Σ payableQuantity  × unitPrice           (only if > 0)
+CR GRNI — Pending Approval    = Σ (acceptedQuantity − payableQuantity) × unitPrice
+                                                                          (only if > 0)
+```
+
+Worked example (the exact scenario this design was built for): PO for 1,000 units at
+₦1,000/unit; a receipt delivers 1,100, rejects 50, accepts 1,050.
+`payableQuantity` caps at the PO's own 1,000 — the journal posts `DR Inventory
+₦1,050,000` / `CR Accounts Payable ₦1,000,000` / `CR GRNI — Pending Approval
+₦50,000`, never `CR Accounts Payable ₦1,050,000`. The excess 50 units are real,
+traceable inventory value with no confirmed supplier debt behind them yet.
+
+`GRNI_PENDING_APPROVAL` ("Goods Received – Pending Approval," seeded as Chart of
+Accounts code `2110` under Liabilities) is this excess bucket. It is **not** a general
+substitute for `AP` — every payable-capped portion still posts to `AP` exactly as
+before; only value beyond the commercial agreement lands here. This sprint does not
+build any workflow to move value out of `GRNI_PENDING_APPROVAL` — that is deliberately
+deferred (§9.4): a future approval/three-way-match step would reclassify approved
+excess into `AP` via an ordinary journal entry, with the data model (per-item
+`payableQuantity`, the distinct account) already in place to support it.
+
+### 9.3 AP vs. GRNI — the decision, made explicit
+
+The brief that drove this sprint asked whether goods-receipt liabilities should post to
+`AP` or a separate `GRNI` (Goods Received Not Invoiced) account. This codebase's answer:
+**both concepts exist, but split along the accepted/payable line, not along
+invoiced/not-invoiced.** `AP` carries the commercially-agreed, PO-capped liability
+(which, in the absence of a supplier-invoice-matching module, _is_ today's best proxy
+for "confirmed payable," invoiced or not). `GRNI_PENDING_APPROVAL` carries only the
+excess a human hasn't yet confirmed the organisation will pay for. A full three-way
+match (PO ↔ Goods Received ↔ Supplier Invoice ↔ Approved payable) remains future work —
+see §9.4.
+
+### 9.4 Remaining Deferred Work — Future Integrations
+
+The intended future architecture for every other domain, per the original Sprint 7
+brief's diagram, adjusted to reflect what Sprint 8 actually implemented:
+
+```
+Goods Receipt              Material Issue            Sales Fulfilment
+     ↓ (Sprint 8 ✓)             ↓ (future)                 ↓ (future)
+Inventory increases       Raw material consumed    Finished goods leave inventory
+     ↓                        ↓                          ↓
+DR Inventory              DR WIP / Production Cost   DR Cost of Goods Sold
+CR AP / GRNI Pending      CR Raw Material Inventory  CR Finished Goods Inventory
+   Approval
+```
+
+Also explicitly out of scope: Chart of Accounts → financial-statement closing (Trial
+Balance → P&L/Balance Sheet), Cash Flow Statement, a full Accounts Payable module
+(supplier invoice matching, payment runs, AP ageing, vendor statements, supplier
+credit management), an approval workflow for `GRNI_PENDING_APPROVAL` excess, a
+multi-jurisdiction tax engine, payroll accounting, fixed-asset accounting and
+depreciation, budgeting, multi-currency accounting, consolidated accounting,
+manufacturing variance accounting, a running inventory-valuation ledger (FIFO/
+weighted-average — Sprint 8's valuation is a one-time snapshot at receipt time, not a
+costing system), COGS automation for any inventory movement, year-end closing, and
+retained-earnings closing automation. The `COGS` system account key remains seeded and
+unposted, waiting for a future Production integration.
 
 ## 10. API Reference
 
@@ -267,9 +353,12 @@ waiting for exactly these future integrations to reference.
   cumulative net across unrelated accounts — most meaningful once filtered to one
   account; see §6.
 - Trial Balance has no financial-statement layer on top of it (no P&L, no Balance
-  Sheet) — see §9.
-- No General Ledger integration for Procurement, Production, Inventory, Sales
-  Fulfilment, or Distribution yet — only Finance's own three events post automatically.
+  Sheet) — see §9.4.
+- No General Ledger integration for Procurement's own events (PO confirmation, etc.),
+  Production, Sales Fulfilment, or Distribution yet — only Finance's three events plus
+  Inventory's Goods Receipt (Sprint 8) post automatically.
+- No approval workflow for `GRNI_PENDING_APPROVAL` balances — value posted there stays
+  there; a future sprint would add the action that reclassifies it into `AP`.
 - No full module-level permission engine — RBAC remains binary
   (Owner/Administrator-write, Member-read), same deferred decision as every other
   domain in this codebase.

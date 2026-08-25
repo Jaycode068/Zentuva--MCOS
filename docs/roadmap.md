@@ -55,9 +55,10 @@ This roadmap tracks the intended build order. It is not a commitment to dates �
       multiple times against one order, and track a lightweight supplier-discrepancy
       resolution state; Sprint 4.5 added a minimal multi-location foundation (every
       balance is now Organisation+Product+Location) and controlled manual stock
-      adjustments, into a live stock balance + immutable transaction ledger;
-      warehouse transfers, reservation, valuation, and a full WMS remain — see
-      [`docs/domains/inventory.md`](domains/inventory.md)
+      adjustments, into a live stock balance + immutable transaction ledger; Sprint 8
+      wired Goods Receipt to the General Ledger and closed a real idempotency gap;
+      warehouse transfers, reservation, a running valuation ledger, and a full WMS
+      remain — see [`docs/domains/inventory.md`](domains/inventory.md)
 - [x] Production — manufacturing foundation shipped Sprint 4.6 (Bill of Materials,
       Production Orders with an immutable requirement snapshot, Material Issue against
       Inventory's `InventoryTransaction` ledger, Production Execution with
@@ -93,9 +94,12 @@ PARTIALLY_FULFILLED → FULFILLED`, idempotent, multi-batch); Invoicing/Payments
       Accounting Periods, double-entry Journal Entries, General Ledger/Trial Balance/
       Account Activity; Finance's Invoice/Payment/Credit-Note events post
       automatically via a reusable, dependency-injection-free posting boundary);
-      not a complete accounting system — financial-statement closing (P&L, Balance
-      Sheet), Cash Flow Statement, Bank Reconciliation, Accounts Payable, and
-      accounting integration for Procurement/Production/Inventory/Sales Fulfilment
+      Sprint 8 proved that boundary's reusability by wiring Inventory's Goods Receipt
+      to it (`DR Inventory / CR Accounts Payable`, with any accepted-beyond-ordered
+      excess posting to a new `GRNI — Pending Approval` clearing account instead of
+      inflating `AP`); not a complete accounting system — financial-statement closing
+      (P&L, Balance Sheet), Cash Flow Statement, Bank Reconciliation, a full Accounts
+      Payable module, and accounting integration for Production/Sales Fulfilment
       remain — see [`docs/domains/accounting.md`](domains/accounting.md)
 
 ## Phase 3 — Extended Experiences

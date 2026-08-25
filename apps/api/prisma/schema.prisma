@@ -850,6 +850,12 @@ model GoodsReceipt {
   /// replacement ships next week") — the one field on this otherwise-immutable row that
   /// can change over time, alongside `discrepancyStatus` itself.
   discrepancyNotes   String?
+  /// Added Sprint 8 — same double-submit protection every other write-path in this
+  /// codebase has (`Invoice.idempotencyKey`, `Payment.idempotencyKey`, ...). A retried
+  /// `POST /goods-receipts` with the same key against the same Purchase Order returns
+  /// the original receipt instead of creating a second one, a second `InventoryStock`
+  /// increment, and a second Journal Entry — see `GoodsReceiptRepository.receive`.
+  idempotencyKey     String?
   createdAt          DateTime          @default(now())
   updatedAt          DateTime          @updatedAt
 
@@ -859,6 +865,7 @@ model GoodsReceipt {
   location      InventoryLocation  @relation(fields: [locationId], references: [id], onDelete: Restrict)
   items         GoodsReceiptItem[]
 
+  @@unique([purchaseOrderId, idempotencyKey])
   @@index([organisationId])
   @@index([organisationId, purchaseOrderId])
   @@index([locationId])
@@ -902,6 +909,20 @@ model GoodsReceiptItem {
   /// `InventoryStock`/writes an `InventoryTransaction` — see "Important Business Rule"
   /// in the brief.
   acceptedQuantity    Float
+  /// Added Sprint 8 (docs/domains/accounting.md "Accepted vs. Payable") — the portion
+  /// of `acceptedQuantity` the organisation is commercially liable to pay the supplier
+  /// for, computed server-side by `GoodsReceiptRepository.receive` as
+  /// `min(acceptedQuantity, remainingOrderedQuantity)`, where the remaining figure is
+  /// this line's `PurchaseOrderItem.quantity` minus every prior receipt's cumulative
+  /// `payableQuantity` against that same item. Never accepted from the client, same
+  /// rule as `acceptedQuantity` itself. `acceptedQuantity > payableQuantity` is
+  /// expected and valid — physically accepted goods beyond what the Purchase Order
+  /// commercially covers post to `GRNI_PENDING_APPROVAL`, not `AP` (see
+  /// `SYSTEM_ACCOUNT_KEYS`). `@default(0)` only so the migration can backfill
+  /// pre-Sprint-8 rows (set equal to `acceptedQuantity` there, since no accounting
+  /// integration — and therefore no payable/excess distinction — existed before this
+  /// migration); every row created going forward always has this explicitly computed.
+  payableQuantity     Float            @default(0)
   rejectionReason     RejectionReason?
   rejectionNotes      String?
   createdAt           DateTime         @default(now())

@@ -102,4 +102,6 @@ export const JOURNAL_SOURCE_TYPE_LABELS: Record<string, string> = {
   INVOICE: 'Invoice',
   PAYMENT: 'Payment',
   CREDIT_NOTE: 'Credit Note',
+  // Added Sprint 8 — Procurement/Inventory's Goods Receipt → Accounting integration.
+  GOODS_RECEIPT: 'Goods Receipt',
 };
