@@ -8,8 +8,11 @@
  * `AR`/`SALES_REVENUE`/`SALES_RETURNS`/`CASH`/`BANK` are the five keys Sprint 7's
  * Finance integration posts to. `INVENTORY`/`AP` are posted to starting Sprint 8
  * (Goods Receipt → Inventory/Accounts Payable, see `GoodsReceiptRepository.receive`).
- * `COGS` remains unposted — reserved for the documented future Production integration
- * (docs/domains/accounting.md "Future Integrations").
+ * `WIP`/`FINISHED_GOODS_INVENTORY`/`PRODUCTION_LOSS` are posted to starting Sprint 9
+ * (Material Issue/Production Completion, see
+ * `ProductionMaterialIssueRepository.issue`/`ProductionRunRepository.complete`).
+ * `COGS` remains unposted — reserved for the documented future Sales Fulfilment
+ * integration (docs/domains/accounting.md "Future Integrations").
  *
  * `GRNI_PENDING_APPROVAL` (Sprint 8, docs/domains/accounting.md "Accepted vs.
  * Payable") is a distinct liability/clearing account for goods physically accepted
@@ -18,6 +21,15 @@
  * represents only the commercially-agreed, PO-capped liability. A future AP/
  * three-way-matching module would move value out of `GRNI_PENDING_APPROVAL` into `AP`
  * once the excess is explicitly approved for payment.
+ *
+ * `WIP` (Sprint 9) holds the value of raw material issued into an in-progress
+ * Production Order, cleared to `FINISHED_GOODS_INVENTORY`/`PRODUCTION_LOSS` on
+ * completion. `FINISHED_GOODS_INVENTORY` elevates the Chart of Accounts row Sprint 7
+ * already seeded ("1330 Finished Goods") to a real system account, distinct from the
+ * general `INVENTORY` key raw materials/packaging/consumables share. `PRODUCTION_LOSS`
+ * ("Production Loss / Scrap") carries the portion of a production run's material cost
+ * attributable to rejected output — see docs/domains/accounting.md "Production
+ * Accounting".
  */
 export const SYSTEM_ACCOUNT_KEYS = {
   AR: 'AR',
@@ -29,6 +41,9 @@ export const SYSTEM_ACCOUNT_KEYS = {
   COGS: 'COGS',
   AP: 'AP',
   GRNI_PENDING_APPROVAL: 'GRNI_PENDING_APPROVAL',
+  WIP: 'WIP',
+  FINISHED_GOODS_INVENTORY: 'FINISHED_GOODS_INVENTORY',
+  PRODUCTION_LOSS: 'PRODUCTION_LOSS',
 } as const;
 
 export type SystemAccountKey = (typeof SYSTEM_ACCOUNT_KEYS)[keyof typeof SYSTEM_ACCOUNT_KEYS];

@@ -57,13 +57,19 @@ This roadmap tracks the intended build order. It is not a commitment to dates �
       balance is now Organisation+Product+Location) and controlled manual stock
       adjustments, into a live stock balance + immutable transaction ledger; Sprint 8
       wired Goods Receipt to the General Ledger and closed a real idempotency gap;
-      warehouse transfers, reservation, a running valuation ledger, and a full WMS
+      Sprint 9 added the first persisted costing figure
+      (`InventoryStock.averageUnitCost`, a moving weighted average, feeding
+      Production's Material Issue); warehouse transfers, reservation, and a full WMS
       remain — see [`docs/domains/inventory.md`](domains/inventory.md)
 - [x] Production — manufacturing foundation shipped Sprint 4.6 (Bill of Materials,
       Production Orders with an immutable requirement snapshot, Material Issue against
       Inventory's `InventoryTransaction` ledger, Production Execution with
       server-computed Accepted quantity, finished-goods receipt back into Inventory);
-      MRP/scheduling, costing, multi-level BOMs, and batch/lot tracking remain — see
+      Sprint 9 wired Material Issue and Production Completion to the General Ledger
+      (`DR WIP / CR Raw Material Inventory`, then `CR WIP / DR Finished Goods
+    Inventory / DR Production Loss` split by accepted/rejected quantity), reusing
+      Sprint 8's posting boundary; MRP/scheduling, labour/machine/overhead costing,
+      multi-level BOMs, and batch/lot tracking remain — see
       [`docs/domains/production.md`](domains/production.md)
 - [x] Sales — foundation shipped Sprint 4.8 (Customer master record with progressive
       onboarding; `SalesOrder`/`SalesOrderItem` targeting Sprint 4.7 SKUs only,
@@ -97,10 +103,13 @@ PARTIALLY_FULFILLED → FULFILLED`, idempotent, multi-batch); Invoicing/Payments
       Sprint 8 proved that boundary's reusability by wiring Inventory's Goods Receipt
       to it (`DR Inventory / CR Accounts Payable`, with any accepted-beyond-ordered
       excess posting to a new `GRNI — Pending Approval` clearing account instead of
-      inflating `AP`); not a complete accounting system — financial-statement closing
-      (P&L, Balance Sheet), Cash Flow Statement, Bank Reconciliation, a full Accounts
-      Payable module, and accounting integration for Production/Sales Fulfilment
-      remain — see [`docs/domains/accounting.md`](domains/accounting.md)
+      inflating `AP`); Sprint 9 extended it into manufacturing (Production's Material
+      Issue and Completion, two new system accounts — `WIP`, `PRODUCTION_LOSS` — plus
+      elevating the existing Finished Goods account to a system account); not a
+      complete accounting system — financial-statement closing (P&L, Balance Sheet),
+      Cash Flow Statement, Bank Reconciliation, a full Accounts Payable module,
+      labour/machine/overhead costing, and COGS at Sales Fulfilment remain — see
+      [`docs/domains/accounting.md`](domains/accounting.md)
 
 ## Phase 3 — Extended Experiences
 

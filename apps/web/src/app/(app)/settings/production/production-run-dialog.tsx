@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation } from '@tanstack/react-query';
 import {
@@ -57,6 +58,11 @@ export function ProductionRunDialog({
   onOpenChange: (open: boolean) => void;
   onCompleted: () => void;
 }) {
+  // Sprint 9 — same double-submit protection every other create dialog in this
+  // codebase generates: a fresh key per dialog open, so a retried submission never
+  // creates a second Production Run.
+  const [idempotencyKey] = useState(() => crypto.randomUUID());
+
   const form = useForm<ProductionRunFormValues>({
     resolver: zodResolver(productionRunFormSchema),
     defaultValues: {
@@ -81,6 +87,7 @@ export function ProductionRunDialog({
             ? (values.rejectionReason as ProductionRejectionReason)
             : undefined,
         rejectionNotes: values.rejectionNotes || undefined,
+        idempotencyKey,
       }),
     onSuccess: onCompleted,
   });

@@ -415,6 +415,23 @@ const BOBY_BITES_PURCHASE_ORDERS = [
     remarks: 'Reorder after PO-000003 was cancelled — new packaging spec.',
     items: [{ productCode: 'PRD-000013', quantity: 1000, unitPrice: 150 }],
   },
+  {
+    // Sprint 9 — a second, receivable Vegetable Oil order (`PO-000002` stays `DRAFT`/
+    // never received, exactly as originally seeded, preserving whatever scenario that
+    // was there to demonstrate). Without this, `PRD-000012` would carry a `0`
+    // `averageUnitCost` at Main Warehouse — `seedProductionRawMaterialTopUp`'s own
+    // top-up is a pure `ADJUSTMENT` (per docs/domains/accounting.md "Production
+    // Accounting" decision #2, a manual correction never carries cost information),
+    // so it cannot be the thing that gives Oil a real cost basis. This PO/its
+    // matching `GRN-000009` (below) is the only legitimate source of one.
+    purchaseOrderNumber: 'PO-000012',
+    supplierCode: 'SUP-000002',
+    orderDate: new Date('2026-08-08'),
+    expectedDeliveryDate: new Date('2026-08-14'),
+    status: 'PENDING',
+    remarks: 'Vegetable oil for the Plantain Chips production run.',
+    items: [{ productCode: 'PRD-000012', quantity: 200, unitPrice: 2000 }],
+  },
 ] as const;
 
 interface SeededPurchaseOrder {
@@ -612,6 +629,25 @@ const BOBY_BITES_GOODS_RECEIPTS = [
       },
     ],
   },
+  {
+    // Sprint 9 — gives `PRD-000012` (Vegetable Oil) a real, receipt-based
+    // `averageUnitCost` before `seedProduction` issues it against `PROD-000001` —
+    // see `PO-000012`'s own doc comment above for why this couldn't be the
+    // Adjustment-based `seedProductionRawMaterialTopUp` instead.
+    goodsReceiptNumber: 'GRN-000009',
+    purchaseOrderNumber: 'PO-000012',
+    receivedDate: new Date('2026-08-14'),
+    remarks: 'Full delivery received in good condition.',
+    items: [
+      {
+        productCode: 'PRD-000012',
+        deliveredQuantity: 200,
+        rejectedQuantity: 0,
+        rejectionReason: undefined,
+        rejectionNotes: undefined,
+      },
+    ],
+  },
 ] as const;
 
 /** Mirrors `GoodsReceiptRepository.receive`'s transaction (decide `PARTIALLY_RECEIVED`
@@ -745,6 +781,30 @@ async function seedGoodsReceipts(
 
         const acceptedItems = itemsWithPayable.filter((item) => item.acceptedQuantity > 0);
         for (const item of acceptedItems) {
+          // Sprint 9 — mirrors `GoodsReceiptRepository.receive`'s own weighted-average
+          // `averageUnitCost` computation exactly (this seed script talks to Prisma
+          // directly rather than calling through the real repository, so it needs its
+          // own parallel copy of this logic, same as it already does for
+          // `payableQuantity` above).
+          const unitPrice = unitPriceById.get(item.purchaseOrderItemId) ?? 0;
+          const existingStock = await tx.inventoryStock.findUnique({
+            where: {
+              organisationId_productId_locationId: {
+                organisationId,
+                productId: item.productId,
+                locationId: defaultLocationId,
+              },
+            },
+          });
+          const priorQuantity = existingStock?.quantityOnHand ?? 0;
+          const priorCost = existingStock?.averageUnitCost ?? 0;
+          const newQuantity = priorQuantity + item.acceptedQuantity;
+          const newAverageCost =
+            newQuantity > 0
+              ? roundCurrencySeed(
+                  (priorQuantity * priorCost + item.acceptedQuantity * unitPrice) / newQuantity,
+                )
+              : 0;
           await tx.inventoryStock.upsert({
             where: {
               organisationId_productId_locationId: {
@@ -758,8 +818,9 @@ async function seedGoodsReceipts(
               productId: item.productId,
               locationId: defaultLocationId,
               quantityOnHand: item.acceptedQuantity,
+              averageUnitCost: newAverageCost,
             },
-            update: { quantityOnHand: { increment: item.acceptedQuantity } },
+            update: { quantityOnHand: newQuantity, averageUnitCost: newAverageCost },
           });
         }
         if (acceptedItems.length > 0) {
@@ -1012,7 +1073,7 @@ async function seedProduction(
     return;
   }
 
-  await prisma.productionOrder.create({
+  const order = await prisma.productionOrder.create({
     data: {
       organisationId,
       productionOrderNumber: PLANTAIN_CHIPS_PRODUCTION_ORDER_NUMBER,
@@ -1034,6 +1095,206 @@ async function seedProduction(
       },
     },
   });
+
+  // Sprint 9 — carries `PROD-000001` all the way through Material Issue and
+  // Completion (previously this seed left every order at `PLANNED`), mirroring
+  // `ProductionMaterialIssueRepository.issue`/`ProductionRunRepository.complete`'s own
+  // transaction shape directly (same "talks to Prisma directly" convention as the rest
+  // of this script), so the seeded data demonstrates a real, non-zero, multi-issue
+  // WIP → Finished-Goods posting end to end. Two partial issues (60% then the
+  // remaining 40% of each component's requirement) exercise the "multiple issues"
+  // scenario; the completion accepts 485 of 500 produced (15 rejected) so the
+  // accepted/rejected accounting split has something real to demonstrate too.
+  const orderItems = await prisma.productionOrderItem.findMany({
+    where: { productionOrderId: order.id },
+  });
+  let cumulativeWipValue = 0;
+
+  async function seedMaterialIssue(fraction: number, issuedDate: Date): Promise<void> {
+    const items = orderItems.map((item) => ({
+      componentProductId: item.componentProductId,
+      quantity: roundSeedQuantity(item.requiredQuantity * fraction),
+    }));
+
+    await prisma.$transaction(async (tx) => {
+      await tx.productionOrder.update({
+        where: { id: order.id },
+        data: { status: 'IN_PROGRESS', updatedById: actorUserId },
+      });
+
+      const materialIssue = await tx.productionMaterialIssue.create({
+        data: {
+          organisationId,
+          productionOrderId: order.id,
+          issuedDate,
+          issuedById: actorUserId,
+          items: {
+            create: items.map((item) => ({
+              componentProductId: item.componentProductId,
+              quantityIssued: item.quantity,
+            })),
+          },
+        },
+      });
+
+      let issueValue = 0;
+      for (const item of items) {
+        const stock = await tx.inventoryStock.findUniqueOrThrow({
+          where: {
+            organisationId_productId_locationId: {
+              organisationId,
+              productId: item.componentProductId,
+              locationId,
+            },
+          },
+        });
+        issueValue += item.quantity * stock.averageUnitCost;
+        await tx.inventoryStock.update({
+          where: {
+            organisationId_productId_locationId: {
+              organisationId,
+              productId: item.componentProductId,
+              locationId,
+            },
+          },
+          data: { quantityOnHand: stock.quantityOnHand - item.quantity },
+        });
+        await tx.inventoryTransaction.create({
+          data: {
+            organisationId,
+            productId: item.componentProductId,
+            locationId,
+            transactionType: 'ISSUE',
+            quantity: item.quantity,
+            referenceType: 'ProductionMaterialIssue',
+            referenceId: materialIssue.id,
+          },
+        });
+      }
+
+      cumulativeWipValue += issueValue;
+      await postSeedJournalEntry(organisationId, {
+        date: issuedDate,
+        description: `Material issue ${materialIssue.id} — Production Order ${order.productionOrderNumber}`,
+        reference: order.productionOrderNumber,
+        sourceType: 'PRODUCTION_MATERIAL_ISSUE',
+        sourceId: materialIssue.id,
+        actorUserId,
+        lines: [
+          { systemKey: 'WIP', debit: roundCurrencySeed(issueValue) },
+          { systemKey: 'INVENTORY', credit: roundCurrencySeed(issueValue) },
+        ],
+      });
+    });
+  }
+
+  await seedMaterialIssue(0.6, new Date('2026-08-16'));
+  await seedMaterialIssue(0.4, new Date('2026-08-17'));
+
+  const producedQuantity = 500;
+  const rejectedQuantity = 15;
+  const acceptedQuantity = producedQuantity - rejectedQuantity;
+  const totalWipValue = roundCurrencySeed(cumulativeWipValue);
+  const completedAt = new Date('2026-08-18');
+
+  await prisma.$transaction(async (tx) => {
+    await tx.productionOrder.update({
+      where: { id: order.id },
+      data: { status: 'COMPLETED', updatedById: actorUserId },
+    });
+
+    const productionRun = await tx.productionRun.create({
+      data: {
+        organisationId,
+        productionOrderId: order.id,
+        producedQuantity,
+        rejectedQuantity,
+        acceptedQuantity,
+        rejectionReason: 'PACKAGING_DEFECT',
+        rejectionNotes: 'Seal failure on a portion of this batch.',
+        completedById: actorUserId,
+        completedAt,
+      },
+    });
+
+    const perUnitCost = totalWipValue / producedQuantity;
+    const existingFgStock = await tx.inventoryStock.findUnique({
+      where: {
+        organisationId_productId_locationId: {
+          organisationId,
+          productId: finishedProductId,
+          locationId,
+        },
+      },
+    });
+    const priorQuantity = existingFgStock?.quantityOnHand ?? 0;
+    const priorCost = existingFgStock?.averageUnitCost ?? 0;
+    const newQuantity = priorQuantity + acceptedQuantity;
+    const newAverageCost =
+      newQuantity > 0
+        ? roundCurrencySeed(
+            (priorQuantity * priorCost + acceptedQuantity * perUnitCost) / newQuantity,
+          )
+        : 0;
+    await tx.inventoryStock.upsert({
+      where: {
+        organisationId_productId_locationId: {
+          organisationId,
+          productId: finishedProductId,
+          locationId,
+        },
+      },
+      create: {
+        organisationId,
+        productId: finishedProductId,
+        locationId,
+        quantityOnHand: acceptedQuantity,
+        averageUnitCost: newAverageCost,
+      },
+      update: { quantityOnHand: newQuantity, averageUnitCost: newAverageCost },
+    });
+    await tx.inventoryTransaction.create({
+      data: {
+        organisationId,
+        productId: finishedProductId,
+        locationId,
+        transactionType: 'RECEIPT',
+        quantity: acceptedQuantity,
+        referenceType: 'ProductionRun',
+        referenceId: productionRun.id,
+      },
+    });
+
+    const acceptedValue = roundCurrencySeed((totalWipValue * acceptedQuantity) / producedQuantity);
+    const rejectedValue = roundCurrencySeed(totalWipValue - acceptedValue);
+    await postSeedJournalEntry(organisationId, {
+      date: completedAt,
+      description: `Production completion — Production Order ${order.productionOrderNumber}`,
+      reference: order.productionOrderNumber,
+      sourceType: 'PRODUCTION_RUN',
+      sourceId: productionRun.id,
+      actorUserId,
+      lines: [
+        { systemKey: 'WIP', credit: totalWipValue },
+        ...(acceptedValue > 0
+          ? [{ systemKey: 'FINISHED_GOODS_INVENTORY', debit: acceptedValue }]
+          : []),
+        ...(rejectedValue > 0 ? [{ systemKey: 'PRODUCTION_LOSS', debit: rejectedValue }] : []),
+      ],
+    });
+  });
+}
+
+/** Rounds to 6 decimal places purely to clear floating-point noise — same convention as
+ *  `InventoryStockRepository.adjustStock`'s own rounding helper. */
+function roundSeedQuantity(value: number): number {
+  return Math.round(value * 1_000_000) / 1_000_000;
+}
+
+/** Same 2-decimal-place money rounding convention as every other file that computes
+ *  currency values in this codebase. */
+function roundCurrencySeed(value: number): number {
+  return Math.round(value * 100) / 100;
 }
 
 /** One `ProductFamily` ("Plantain Chips") with three `ProductVariant`s, each carrying
@@ -2164,7 +2425,14 @@ const BOBY_BITES_CHART_OF_ACCOUNTS: {
   { code: '1300', name: 'Inventory', type: 'ASSET', parentCode: '1000', systemKey: 'INVENTORY' },
   { code: '1310', name: 'Raw Materials', type: 'ASSET', parentCode: '1300' },
   { code: '1320', name: 'Packaging Materials', type: 'ASSET', parentCode: '1300' },
-  { code: '1330', name: 'Finished Goods', type: 'ASSET', parentCode: '1300' },
+  {
+    code: '1330',
+    name: 'Finished Goods',
+    type: 'ASSET',
+    parentCode: '1300',
+    systemKey: 'FINISHED_GOODS_INVENTORY',
+  },
+  { code: '1340', name: 'Work In Progress', type: 'ASSET', parentCode: '1000', systemKey: 'WIP' },
   { code: '2000', name: 'Liabilities', type: 'LIABILITY' },
   {
     code: '2100',
@@ -2211,6 +2479,13 @@ const BOBY_BITES_CHART_OF_ACCOUNTS: {
   { code: '6300', name: 'Rent', type: 'EXPENSE', parentCode: '6000' },
   { code: '6400', name: 'Maintenance', type: 'EXPENSE', parentCode: '6000' },
   { code: '6500', name: 'Transport', type: 'EXPENSE', parentCode: '6000' },
+  {
+    code: '6600',
+    name: 'Production Loss / Scrap',
+    type: 'EXPENSE',
+    parentCode: '6000',
+    systemKey: 'PRODUCTION_LOSS',
+  },
 ];
 
 /** Idempotency-gated on the `AR` system account already existing for this
@@ -2286,6 +2561,70 @@ async function seedGrniPendingApprovalAccount(
       parentId: parent?.id,
     },
   });
+}
+
+/** Sprint 9 — standalone, independently idempotency-gated backfill for the three new
+ *  Production-accounting system accounts, so a dev database that already ran
+ *  `seedChartOfAccounts` before Sprint 9 still receives them on a re-seed: elevates
+ *  the already-seeded-but-non-system `1330 Finished Goods` row to a real system
+ *  account (an `update`, not a `create`), and creates `1340 Work In Progress`/
+ *  `6600 Production Loss / Scrap` if missing (same "create if missing" shape as
+ *  `seedGrniPendingApprovalAccount`). */
+async function seedProductionAccountingAccounts(
+  organisationId: string,
+  actorUserId: string,
+): Promise<void> {
+  const finishedGoods = await prisma.chartOfAccount.findFirst({
+    where: { organisationId, code: '1330' },
+  });
+  if (finishedGoods && !finishedGoods.systemKey) {
+    await prisma.chartOfAccount.update({
+      where: { id: finishedGoods.id },
+      data: { isSystemAccount: true, systemKey: 'FINISHED_GOODS_INVENTORY' },
+    });
+  }
+
+  const existingWip = await prisma.chartOfAccount.findFirst({
+    where: { organisationId, systemKey: 'WIP' },
+  });
+  if (!existingWip) {
+    await prisma.chartOfAccount.create({
+      data: {
+        organisationId,
+        code: '1340',
+        name: 'Work In Progress',
+        type: 'ASSET',
+        description: null,
+        isSystemAccount: true,
+        systemKey: 'WIP',
+        createdById: actorUserId,
+        updatedById: actorUserId,
+      },
+    });
+  }
+
+  const existingLoss = await prisma.chartOfAccount.findFirst({
+    where: { organisationId, systemKey: 'PRODUCTION_LOSS' },
+  });
+  if (!existingLoss) {
+    const expensesParent = await prisma.chartOfAccount.findFirst({
+      where: { organisationId, code: '6000' },
+    });
+    await prisma.chartOfAccount.create({
+      data: {
+        organisationId,
+        code: '6600',
+        name: 'Production Loss / Scrap',
+        type: 'EXPENSE',
+        description: null,
+        isSystemAccount: true,
+        systemKey: 'PRODUCTION_LOSS',
+        createdById: actorUserId,
+        updatedById: actorUserId,
+        parentId: expensesParent?.id,
+      },
+    });
+  }
 }
 
 /** Two periods: "July 2026" (created, used to post `INV-000003`'s historical journal
@@ -2875,6 +3214,7 @@ async function main(): Promise<void> {
   // between the old and new call sites, so this reorder is safe.
   await seedChartOfAccounts(organisation.id, ownerUser.id);
   await seedGrniPendingApprovalAccount(organisation.id, ownerUser.id);
+  await seedProductionAccountingAccounts(organisation.id, ownerUser.id);
   await seedAccountingPeriods(organisation.id, ownerUser.id);
   const purchaseOrdersByNumber = await seedPurchaseOrders(
     organisation.id,
@@ -3000,7 +3340,10 @@ async function main(): Promise<void> {
     // 8 from Finance's Invoice/Payment/Credit-Note fixtures (Sprint 7) + 5 from Goods
     // Receipts (Sprint 8, one per BOBY_BITES_GOODS_RECEIPTS entry — every seeded
     // receipt accepts something, so every one posts a journal).
-    journalEntriesSeeded: 8 + BOBY_BITES_GOODS_RECEIPTS.length,
+    // 8 from Finance's Invoice/Payment/Credit-Note fixtures (Sprint 7) + one per
+    // seeded Goods Receipt (Sprint 8) + 3 from PROD-000001's own posting (Sprint 9:
+    // two Material Issues + one Production Completion).
+    journalEntriesSeeded: 8 + BOBY_BITES_GOODS_RECEIPTS.length + 3,
     customersWithoutNetworkRelationship:
       BOBY_BITES_CUSTOMERS.length -
       new Set(BOBY_BITES_NETWORK_RELATIONSHIPS.flatMap((r) => [r.sourceCode, r.targetCode])).size,

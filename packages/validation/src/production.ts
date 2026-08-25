@@ -132,6 +132,9 @@ export const createMaterialIssueSchema = z.object({
   issuedDate: z.coerce.date(),
   notes: z.string().trim().max(2000).optional(),
   items: z.array(materialIssueItemInputSchema).min(1, 'At least one item is required'),
+  /** Added Sprint 9 — same double-submit protection `createGoodsReceiptSchema`'s own
+   *  `idempotencyKey` already has. */
+  idempotencyKey: z.string().trim().min(1).optional(),
 });
 export type CreateMaterialIssueInput = z.infer<typeof createMaterialIssueSchema>;
 
@@ -147,6 +150,9 @@ export const completeProductionOrderSchema = z
     rejectedQuantity: z.number().nonnegative('Rejected quantity cannot be negative').default(0),
     rejectionReason: productionRejectionReasonSchema.optional(),
     rejectionNotes: z.string().trim().max(2000).optional(),
+    /** Added Sprint 9 — lets a genuine retry of the same completion request return
+     *  the original result instead of a hard conflict error. */
+    idempotencyKey: z.string().trim().min(1).optional(),
   })
   .refine((data) => data.rejectedQuantity <= data.producedQuantity, {
     message: 'Rejected quantity cannot exceed produced quantity',

@@ -7,12 +7,17 @@ import {
   UpdateProductionOrderInput,
 } from '@zentuva/validation';
 
+import {
+  MissingSystemAccountError,
+  NoOpenPeriodError,
+} from '../finance/accounting/journal-posting';
 import { InventoryLocationRepository } from '../inventory/inventory-location.repository';
 import { InventoryStockRepository } from '../inventory/inventory-stock.repository';
 import { BillOfMaterialRepository } from './bill-of-material.repository';
 import {
   InsufficientStockError,
   IssueMaterialResult,
+  JournalEntrySummary,
   ProductionMaterialIssueConflictError,
   ProductionMaterialIssueRepository,
   ProductionMaterialIssueWithItems,
@@ -44,6 +49,12 @@ export interface MaterialAvailabilityRow {
 export interface CompleteProductionResult {
   productionOrder: ProductionOrderWithRelations;
   productionRun: ProductionRun;
+  /** Added Sprint 9 — the automatically-posted Journal Entry clearing this order's
+   *  WIP value, `null` when nothing was ever issued with a known cost. */
+  journalEntry: JournalEntrySummary | null;
+  /** Added Sprint 9 — `true` only on a fresh completion, `false` on an idempotent
+   *  replay. */
+  wasCreated: boolean;
 }
 
 /**
@@ -279,6 +290,34 @@ export class ProductionOrderService {
     return this.productionMaterialIssueRepository.findManyByProductionOrder(organisationId, id);
   }
 
+  /** `GET /:id/accounting` (Sprint 9, brief §14/§15) — a read-only summary of this
+   *  order's accounting consequence: the material cost accumulated in WIP (or, once
+   *  completed, cleared out of it), and every Journal Entry posted against it (every
+   *  Material Issue's, plus the completion's, if any) — enough for the Production
+   *  Order detail view to show "Material Cost / WIP / Journal Entries" without
+   *  turning Production into a Finance workspace, and for a Finance user to trace a
+   *  General Ledger entry back to the Production event that produced it. */
+  async getAccountingSummary(
+    organisationId: string,
+    id: string,
+  ): Promise<{ materialCost: number; journalEntries: JournalEntrySummary[] }> {
+    await this.getByIdOrThrow(organisationId, id);
+    const [materialCost, materialIssueJournals, completionJournal] = await Promise.all([
+      this.productionMaterialIssueRepository.getTotalWipValue(organisationId, id),
+      this.productionMaterialIssueRepository.findJournalEntriesByProductionOrder(
+        organisationId,
+        id,
+      ),
+      this.productionRunRepository.findJournalEntryForOrder(organisationId, id),
+    ]);
+    return {
+      materialCost,
+      journalEntries: completionJournal
+        ? [...materialIssueJournals, completionJournal]
+        : materialIssueJournals,
+    };
+  }
+
   /** `POST /:id/material-issues` (brief §12/§13/§14). Validates every submitted
    *  component belongs to the order's own requirement snapshot, rejects over-issue
    *  (`already issued + this request > required`), pre-checks stock availability for a
@@ -291,6 +330,29 @@ export class ProductionOrderService {
     actorUserId: string,
   ): Promise<IssueMaterialResult> {
     const order = await this.getByIdOrThrow(organisationId, id);
+
+    // Idempotency short-circuit — checked first, before any business-rule
+    // pre-check below. A genuine retry's own prior effects (its own issued
+    // quantity now counted in `getIssuedTotals`, its own PLANNED->IN_PROGRESS
+    // transition) would otherwise cause the over-issue/status pre-checks to
+    // reject the very call that should idempotently succeed by returning the
+    // original result. See `ProductionMaterialIssueRepository.findByIdempotencyKey`.
+    if (input.idempotencyKey) {
+      const existing = await this.productionMaterialIssueRepository.findByIdempotencyKey(
+        organisationId,
+        id,
+        input.idempotencyKey,
+      );
+      if (existing) {
+        return {
+          materialIssue: existing.materialIssue,
+          transitionedToInProgress: false,
+          journalEntry: existing.journalEntry,
+          wasCreated: false,
+        };
+      }
+    }
+
     if (order.status === ProductionOrderStatus.DRAFT) {
       throw new BadRequestException(
         'Production order must be planned before material can be issued',
@@ -351,9 +413,11 @@ export class ProductionOrderService {
         organisationId,
         productionOrderId: id,
         locationId: order.locationId,
+        productionOrderNumber: order.productionOrderNumber,
         issuedDate: input.issuedDate,
         issuedById: actorUserId,
         notes: input.notes,
+        idempotencyKey: input.idempotencyKey,
         items: input.items,
       });
     } catch (error) {
@@ -361,6 +425,15 @@ export class ProductionOrderService {
         error instanceof InsufficientStockError ||
         error instanceof ProductionMaterialIssueConflictError
       ) {
+        throw new BadRequestException(error.message);
+      }
+      // The accounting posting's own guards, propagated from inside the same
+      // transaction (see `ProductionMaterialIssueRepository.issue` — the whole
+      // issue rolls back with it, so nothing partially applies).
+      if (error instanceof NoOpenPeriodError) {
+        throw new BadRequestException(error.message);
+      }
+      if (error instanceof MissingSystemAccountError) {
         throw new BadRequestException(error.message);
       }
       throw error;
@@ -381,29 +454,66 @@ export class ProductionOrderService {
     actorUserId: string,
   ): Promise<CompleteProductionResult> {
     const order = await this.getByIdOrThrow(organisationId, id);
+
+    // Idempotency short-circuit — checked first, before the `IN_PROGRESS` status
+    // guard below. A genuine retry arrives after the original call already flipped
+    // the order to `COMPLETED`, so that guard would otherwise reject the very call
+    // that should idempotently succeed by returning the original result. See
+    // `ProductionRunRepository.findByIdempotencyKey`.
+    if (input.idempotencyKey) {
+      const existing = await this.productionRunRepository.findByIdempotencyKey(
+        organisationId,
+        id,
+        input.idempotencyKey,
+      );
+      if (existing) {
+        const productionOrder = await this.getByIdOrThrow(organisationId, id);
+        return {
+          productionOrder,
+          productionRun: existing.productionRun,
+          journalEntry: existing.journalEntry,
+          wasCreated: false,
+        };
+      }
+    }
+
     if (order.status !== ProductionOrderStatus.IN_PROGRESS) {
       throw new BadRequestException('Only production orders that are in progress can be completed');
     }
 
     const acceptedQuantity = roundQuantity(input.producedQuantity - input.rejectedQuantity);
+    const totalWipValue = await this.productionMaterialIssueRepository.getTotalWipValue(
+      organisationId,
+      id,
+    );
 
     try {
-      const { productionRun } = await this.productionRunRepository.complete({
-        organisationId,
-        productionOrderId: id,
-        productId: order.productId,
-        locationId: order.locationId,
-        producedQuantity: input.producedQuantity,
-        rejectedQuantity: input.rejectedQuantity,
-        acceptedQuantity,
-        rejectionReason: input.rejectionReason,
-        rejectionNotes: input.rejectionNotes,
-        completedById: actorUserId,
-      });
+      const { productionRun, journalEntry, wasCreated } =
+        await this.productionRunRepository.complete({
+          organisationId,
+          productionOrderId: id,
+          productionOrderNumber: order.productionOrderNumber,
+          productId: order.productId,
+          locationId: order.locationId,
+          producedQuantity: input.producedQuantity,
+          rejectedQuantity: input.rejectedQuantity,
+          acceptedQuantity,
+          rejectionReason: input.rejectionReason,
+          rejectionNotes: input.rejectionNotes,
+          completedById: actorUserId,
+          idempotencyKey: input.idempotencyKey,
+          totalWipValue,
+        });
       const productionOrder = await this.getByIdOrThrow(organisationId, id);
-      return { productionOrder, productionRun };
+      return { productionOrder, productionRun, journalEntry, wasCreated };
     } catch (error) {
       if (error instanceof ProductionCompletionConflictError) {
+        throw new BadRequestException(error.message);
+      }
+      if (error instanceof NoOpenPeriodError) {
+        throw new BadRequestException(error.message);
+      }
+      if (error instanceof MissingSystemAccountError) {
         throw new BadRequestException(error.message);
       }
       throw error;

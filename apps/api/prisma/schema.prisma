@@ -972,6 +972,19 @@ model InventoryStock {
   /// as `quantityOnHand - quantityReserved` at read time (`InventoryService`), and today
   /// that's simply `quantityOnHand`.
   quantityReserved Float    @default(0)
+  /// Added Sprint 9 — the first persisted inventory costing figure in this codebase
+  /// (Sprint 8's valuation was a one-time, transient Goods Receipt journal
+  /// computation, never stored for later reuse). A moving weighted-average cost per
+  /// (organisation, product, location): `newAvgCost = (existingQty × existingAvgCost +
+  /// receivedQty × receivedUnitCost) / (existingQty + receivedQty)`, updated by
+  /// `GoodsReceiptRepository.receive` and `ProductionRunRepository.complete`'s
+  /// finished-goods upsert whenever stock increases with a known monetary value; read
+  /// (never written) by `ProductionMaterialIssueRepository.issue` whenever stock
+  /// decreases for a valued consumption. Untouched by
+  /// `InventoryStockRepository.adjustStock` — a manual correction carries no cost
+  /// information. `@default(0)` — a product with no valued receipt yet has no known
+  /// cost.
+  averageUnitCost  Float    @default(0)
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
@@ -1252,12 +1265,18 @@ model ProductionMaterialIssue {
   /// the authenticated caller.
   issuedById        String?
   notes             String?
+  /// Added Sprint 9 — same double-submit protection `GoodsReceipt.idempotencyKey`
+  /// already has. A retried `POST .../material-issues` with the same key against the
+  /// same Production Order returns the original issue instead of creating a second
+  /// one, a second `InventoryStock` decrement, and a second Journal Entry.
+  idempotencyKey    String?
   createdAt         DateTime @default(now())
 
   organisation    Organisation                  @relation(fields: [organisationId], references: [id], onDelete: Cascade)
   productionOrder ProductionOrder               @relation(fields: [productionOrderId], references: [id], onDelete: Restrict)
   items           ProductionMaterialIssueItem[]
 
+  @@unique([productionOrderId, idempotencyKey])
   @@index([organisationId])
   @@index([organisationId, productionOrderId])
   @@map("production_material_issues")
@@ -1312,6 +1331,12 @@ model ProductionRun {
   /// Plain id, no FK relation, same convention as every other domain's actor fields.
   completedById     String?
   completedAt       DateTime                   @default(now())
+  /// Added Sprint 9 — `productionOrderId`'s own `@@unique` already guarantees at most
+  /// one run per order structurally; this lets a genuine retry of the same completion
+  /// request return the original result instead of a hard conflict error, matching
+  /// the `wasCreated` convention every other multi-fire-risk write in this codebase
+  /// already uses.
+  idempotencyKey    String?
 
   organisation    Organisation    @relation(fields: [organisationId], references: [id], onDelete: Cascade)
   productionOrder ProductionOrder @relation(fields: [productionOrderId], references: [id], onDelete: Restrict)

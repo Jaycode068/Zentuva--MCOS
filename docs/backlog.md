@@ -156,10 +156,12 @@ delivered roughly in order, but later Epics may be reordered as priorities evolv
 Accounts Payable`, with any quantity accepted beyond a Purchase Order's own ordered
   amount posting instead to a `GRNI — Pending Approval` account rather than inflating
   `AP` — and closed a real idempotency gap (`GoodsReceipt` had no double-submission
-  protection before this sprint). Warehouse Transfers, Reservation/Allocation, a
-  running inventory Valuation ledger (FIFO/weighted-average/COGS), Low Stock alerting,
-  and a full Warehouse Management System remain — see
-  [`docs/domains/inventory.md`](domains/inventory.md).
+  protection before this sprint). Sprint 9 ("Manufacturing Accounting Integration")
+  added the first persisted inventory costing figure, `InventoryStock.averageUnitCost`
+  — a moving weighted average updated by Goods Receipt and Production Completion,
+  read by Production's Material Issue — still not a full FIFO/standard-costing engine.
+  Warehouse Transfers, Reservation/Allocation, Low Stock alerting, and a full Warehouse
+  Management System remain — see [`docs/domains/inventory.md`](domains/inventory.md).
 
 ### Epic 6 — Production
 
@@ -174,10 +176,17 @@ Accounts Payable`, with any quantity accepted beyond a Purchase Order's own orde
   atomically, with over-issue and insufficient-stock rejected; Production Execution
   records Planned/Produced/Rejected/Accepted as distinct figures (Accepted always
   server-computed); completion receipts the accepted quantity into Inventory via
-  `InventoryTransaction` `RECEIPT` rows. Deliberately not a full MRP or Quality
-  Management System — no scheduling, no multi-level BOMs, no costing/labour/machine
-  allocation, no batch/lot/expiry tracking, no automatic procurement from a shortfall —
-  see [`docs/domains/production.md`](domains/production.md).
+  `InventoryTransaction` `RECEIPT` rows. Sprint 9 ("Manufacturing Accounting
+  Integration") wired Material Issue and Production Completion to the General
+  Ledger — `DR WIP / CR Raw Material Inventory` on each issue,
+  `CR WIP / DR Finished Goods Inventory / DR Production Loss` (split proportionally by
+  accepted vs. rejected quantity) on completion — reusing the exact
+  `postSystemJournalEntry` boundary Sprint 8 established for Goods Receipt, with no
+  parallel accounting mechanism. Rejected output's cost is preserved in the ledger but
+  never enters sellable inventory. Deliberately not a full MRP or Quality Management
+  System — no scheduling, no multi-level BOMs, no labour/machine/overhead costing, no
+  batch/lot/expiry tracking, no automatic procurement from a shortfall, no COGS at
+  Sales Fulfilment — see [`docs/domains/production.md`](domains/production.md).
 
 ### Epic 7 — Sales
 
@@ -335,13 +344,15 @@ Accounts Payable`, with any quantity accepted beyond a Purchase Order's own orde
   open periods receive postings), Journal Entries (server-authoritative double-entry
   validation, immutable once posted), General Ledger/Trial Balance/Account Activity
   reporting, automatic posting for Finance's `invoice.issued`/`payment.recorded`/
-  `credit-note.issued` events, and (Sprint 8) automatic posting for Inventory's Goods
-  Receipt event. Deliberately excludes Chart of Accounts → financial-statement closing
-  (P&L, Balance Sheet, Cash Flow Statement), Bank Reconciliation, a full Accounts
-  Payable module (supplier invoice matching, payment runs, AP ageing, an approval
-  workflow to reclassify `GRNI — Pending Approval` balances into `AP`), payroll,
-  fixed-asset accounting, a full tax engine, budgeting, year-end closing, and
-  accounting integration for Production or Sales Fulfilment — all future sprints.
+  `credit-note.issued` events, (Sprint 8) automatic posting for Inventory's Goods
+  Receipt event, and (Sprint 9) automatic posting for Production's Material Issue and
+  Production Completion events. Deliberately excludes Chart of Accounts →
+  financial-statement closing (P&L, Balance Sheet, Cash Flow Statement), Bank
+  Reconciliation, a full Accounts Payable module (supplier invoice matching, payment
+  runs, AP ageing, an approval workflow to reclassify `GRNI — Pending Approval`
+  balances into `AP`), payroll, fixed-asset accounting, a full tax engine, budgeting,
+  year-end closing, labour/machine/overhead costing, and COGS accounting integration
+  for Sales Fulfilment — all future work.
 - **Status:** Foundation implemented — Sprint 7 ("General Ledger & Accounting
   Foundation"). `InvoiceRepository.issue()`/`PaymentRepository.create()`/
   `CreditNoteRepository.issue()` each atomically post a double-entry `JournalEntry` via
@@ -356,7 +367,16 @@ Accounts Payable`, with any quantity accepted beyond a Purchase Order's own orde
   new system account (`GRNI_PENDING_APPROVAL`) so goods physically accepted beyond a
   Purchase Order's own commercially-agreed quantity post to a distinct clearing
   account rather than inflating `AP` — see
-  [`docs/domains/accounting.md`](domains/accounting.md) §9.
+  [`docs/domains/accounting.md`](domains/accounting.md) §9. Sprint 9 ("Manufacturing
+  Accounting Integration") extended the same boundary into manufacturing: two new
+  system accounts (`WIP`, `PRODUCTION_LOSS`) plus elevating the pre-existing "Finished
+  Goods" account to a system account (`FINISHED_GOODS_INVENTORY`); Production's
+  Material Issue and Production Completion each post through
+  `postSystemJournalEntry` from inside their own atomic transactions, valued using a
+  new persisted costing figure (`InventoryStock.averageUnitCost`, a moving weighted
+  average — see [`docs/domains/inventory.md`](domains/inventory.md) §11b) — no new
+  accounting mechanism, no production-specific journal table — see
+  [`docs/domains/accounting.md`](domains/accounting.md) §10.
 
 ## 5. Current Sprint Status
 
@@ -389,6 +409,7 @@ Accounts Payable`, with any quantity accepted beyond a Purchase Order's own orde
 - ✓ Sprint 6 — Finance Foundation
 - ✓ Sprint 7 — General Ledger & Accounting Foundation
 - ✓ Sprint 8 — Procurement, Inventory & Accounting Integration
+- ✓ Sprint 9 — Manufacturing Accounting Integration
 
 **Current focus:** Next sprint not yet scoped.
 

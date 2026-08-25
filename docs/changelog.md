@@ -7,6 +7,78 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 9 Manufacturing Accounting Integration] - 2026-08-25
+
+### Added
+
+- **Material Issue → General Ledger posting, atomic with the issue itself**:
+  `ProductionMaterialIssueRepository.issue()` now calls `postSystemJournalEntry` (the
+  same plain, dependency-injection-free posting boundary Sprint 8's Goods Receipt
+  already used) from inside its own existing `$transaction`, posting one Journal Entry
+  per Material Issue (not per Production Order — partial issues each post their own
+  independent, source-linked entry): `DR Work In Progress / CR Raw Material Inventory`,
+  valued at each component's current `averageUnitCost`. A closed accounting period or a
+  missing `WIP`/`INVENTORY` system account now correctly rolls back the entire issue,
+  quantity movement included.
+- **Production Completion → General Ledger posting, with an accepted/rejected cost
+  split**: `ProductionRunRepository.complete()` posts one Journal Entry clearing the
+  order's full cumulative Work In Progress value: `CR Work In Progress`, split into
+  `DR Finished Goods Inventory` (the accepted share) and `DR Production Loss / Scrap`
+  (the rejected share), computed proportionally by produced quantity so the two debit
+  lines always sum to exactly the credited WIP total. Rejected output's cost is
+  preserved in the ledger, never silently dropped — but only the accepted quantity is
+  ever added to sellable `InventoryStock`.
+- **`InventoryStock.averageUnitCost`** — the first persisted inventory valuation figure
+  in the codebase, a moving weighted average per (organisation, product, location).
+  Written by `GoodsReceiptRepository.receive()` (extended this sprint) and
+  `ProductionRunRepository.complete()`'s finished-goods upsert; read by Material Issue
+  to value each consumed component at its current cost. Untouched by manual Stock
+  Adjustments, which carry no cost information.
+- **Two new Chart of Accounts system keys**: `WIP` ("Work In Progress," Asset) and
+  `PRODUCTION_LOSS` ("Production Loss / Scrap," Expense), plus elevating the
+  pre-existing Sprint 7-seeded "Finished Goods" account to a system account
+  (`FINISHED_GOODS_INVENTORY`).
+- **`ProductionMaterialIssue.idempotencyKey`** + `@@unique([productionOrderId,
+idempotencyKey])`, and a plain `ProductionRun.idempotencyKey` column (no new
+  composite unique needed — `productionOrderId` is already `@@unique`). Every audit
+  event on both write routes is now gated on the request actually having created
+  something (`wasCreated`); two new audit events
+  (`production.material-issue-journal-posted`, `production.completion-journal-posted`)
+  fire only when a journal was actually posted.
+- **`GET /api/production/orders/:id/accounting`** — a read-only summary
+  (`{ materialCost, journalEntries }`) surfaced in the Production Order detail view's
+  new "Accounting" section, linking through to Finance's Journal Entries page; Material
+  Issue and Production Completion responses now include their own `journalEntry`.
+- **`production-finance-independence.spec.ts`** — structural guards proving
+  `production-material-issue.repository.ts`/`production-run.repository.ts` never call
+  `tx.journalEntry.*` directly (only via `postSystemJournalEntry`) and
+  `production.module.ts` never imports `FinanceModule`.
+
+### Fixed
+
+- **Idempotent retry rejected instead of returning the original result.** Both
+  `ProductionOrderService.issueMaterial()` and `.completeProduction()` ran their own
+  business-rule pre-checks (over-issue validation; an `IN_PROGRESS`-only status guard)
+  _before_ ever reaching the repository's correct idempotency check-then-return —
+  found live during this sprint's mandatory browser verification. A genuine retry
+  arrives after the original call's own effects (its own issued quantity already
+  counted toward the requirement; the order already flipped to `COMPLETED`), so those
+  pre-checks rejected the retry with a `400` instead of the original success response.
+  No duplicate data was ever created (the repository-level guard held throughout), but
+  the retry didn't behave idempotently. Fixed by adding a `findByIdempotencyKey` lookup
+  to each repository and checking it first, before any business-rule pre-check, in both
+  service methods. Covered by two new regression tests in
+  `production-order.service.spec.ts`.
+
+### Changed
+
+- Seed data (`apps/api/prisma/seed.ts`): `PROD-000001` (Boby Bites' Plantain Chips)
+  now runs all the way through two partial Material Issues and a completion with a
+  small rejection, each posting a real Journal Entry, so the seeded data demonstrates
+  the full Material→WIP→Finished-Goods chain end to end. A new PO/GRN pair
+  (`PO-000012`/`GRN-000009`, Golden Oil Ltd) gives Vegetable Oil a real receipt-based
+  cost, since its original PO deliberately stays un-received.
+
 ## [Sprint 8 Procurement, Inventory & Accounting Integration] - 2026-08-25
 
 ### Added

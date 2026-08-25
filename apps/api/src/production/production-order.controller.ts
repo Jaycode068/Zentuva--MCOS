@@ -169,6 +169,13 @@ export class ProductionOrderController {
     return { items: issues.map(toMaterialIssueResponse) };
   }
 
+  /** Added Sprint 9 — read-only accounting summary (brief §14/§15), see
+   *  `ProductionOrderService.getAccountingSummary`. */
+  @Get(':id/accounting')
+  getAccountingSummary(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
+    return this.productionOrderService.getAccountingSummary(user.organisationId, id);
+  }
+
   @Post(':id/material-issues')
   @UseGuards(RolesGuard)
   @Roles('Owner', 'Administrator')
@@ -178,40 +185,62 @@ export class ProductionOrderController {
     @CurrentUser() user: TokenPayload,
     @Req() req: Request,
   ) {
-    const { materialIssue, transitionedToInProgress } =
+    const { materialIssue, transitionedToInProgress, journalEntry, wasCreated } =
       await this.productionOrderService.issueMaterial(user.organisationId, id, body, user.sub);
 
-    await this.auditService.record({
-      action: PRODUCTION_AUDIT_ACTIONS.MATERIAL_ISSUED,
-      entityType: 'ProductionMaterialIssue',
-      entityId: materialIssue.id,
-      organisationId: user.organisationId,
-      actorUserId: user.sub,
-      metadata: {
-        productionOrderId: id,
-        items: materialIssue.items.map((item) => ({
-          componentProductId: item.componentProductId,
-          productName: item.componentProduct.name,
-          quantityIssued: item.quantityIssued,
-        })),
-      },
-      ipAddress: req.ip,
-      userAgent: req.headers['user-agent'],
-    });
-
-    if (transitionedToInProgress) {
+    // Sprint 9: every audit block below is gated on `wasCreated` — an idempotent
+    // replay (a retried request with the same `idempotencyKey`) returns the original
+    // issue but must never re-emit any of these events.
+    if (wasCreated) {
       await this.auditService.record({
-        action: PRODUCTION_AUDIT_ACTIONS.ORDER_STARTED,
-        entityType: 'ProductionOrder',
-        entityId: id,
+        action: PRODUCTION_AUDIT_ACTIONS.MATERIAL_ISSUED,
+        entityType: 'ProductionMaterialIssue',
+        entityId: materialIssue.id,
         organisationId: user.organisationId,
         actorUserId: user.sub,
+        metadata: {
+          productionOrderId: id,
+          items: materialIssue.items.map((item) => ({
+            componentProductId: item.componentProductId,
+            productName: item.componentProduct.name,
+            quantityIssued: item.quantityIssued,
+          })),
+        },
         ipAddress: req.ip,
         userAgent: req.headers['user-agent'],
       });
+
+      if (transitionedToInProgress) {
+        await this.auditService.record({
+          action: PRODUCTION_AUDIT_ACTIONS.ORDER_STARTED,
+          entityType: 'ProductionOrder',
+          entityId: id,
+          organisationId: user.organisationId,
+          actorUserId: user.sub,
+          ipAddress: req.ip,
+          userAgent: req.headers['user-agent'],
+        });
+      }
+
+      if (journalEntry) {
+        await this.auditService.record({
+          action: PRODUCTION_AUDIT_ACTIONS.MATERIAL_ISSUE_JOURNAL_POSTED,
+          entityType: 'ProductionMaterialIssue',
+          entityId: materialIssue.id,
+          organisationId: user.organisationId,
+          actorUserId: user.sub,
+          metadata: {
+            journalEntryId: journalEntry.id,
+            journalNumber: journalEntry.journalNumber,
+            amount: journalEntry.totalAmount,
+          },
+          ipAddress: req.ip,
+          userAgent: req.headers['user-agent'],
+        });
+      }
     }
 
-    return toMaterialIssueResponse(materialIssue);
+    return { ...toMaterialIssueResponse(materialIssue), journalEntry };
   }
 
   @Get(':id/production-run')
@@ -228,43 +257,62 @@ export class ProductionOrderController {
     @CurrentUser() user: TokenPayload,
     @Req() req: Request,
   ) {
-    const { productionOrder, productionRun } = await this.productionOrderService.completeProduction(
-      user.organisationId,
-      id,
-      body,
-      user.sub,
-    );
+    const { productionOrder, productionRun, journalEntry, wasCreated } =
+      await this.productionOrderService.completeProduction(user.organisationId, id, body, user.sub);
 
-    await this.auditService.record({
-      action: PRODUCTION_AUDIT_ACTIONS.COMPLETED,
-      entityType: 'ProductionOrder',
-      entityId: id,
-      organisationId: user.organisationId,
-      actorUserId: user.sub,
-      metadata: {
-        productionOrderNumber: productionOrder.productionOrderNumber,
-        producedQuantity: productionRun.producedQuantity,
-        rejectedQuantity: productionRun.rejectedQuantity,
-        acceptedQuantity: productionRun.acceptedQuantity,
-      },
-      ipAddress: req.ip,
-      userAgent: req.headers['user-agent'],
-    });
-
-    if (productionRun.acceptedQuantity > 0) {
+    if (wasCreated) {
       await this.auditService.record({
-        action: PRODUCTION_AUDIT_ACTIONS.FINISHED_GOODS_RECEIVED,
-        entityType: 'ProductionRun',
-        entityId: productionRun.id,
+        action: PRODUCTION_AUDIT_ACTIONS.COMPLETED,
+        entityType: 'ProductionOrder',
+        entityId: id,
         organisationId: user.organisationId,
         actorUserId: user.sub,
-        metadata: { productionOrderId: id, acceptedQuantity: productionRun.acceptedQuantity },
+        metadata: {
+          productionOrderNumber: productionOrder.productionOrderNumber,
+          producedQuantity: productionRun.producedQuantity,
+          rejectedQuantity: productionRun.rejectedQuantity,
+          acceptedQuantity: productionRun.acceptedQuantity,
+        },
         ipAddress: req.ip,
         userAgent: req.headers['user-agent'],
       });
+
+      if (productionRun.acceptedQuantity > 0) {
+        await this.auditService.record({
+          action: PRODUCTION_AUDIT_ACTIONS.FINISHED_GOODS_RECEIVED,
+          entityType: 'ProductionRun',
+          entityId: productionRun.id,
+          organisationId: user.organisationId,
+          actorUserId: user.sub,
+          metadata: { productionOrderId: id, acceptedQuantity: productionRun.acceptedQuantity },
+          ipAddress: req.ip,
+          userAgent: req.headers['user-agent'],
+        });
+      }
+
+      if (journalEntry) {
+        await this.auditService.record({
+          action: PRODUCTION_AUDIT_ACTIONS.COMPLETION_JOURNAL_POSTED,
+          entityType: 'ProductionRun',
+          entityId: productionRun.id,
+          organisationId: user.organisationId,
+          actorUserId: user.sub,
+          metadata: {
+            journalEntryId: journalEntry.id,
+            journalNumber: journalEntry.journalNumber,
+            amount: journalEntry.totalAmount,
+          },
+          ipAddress: req.ip,
+          userAgent: req.headers['user-agent'],
+        });
+      }
     }
 
-    return { productionOrder: toOrderResponse(productionOrder), productionRun };
+    return {
+      productionOrder: toOrderResponse(productionOrder),
+      productionRun,
+      journalEntry,
+    };
   }
 }
 

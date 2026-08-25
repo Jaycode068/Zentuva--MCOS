@@ -5,19 +5,24 @@
   Discrepancy Refinement"), extended Sprint 4.5 ("Inventory Control & Stock Management")
   with physical locations and controlled manual stock adjustments, extended Sprint 8
   ("Procurement, Inventory & Accounting Integration") with automatic accounting posting
-  and idempotency protection on Goods Receipt.
-- **Sprint:** 4.4, 4.4.1, 4.5, 8
+  and idempotency protection on Goods Receipt, extended Sprint 9 ("Manufacturing
+  Accounting Integration") with a persisted moving-weighted-average costing engine
+  (`InventoryStock.averageUnitCost`) that Production's Material Issue/Completion
+  postings consume.
+- **Sprint:** 4.4, 4.4.1, 4.5, 8, 9
 - **Depends on:** [Identity](identity.md) (tenant boundary, authentication, `RolesGuard`),
   [Procurement](procurement.md) (every Goods Receipt receives an existing Purchase
   Order), [Product Catalogue](catalogue.md) (every stock balance/transaction/receipt line
-  references a Product), [Accounting](accounting.md) (Sprint 8 — `postSystemJournalEntry`,
-  a plain function import, not a module dependency),
-  [ADR-002 — Modular Monolith](../adr/ADR-002-modular-monolith.md),
+  references a Product), [Production](production.md) (Sprint 9 — Material Issue reads,
+  and Production Completion writes, `InventoryStock.averageUnitCost`),
+  [Accounting](accounting.md) (Sprint 8/9 — `postSystemJournalEntry`, a plain function
+  import, not a module dependency), [ADR-002 — Modular Monolith](../adr/ADR-002-modular-monolith.md),
   [ADR-003 — Multi-Tenancy](../adr/ADR-003-multi-tenancy.md)
 - **See also:** [Sprint 4.4 Completion Report](../sprint-4.4-completion-report.md),
   [Sprint 4.4.1 Completion Report](../sprint-4.4.1-completion-report.md),
   [Sprint 4.5 Completion Report](../sprint-4.5-completion-report.md),
-  [Sprint 8 Completion Report](../sprint-8-completion-report.md) for what was
+  [Sprint 8 Completion Report](../sprint-8-completion-report.md),
+  [Sprint 9 Completion Report](../sprint-9-completion-report.md) for what was
   implemented and why.
 
 ## 1. Business Purpose
@@ -548,6 +553,7 @@ model InventoryStock {
   locationId       String
   quantityOnHand   Float    @default(0)
   quantityReserved Float    @default(0)
+  averageUnitCost  Float    @default(0)  // Sprint 9 — see §11b
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
@@ -649,6 +655,48 @@ Each `GoodsReceiptItem` also gained `payableQuantity` — see
 (`{ id, journalNumber, status, totalAmount } | null`) so Procurement/Inventory UI can
 show the linked accounting entry without a second round trip.
 
+## 11b. Costing Engine & Production Accounting Integration (Sprint 9)
+
+Sprint 9 adds `InventoryStock.averageUnitCost Float @default(0)` — **the first
+persisted inventory valuation figure in this codebase.** Sprint 8's Goods Receipt
+posting (§11a) computed a monetary value for the accounting _event_ but never stored a
+reusable cost; Material Issue structurally needs one (it consumes from a stock pile
+that may have been built up from many receipts at different prices, with nothing
+persisted to read). `averageUnitCost` is a moving weighted average per
+`(organisation, product, location)`:
+
+```
+newAvgCost = (existingQty × existingAvgCost + receivedQty × receivedUnitCost)
+             / (existingQty + receivedQty)
+```
+
+- **Writers:** `GoodsReceiptRepository.receive()` (extended this sprint — on a first
+  receipt into empty stock, the formula degenerates to `receivedUnitCost`, byte-identical
+  to what Sprint 8 already posted to the journal) and
+  `ProductionRunRepository.complete()`'s finished-goods `InventoryStock` upsert (new —
+  the finished product's per-unit cost is its accepted share's own portion of the
+  transferred WIP value, see [Production](production.md) §11).
+- **Reader:** `ProductionMaterialIssueRepository.issue()`, valuing each consumed
+  component at its _current_ cost at the moment of consumption — never passed in by the
+  caller. Two issues at two different times can legitimately value the same component
+  differently if stock was replenished at a different price in between; this is the
+  correct, standard behaviour of a moving weighted average, not a bug to special-case.
+- **Never touched by `InventoryStockRepository.adjustStock`**, in either direction — a
+  manual correction (cycle count, damage, shrinkage) carries no monetary event. An
+  Adjustment increase gets no cost basis; an Adjustment decrease doesn't need one (the
+  weighted average of what remains is mathematically unchanged by removing units at the
+  existing average). This is a deliberate, documented decision, not an oversight — see
+  the [Sprint 9 Completion Report](../sprint-9-completion-report.md).
+- **This is still not a full costing engine.** No FIFO/specific-identification/standard
+  costing, no per-lot cost tracking, no landed-cost allocation (freight, duty, handling
+  charges are not blended in). It is the minimum durable mechanism Material Issue
+  structurally requires, applied consistently, not an invented sophistication the system
+  doesn't otherwise support.
+
+See [Accounting](accounting.md) §"Production Accounting" and
+[Production](production.md) §11 for the full Material Issue/Production Completion
+posting rules this costing figure feeds.
+
 ## 11. Known Limitations (Sprint 4.5)
 
 - **No full Warehouse Management System.** `InventoryLocation` is deliberately minimal —
@@ -668,13 +716,14 @@ show the linked accounting entry without a second round trip.
 - **No Low Stock / reorder-level alerting.** Deferred — it would require a schema change
   to `Product` (Product Catalogue's own table, a cross-domain change out of this sprint's
   scope) to add a `reorderLevel` field.
-- **No running inventory valuation.** `InventoryStock`/`InventoryTransaction` remain a
-  purely quantity ledger — no FIFO/weighted-average costing, no per-unit cost basis
-  tracked over time. Sprint 8's Goods Receipt → Accounting posting (§11a) is a one-time
-  monetary snapshot at receipt time (`acceptedQuantity × PurchaseOrderItem.unitPrice`),
-  not a costing system — it values the accounting _event_, not the ongoing stock
-  balance. `COGS` remains unposted; a future Production/Sales integration would still
-  need to build that valuation, on top of this ledger, not inside it.
+- **Valuation is a moving weighted average, not a full costing engine.** Sprint 9 added
+  `InventoryStock.averageUnitCost` (§11b) — a real, persisted, continuously-updated
+  cost basis, no longer just Sprint 8's one-time accounting-event snapshot. What's still
+  absent: FIFO/specific-identification/standard costing, per-lot cost tracking, and
+  landed-cost allocation (freight, duty, handling). `COGS` remains unposted — Sales
+  Fulfilment consuming finished-goods stock still writes no accounting entry; that
+  integration is deferred to a future sprint (see [Production](production.md) §11 and
+  [Accounting](accounting.md)).
 - **No Inventory Counts (cycle counts as a first-class workflow), Batch/Lot Tracking, or
   Expiry Tracking** — a physical count today is recorded as one `ADJUSTMENT` with reason
   `PHYSICAL_COUNT`, not a dedicated count-session entity.

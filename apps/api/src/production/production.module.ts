@@ -29,6 +29,14 @@ import { ProductionRunRepository } from './production-run.repository';
  * ADR-002 justified by atomicity (see `ProductionMaterialIssueRepository`/
  * `ProductionRunRepository`).
  *
+ * Sprint 9 — `ProductionMaterialIssueRepository.issue`/`ProductionRunRepository.
+ * complete` also post a Journal Entry via `postSystemJournalEntry`
+ * (`../finance/accounting/journal-posting`). This is a plain TypeScript function
+ * import, not a NestJS provider, so it introduces **no** module dependency on
+ * `FinanceModule` here — this module's own `imports` array is unchanged by that
+ * integration (see docs/domains/accounting.md "Accounting Posting Boundary", and
+ * `production-finance-independence.spec.ts` for the executable proof).
+ *
  * No `exports` — nothing else consumes Production this sprint.
  */
 @Module({

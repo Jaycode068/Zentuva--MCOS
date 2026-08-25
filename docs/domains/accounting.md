@@ -2,18 +2,22 @@
 
 - **Status:** Foundation implemented — Sprint 7 ("General Ledger & Accounting
   Foundation"), extended Sprint 8 ("Procurement, Inventory & Accounting Integration")
-  with automatic posting for Goods Receipts. **Not** a complete accounting system — see
-  §9.
-- **Sprint:** 7, 8
+  with automatic posting for Goods Receipts, extended Sprint 9 ("Manufacturing
+  Accounting Integration") with automatic posting for Material Issue and Production
+  Completion. **Not** a complete accounting system — see §9.4/§10.6.
+- **Sprint:** 7, 8, 9
 - **Depends on:** [Identity](identity.md) (tenant boundary, `RolesGuard`,
   `AuditService`), [Finance](finance.md) (invoice issued, payment recorded, credit note
-  issued), [Inventory](inventory.md) (goods receipt — Sprint 8).
+  issued), [Inventory](inventory.md) (goods receipt — Sprint 8; costing engine — Sprint
+  9), [Production](production.md) (material issue, production completion — Sprint 9).
 - **Explicitly does not depend on:** [Sales](sales.md), [Distribution](distribution.md),
-  [Procurement](procurement.md), [Production](production.md) — Inventory's Goods
-  Receipt is the only operational-domain event wired so far; every other domain's
-  accounting consequence remains deferred future work — see §9.
+  [Procurement](procurement.md) — Inventory's Goods Receipt and Production's Material
+  Issue/Completion are the only operational-domain events wired so far; every other
+  domain's accounting consequence (notably COGS at Sales Fulfilment) remains deferred
+  future work — see §9.4/§10.6.
 - **See also:** [Sprint 7 Completion Report](../sprint-7-completion-report.md),
-  [Sprint 8 Completion Report](../sprint-8-completion-report.md).
+  [Sprint 8 Completion Report](../sprint-8-completion-report.md),
+  [Sprint 9 Completion Report](../sprint-9-completion-report.md).
 
 ## 1. Business Purpose
 
@@ -296,34 +300,131 @@ excess a human hasn't yet confirmed the organisation will pay for. A full three-
 match (PO ↔ Goods Received ↔ Supplier Invoice ↔ Approved payable) remains future work —
 see §9.4.
 
-### 9.4 Remaining Deferred Work — Future Integrations
+### 9.4 Remaining Deferred Work (as of Sprint 8)
 
-The intended future architecture for every other domain, per the original Sprint 7
-brief's diagram, adjusted to reflect what Sprint 8 actually implemented:
+Superseded in part by Sprint 9 — see §10 below for what Production now posts. What
+remained after Sprint 8, resolved or still open:
+
+Also explicitly out of scope (still true after Sprint 9 — see §10.6): Chart of
+Accounts → financial-statement closing (Trial Balance → P&L/Balance Sheet), Cash Flow
+Statement, a full Accounts Payable module (supplier invoice matching, payment runs, AP
+ageing, vendor statements, supplier credit management), an approval workflow for
+`GRNI_PENDING_APPROVAL` excess, a multi-jurisdiction tax engine, payroll accounting,
+fixed-asset accounting and depreciation, budgeting, multi-currency accounting,
+consolidated accounting, year-end closing, and retained-earnings closing automation.
+
+## 10. Production Accounting (Sprint 9)
+
+Sprint 9 extends the same posting boundary one stage further into manufacturing:
+`Raw Materials → Material Issue → Work In Progress → Production → Finished Goods →
+Inventory → General Ledger`. See [Production](production.md) §11 for the
+Production-domain-facing summary and the
+[Sprint 9 Completion Report](../sprint-9-completion-report.md) for full detail.
+
+### 10.1 New system accounts
+
+Three additions to `SYSTEM_ACCOUNT_KEYS`:
+
+| Key                        | Chart of Accounts code         | Type    | Purpose                                                                                                                     |
+| -------------------------- | ------------------------------ | ------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `WIP`                      | `1340 Work In Progress`        | Asset   | Value of raw material issued to production but not yet completed                                                            |
+| `FINISHED_GOODS_INVENTORY` | `1330 Finished Goods`          | Asset   | Elevates the pre-existing Sprint 7-seeded account (never previously a system account) — value of accepted production output |
+| `PRODUCTION_LOSS`          | `6600 Production Loss / Scrap` | Expense | The rejected portion's share of consumed material cost                                                                      |
+
+`INVENTORY` (`1300`) keeps its exact Sprint 7/8 meaning — raw material/packaging/
+consumable value — unchanged, used as Material Issue's credit side.
+
+### 10.2 Costing basis
+
+Material Issue needs a raw material's _current_ unit cost, which nothing in this
+codebase persisted before Sprint 9. `InventoryStock.averageUnitCost` — a moving
+weighted average per `(organisation, product, location)` — is the new, minimal,
+durable mechanism this required; see [Inventory](inventory.md) §11b for the full
+writer/reader breakdown and formula. This is a genuinely new costing engine, not a
+second one: on a first-ever receipt into empty stock it degenerates to exactly the
+`unitPrice` Sprint 8 already used for its one-time Goods Receipt journal snapshot.
+
+### 10.3 Material Issue posting
+
+One Journal Entry per `ProductionMaterialIssue` (not per Production Order — three
+partial issues post three independent, source-linked entries, `sourceType:
+'PRODUCTION_MATERIAL_ISSUE'`):
 
 ```
-Goods Receipt              Material Issue            Sales Fulfilment
-     ↓ (Sprint 8 ✓)             ↓ (future)                 ↓ (future)
-Inventory increases       Raw material consumed    Finished goods leave inventory
-     ↓                        ↓                          ↓
-DR Inventory              DR WIP / Production Cost   DR Cost of Goods Sold
-CR AP / GRNI Pending      CR Raw Material Inventory  CR Finished Goods Inventory
-   Approval
+DR Work In Progress   = Σ quantity × averageUnitCost (at the moment of consumption)
+CR Raw Material Inventory = same total
 ```
 
-Also explicitly out of scope: Chart of Accounts → financial-statement closing (Trial
-Balance → P&L/Balance Sheet), Cash Flow Statement, a full Accounts Payable module
-(supplier invoice matching, payment runs, AP ageing, vendor statements, supplier
-credit management), an approval workflow for `GRNI_PENDING_APPROVAL` excess, a
-multi-jurisdiction tax engine, payroll accounting, fixed-asset accounting and
-depreciation, budgeting, multi-currency accounting, consolidated accounting,
-manufacturing variance accounting, a running inventory-valuation ledger (FIFO/
-weighted-average — Sprint 8's valuation is a one-time snapshot at receipt time, not a
-costing system), COGS automation for any inventory movement, year-end closing, and
-retained-earnings closing automation. The `COGS` system account key remains seeded and
-unposted, waiting for a future Production integration.
+Posted from inside the same `$transaction` that decrements `InventoryStock` — a closed
+accounting period or a missing `WIP`/`INVENTORY` system account rolls back the entire
+issue, quantity movement included. Skipped (no journal, not a zero-value one) only when
+every issued component has a `0` cost — stock built entirely from un-costed
+Adjustments, a real but rare edge case, not silently misrepresented as a real
+transaction.
 
-## 10. API Reference
+### 10.4 Production Completion posting — the accepted/rejected split
+
+One Journal Entry per `ProductionRun`, `sourceType: 'PRODUCTION_RUN'`:
+
+```
+CR Work In Progress        = totalWipValue (the order's full cumulative posted WIP
+                              value — summed directly from every Material Issue
+                              journal's own WIP debit line against this order, never a
+                              separately-stored running total)
+DR Finished Goods Inventory = totalWipValue × acceptedQuantity / producedQuantity
+                              (only if > 0)
+DR Production Loss / Scrap  = totalWipValue − acceptedValue (by subtraction, so the
+                              two always sum to exactly totalWipValue — no
+                              rounding-drift gap; only if > 0)
+```
+
+Worked example (Boby Bites, live-verified): a live Material Issue posts
+`DR WIP ₦17,040 / CR Inventory ₦17,040`; completing with 40 produced / 5 rejected / 35
+accepted posts `CR WIP ₦17,040` / `DR Finished Goods ₦14,910` (17,040 × 35/40) /
+`DR Production Loss ₦2,130` (17,040 × 5/40) — the two debit lines sum to exactly the
+credited ₦17,040.
+
+**Documented assumption:** the split is proportional by produced quantity — the
+standard treatment for a single homogeneous production run with uniform inputs
+(equivalent-unit/process costing). It does not model a rejection that occurred early
+in the process and consumed less material than a completed unit; this system has no
+data to distinguish that case. Rejected output's cost is preserved in the ledger, never
+silently dropped — but it never enters sellable `InventoryStock` (only
+`acceptedQuantity` is ever added to finished-goods stock, never `producedQuantity`).
+
+Skipped entirely when the order's total WIP value is `0` (nothing was ever issued with
+a known cost).
+
+### 10.5 Idempotency — and a bug this sprint's live verification found and fixed
+
+`ProductionMaterialIssue` gained `idempotencyKey` + `@@unique([productionOrderId,
+idempotencyKey])` (Sprint 8's `GoodsReceipt` shape exactly). `ProductionRun` gained a
+plain `idempotencyKey` column — no new composite unique needed, since
+`productionOrderId` is already `@@unique`, so a genuine retry is detected by comparing
+the existing run's own stored key.
+
+Both repositories' own `$transaction`s check-then-return on a matching key correctly.
+Live verification found that this alone was **not sufficient**: `ProductionOrderService`
+runs its own business-rule pre-checks (over-issue validation for Material Issue, an
+`IN_PROGRESS`-only guard for Completion) _before_ ever calling the repository — and a
+genuine retry arrives after the original call's own effects (its own issued quantity
+now counted toward the requirement; the order already flipped to `COMPLETED`), so those
+pre-checks rejected the very retry that should have idempotently succeeded, with a
+`400` instead of the original result. No duplicate data was ever created (the
+repository-level guard held), but the retry didn't behave idempotently. Fixed by moving
+the idempotency lookup to the front of both service methods — before any business-rule
+check — via a new `findByIdempotencyKey` method on each repository. See the
+[Sprint 9 Completion Report](../sprint-9-completion-report.md) "Bugs Found and Fixed."
+
+### 10.6 Deferred (unchanged scope boundary)
+
+Direct labour costing, machine-hour costing, electricity/overhead allocation,
+depreciation allocation, standard costing, variance accounting, and COGS posting at
+Sales Fulfilment are all explicitly out of scope this sprint. The `COGS` system account
+key remains seeded and unposted. Every item listed in §9.4 above (financial-statement
+closing, a full AP module, multi-currency, payroll, etc.) remains equally out of scope.
+
+## 11. API Reference
 
 | Endpoint                                                   | Auth                | Notes                                                                      |
 | ---------------------------------------------------------- | ------------------- | -------------------------------------------------------------------------- |
@@ -344,7 +445,7 @@ unposted, waiting for a future Production integration.
 | `GET /api/finance/ledger`                                  | Any authenticated   | `?accountId=&from=&to=&accountingPeriodId=&sourceType=&reference=&status=` |
 | `GET /api/finance/trial-balance`                           | Any authenticated   | `?from=&to=` or `?accountingPeriodId=`                                     |
 
-## 11. Known Limitations
+## 12. Known Limitations
 
 - No re-opening a closed accounting period, and no year-end closing automation.
 - `VOID` never generates an automatic reversing entry — a correction is a new manual
@@ -354,11 +455,14 @@ unposted, waiting for a future Production integration.
   account; see §6.
 - Trial Balance has no financial-statement layer on top of it (no P&L, no Balance
   Sheet) — see §9.4.
-- No General Ledger integration for Procurement's own events (PO confirmation, etc.),
-  Production, Sales Fulfilment, or Distribution yet — only Finance's three events plus
-  Inventory's Goods Receipt (Sprint 8) post automatically.
+- No General Ledger integration for Procurement's own PO-confirmation event, Sales
+  Fulfilment, or Distribution yet — Finance's three events, Inventory's Goods Receipt
+  (Sprint 8), and Production's Material Issue/Completion (Sprint 9, see §10) post
+  automatically; COGS at Sales Fulfilment remains the next deferred integration.
 - No approval workflow for `GRNI_PENDING_APPROVAL` balances — value posted there stays
   there; a future sprint would add the action that reclassifies it into `AP`.
+- No labour, machine-hour, or overhead costing anywhere in Production Accounting (§10)
+  — material cost only.
 - No full module-level permission engine — RBAC remains binary
   (Owner/Administrator-write, Member-read), same deferred decision as every other
   domain in this codebase.

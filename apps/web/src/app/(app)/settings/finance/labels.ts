@@ -104,4 +104,7 @@ export const JOURNAL_SOURCE_TYPE_LABELS: Record<string, string> = {
   CREDIT_NOTE: 'Credit Note',
   // Added Sprint 8 — Procurement/Inventory's Goods Receipt → Accounting integration.
   GOODS_RECEIPT: 'Goods Receipt',
+  // Added Sprint 9 — Production's Material Issue/Completion → Accounting integration.
+  PRODUCTION_MATERIAL_ISSUE: 'Material Issue',
+  PRODUCTION_RUN: 'Production Completion',
 };

@@ -72,7 +72,7 @@ function makeFakeTx(options: {
     'openPeriod' in options
       ? options.openPeriod
       : { startDate: new Date('2026-08-01'), endDate: new Date('2026-08-31') };
-  const inventoryStocks = new Map<string, { quantityOnHand: number }>();
+  const inventoryStocks = new Map<string, { quantityOnHand: number; averageUnitCost: number }>();
   const inventoryTransactions: Record<string, unknown>[] = [];
   let grSequence = goodsReceipts.size;
   let journalSequence = journalEntries.size;
@@ -189,6 +189,10 @@ function makeFakeTx(options: {
       }),
     },
     inventoryStock: {
+      findUnique: jest.fn(async ({ where }: { where: unknown }) => {
+        const key = JSON.stringify(where);
+        return inventoryStocks.get(key) ?? null;
+      }),
       upsert: jest.fn(
         async ({
           where,
@@ -196,16 +200,20 @@ function makeFakeTx(options: {
           update,
         }: {
           where: unknown;
-          create: { quantityOnHand: number };
-          update: { quantityOnHand: { increment: number } };
+          create: { quantityOnHand: number; averageUnitCost?: number };
+          update: { quantityOnHand: number; averageUnitCost?: number };
         }) => {
           const key = JSON.stringify(where);
           const existing = inventoryStocks.get(key);
           if (existing) {
-            existing.quantityOnHand += update.quantityOnHand.increment;
+            existing.quantityOnHand = update.quantityOnHand;
+            existing.averageUnitCost = update.averageUnitCost ?? existing.averageUnitCost;
             return existing;
           }
-          const created = { quantityOnHand: create.quantityOnHand };
+          const created = {
+            quantityOnHand: create.quantityOnHand,
+            averageUnitCost: create.averageUnitCost ?? 0,
+          };
           inventoryStocks.set(key, created);
           return created;
         },

@@ -130,10 +130,15 @@ describe('ProductionOrderService', () => {
       issue: jest.fn(),
       getIssuedTotals: jest.fn().mockResolvedValue(new Map()),
       findManyByProductionOrder: jest.fn(),
+      getTotalWipValue: jest.fn().mockResolvedValue(0),
+      findJournalEntriesByProductionOrder: jest.fn().mockResolvedValue([]),
+      findByIdempotencyKey: jest.fn().mockResolvedValue(null),
     } as unknown as jest.Mocked<ProductionMaterialIssueRepository>;
     const productionRunRepository = {
       complete: jest.fn(),
       findByProductionOrder: jest.fn(),
+      findJournalEntryForOrder: jest.fn().mockResolvedValue(null),
+      findByIdempotencyKey: jest.fn().mockResolvedValue(null),
     } as unknown as jest.Mocked<ProductionRunRepository>;
     const billOfMaterialRepository = {
       findById: jest.fn(),
@@ -609,6 +614,8 @@ describe('ProductionOrderService', () => {
       productionMaterialIssueRepository.issue.mockResolvedValue({
         materialIssue,
         transitionedToInProgress: true,
+        journalEntry: null,
+        wasCreated: true,
       });
 
       const result = await service.issueMaterial(
@@ -630,6 +637,53 @@ describe('ProductionOrderService', () => {
         }),
       );
       expect(result.transitionedToInProgress).toBe(true);
+    });
+
+    it('short-circuits on a matching idempotency key even when the order has since moved past PLANNED and the requirement is already fully issued — a naive re-check would otherwise wrongly reject the retry as an over-issue', async () => {
+      const { service, productionOrderRepository, productionMaterialIssueRepository } =
+        makeService();
+      // The order is now IN_PROGRESS (this call's own prior effect) and the
+      // requirement is already fully issued (also this call's own prior effect) —
+      // exactly the state a genuine retry arrives into.
+      productionOrderRepository.findById.mockResolvedValue({
+        ...plannedOrder,
+        status: ProductionOrderStatus.IN_PROGRESS,
+      });
+      productionMaterialIssueRepository.getIssuedTotals.mockResolvedValue(
+        new Map([['product-raw', 250]]),
+      );
+      const existingMaterialIssue = {
+        id: 'issue-1',
+        items: [],
+      } as unknown as ProductionMaterialIssueWithItems;
+      productionMaterialIssueRepository.findByIdempotencyKey.mockResolvedValue({
+        materialIssue: existingMaterialIssue,
+        journalEntry: null,
+      });
+
+      const result = await service.issueMaterial(
+        'org-1',
+        'order-1',
+        {
+          issuedDate: new Date('2026-08-05'),
+          idempotencyKey: 'retry-key-1',
+          items: [{ componentProductId: 'product-raw', quantity: 250 }],
+        },
+        'user-1',
+      );
+
+      expect(productionMaterialIssueRepository.findByIdempotencyKey).toHaveBeenCalledWith(
+        'org-1',
+        'order-1',
+        'retry-key-1',
+      );
+      expect(result).toEqual({
+        materialIssue: existingMaterialIssue,
+        transitionedToInProgress: false,
+        journalEntry: null,
+        wasCreated: false,
+      });
+      expect(productionMaterialIssueRepository.issue).not.toHaveBeenCalled();
     });
 
     it('translates a repository InsufficientStockError into a BadRequestException', async () => {
@@ -707,6 +761,8 @@ describe('ProductionOrderService', () => {
           rejectedQuantity: 30,
           acceptedQuantity: 450,
         } as never,
+        journalEntry: null,
+        wasCreated: true,
       });
 
       const result = await service.completeProduction(
@@ -750,6 +806,45 @@ describe('ProductionOrderService', () => {
       ).rejects.toThrow(BadRequestException);
     });
 
+    it('short-circuits on a matching idempotency key even though the order has already moved to COMPLETED — a naive re-check would otherwise wrongly reject the retry as "not IN_PROGRESS"', async () => {
+      const { service, productionOrderRepository, productionRunRepository } = makeService();
+      // The order is now COMPLETED (this call's own prior effect) — exactly the
+      // state a genuine retry arrives into.
+      const completedOrder = { ...order, status: ProductionOrderStatus.COMPLETED };
+      productionOrderRepository.findById.mockResolvedValue(completedOrder);
+      const existingRun = {
+        id: 'run-1',
+        producedQuantity: 480,
+        rejectedQuantity: 30,
+        acceptedQuantity: 450,
+        idempotencyKey: 'retry-key-1',
+      } as never;
+      productionRunRepository.findByIdempotencyKey.mockResolvedValue({
+        productionRun: existingRun,
+        journalEntry: null,
+      });
+
+      const result = await service.completeProduction(
+        'org-1',
+        'order-1',
+        { producedQuantity: 480, rejectedQuantity: 30, idempotencyKey: 'retry-key-1' },
+        'user-1',
+      );
+
+      expect(productionRunRepository.findByIdempotencyKey).toHaveBeenCalledWith(
+        'org-1',
+        'order-1',
+        'retry-key-1',
+      );
+      expect(result).toEqual({
+        productionOrder: completedOrder,
+        productionRun: existingRun,
+        journalEntry: null,
+        wasCreated: false,
+      });
+      expect(productionRunRepository.complete).not.toHaveBeenCalled();
+    });
+
     it('writes no inventory movement when everything produced is rejected (zero accepted)', async () => {
       const { service, productionOrderRepository, productionRunRepository } = makeService();
       const inProgressOrder = { ...order, status: ProductionOrderStatus.IN_PROGRESS };
@@ -763,6 +858,8 @@ describe('ProductionOrderService', () => {
           rejectedQuantity: 50,
           acceptedQuantity: 0,
         } as never,
+        journalEntry: null,
+        wasCreated: true,
       });
 
       await service.completeProduction(

@@ -140,6 +140,16 @@ export interface ProductionMaterialIssueItem {
   quantityIssued: number;
 }
 
+/** Added Sprint 9 — the automatically-posted Journal Entry for a Material Issue's/
+ *  Production Run's accounting consequence, `null` when nothing was posted (e.g.
+ *  every issued component had a `0` cost). */
+export interface ProductionJournalEntry {
+  id: string;
+  journalNumber: string;
+  status: 'DRAFT' | 'POSTED' | 'VOID';
+  totalAmount: number;
+}
+
 export interface ProductionMaterialIssue {
   id: string;
   productionOrderId: string;
@@ -148,6 +158,7 @@ export interface ProductionMaterialIssue {
   notes: string | null;
   items: ProductionMaterialIssueItem[];
   createdAt: string;
+  journalEntry?: ProductionJournalEntry | null;
 }
 
 export interface MaterialIssueItemPayload {
@@ -165,6 +176,9 @@ export interface CreateMaterialIssuePayload {
   issuedDate: string;
   notes?: string;
   items: MaterialIssueItemPayload[];
+  /** Added Sprint 9 — same double-submit protection every other create-payload in
+   *  this codebase has. */
+  idempotencyKey?: string;
 }
 
 export interface CompleteProductionOrderPayload {
@@ -172,11 +186,22 @@ export interface CompleteProductionOrderPayload {
   rejectedQuantity: number;
   rejectionReason?: ProductionRejectionReason;
   rejectionNotes?: string;
+  /** Added Sprint 9 — lets a genuine retry of the same completion request return the
+   *  original result instead of a hard conflict error. */
+  idempotencyKey?: string;
 }
 
 export interface CompleteProductionResult {
   productionOrder: ProductionOrder;
   productionRun: ProductionRun;
+  journalEntry?: ProductionJournalEntry | null;
+}
+
+/** Added Sprint 9 — `GET /production/orders/:id/accounting` response shape (brief
+ *  §14/§15). */
+export interface ProductionAccountingSummary {
+  materialCost: number;
+  journalEntries: ProductionJournalEntry[];
 }
 
 export function listBillOfMaterials(
@@ -304,4 +329,13 @@ export function completeProduction(
     method: 'POST',
     body: JSON.stringify(input),
   });
+}
+
+/** Added Sprint 9 — read-only accounting summary (brief §14/§15). */
+export function getProductionAccountingSummary(
+  productionOrderId: string,
+): Promise<ProductionAccountingSummary> {
+  return apiFetch<ProductionAccountingSummary>(
+    `/production/orders/${productionOrderId}/accounting`,
+  );
 }

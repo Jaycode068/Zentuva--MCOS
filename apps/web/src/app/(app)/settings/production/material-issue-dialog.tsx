@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import {
@@ -46,6 +46,11 @@ export function MaterialIssueDialog({
   onOpenChange: (open: boolean) => void;
   onIssued: () => void;
 }) {
+  // Sprint 9 — same double-submit protection every other create dialog in this
+  // codebase generates: a fresh key per dialog open, so a retried submission never
+  // creates a second Material Issue.
+  const [idempotencyKey] = useState(() => crypto.randomUUID());
+
   const { data: issuesData } = useQuery({
     queryKey: ['material-issues', productionOrder.id],
     queryFn: () => listMaterialIssues(productionOrder.id),
@@ -138,6 +143,7 @@ export function MaterialIssueDialog({
         issuedDate: values.issuedDate,
         notes: values.notes || undefined,
         items,
+        idempotencyKey,
       });
     },
     onSuccess: onIssued,

@@ -24,4 +24,15 @@ export const PRODUCTION_AUDIT_ACTIONS = {
    *  the stock-increase side effect, independently auditable from the order-completion
    *  event itself. */
   FINISHED_GOODS_RECEIVED: 'production.finished-goods-received',
+  /** Added Sprint 9 — recorded only when `POST .../material-issues` actually posted a
+   *  Journal Entry (i.e. at least one issued component had a known cost), only on a
+   *  fresh issue (never on an idempotent replay). Kept in this file's own
+   *  `production.*` namespace, not Finance's, mirroring `INVENTORY_AUDIT_ACTIONS.
+   *  JOURNAL_ENTRY_POSTED`'s own Sprint 8 precedent — see docs/domains/accounting.md
+   *  "Production Accounting". */
+  MATERIAL_ISSUE_JOURNAL_POSTED: 'production.material-issue-journal-posted',
+  /** Added Sprint 9 — recorded only when `POST .../complete` actually posted a
+   *  Journal Entry (i.e. the order had a nonzero WIP value to clear), only on a fresh
+   *  completion. */
+  COMPLETION_JOURNAL_POSTED: 'production.completion-journal-posted',
 } as const;

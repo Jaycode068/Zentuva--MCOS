@@ -57,6 +57,7 @@ describe('ProductionOrderController', () => {
     issuedDate: new Date('2026-08-05'),
     issuedById: 'user-1',
     notes: null,
+    idempotencyKey: null,
     createdAt: new Date('2026-08-05'),
     items: [
       {
@@ -199,6 +200,8 @@ describe('ProductionOrderController', () => {
       productionOrderService.issueMaterial.mockResolvedValue({
         materialIssue,
         transitionedToInProgress: true,
+        journalEntry: null,
+        wasCreated: true,
       });
 
       const result = await controller.issueMaterial(
@@ -226,6 +229,8 @@ describe('ProductionOrderController', () => {
       productionOrderService.issueMaterial.mockResolvedValue({
         materialIssue,
         transitionedToInProgress: false,
+        journalEntry: null,
+        wasCreated: true,
       });
 
       await controller.issueMaterial(
@@ -262,6 +267,8 @@ describe('ProductionOrderController', () => {
           completedById: 'user-1',
           completedAt: new Date('2026-08-10'),
         } as never,
+        journalEntry: null,
+        wasCreated: true,
       });
 
       await controller.complete(
@@ -296,6 +303,8 @@ describe('ProductionOrderController', () => {
           completedById: 'user-1',
           completedAt: new Date('2026-08-10'),
         } as never,
+        journalEntry: null,
+        wasCreated: true,
       });
 
       await controller.complete(

@@ -3,11 +3,14 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Badge, Button, Dialog, DialogFooter, DialogHeader, DialogTitle } from '@zentuva/ui';
+import Link from 'next/link';
 
 import { ApiError } from '@/lib/api-client';
+import { formatCurrency } from '@/lib/format-currency';
 
 import {
   cancelProductionOrder,
+  getProductionAccountingSummary,
   getProductionOrder,
   getProductionOrderAvailability,
   listMaterialIssues,
@@ -59,6 +62,13 @@ export function ProductionOrderDetailDialog({
     queryFn: () => listMaterialIssues(productionOrderId),
     enabled: order != null && order.status !== 'DRAFT',
   });
+  // Sprint 9 — brief §14: a read-only summary of this order's accounting
+  // consequence, not a Finance workspace embedded in Production.
+  const { data: accounting } = useQuery({
+    queryKey: ['production-order-accounting', productionOrderId],
+    queryFn: () => getProductionAccountingSummary(productionOrderId),
+    enabled: order != null && order.status !== 'DRAFT',
+  });
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['production-order', productionOrderId] });
@@ -66,6 +76,7 @@ export function ProductionOrderDetailDialog({
       queryKey: ['production-order-availability', productionOrderId],
     });
     queryClient.invalidateQueries({ queryKey: ['material-issues', productionOrderId] });
+    queryClient.invalidateQueries({ queryKey: ['production-order-accounting', productionOrderId] });
     queryClient.invalidateQueries({ queryKey: ['inventory-stock'] });
     queryClient.invalidateQueries({ queryKey: ['inventory-transactions'] });
     onChanged();
@@ -236,6 +247,37 @@ export function ProductionOrderDetailDialog({
                   Rejection reason: {REJECTION_REASON_LABELS[order.productionRun.rejectionReason]}
                   {order.productionRun.rejectionNotes && ` — ${order.productionRun.rejectionNotes}`}
                 </p>
+              )}
+            </div>
+          )}
+
+          {order.status !== 'DRAFT' && accounting && (
+            <div className="space-y-2">
+              <p className="font-medium text-foreground">Accounting</p>
+              <div className="rounded-md bg-muted/30 p-2 text-xs text-muted-foreground">
+                Material Cost
+                <div className="font-medium text-foreground">
+                  {formatCurrency(accounting.materialCost, 'NGN')}
+                </div>
+              </div>
+              {accounting.journalEntries.length === 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  No accounting entry yet — nothing has been issued with a known cost.
+                </p>
+              ) : (
+                <ul className="space-y-1 text-xs">
+                  {accounting.journalEntries.map((journalEntry) => (
+                    <li key={journalEntry.id}>
+                      <Link
+                        href="/settings/finance/journal-entries"
+                        className="font-medium text-foreground underline-offset-2 hover:underline"
+                      >
+                        {journalEntry.journalNumber}
+                      </Link>{' '}
+                      · {journalEntry.status} · {formatCurrency(journalEntry.totalAmount, 'NGN')}
+                    </li>
+                  ))}
+                </ul>
               )}
             </div>
           )}

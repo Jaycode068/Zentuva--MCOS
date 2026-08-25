@@ -438,6 +438,31 @@ export class GoodsReceiptRepository {
       // row at all.
       const acceptedItems = itemsWithPayable.filter((item) => item.acceptedQuantity > 0);
       for (const item of acceptedItems) {
+        // Sprint 9 — the first writer of `InventoryStock.averageUnitCost`: a moving
+        // weighted average blending whatever stock already existed with this
+        // receipt's own accepted quantity, valued at the PO's frozen `unitPrice`. On
+        // a first-ever receipt into empty stock this reduces to `unitPrice` exactly,
+        // byte-identical to what Sprint 8 already computed transiently for the
+        // journal — this just makes that figure durably reusable (by Production's
+        // Material Issue) instead of discarding it after the journal posts.
+        const existingStock = await tx.inventoryStock.findUnique({
+          where: {
+            organisationId_productId_locationId: {
+              organisationId: data.organisationId,
+              productId: item.productId,
+              locationId: data.locationId,
+            },
+          },
+        });
+        const priorQuantity = existingStock?.quantityOnHand ?? 0;
+        const priorCost = existingStock?.averageUnitCost ?? 0;
+        const newQuantity = priorQuantity + item.acceptedQuantity;
+        const newAverageCost =
+          newQuantity > 0
+            ? roundCurrency(
+                (priorQuantity * priorCost + item.acceptedQuantity * item.unitPrice) / newQuantity,
+              )
+            : 0;
         await tx.inventoryStock.upsert({
           where: {
             organisationId_productId_locationId: {
@@ -451,8 +476,9 @@ export class GoodsReceiptRepository {
             productId: item.productId,
             locationId: data.locationId,
             quantityOnHand: item.acceptedQuantity,
+            averageUnitCost: newAverageCost,
           },
-          update: { quantityOnHand: { increment: item.acceptedQuantity } },
+          update: { quantityOnHand: newQuantity, averageUnitCost: newAverageCost },
         });
       }
       if (acceptedItems.length > 0) {

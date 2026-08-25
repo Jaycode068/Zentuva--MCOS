@@ -1,18 +1,24 @@
 # Production Domain
 
 - **Status:** Manufacturing foundation implemented — Sprint 4.6 ("Production Management &
-  Bill of Materials Foundation").
-- **Sprint:** 4.6
+  Bill of Materials Foundation"); extended Sprint 9 ("Manufacturing Accounting
+  Integration") to post Material Issue and Production Completion automatically to the
+  General Ledger.
+- **Sprint:** 4.6, extended 9
 - **Depends on:** [Identity](identity.md) (tenant boundary, authentication, `RolesGuard`),
   [Product Catalogue](catalogue.md) (a Bill of Materials references a `FINISHED_PRODUCT`
   and consumes `RAW_MATERIAL`/`PACKAGING_MATERIAL`/`CONSUMABLE` products — no new product
   concept is introduced), [Inventory](inventory.md) (material issue consumes, and
   finished-goods receipt increases, `InventoryStock` via the same `InventoryTransaction`
-  ledger Goods Receiving and Adjustments already write into), [ADR-002 — Modular
-  Monolith](../adr/ADR-002-modular-monolith.md), [ADR-003 —
+  ledger Goods Receiving and Adjustments already write into — and, since Sprint 9, reads
+  and writes `InventoryStock.averageUnitCost`), [Accounting](accounting.md) (Sprint 9 —
+  Material Issue and Production Completion post through the same
+  `postSystemJournalEntry` boundary Sprint 8's Goods Receipt already established),
+  [ADR-002 — Modular Monolith](../adr/ADR-002-modular-monolith.md), [ADR-003 —
   Multi-Tenancy](../adr/ADR-003-multi-tenancy.md)
-- **See also:** [Sprint 4.6 Completion Report](../sprint-4.6-completion-report.md) for
-  what was implemented and why.
+- **See also:** [Sprint 4.6 Completion Report](../sprint-4.6-completion-report.md) and
+  [Sprint 9 Completion Report](../sprint-9-completion-report.md) for what was implemented
+  and why.
 
 ## 1. Business Purpose
 
@@ -298,33 +304,37 @@ this codebase uses.
   Availability check reveals a shortfall, Production surfaces it purely as data — there
   is no automatic Purchase Order creation, no Supplier notification. A human would place
   a Purchase Order manually through Procurement's own existing UI.
-- **Future Finance/Costing** — every `InventoryTransaction` `ISSUE`/`RECEIPT` row this
-  sprint writes carries enough structure (Production Order via `referenceId`, component
-  or finished product, quantity consumed/produced) for a future Costing module to
-  compute standard/actual cost without a schema change — no costing exists yet (no
-  labour, machine, or overhead allocation).
+- **Accounting** ([accounting.md](accounting.md), Sprint 9) — `ProductionMaterialIssueRepository.issue()`
+  and `ProductionRunRepository.complete()` each post one Journal Entry, from inside the
+  same `$transaction` that moves quantity, by calling `postSystemJournalEntry` — the
+  identical plain, non-DI function import Sprint 8's `GoodsReceiptRepository.receive()`
+  already established, imported directly from `../finance/accounting/journal-posting`
+  (a TypeScript file import, not a NestJS provider — `production.module.ts` never
+  imports `FinanceModule`, proven by `production-finance-independence.spec.ts`). See
+  §11 below for the exact posting rules.
 
 ## 7. API Reference
 
-| Endpoint                                          | Auth                                           | Input                                                                                                           | Output                                                                                                                                                                 |
-| ------------------------------------------------- | ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /api/production/boms`                        | Any authenticated user                         | Optional `?productId=`, `?status=`, `?search=`                                                                  | `200 { items: BillOfMaterial[] }`                                                                                                                                      |
-| `GET /api/production/boms/:id`                    | Any authenticated user                         | —                                                                                                               | `200` — a single BOM; `404` if not found                                                                                                                               |
-| `POST /api/production/boms`                       | Owner or Administrator only (`403` for Member) | `{ productId, name?, yieldQuantity, notes?, items: [{ componentProductId, quantity, unitOfMeasure, notes? }] }` | `201` — the created BOM (`DRAFT`); `400` for a non-Finished-Product target or a non-component-type/duplicate item                                                      |
-| `PATCH /api/production/boms/:id`                  | Owner or Administrator only (`403` for Member) | `{ name?, yieldQuantity?, notes?, items? }`                                                                     | `200` — the updated BOM; `400` if not `DRAFT`; `404` if not found                                                                                                      |
-| `POST /api/production/boms/:id/activate`          | Owner or Administrator only (`403` for Member) | —                                                                                                               | `200` — the activated BOM; `400` if already `ACTIVE`; `404` if not found                                                                                               |
-| `POST /api/production/boms/:id/deactivate`        | Owner or Administrator only (`403` for Member) | —                                                                                                               | `200` — the deactivated BOM; `400` if not currently `ACTIVE`; `404` if not found                                                                                       |
-| `GET /api/production/orders`                      | Any authenticated user                         | Optional `?status=`, `?productId=`, `?search=`                                                                  | `200 { items: ProductionOrder[] }`                                                                                                                                     |
-| `GET /api/production/orders/:id`                  | Any authenticated user                         | —                                                                                                               | `200` — a single order; `404` if not found                                                                                                                             |
-| `POST /api/production/orders`                     | Owner or Administrator only (`403` for Member) | `{ billOfMaterialId, plannedQuantity, locationId, notes? }`                                                     | `201` — the created order (`DRAFT`) with its computed requirement snapshot; `400` if the BOM isn't `ACTIVE` or the location isn't `ACTIVE`; `404` if not found         |
-| `PATCH /api/production/orders/:id`                | Owner or Administrator only (`403` for Member) | `{ plannedQuantity?, locationId?, notes? }`                                                                     | `200` — the updated order; `400` if not `DRAFT`; `404` if not found                                                                                                    |
-| `GET /api/production/orders/:id/availability`     | Any authenticated user                         | —                                                                                                               | `200 { items: MaterialAvailabilityRow[] }`                                                                                                                             |
-| `POST /api/production/orders/:id/plan`            | Owner or Administrator only (`403` for Member) | —                                                                                                               | `200` — the planned order; `400` if not `DRAFT`; `404` if not found                                                                                                    |
-| `POST /api/production/orders/:id/cancel`          | Owner or Administrator only (`403` for Member) | —                                                                                                               | `200` — the cancelled order; `400` if `IN_PROGRESS`/`COMPLETED`/already `CANCELLED`; `404` if not found                                                                |
-| `GET /api/production/orders/:id/material-issues`  | Any authenticated user                         | —                                                                                                               | `200 { items: ProductionMaterialIssue[] }`                                                                                                                             |
-| `POST /api/production/orders/:id/material-issues` | Owner or Administrator only (`403` for Member) | `{ issuedDate, notes?, items: [{ componentProductId, quantity }] }`                                             | `201` — the created issue; `400` for over-issue, insufficient stock, or ineligible order status; `404` if not found                                                    |
-| `GET /api/production/orders/:id/production-run`   | Any authenticated user                         | —                                                                                                               | `200` — the run, or `null` if not yet completed                                                                                                                        |
-| `POST /api/production/orders/:id/complete`        | Owner or Administrator only (`403` for Member) | `{ producedQuantity, rejectedQuantity, rejectionReason?, rejectionNotes? }`                                     | `201` — the completed order + run (`acceptedQuantity` always server-computed); `400` if not `IN_PROGRESS` or `rejectedQuantity > producedQuantity`; `404` if not found |
+| Endpoint                                          | Auth                                           | Input                                                                                                                     | Output                                                                                                                                                                                                                                                                                                         |
+| ------------------------------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/production/boms`                        | Any authenticated user                         | Optional `?productId=`, `?status=`, `?search=`                                                                            | `200 { items: BillOfMaterial[] }`                                                                                                                                                                                                                                                                              |
+| `GET /api/production/boms/:id`                    | Any authenticated user                         | —                                                                                                                         | `200` — a single BOM; `404` if not found                                                                                                                                                                                                                                                                       |
+| `POST /api/production/boms`                       | Owner or Administrator only (`403` for Member) | `{ productId, name?, yieldQuantity, notes?, items: [{ componentProductId, quantity, unitOfMeasure, notes? }] }`           | `201` — the created BOM (`DRAFT`); `400` for a non-Finished-Product target or a non-component-type/duplicate item                                                                                                                                                                                              |
+| `PATCH /api/production/boms/:id`                  | Owner or Administrator only (`403` for Member) | `{ name?, yieldQuantity?, notes?, items? }`                                                                               | `200` — the updated BOM; `400` if not `DRAFT`; `404` if not found                                                                                                                                                                                                                                              |
+| `POST /api/production/boms/:id/activate`          | Owner or Administrator only (`403` for Member) | —                                                                                                                         | `200` — the activated BOM; `400` if already `ACTIVE`; `404` if not found                                                                                                                                                                                                                                       |
+| `POST /api/production/boms/:id/deactivate`        | Owner or Administrator only (`403` for Member) | —                                                                                                                         | `200` — the deactivated BOM; `400` if not currently `ACTIVE`; `404` if not found                                                                                                                                                                                                                               |
+| `GET /api/production/orders`                      | Any authenticated user                         | Optional `?status=`, `?productId=`, `?search=`                                                                            | `200 { items: ProductionOrder[] }`                                                                                                                                                                                                                                                                             |
+| `GET /api/production/orders/:id`                  | Any authenticated user                         | —                                                                                                                         | `200` — a single order; `404` if not found                                                                                                                                                                                                                                                                     |
+| `POST /api/production/orders`                     | Owner or Administrator only (`403` for Member) | `{ billOfMaterialId, plannedQuantity, locationId, notes? }`                                                               | `201` — the created order (`DRAFT`) with its computed requirement snapshot; `400` if the BOM isn't `ACTIVE` or the location isn't `ACTIVE`; `404` if not found                                                                                                                                                 |
+| `PATCH /api/production/orders/:id`                | Owner or Administrator only (`403` for Member) | `{ plannedQuantity?, locationId?, notes? }`                                                                               | `200` — the updated order; `400` if not `DRAFT`; `404` if not found                                                                                                                                                                                                                                            |
+| `GET /api/production/orders/:id/availability`     | Any authenticated user                         | —                                                                                                                         | `200 { items: MaterialAvailabilityRow[] }`                                                                                                                                                                                                                                                                     |
+| `POST /api/production/orders/:id/plan`            | Owner or Administrator only (`403` for Member) | —                                                                                                                         | `200` — the planned order; `400` if not `DRAFT`; `404` if not found                                                                                                                                                                                                                                            |
+| `POST /api/production/orders/:id/cancel`          | Owner or Administrator only (`403` for Member) | —                                                                                                                         | `200` — the cancelled order; `400` if `IN_PROGRESS`/`COMPLETED`/already `CANCELLED`; `404` if not found                                                                                                                                                                                                        |
+| `GET /api/production/orders/:id/material-issues`  | Any authenticated user                         | —                                                                                                                         | `200 { items: ProductionMaterialIssue[] }` — each item includes `journalEntry` (Sprint 9)                                                                                                                                                                                                                      |
+| `POST /api/production/orders/:id/material-issues` | Owner or Administrator only (`403` for Member) | `{ issuedDate, notes?, items: [{ componentProductId, quantity }], idempotencyKey? }` (Sprint 9: `idempotencyKey`)         | `201` — the created issue + `journalEntry` (Sprint 9, `null` if every component had `0` cost); `400` for over-issue, insufficient stock, ineligible order status, a closed accounting period, or a missing `WIP`/`INVENTORY` system account; `404` if not found                                                |
+| `GET /api/production/orders/:id/production-run`   | Any authenticated user                         | —                                                                                                                         | `200` — the run, or `null` if not yet completed                                                                                                                                                                                                                                                                |
+| `POST /api/production/orders/:id/complete`        | Owner or Administrator only (`403` for Member) | `{ producedQuantity, rejectedQuantity, rejectionReason?, rejectionNotes?, idempotencyKey? }` (Sprint 9: `idempotencyKey`) | `201` — the completed order + run + `journalEntry` (Sprint 9, `null` if the order's total WIP value is `0`); `400` if not `IN_PROGRESS`, `rejectedQuantity > producedQuantity`, a closed accounting period, or a missing `WIP`/`FINISHED_GOODS_INVENTORY`/`PRODUCTION_LOSS` system account; `404` if not found |
+| `GET /api/production/orders/:id/accounting`       | Any authenticated user                         | —                                                                                                                         | `200 { materialCost: number, journalEntries: JournalEntrySummary[] }` (Sprint 9) — `materialCost` is the order's cumulative posted WIP value; `journalEntries` is every Material Issue's and the completion's journal, in that order                                                                           |
 
 Every write is scoped to the caller's own `organisationId` (from their JWT) — a
 cross-tenant `id` `404`s exactly like a nonexistent one, same convention as every other
@@ -334,20 +344,22 @@ wildcard" route-ordering discipline other controllers need doesn't apply here.
 
 ## 8. Audit Events
 
-| Action                               | When                                                                                            |
-| ------------------------------------ | ----------------------------------------------------------------------------------------------- |
-| `production.bom.created`             | `POST /api/production/boms` — every call                                                        |
-| `production.bom.updated`             | `PATCH /api/production/boms/:id` — every call                                                   |
-| `production.bom.activated`           | `POST .../activate` — every call                                                                |
-| `production.bom.deactivated`         | `POST .../deactivate` — every call                                                              |
-| `production.order.created`           | `POST /api/production/orders` — every call                                                      |
-| `production.order.updated`           | `PATCH /api/production/orders/:id` — every call                                                 |
-| `production.order.planned`           | `POST .../plan` — every call                                                                    |
-| `production.order.started`           | `POST .../material-issues`, only when that call is what moved the order `PLANNED → IN_PROGRESS` |
-| `production.order.cancelled`         | `POST .../cancel` — every call                                                                  |
-| `production.material-issued`         | `POST .../material-issues` — every call                                                         |
-| `production.completed`               | `POST .../complete` — every call                                                                |
-| `production.finished-goods-received` | Same call, only when `acceptedQuantity > 0`                                                     |
+| Action                                     | When                                                                                                             |
+| ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------- |
+| `production.bom.created`                   | `POST /api/production/boms` — every call                                                                         |
+| `production.bom.updated`                   | `PATCH /api/production/boms/:id` — every call                                                                    |
+| `production.bom.activated`                 | `POST .../activate` — every call                                                                                 |
+| `production.bom.deactivated`               | `POST .../deactivate` — every call                                                                               |
+| `production.order.created`                 | `POST /api/production/orders` — every call                                                                       |
+| `production.order.updated`                 | `PATCH /api/production/orders/:id` — every call                                                                  |
+| `production.order.planned`                 | `POST .../plan` — every call                                                                                     |
+| `production.order.started`                 | `POST .../material-issues`, only when that call is what moved the order `PLANNED → IN_PROGRESS`                  |
+| `production.order.cancelled`               | `POST .../cancel` — every call                                                                                   |
+| `production.material-issued`               | `POST .../material-issues` — every call                                                                          |
+| `production.completed`                     | `POST .../complete` — every call                                                                                 |
+| `production.finished-goods-received`       | Same call, only when `acceptedQuantity > 0`                                                                      |
+| `production.material-issue-journal-posted` | Added Sprint 9 — same call, only when a fresh issue (`wasCreated === true`) posted a non-null Journal Entry      |
+| `production.completion-journal-posted`     | Added Sprint 9 — same call, only when a fresh completion (`wasCreated === true`) posted a non-null Journal Entry |
 
 `production.finished-goods-received` is one addition beyond the brief's own suggested
 list, mirroring Inventory's own `GOODS_RECEIVED`/`INVENTORY_INCREASED` split — it makes
@@ -355,6 +367,13 @@ the stock-increase side effect independently auditable from the order-completion
 itself, fired from Production's own controller since Inventory's controller is bypassed
 for this atomic cross-domain write. It does not duplicate any existing Inventory audit
 event.
+
+Sprint 9 also **gates every existing audit event on both write routes behind
+`wasCreated === true`** (`production.order.started`, `production.material-issued`,
+`production.completed`, `production.finished-goods-received`) — before Sprint 9, neither
+route had any idempotency, so replay could never happen; now that both do, an idempotent
+retry (same `idempotencyKey`) never re-emits any audit event, including the two new
+journal-posted events above.
 
 ## 9. Prisma Schema (excerpt)
 
@@ -463,12 +482,14 @@ model ProductionMaterialIssue {
   issuedDate         DateTime
   issuedById         String?
   notes              String?
+  idempotencyKey     String?  // Sprint 9 — see §11
   createdAt          DateTime @default(now())
 
   organisation    Organisation                  @relation(fields: [organisationId], references: [id], onDelete: Cascade)
   productionOrder ProductionOrder               @relation(fields: [productionOrderId], references: [id], onDelete: Restrict)
   items           ProductionMaterialIssueItem[]
 
+  @@unique([productionOrderId, idempotencyKey])  // Sprint 9
   @@index([organisationId, productionOrderId])
   @@map("production_material_issues")
 }
@@ -505,6 +526,9 @@ model ProductionRun {
   rejectionNotes    String?
   completedById     String?
   completedAt       DateTime                   @default(now())
+  idempotencyKey    String?                    // Sprint 9 — see §11; no new composite
+                                                // unique needed, productionOrderId is
+                                                // already @@unique
 
   organisation    Organisation    @relation(fields: [organisationId], references: [id], onDelete: Cascade)
   productionOrder ProductionOrder @relation(fields: [productionOrderId], references: [id], onDelete: Restrict)
@@ -514,12 +538,82 @@ model ProductionRun {
 }
 ```
 
-See migration `20260815143917_add_production_and_bom` for the exact SQL — purely
-additive (six new models, three new enums, four new back-relation arrays on
-`Organisation`/`Product`/`InventoryLocation`), no destructive change to any existing
-table.
+See migration `20260815143917_add_production_and_bom` for the original six models/three
+enums, and `20260825142739_add_production_accounting` (Sprint 9) for the additive
+`averageUnitCost`/`idempotencyKey` columns above — no destructive change to any existing
+table in either migration.
 
-## 10. Known Limitations
+## 11. Accounting Integration (Sprint 9)
+
+Sprint 9 wires Production into the General Ledger one stage further than Sprint 8's
+Goods Receipt bridge: `Raw Materials → Material Issue → Work In Progress → Production →
+Finished Goods → Inventory → General Ledger`. Full detail (worked examples, every
+decision and its rationale) lives in
+[accounting.md §"Production Accounting"](accounting.md) and the
+[Sprint 9 Completion Report](../sprint-9-completion-report.md); this section is the
+Production-domain-facing summary.
+
+- **Costing engine — `InventoryStock.averageUnitCost`.** The first persisted inventory
+  valuation figure in the codebase (Sprint 8's Goods Receipt valuation was transient,
+  journal-only). A moving weighted-average cost per `(organisation, product, location)`:
+  `newAvgCost = (existingQty × existingAvgCost + receivedQty × receivedUnitCost) /
+(existingQty + receivedQty)`. Written by `GoodsReceiptRepository.receive()` (extended
+  Sprint 9) and `ProductionRunRepository.complete()`'s finished-goods upsert (new).
+  Read — never written — by `ProductionMaterialIssueRepository.issue()`, valuing each
+  component at its _current_ cost at the moment of consumption: two issues at two
+  different times can legitimately value the same component differently if stock was
+  replenished at a different price in between. `InventoryStockRepository.adjustStock`
+  (manual corrections) never touches this figure — a correction carries no cost
+  information.
+- **Material Issue posting.** One Journal Entry per `ProductionMaterialIssue` (not per
+  Production Order — three partial issues post three independent, source-linked
+  entries): `DR Work In Progress / CR Raw Material Inventory`, valued at
+  `Σ quantity × averageUnitCost` across the batch's components. Posted from inside the
+  same `$transaction` that decrements stock, via `postSystemJournalEntry` — a closed
+  accounting period or missing `WIP`/`INVENTORY` system account rolls back the entire
+  issue, quantity movement included. Skipped (no journal, not a zero-value one) only
+  when every issued component has a `0` cost (stock built entirely from un-costed
+  Adjustments).
+- **Production Completion posting.** One Journal Entry per `ProductionRun`:
+  `CR Work In Progress` for the order's full cumulative posted WIP value (summed
+  directly from the Journal Entry lines of every Material Issue against this order —
+  never a separately-stored running total, so it can never drift from what was actually
+  posted); `DR Finished Goods Inventory` for the accepted share
+  (`totalWipValue × acceptedQuantity / producedQuantity`); `DR Production Loss / Scrap`
+  for the rejected share (`totalWipValue − acceptedValue`, by subtraction so the two
+  always sum to exactly the credited total, never a rounding-drift gap). This is a
+  documented assumption — proportional-by-produced-quantity, standard for a single
+  homogeneous production run with uniform inputs — not a model of a rejection consuming
+  less material than a completed unit. Skipped entirely when the order's total WIP
+  value is `0`.
+- **Rejected output never enters sellable stock.** The finished-goods `InventoryStock`
+  upsert only ever adds `acceptedQuantity`, never `producedQuantity` — the rejected
+  portion's cost is preserved in the ledger (`Production Loss / Scrap`), not silently
+  dropped, but it never becomes inventory.
+- **Idempotency.** `ProductionMaterialIssue` gained `idempotencyKey` +
+  `@@unique([productionOrderId, idempotencyKey])` (Sprint 8's `GoodsReceipt` shape).
+  `ProductionRun` gained a plain `idempotencyKey` column (no new composite unique
+  needed — `productionOrderId` is already `@@unique`, so a genuine retry is detected by
+  comparing the existing run's own stored key). On both write routes, the idempotency
+  check runs **first in the service layer**, before any business-rule pre-check
+  (over-issue, stock, order-status) — this was a real bug found and fixed during this
+  sprint's live verification: a naive ordering lets a legitimate retry's own prior
+  effects (its own already-issued quantity, its own status transition) cause the
+  pre-check to reject the very call that should idempotently succeed. See the
+  completion report's "Bugs Found and Fixed" section.
+- **Traceability.** No new FK fields — `sourceType`/`sourceId` on the Journal Entry
+  (`PRODUCTION_MATERIAL_ISSUE`/`PRODUCTION_RUN`), same polymorphic design as every
+  other system posting. `GET /api/production/orders/:id/accounting` surfaces the order's
+  cumulative material cost and every linked Journal Entry; the Production Order detail
+  view's "Accounting" section links each one through to Finance's Journal Entries page.
+  Full chain: General Ledger → Journal Entry → Production Run/Material Issue →
+  Production Order → BOM.
+- **Deferred.** Direct labour costing, machine-hour costing, overhead allocation,
+  depreciation allocation, standard costing/variance accounting, and Sales
+  Fulfilment → COGS integration are all explicitly out of scope this sprint — see
+  accounting.md and the completion report for the full deferred list.
+
+## 12. Known Limitations
 
 - **No Manufacturing Resource Planning (MRP).** No automatic scheduling, no capacity
   planning, no multi-order material netting.
@@ -530,10 +624,12 @@ table.
   `quantityOnHand - quantityReserved`; nothing is held/reserved for a specific order.
 - **No multi-level / sub-assembly BOMs.** A BOM's components must be
   Raw Material/Packaging Material/Consumable — never another Finished Product's own BOM.
-- **No production costing.** No labour, machine, or overhead allocation; no
-  standard/actual cost, no COGS, no inventory valuation. `InventoryTransaction` rows
-  carry enough structure for a future Costing module to build on, but nothing computes a
-  monetary figure today.
+- **No labour, machine, or overhead costing.** Sprint 9 added a real, persisted material
+  costing/valuation engine (`InventoryStock.averageUnitCost`) and posts Material
+  Issue/Production Completion to the General Ledger — see §11 above. What remains
+  genuinely absent: labour cost, machine-hour cost, electricity/overhead allocation,
+  depreciation allocation, standard costing, and variance accounting. No COGS is posted
+  at Sales Fulfilment either — that integration is deferred to a future sprint.
 - **No batch/lot tracking or expiry tracking** on either raw materials consumed or
   finished goods produced.
 - **No barcode/RFID scanning** anywhere in Material Issue or Production Execution.
@@ -550,8 +646,11 @@ table.
 - **No silent inventory reversal.** Once material has been issued, an order cannot be
   cancelled — there is no reversal workflow this sprint. A correction, if ever needed,
   would have to be a new, explicit, auditable transaction, never an automatic undo.
-- **No Sales/Distribution/Accounting integration.** Finished-goods output enters
-  Inventory exactly like a Goods Receipt does; nothing downstream of that exists yet.
+- **No Sales/Distribution integration.** Finished-goods output enters Inventory exactly
+  like a Goods Receipt does; nothing downstream of a Sales Fulfilment consuming that
+  stock posts to the General Ledger yet (no COGS this sprint — see §11).
+  Accounting integration for Material Issue/Production Completion themselves **is**
+  implemented — see §11.
 - **No demand forecasting or AI-assisted production planning.**
 - Amounts (`yieldQuantity`, item `quantity`, `plannedQuantity`, `requiredQuantity`,
   `quantityIssued`, `producedQuantity`/`rejectedQuantity`/`acceptedQuantity`) are stored
