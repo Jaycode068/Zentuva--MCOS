@@ -4,20 +4,24 @@
   Foundation"), extended Sprint 8 ("Procurement, Inventory & Accounting Integration")
   with automatic posting for Goods Receipts, extended Sprint 9 ("Manufacturing
   Accounting Integration") with automatic posting for Material Issue and Production
-  Completion. **Not** a complete accounting system — see §9.4/§10.6.
-- **Sprint:** 7, 8, 9
+  Completion, extended Sprint 10 ("Sales Fulfilment & COGS Accounting Integration")
+  with automatic posting for Sales Fulfilment. **Not** a complete accounting system —
+  see §9.4/§10.6/§11.9.
+- **Sprint:** 7, 8, 9, 10
 - **Depends on:** [Identity](identity.md) (tenant boundary, `RolesGuard`,
   `AuditService`), [Finance](finance.md) (invoice issued, payment recorded, credit note
   issued), [Inventory](inventory.md) (goods receipt — Sprint 8; costing engine — Sprint
-  9), [Production](production.md) (material issue, production completion — Sprint 9).
-- **Explicitly does not depend on:** [Sales](sales.md), [Distribution](distribution.md),
-  [Procurement](procurement.md) — Inventory's Goods Receipt and Production's Material
-  Issue/Completion are the only operational-domain events wired so far; every other
-  domain's accounting consequence (notably COGS at Sales Fulfilment) remains deferred
-  future work — see §9.4/§10.6.
+  9), [Production](production.md) (material issue, production completion — Sprint 9),
+  [Sales](sales.md) (fulfilment — Sprint 10).
+- **Explicitly does not depend on:** [Distribution](distribution.md),
+  [Procurement](procurement.md) — Inventory's Goods Receipt, Production's Material
+  Issue/Completion, and Sales's Fulfilment are the only operational-domain events wired
+  so far; Distribution deliberately never posts (§11.7); every other domain's
+  accounting consequence remains deferred future work — see §9.4/§10.6/§11.9.
 - **See also:** [Sprint 7 Completion Report](../sprint-7-completion-report.md),
   [Sprint 8 Completion Report](../sprint-8-completion-report.md),
-  [Sprint 9 Completion Report](../sprint-9-completion-report.md).
+  [Sprint 9 Completion Report](../sprint-9-completion-report.md),
+  [Sprint 10 Completion Report](../sprint-10-completion-report.md).
 
 ## 1. Business Purpose
 
@@ -416,15 +420,139 @@ the idempotency lookup to the front of both service methods — before any busin
 check — via a new `findByIdempotencyKey` method on each repository. See the
 [Sprint 9 Completion Report](../sprint-9-completion-report.md) "Bugs Found and Fixed."
 
-### 10.6 Deferred (unchanged scope boundary)
+### 10.6 Deferred at the time (Sprint 9) — resolved in part by Sprint 11
 
 Direct labour costing, machine-hour costing, electricity/overhead allocation,
-depreciation allocation, standard costing, variance accounting, and COGS posting at
-Sales Fulfilment are all explicitly out of scope this sprint. The `COGS` system account
-key remains seeded and unposted. Every item listed in §9.4 above (financial-statement
-closing, a full AP module, multi-currency, payroll, etc.) remains equally out of scope.
+depreciation allocation, standard costing, and variance accounting were, and remain,
+explicitly out of scope. COGS posting at Sales Fulfilment — deferred as of Sprint 9 —
+is Sprint 10's own subject, see §11 below. Every item listed in §9.4 above
+(financial-statement closing, a full AP module, multi-currency, payroll, etc.) remains
+equally out of scope.
 
-## 11. API Reference
+## 11. Sales Fulfilment Accounting (Sprint 10)
+
+The last major gap in the operational→accounting chain Sprints 7–9 built: Sales
+Fulfilment — the event that physically deducts finished-goods inventory when a
+customer order is supplied — now posts `DR Cost of Goods Sold / CR Finished Goods
+Inventory`. Full detail (worked examples, every decision and its rationale) lives in
+[Sales](sales.md) §4b and the
+[Sprint 10 Completion Report](../sprint-10-completion-report.md); this section is the
+Accounting-domain-facing summary.
+
+### 11.1 Why this is two separate events, not one
+
+`SalesOrder` creation/confirmation, `Invoice` issuance, and `SalesFulfilment` are three
+different business moments and stay three different accounting outcomes:
+
+```
+Sales Order (demand)        → no accounting at all
+Invoice (financial claim)   → DR Accounts Receivable / CR Sales Revenue   (Sprint 6/7, unchanged)
+Sales Fulfilment (physical) → DR Cost of Goods Sold / CR Finished Goods Inventory  (Sprint 10, new)
+```
+
+Revenue is recognised through the Invoice/Finance flow; inventory cost is recognised
+through the physical Fulfilment flow. Neither event impersonates the other, and
+neither is required before the other — `InvoiceService.create()` already requires
+`SalesOrder.status === FULFILLED` (Sprint 6), so in practice Fulfilment happens first
+and Invoicing second, but nothing in the COGS posting itself depends on an invoice
+existing.
+
+### 11.2 Costing basis — no new engine
+
+`SalesFulfilmentRepository.create()` reads `InventoryStock.averageUnitCost` (Sprint 9's
+moving weighted average — see [Inventory](inventory.md) §11b) inside the same
+transaction that decrements stock, for each item, at the moment of consumption — the
+identical read Production's Material Issue already performs. No second costing engine
+was introduced; this is deliberate reuse.
+
+### 11.3 Posting rule — one journal per fulfilment batch
+
+```
+DR Cost of Goods Sold        = Σ (quantity × averageUnitCost) across every item in the batch
+CR Finished Goods Inventory  = same total
+```
+
+`sourceType: 'SALES_FULFILMENT'`, `sourceId` = the `SalesFulfilment.id`. Each partial
+fulfilment is its own independent Journal Entry, posted the moment it happens — never
+batched until the order is fully fulfilled. A multi-SKU fulfilment aggregates every
+line into one two-line journal (not one line per SKU — `JournalEntryLine` carries no
+`productId`/`quantity`); per-SKU traceability instead comes from two new columns on
+`SalesFulfilmentItem` (`unitCost`, `costAmount`), snapshotted at fulfilment time so a
+later read is never distorted by the average subsequently moving.
+
+Worked example (live-verified, Boby Bites): a multi-SKU order (300 packs Plantain
+Chips Classic Salted 500g @ ₦426 average cost, 100 packs Sweet & Spicy 30g @ ₦0 —
+never produced with a known cost) fulfilled in two batches (200+60, then 100+40) posts
+two independent journals — `DR COGS ₦85,200 / CR Finished Goods Inventory ₦85,200`
+then `DR COGS ₦42,600 / CR Finished Goods Inventory ₦42,600` — summing to exactly
+`300 × ₦426 = ₦127,800`, with the zero-cost SKU contributing `₦0` on both without
+blocking either posting.
+
+### 11.4 Zero/missing cost — matches Production's precedent exactly
+
+If every item in a batch has a `0` average cost, the Journal Entry is skipped entirely
+(never posted as a zero-value entry) — but the inventory deduction, the
+`InventoryTransaction`, and the `SalesFulfilment` record all still happen
+unconditionally. This is a **deliberate choice to match Production Material Issue's
+existing behaviour** rather than diverge into a stricter "block the fulfilment" rule:
+blocking a physical, already-approved shipment over a bookkeeping gap would be a worse
+outcome than the trade-off Production already accepted for the structurally identical
+situation (stock built from un-costed Adjustments). A `0`-cost fulfilment produces no
+COGS entry rather than a wrong one.
+
+### 11.5 Idempotency — the Sprint 9 lesson applied proactively
+
+Sprint 9 found, live, that service-layer business-rule pre-checks running before a
+repository's own idempotency check-then-return could reject a legitimate retry with a
+`400` instead of returning the original result. Sprint 10 applied that fix
+**proactively, before shipping** rather than discovering the same bug again:
+`SalesFulfilmentService.fulfil()` calls a new `SalesFulfilmentRepository.
+findByIdempotencyKey()` first, before the order-status and over-fulfilment
+pre-checks — verified live via duplicate API submissions returning identical results
+on both calls, with exactly one `SalesFulfilment`/`InventoryTransaction`/Journal Entry
+existing afterward.
+
+### 11.6 Traceability
+
+No new FK fields — `sourceType`/`sourceId` on the Journal Entry, the same polymorphic
+design as every other system posting. Finance traces Journal Entry → `sourceId`
+(the `SalesFulfilment`) → `GET /sales/orders/:id/fulfilments` (already includes
+`journalEntry` plus each item's `unitCost`/`costAmount`) → the parent `SalesOrder` →
+Customer/Outlet. No new `GET .../accounting` summary endpoint was added — unlike
+Production Orders (which aggregate many Material Issues), a `SalesFulfilment` already
+**is** the event, and the existing fulfilment-list endpoint is already
+fulfilment-granular.
+
+### 11.7 Distribution independence — verified, not just documented
+
+COGS is triggered by Sales Fulfilment alone — never by a Distributor relationship,
+Territory, Dispatch, or Delivery. A new structural guard in
+`distribution-inventory-independence.spec.ts` proves `DispatchService`/
+`DeliveryService`/`DispatchRepository`/`DeliveryRepository` never call
+`postSystemJournalEntry` or touch `tx.journalEntry`, alongside the pre-existing
+guarantee that they never touch `InventoryStock`/`InventoryTransaction` either.
+Confirmed live: dispatching and delivering a previously-fulfilled order's items left
+both `InventoryStock.quantityOnHand` and the total Journal Entry count completely
+unchanged.
+
+### 11.8 Returns — prepared for, not built
+
+No Sales Return, Reverse Fulfilment, Inventory Return, COGS Reversal, or Customer
+Credit mechanism exists. `SalesOrderService.cancel()` already blocks cancellation once
+any fulfilment exists (Sprint 4.9) — a real reversal remains a future capability. A
+future implementation would post `DR Finished Goods Inventory / CR Cost of Goods Sold`
+(reversing the fulfilment's own posting) and, separately, `DR Sales Returns / CR
+Accounts Receivable` (reversing revenue, mirroring Sprint 7's existing Credit Note
+posting) — the architecture doesn't prevent either, but neither is implemented.
+
+### 11.9 Deferred (unchanged scope boundary)
+
+Sales Returns, Customer Claims, Supplier Returns, a payment gateway, full P&L, Balance
+Sheet, budgeting, financial forecasting, payroll, labour costing, factory overhead
+allocation, depreciation, an advanced pricing engine, customer credit limits, and full
+credit management are all explicitly out of scope this sprint.
+
+## 12. API Reference
 
 | Endpoint                                                   | Auth                | Notes                                                                      |
 | ---------------------------------------------------------- | ------------------- | -------------------------------------------------------------------------- |
@@ -445,24 +573,29 @@ closing, a full AP module, multi-currency, payroll, etc.) remains equally out of
 | `GET /api/finance/ledger`                                  | Any authenticated   | `?accountId=&from=&to=&accountingPeriodId=&sourceType=&reference=&status=` |
 | `GET /api/finance/trial-balance`                           | Any authenticated   | `?from=&to=` or `?accountingPeriodId=`                                     |
 
-## 12. Known Limitations
+## 13. Known Limitations
 
 - No re-opening a closed accounting period, and no year-end closing automation.
 - `VOID` never generates an automatic reversing entry — a correction is a new manual
-  journal.
+  journal. As of Sprint 10, no Sales Return/Reverse Fulfilment COGS-reversal mechanism
+  exists either — see §11.8.
 - Running balance in an unfiltered (multi-account) `GET /finance/ledger` view is a
   cumulative net across unrelated accounts — most meaningful once filtered to one
   account; see §6.
 - Trial Balance has no financial-statement layer on top of it (no P&L, no Balance
   Sheet) — see §9.4.
-- No General Ledger integration for Procurement's own PO-confirmation event, Sales
-  Fulfilment, or Distribution yet — Finance's three events, Inventory's Goods Receipt
-  (Sprint 8), and Production's Material Issue/Completion (Sprint 9, see §10) post
-  automatically; COGS at Sales Fulfilment remains the next deferred integration.
+- No General Ledger integration for Procurement's own PO-confirmation event or
+  Distribution's Dispatch/Delivery events — Finance's three events, Inventory's Goods
+  Receipt (Sprint 8), Production's Material Issue/Completion (Sprint 9, see §10), and
+  Sales Fulfilment's COGS posting (Sprint 10, see §11) all post automatically;
+  Distribution deliberately never posts (§11.7).
 - No approval workflow for `GRNI_PENDING_APPROVAL` balances — value posted there stays
   there; a future sprint would add the action that reclassifies it into `AP`.
 - No labour, machine-hour, or overhead costing anywhere in Production Accounting (§10)
-  — material cost only.
+  or Sales Fulfilment Accounting (§11) — material cost only.
+- No FIFO/specific-identification costing, per-lot cost tracking, or landed-cost
+  allocation in either Production Material Issue's or Sales Fulfilment's COGS
+  postings — both reuse the same moving-weighted-average `averageUnitCost`.
 - No full module-level permission engine — RBAC remains binary
   (Owner/Administrator-write, Member-read), same deferred decision as every other
   domain in this codebase.

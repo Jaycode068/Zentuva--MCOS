@@ -2,6 +2,10 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { SalesOrderStatus } from '@prisma/client';
 import { CreateSalesFulfilmentInput } from '@zentuva/validation';
 
+import {
+  MissingSystemAccountError,
+  NoOpenPeriodError,
+} from '../finance/accounting/journal-posting';
 import { InventoryLocationRepository } from '../inventory/inventory-location.repository';
 import { InventoryStockRepository } from '../inventory/inventory-stock.repository';
 import {
@@ -80,6 +84,15 @@ export class SalesFulfilmentService {
     return this.salesFulfilmentRepository.findManyBySalesOrder(organisationId, salesOrderId);
   }
 
+  /** Added Sprint 10 — thin pass-through so the controller doesn't need its own
+   *  direct repository dependency just for this one read. */
+  findJournalEntriesForFulfilments(organisationId: string, fulfilmentIds: string[]) {
+    return this.salesFulfilmentRepository.findJournalEntriesForFulfilments(
+      organisationId,
+      fulfilmentIds,
+    );
+  }
+
   /** `POST /:id/fulfil` — mirrors `ProductionOrderService.issueMaterial`'s exact
    *  three-part pre-check shape (order eligibility -> over-fulfilment -> stock), then
    *  delegates to the atomic write. All three checks are UX-only fast-fail 400s; the
@@ -91,6 +104,30 @@ export class SalesFulfilmentService {
     actorUserId: string,
   ): Promise<FulfilSalesOrderResult> {
     const order = await this.getOrderOrThrow(organisationId, salesOrderId);
+
+    // Idempotency short-circuit — checked first, before any business-rule
+    // pre-check below. A genuine retry's own prior effects (its own fulfilled
+    // quantity now counted by the over-fulfilment check below, its own
+    // CONFIRMED/PARTIALLY_FULFILLED -> FULFILLED transition) would otherwise cause
+    // those same pre-checks to reject the very call that should idempotently
+    // succeed by returning the original result. See
+    // `SalesFulfilmentRepository.findByIdempotencyKey`.
+    if (input.idempotencyKey) {
+      const existing = await this.salesFulfilmentRepository.findByIdempotencyKey(
+        organisationId,
+        salesOrderId,
+        input.idempotencyKey,
+      );
+      if (existing) {
+        return {
+          fulfilment: existing.fulfilment,
+          order,
+          journalEntry: existing.journalEntry,
+          wasCreated: false,
+        };
+      }
+    }
+
     if (order.status === SalesOrderStatus.DRAFT) {
       throw new BadRequestException('Sales order must be confirmed before it can be fulfilled');
     }
@@ -136,6 +173,7 @@ export class SalesFulfilmentService {
       return await this.salesFulfilmentRepository.create({
         organisationId,
         salesOrderId,
+        salesOrderNumber: order.orderCode,
         locationId: input.locationId,
         fulfilmentDate: input.fulfilmentDate,
         fulfilledById: actorUserId,
@@ -152,6 +190,15 @@ export class SalesFulfilmentService {
         error instanceof InsufficientStockError ||
         error instanceof SalesFulfilmentConflictError
       ) {
+        throw new BadRequestException(error.message);
+      }
+      // The accounting posting's own guards, propagated from inside the same
+      // transaction (see `SalesFulfilmentRepository.create` — the whole fulfilment
+      // rolls back with it, so nothing partially applies).
+      if (error instanceof NoOpenPeriodError) {
+        throw new BadRequestException(error.message);
+      }
+      if (error instanceof MissingSystemAccountError) {
         throw new BadRequestException(error.message);
       }
       throw error;

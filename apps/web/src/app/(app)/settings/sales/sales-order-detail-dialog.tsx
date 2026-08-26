@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Badge, Button, Dialog, DialogFooter, DialogHeader, DialogTitle } from '@zentuva/ui';
+import Link from 'next/link';
 
 import { ApiError } from '@/lib/api-client';
 
@@ -136,6 +137,29 @@ export function SalesOrderDetailDialog({
                         </div>
                       ))}
                     </div>
+                    <div className="mt-1 flex justify-between border-t border-border pt-1 text-muted-foreground">
+                      <span>Inventory Cost</span>
+                      <span className="font-medium text-foreground">
+                        {fulfilment.items
+                          .reduce((sum, item) => sum + item.costAmount, 0)
+                          .toFixed(2)}
+                      </span>
+                    </div>
+                    {fulfilment.journalEntry ? (
+                      <p className="mt-0.5">
+                        <Link
+                          href="/settings/finance/journal-entries"
+                          className="font-medium text-foreground underline-offset-2 hover:underline"
+                        >
+                          {fulfilment.journalEntry.journalNumber}
+                        </Link>{' '}
+                        · {fulfilment.journalEntry.status} · COGS Posted
+                      </p>
+                    ) : (
+                      <p className="mt-0.5 text-muted-foreground">
+                        No accounting entry — no known cost at time of fulfilment.
+                      </p>
+                    )}
                   </div>
                 ))}
               </div>

@@ -1,16 +1,18 @@
 # Sales Domain
 
 - **Status:** Foundation implemented — Sprint 4.8; Fulfilment added — Sprint 4.9 ("Sales
-  Execution & Order Fulfilment Foundation").
-- **Sprint:** 4.8 / 4.9
+  Execution & Order Fulfilment Foundation"); Fulfilment now posts Cost of Goods Sold to
+  the General Ledger — Sprint 10 ("Sales Fulfilment & COGS Accounting Integration").
+- **Sprint:** 4.8 / 4.9 / 10
 - **Depends on:** [Identity](identity.md) (tenant boundary, `RolesGuard`),
   [Customers](customers.md), [Outlets](outlets.md) (optional),
   [Product Catalogue](catalogue.md) (SKU-level `Product` only — Sprint 4.7's Family →
-  Variant → SKU architecture), and (Sprint 4.9, Fulfilment only) [Inventory](inventory.md)
-  — see §4a.
+  Variant → SKU architecture), (Sprint 4.9, Fulfilment only) [Inventory](inventory.md)
+  — see §4a, and (Sprint 10, Fulfilment only) [Accounting](accounting.md) — see §4b.
 - **Explicitly does not depend on:** [Retail Network](retail-network.md) — see §2.
 - **See also:** [Sprint 4.8 Completion Report](../sprint-4.8-completion-report.md),
-  [Sprint 4.9 Completion Report](../sprint-4.9-completion-report.md).
+  [Sprint 4.9 Completion Report](../sprint-4.9-completion-report.md),
+  [Sprint 10 Completion Report](../sprint-10-completion-report.md).
 
 ## 1. Business Purpose
 
@@ -155,6 +157,54 @@ DRAFT ──confirm──> CONFIRMED ──fulfil(partial)──> PARTIALLY_FULF
   `fromStatuses` for cancel is unchanged (`[DRAFT, CONFIRMED]`) — it already structurally
   can't reach these states; the guard exists purely to produce a clear, specific message.
 
+## 4b. Accounting Integration (Sprint 10)
+
+Fulfilment now posts `DR Cost of Goods Sold / CR Finished Goods Inventory` — the last
+major gap in the operational→accounting chain Sprint 7–9 built (Invoice → AR/Revenue,
+Goods Receipt → Inventory/AP, Material Issue/Production Completion → WIP/Finished
+Goods). Full detail lives in
+[accounting.md §"Sales Fulfilment Accounting"](accounting.md) and the
+[Sprint 10 Completion Report](../sprint-10-completion-report.md); this section is the
+Sales-domain-facing summary.
+
+- **Two genuinely separate accounting events, never collapsed into one.** Creating or
+  confirming a Sales Order posts nothing — no Journal Entry, no COGS, no AR balance
+  (proven structurally, not just documented — see
+  `sales-finance-independence.spec.ts`/`direct-sales-independence.spec.ts`). Issuing an
+  Invoice posts `DR Accounts Receivable / CR Sales Revenue` (Sprint 6/7, unchanged by
+  this sprint). Only the physical act of Fulfilment — inventory actually leaving stock
+  — posts COGS. Revenue recognition and inventory-cost recognition are deliberately
+  independent events triggered by different business moments.
+- **Costing reuses Sprint 9's engine exactly** — `InventoryStock.averageUnitCost`, read
+  (never written) inside `SalesFulfilmentRepository.create()`'s existing per-item loop,
+  at the moment each item's stock is decremented. No second costing engine.
+- **One Journal Entry per fulfilment batch**, not per Sales Order and not per line —
+  each partial fulfilment is its own independent accounting event, posted the moment it
+  happens, never deferred until the order is fully fulfilled. A multi-SKU batch
+  aggregates every line's cost into one `DR COGS`/`CR Finished Goods Inventory` pair;
+  per-SKU detail (`unitCost`, `costAmount`) is preserved on each
+  `SalesFulfilmentItem` row, snapshotted at the moment of fulfilment (a moving average
+  keeps changing, so a later re-read of `averageUnitCost` would misrepresent history).
+- **Zero/missing cost never blocks the physical fulfilment** — matches Production
+  Material Issue's own precedent exactly: if every item's cost rounds to `0`, the
+  inventory deduction, `InventoryTransaction`, and `SalesFulfilment` record all still
+  happen; only the Journal Entry is skipped (never posted as a zero-value entry).
+- **Idempotency ordering fixed proactively.** Sprint 9 found a real bug live —
+  service-layer business-rule pre-checks running before the repository's own
+  idempotency check, rejecting a legitimate retry with a `400` instead of returning the
+  original result. Sprint 10 applied that exact fix before shipping, not after finding
+  the same bug again: `SalesFulfilmentService.fulfil()` now checks
+  `SalesFulfilmentRepository.findByIdempotencyKey()` first, before the order-status and
+  over-fulfilment pre-checks — verified live via duplicate API submissions.
+- **Dispatch and Delivery never post accounting and never re-deduct inventory** —
+  verified both by existing structural guarantee (inventory) and a new one
+  (accounting) in `distribution-inventory-independence.spec.ts`, and confirmed live: a
+  full dispatch→delivery cycle against a fulfilled order left `InventoryStock` and the
+  Journal Entry count completely unchanged.
+- **Sales Returns / Reverse Fulfilment are not built.** `SalesOrderService.cancel()`
+  already blocks cancellation once any fulfilment exists (Sprint 4.9); no COGS-reversal
+  mechanism exists. Documented as explicit future work — see accounting.md.
+
 ## 5. Workflows
 
 - **Create a Sales Order** — `POST /api/sales/orders` (Owner/Administrator only). Always
@@ -201,24 +251,26 @@ serving both.
 
 Same conventions as every other domain — `RolesGuard`, Owner/Administrator write, Member
 read-only, tenant-scoped repository methods. Audit events: `sales-order.created`,
-`sales-order.updated`, `sales-order.confirmed`, `sales-order.cancelled`, and (Sprint 4.9)
+`sales-order.updated`, `sales-order.confirmed`, `sales-order.cancelled`, (Sprint 4.9)
 `sales-order.fulfilled` — one action name covers both partial and full fulfilment events,
-distinguished by the `newStatus` field in its metadata. A replayed idempotent fulfilment
-request (`wasCreated === false`) never emits a second audit event.
+distinguished by the `newStatus` field in its metadata — and (Sprint 10)
+`sales.fulfilment-cogs-posted`, fired only when a fresh fulfilment actually posted a
+non-null Journal Entry. A replayed idempotent fulfilment request (`wasCreated === false`)
+never emits a second audit event of either kind.
 
 ## 8. API Reference
 
-| Endpoint                                 | Auth                | Notes                                                          |
-| ---------------------------------------- | ------------------- | -------------------------------------------------------------- |
-| `GET /api/sales/orders`                  | Any authenticated   | `?status=&customerId=&outletId=&search=`                       |
-| `GET /api/sales/orders/:id`              | Any authenticated   |                                                                |
-| `POST /api/sales/orders`                 | Owner/Administrator | Server-computed totals                                         |
-| `PATCH /api/sales/orders/:id`            | Owner/Administrator | `DRAFT` only                                                   |
-| `POST /api/sales/orders/:id/confirm`     | Owner/Administrator | `DRAFT → CONFIRMED`                                            |
-| `POST /api/sales/orders/:id/cancel`      | Owner/Administrator | From `DRAFT` or `CONFIRMED` only                               |
-| `GET /api/sales/orders/:id/availability` | Any authenticated   | `?locationId=` optional; informational, never gates fulfilment |
-| `GET /api/sales/orders/:id/fulfilments`  | Any authenticated   | Fulfilment history                                             |
-| `POST /api/sales/orders/:id/fulfil`      | Owner/Administrator | Atomic — decrements inventory, updates order status            |
+| Endpoint                                 | Auth                | Notes                                                                       |
+| ---------------------------------------- | ------------------- | --------------------------------------------------------------------------- |
+| `GET /api/sales/orders`                  | Any authenticated   | `?status=&customerId=&outletId=&search=`                                    |
+| `GET /api/sales/orders/:id`              | Any authenticated   |                                                                             |
+| `POST /api/sales/orders`                 | Owner/Administrator | Server-computed totals                                                      |
+| `PATCH /api/sales/orders/:id`            | Owner/Administrator | `DRAFT` only                                                                |
+| `POST /api/sales/orders/:id/confirm`     | Owner/Administrator | `DRAFT → CONFIRMED`                                                         |
+| `POST /api/sales/orders/:id/cancel`      | Owner/Administrator | From `DRAFT` or `CONFIRMED` only                                            |
+| `GET /api/sales/orders/:id/availability` | Any authenticated   | `?locationId=` optional; informational, never gates fulfilment              |
+| `GET /api/sales/orders/:id/fulfilments`  | Any authenticated   | Fulfilment history — each item includes `journalEntry` (Sprint 10)          |
+| `POST /api/sales/orders/:id/fulfil`      | Owner/Administrator | Atomic — decrements inventory, updates order status, posts COGS (Sprint 10) |
 
 ## 9. Known Limitations
 
@@ -228,7 +280,10 @@ request (`wasCreated === false`) never emits a second audit event.
 - Invoicing, Payments, Credit Notes, and Accounts Receivable now live in their own
   domain — see [Finance](finance.md) (Sprint 6). `FULFILLED` remains Sales' own
   fulfilment-lifecycle terminal state; Finance reads `SalesOrder.status` read-only to
-  gate invoice eligibility, but Sales itself has no invoicing/payment concept.
+  gate invoice eligibility, but Sales itself has no invoicing/payment concept. As of
+  Sprint 10, Fulfilment (not Invoice) is what triggers COGS — see §4b; an order can be
+  fulfilled without ever being invoiced, and vice versa the invoice gate itself is
+  unchanged (still requires `FULFILLED`).
 - No pricing engine, price lists, or customer-specific pricing — `unitPrice` is frozen at
   order-creation time and never re-priced at fulfilment.
 - No inventory reservation on confirmation — `InventoryStock.quantityReserved` remains
@@ -239,7 +294,14 @@ request (`wasCreated === false`) never emits a second audit event.
 - No sales commissions, targets, or agent performance tracking.
 - No Sales Returns / reverse fulfilment — once any fulfilment is recorded, the order can
   no longer be cancelled at all, and there is no credit-back path for a customer return
-  or damaged-in-transit shipment.
+  or damaged-in-transit shipment. As of Sprint 10 this also means no COGS-reversal
+  mechanism exists (`DR Finished Goods Inventory / CR Cost of Goods Sold`) — a future
+  Sales Return/Reverse Fulfilment sprint would need to add it; the architecture doesn't
+  prevent it (see accounting.md).
+- No FIFO/specific-identification costing, per-lot cost tracking, or landed-cost
+  allocation in the Fulfilment COGS posting (Sprint 10) — it reuses Inventory's own
+  moving-weighted-average `averageUnitCost` exactly as Production Material Issue does,
+  the same limitation documented in inventory.md.
 - No multi-location fulfilment within a single batch — one `SalesFulfilment` is pinned to
   exactly one `InventoryLocation`; splitting one order's fulfilment across two warehouses
   requires two separate fulfilment batches.

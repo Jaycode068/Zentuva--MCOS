@@ -64,6 +64,7 @@ describe('SalesOrderController', () => {
     const salesFulfilmentService = {
       getAvailability: jest.fn(),
       listFulfilments: jest.fn(),
+      findJournalEntriesForFulfilments: jest.fn().mockResolvedValue(new Map()),
       fulfil: jest.fn(),
     } as unknown as jest.Mocked<SalesFulfilmentService>;
     const auditService = { record: jest.fn() } as unknown as jest.Mocked<AuditService>;
@@ -182,6 +183,7 @@ describe('SalesOrderController', () => {
       salesFulfilmentService.fulfil.mockResolvedValue({
         fulfilment: { id: 'fulfilment-1', items: [{}] } as never,
         order: fulfilledOrder,
+        journalEntry: null,
         wasCreated: true,
       });
 
@@ -209,6 +211,7 @@ describe('SalesOrderController', () => {
       salesFulfilmentService.fulfil.mockResolvedValue({
         fulfilment: { id: 'fulfilment-1', items: [{}] } as never,
         order,
+        journalEntry: null,
         wasCreated: false,
       });
 

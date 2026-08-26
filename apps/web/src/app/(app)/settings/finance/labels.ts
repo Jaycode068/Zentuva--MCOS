@@ -107,4 +107,6 @@ export const JOURNAL_SOURCE_TYPE_LABELS: Record<string, string> = {
   // Added Sprint 9 — Production's Material Issue/Completion → Accounting integration.
   PRODUCTION_MATERIAL_ISSUE: 'Material Issue',
   PRODUCTION_RUN: 'Production Completion',
+  // Added Sprint 10 — Sales Fulfilment → COGS Accounting integration.
+  SALES_FULFILMENT: 'Sales Fulfilment',
 };

@@ -7,6 +7,71 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 10 Sales Fulfilment & COGS Accounting Integration] - 2026-08-26
+
+### Added
+
+- **Sales Fulfilment → General Ledger posting, atomic with the fulfilment itself**:
+  `SalesFulfilmentRepository.create()` now calls `postSystemJournalEntry` (the same
+  plain, dependency-injection-free posting boundary Sprint 8/9 already used) from
+  inside its own existing `$transaction`, posting one Journal Entry per fulfilment
+  batch (not per Sales Order — partial fulfilments each post their own independent,
+  source-linked entry): `DR Cost of Goods Sold / CR Finished Goods Inventory`, valued
+  at each item's current `InventoryStock.averageUnitCost`. A closed accounting period
+  or a missing `COGS`/`FINISHED_GOODS_INVENTORY` system account now correctly rolls
+  back the entire fulfilment, inventory movement included.
+- **Two genuinely separate accounting events, never collapsed into one**: creating or
+  confirming a Sales Order still posts nothing; issuing an Invoice still posts
+  `DR Accounts Receivable / CR Sales Revenue` (Sprint 6/7, unchanged); only the
+  physical act of Fulfilment posts COGS. Verified structurally
+  (`sales-finance-independence.spec.ts`, new) and live.
+- **`SalesFulfilmentItem.unitCost`/`.costAmount`** — a snapshot of the cost each item
+  was actually valued at, at the moment of fulfilment (never re-derived from a later,
+  possibly-since-changed `averageUnitCost`). The sum of every sibling item's
+  `costAmount` on one fulfilment always equals exactly the posted Journal Entry's
+  amount — the per-SKU traceability source, since `JournalEntryLine` carries no
+  `productId`/`quantity`.
+- **Zero/missing cost never blocks the physical fulfilment** — matches Production
+  Material Issue's own precedent: if every item's cost rounds to `0`, the inventory
+  deduction and fulfilment record still happen; only the Journal Entry is skipped
+  (never posted as a zero-value entry).
+- **`SalesFulfilmentRepository.findByIdempotencyKey()`** — checked first in
+  `SalesFulfilmentService.fulfil()`, before any business-rule pre-check (order status,
+  over-fulfilment), applying Sprint 9's own hard-won lesson proactively this time: a
+  genuine retry now returns the original result instead of a `400`, verified live via
+  duplicate API submissions before any bug could reach production.
+- **`GET /sales/orders/:id/fulfilments`** now includes each fulfilment's `journalEntry`
+  (`{ id, journalNumber, status, totalAmount } | null`) and each item's `unitCost`/
+  `costAmount`, batch-fetched in one query. Sales Admin's order detail view shows a new
+  read-only "Inventory Cost" / "JE-xxxxxx · POSTED · COGS Posted" line per fulfilment,
+  linking through to Finance.
+- **`sales.fulfilment-cogs-posted`** audit event, fired only when a fresh (non-replay)
+  fulfilment actually posted a non-null Journal Entry.
+- **`distribution-inventory-independence.spec.ts`** extended with a new guard proving
+  Dispatch/Delivery never call `postSystemJournalEntry`/touch `JournalEntry` — verified
+  live too: dispatching and delivering a previously-fulfilled order left both
+  `InventoryStock` and the Journal Entry count completely unchanged.
+
+### Fixed
+
+- **Seed data gap**: `PRD-000027` ("Plantain Chips Classic Salted 500g," the SKU Sales
+  actually sells against the seeded orders) carried `averageUnitCost = 0` — its stock
+  had only ever come from `ADJUSTMENT`-type top-ups, never a costed Goods Receipt or
+  Production Completion. Under the zero-cost-skip policy, every already-seeded Sales
+  Fulfilment would have silently posted no COGS journal at all. Fixed by adding a new,
+  fully-costed Production flow (`BOM-000004`/`PROD-000006`) that completes before any
+  `ADJUSTMENT` top-up runs, giving `PRD-000027` a real, non-zero average cost
+  (₦426/pack) that every seeded and live-tested fulfilment now correctly costs against.
+
+### Changed
+
+- `SYSTEM_ACCOUNT_KEYS.COGS`'s doc comment updated from "reserved for the documented
+  future Sales Fulfilment integration" (Sprint 7) to note it is now posted to.
+- Seed data (`apps/api/prisma/seed.ts`): `seedSalesFulfilments()` now computes and
+  writes `unitCost`/`costAmount` per item and posts the same COGS journal every real
+  fulfilment does, so the seeded Fulfilment History demonstrates the full chain
+  end to end, not just inventory movement with no accounting behind it.
+
 ## [Sprint 9 Manufacturing Accounting Integration] - 2026-08-25
 
 ### Added

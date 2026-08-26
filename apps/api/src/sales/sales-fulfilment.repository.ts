@@ -1,6 +1,14 @@
 import { Injectable } from '@nestjs/common';
-import { InventoryTransactionType, SalesFulfilment, SalesOrderStatus } from '@prisma/client';
+import {
+  InventoryTransactionType,
+  JournalEntryStatus,
+  Prisma,
+  SalesFulfilment,
+  SalesOrderStatus,
+} from '@prisma/client';
 
+import { SYSTEM_ACCOUNT_KEYS } from '../finance/accounting/chart-of-account-keys';
+import { postSystemJournalEntry } from '../finance/accounting/journal-posting';
 import { PrismaService } from '../prisma/prisma.service';
 import { SalesOrderWithRelations } from './sales-order.repository';
 
@@ -17,9 +25,27 @@ export type SalesFulfilmentWithItems = SalesFulfilment & {
     /** Cumulative quantity dispatched so far (Sprint 5) — see
      *  `SalesFulfilmentItem.quantityDispatched`'s schema doc comment. */
     quantityDispatched: number;
+    /** Added Sprint 10 — the `InventoryStock.averageUnitCost` this item was actually
+     *  costed at, at the moment of fulfilment. A snapshot, not a live re-read — see
+     *  `SalesFulfilmentItem.unitCost`'s schema doc comment. */
+    unitCost: number;
+    /** Added Sprint 10 — `quantityFulfilled × unitCost`, rounded. Every sibling
+     *  item's `costAmount` on one `SalesFulfilment` sums to exactly the posted
+     *  Journal Entry's amount. */
+    costAmount: number;
     product: { id: string; code: string; name: string; unit: string };
   }[];
 };
+
+/** Minimal Journal Entry summary surfaced on the fulfilment response, same shape as
+ *  `ProductionMaterialIssueRepository`'s `JournalEntrySummary`. `totalAmount` is the
+ *  posting's total debit (== total credit, by construction). */
+export interface JournalEntrySummary {
+  id: string;
+  journalNumber: string;
+  status: JournalEntryStatus;
+  totalAmount: number;
+}
 
 /** Adds the parent Sales Order's own identity fields (Sprint 5) — `DispatchService`
  *  needs `customerId`/`outletId` to resolve a Dispatch's destination without a second
@@ -51,6 +77,9 @@ export interface FulfilItemData {
 export interface FulfilSalesOrderData {
   organisationId: string;
   salesOrderId: string;
+  /** Added Sprint 10 — used only in the Journal Entry's `description`; cheap to pass
+   *  since the caller already has it, avoids a second in-transaction read. */
+  salesOrderNumber: string;
   locationId: string;
   fulfilmentDate: Date;
   fulfilledById: string;
@@ -62,6 +91,12 @@ export interface FulfilSalesOrderData {
 export interface FulfilSalesOrderResult {
   fulfilment: SalesFulfilmentWithItems;
   order: SalesOrderWithRelations;
+  /** Added Sprint 10 — the automatically-posted Journal Entry for this fulfilment's
+   *  COGS value (`DR Cost of Goods Sold / CR Finished Goods Inventory`), `null` only
+   *  when every fulfilled item had a `0` average cost (finished-goods stock built
+   *  entirely from un-costed Adjustments — see docs/domains/accounting.md "Sales
+   *  Fulfilment Accounting"). */
+  journalEntry: JournalEntrySummary | null;
   /** `true` only when THIS call created a new row; `false` when an existing
    *  `idempotencyKey` match was returned instead — lets the controller skip re-emitting
    *  the audit event on a replay. */
@@ -103,6 +138,65 @@ export class SalesFulfilmentConflictError extends Error {}
 export class SalesFulfilmentRepository {
   constructor(private readonly prisma: PrismaService) {}
 
+  /** Looks up the Journal Entry (if any) posted for a given Sales Fulfilment, via the
+   *  same polymorphic `sourceType`/`sourceId` `JournalEntry` design every system
+   *  posting already uses — no FK exists (deliberately, see `journal-posting.ts`). */
+  private async findJournalEntry(
+    tx: Prisma.TransactionClient,
+    organisationId: string,
+    fulfilmentId: string,
+  ): Promise<JournalEntrySummary | null> {
+    const journalEntry = await tx.journalEntry.findUnique({
+      where: {
+        organisationId_sourceType_sourceId: {
+          organisationId,
+          sourceType: 'SALES_FULFILMENT',
+          sourceId: fulfilmentId,
+        },
+      },
+      include: { lines: { select: { debit: true } } },
+    });
+    if (!journalEntry) {
+      return null;
+    }
+    return {
+      id: journalEntry.id,
+      journalNumber: journalEntry.journalNumber,
+      status: journalEntry.status,
+      totalAmount: roundCurrency(journalEntry.lines.reduce((sum, line) => sum + line.debit, 0)),
+    };
+  }
+
+  /** Added Sprint 10 — looks up an already-recorded fulfilment by its idempotency
+   *  key, outside any transaction (a plain read). `SalesFulfilmentService` uses this
+   *  to short-circuit a retried request *before* running any business-rule pre-check
+   *  (over-fulfilment, stock, order status) — those checks are only valid against a
+   *  request that hasn't already been recorded, and a genuine retry's own prior
+   *  effects (its own fulfilled quantity, its own order-status transition) would
+   *  otherwise cause those same pre-checks to reject the very call that should
+   *  idempotently succeed. See `create()`'s own identical check-then-return inside
+   *  its transaction, which this mirrors for the pre-transaction, service-level case. */
+  async findByIdempotencyKey(
+    organisationId: string,
+    salesOrderId: string,
+    idempotencyKey: string,
+  ): Promise<{
+    fulfilment: SalesFulfilmentWithItems;
+    journalEntry: JournalEntrySummary | null;
+  } | null> {
+    const existing = await this.prisma.salesFulfilment.findUnique({
+      where: {
+        salesOrderId_idempotencyKey: { salesOrderId, idempotencyKey },
+      },
+      include: RELATIONS_INCLUDE,
+    });
+    if (!existing || existing.organisationId !== organisationId) {
+      return null;
+    }
+    const journalEntry = await this.findJournalEntry(this.prisma, organisationId, existing.id);
+    return { fulfilment: existing, journalEntry };
+  }
+
   async create(data: FulfilSalesOrderData): Promise<FulfilSalesOrderResult> {
     return this.prisma.$transaction(async (tx) => {
       if (data.idempotencyKey) {
@@ -120,7 +214,8 @@ export class SalesFulfilmentRepository {
             where: { id: data.salesOrderId },
             include: ORDER_RELATIONS_INCLUDE,
           });
-          return { fulfilment: existing, order, wasCreated: false };
+          const journalEntry = await this.findJournalEntry(tx, data.organisationId, existing.id);
+          return { fulfilment: existing, order, journalEntry, wasCreated: false };
         }
       }
 
@@ -135,6 +230,14 @@ export class SalesFulfilmentRepository {
       if (!eligibleOrder) {
         throw new SalesFulfilmentConflictError('Sales order is not eligible for fulfilment');
       }
+
+      // Sprint 10 — cost is read here, at the moment of consumption, not passed in
+      // by the caller: two fulfilments at two different times can legitimately value
+      // the same finished-good differently if stock was replenished (via Production
+      // Completion or a Goods Receipt) at a different cost in between — the correct,
+      // standard behaviour of a moving weighted average, not a bug to special-case.
+      let totalCogsValue = 0;
+      const itemCosts = new Map<string, { unitCost: number; costAmount: number }>();
 
       for (const item of data.items) {
         const existingStock = await tx.inventoryStock.findUnique({
@@ -153,6 +256,13 @@ export class SalesFulfilmentRepository {
             `Insufficient stock for product ${item.productId} (available: ${currentQuantity}, requested: ${item.quantity})`,
           );
         }
+        const unitCost = existingStock?.averageUnitCost ?? 0;
+        const costAmount = roundCurrency(item.quantity * unitCost);
+        // Running rounded sum, not a single round of the raw grand total at the
+        // end — guarantees the sum of every item's own costAmount always equals
+        // exactly the journal's posted total, with no rounding-drift gap.
+        totalCogsValue = roundCurrency(totalCogsValue + costAmount);
+        itemCosts.set(item.productId, { unitCost, costAmount });
         await tx.inventoryStock.upsert({
           where: {
             organisationId_productId_locationId: {
@@ -181,11 +291,16 @@ export class SalesFulfilmentRepository {
           notes: data.notes,
           idempotencyKey: data.idempotencyKey,
           items: {
-            create: data.items.map((item) => ({
-              productId: item.productId,
-              salesOrderItemId: item.salesOrderItemId,
-              quantityFulfilled: item.quantity,
-            })),
+            create: data.items.map((item) => {
+              const cost = itemCosts.get(item.productId)!;
+              return {
+                productId: item.productId,
+                salesOrderItemId: item.salesOrderItemId,
+                quantityFulfilled: item.quantity,
+                unitCost: cost.unitCost,
+                costAmount: cost.costAmount,
+              };
+            }),
           },
         },
         include: RELATIONS_INCLUDE,
@@ -226,7 +341,36 @@ export class SalesFulfilmentRepository {
         include: ORDER_RELATIONS_INCLUDE,
       });
 
-      return { fulfilment, order, wasCreated: true };
+      // Accounting posting (Sprint 10, docs/domains/accounting.md "Sales Fulfilment
+      // Accounting") — shares this same transaction, so it either succeeds together
+      // with everything above or rolls back together with it. Skipped entirely (no
+      // journal, not a zero-amount one) when every fulfilled item had a `0` average
+      // cost — finished-goods stock built entirely from un-costed Adjustments, a
+      // real but rare edge case, not silently misrepresented as a real transaction.
+      let journalEntry: JournalEntrySummary | null = null;
+      if (totalCogsValue > 0) {
+        const posted = await postSystemJournalEntry(tx, {
+          organisationId: data.organisationId,
+          date: data.fulfilmentDate,
+          description: `Sales fulfilment ${fulfilment.id} — Sales Order ${data.salesOrderNumber}`,
+          reference: data.salesOrderNumber,
+          sourceType: 'SALES_FULFILMENT',
+          sourceId: fulfilment.id,
+          actorUserId: data.fulfilledById,
+          lines: [
+            { systemKey: SYSTEM_ACCOUNT_KEYS.COGS, debit: totalCogsValue },
+            { systemKey: SYSTEM_ACCOUNT_KEYS.FINISHED_GOODS_INVENTORY, credit: totalCogsValue },
+          ],
+        });
+        journalEntry = {
+          id: posted.journalEntry.id,
+          journalNumber: posted.journalEntry.journalNumber,
+          status: posted.journalEntry.status,
+          totalAmount: totalCogsValue,
+        };
+      }
+
+      return { fulfilment, order, journalEntry, wasCreated: true };
     });
   }
 
@@ -239,6 +383,39 @@ export class SalesFulfilmentRepository {
       include: RELATIONS_INCLUDE,
       orderBy: { fulfilmentDate: 'desc' },
     });
+  }
+
+  /** Added Sprint 10 — batch lookup of every Journal Entry posted for a list of
+   *  Sales Fulfilments, one query rather than N — mirrors
+   *  `ProductionMaterialIssueRepository.findJournalEntriesByProductionOrder`'s exact
+   *  shape. Used by the controller to attach each fulfilment's own `journalEntry` to
+   *  the `GET :id/fulfilments` response without a second round trip per row. */
+  async findJournalEntriesForFulfilments(
+    organisationId: string,
+    fulfilmentIds: string[],
+  ): Promise<Map<string, JournalEntrySummary>> {
+    if (fulfilmentIds.length === 0) {
+      return new Map();
+    }
+    const journalEntries = await this.prisma.journalEntry.findMany({
+      where: {
+        organisationId,
+        sourceType: 'SALES_FULFILMENT',
+        sourceId: { in: fulfilmentIds },
+      },
+      include: { lines: { select: { debit: true } } },
+    });
+    return new Map(
+      journalEntries.map((journalEntry) => [
+        journalEntry.sourceId!,
+        {
+          id: journalEntry.id,
+          journalNumber: journalEntry.journalNumber,
+          status: journalEntry.status,
+          totalAmount: roundCurrency(journalEntry.lines.reduce((sum, line) => sum + line.debit, 0)),
+        },
+      ]),
+    );
   }
 
   /** Single-fulfilment lookup with its parent order's identity fields (Sprint 5) — used
@@ -259,4 +436,11 @@ export class SalesFulfilmentRepository {
  *  `InventoryStockRepository.adjustStock`'s own rounding helper. */
 function roundQuantity(value: number): number {
   return Math.round(value * 1_000_000) / 1_000_000;
+}
+
+/** Rounds to 2 decimal places (currency) — same convention as every other file's own
+ *  local `roundCurrency` helper in this codebase (e.g.
+ *  `production-material-issue.repository.ts`). */
+function roundCurrency(value: number): number {
+  return Math.round(value * 100) / 100;
 }

@@ -308,4 +308,15 @@ describe('Direct sales independence from the distribution network (Sprint 4.8)',
     );
     expect(salesOrderServiceSource).not.toMatch(/from ['"].*inventory\//);
   });
+
+  // Sprint 10 (brief §3): creating/confirming a Sales Order must never recognize
+  // COGS, create a Journal Entry, or create an AR balance — parallel to the existing
+  // Inventory guard above, applied to Finance.
+  it('structural guard: SalesOrderService (order create/update/confirm/cancel) never imports Finance — order creation/confirmation never posts accounting (Sprint 10)', () => {
+    const salesOrderServiceSource = readFileSync(
+      join(__dirname, 'sales-order.service.ts'),
+      'utf-8',
+    );
+    expect(salesOrderServiceSource).not.toMatch(/from ['"].*finance\//);
+  });
 });

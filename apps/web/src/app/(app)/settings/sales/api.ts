@@ -120,6 +120,22 @@ export interface SalesFulfilmentItem {
   id: string;
   product: { id: string; code: string; name: string; unit: string };
   quantityFulfilled: number;
+  /** Added Sprint 10 — the `InventoryStock.averageUnitCost` this item was actually
+   *  costed at, at the moment of fulfilment (a snapshot, not a live figure). */
+  unitCost: number;
+  /** Added Sprint 10 — `quantityFulfilled × unitCost`, rounded. Every sibling item's
+   *  `costAmount` on one fulfilment sums to exactly the linked `journalEntry`'s
+   *  amount. */
+  costAmount: number;
+}
+
+/** Added Sprint 10 — the automatically-posted Journal Entry for a fulfilment's COGS
+ *  value, `null` when every fulfilled item had a `0` known cost. */
+export interface SalesFulfilmentJournalEntry {
+  id: string;
+  journalNumber: string;
+  status: 'DRAFT' | 'POSTED' | 'VOID';
+  totalAmount: number;
 }
 
 /** `GET /:id/fulfilments` response shape — see
@@ -130,6 +146,7 @@ export interface SalesFulfilment {
   location: { id: string; name: string };
   notes: string | null;
   items: SalesFulfilmentItem[];
+  journalEntry: SalesFulfilmentJournalEntry | null;
   createdAt: string;
 }
 

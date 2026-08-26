@@ -8,21 +8,25 @@
   and idempotency protection on Goods Receipt, extended Sprint 9 ("Manufacturing
   Accounting Integration") with a persisted moving-weighted-average costing engine
   (`InventoryStock.averageUnitCost`) that Production's Material Issue/Completion
-  postings consume.
-- **Sprint:** 4.4, 4.4.1, 4.5, 8, 9
+  postings consume, extended Sprint 10 ("Sales Fulfilment & COGS Accounting
+  Integration") with Sales Fulfilment as a second reader of that same costing engine.
+- **Sprint:** 4.4, 4.4.1, 4.5, 8, 9, 10
 - **Depends on:** [Identity](identity.md) (tenant boundary, authentication, `RolesGuard`),
   [Procurement](procurement.md) (every Goods Receipt receives an existing Purchase
   Order), [Product Catalogue](catalogue.md) (every stock balance/transaction/receipt line
   references a Product), [Production](production.md) (Sprint 9 — Material Issue reads,
   and Production Completion writes, `InventoryStock.averageUnitCost`),
-  [Accounting](accounting.md) (Sprint 8/9 — `postSystemJournalEntry`, a plain function
-  import, not a module dependency), [ADR-002 — Modular Monolith](../adr/ADR-002-modular-monolith.md),
+  [Sales](sales.md) (Sprint 10 — Sales Fulfilment reads
+  `InventoryStock.averageUnitCost`), [Accounting](accounting.md) (Sprint 8/9/10 —
+  `postSystemJournalEntry`, a plain function import, not a module dependency),
+  [ADR-002 — Modular Monolith](../adr/ADR-002-modular-monolith.md),
   [ADR-003 — Multi-Tenancy](../adr/ADR-003-multi-tenancy.md)
 - **See also:** [Sprint 4.4 Completion Report](../sprint-4.4-completion-report.md),
   [Sprint 4.4.1 Completion Report](../sprint-4.4.1-completion-report.md),
   [Sprint 4.5 Completion Report](../sprint-4.5-completion-report.md),
   [Sprint 8 Completion Report](../sprint-8-completion-report.md),
-  [Sprint 9 Completion Report](../sprint-9-completion-report.md) for what was
+  [Sprint 9 Completion Report](../sprint-9-completion-report.md),
+  [Sprint 10 Completion Report](../sprint-10-completion-report.md) for what was
   implemented and why.
 
 ## 1. Business Purpose
@@ -655,7 +659,7 @@ Each `GoodsReceiptItem` also gained `payableQuantity` — see
 (`{ id, journalNumber, status, totalAmount } | null`) so Procurement/Inventory UI can
 show the linked accounting entry without a second round trip.
 
-## 11b. Costing Engine & Production Accounting Integration (Sprint 9)
+## 11b. Costing Engine & Production Accounting Integration (Sprint 9, extended Sprint 10)
 
 Sprint 9 adds `InventoryStock.averageUnitCost Float @default(0)` — **the first
 persisted inventory valuation figure in this codebase.** Sprint 8's Goods Receipt
@@ -676,11 +680,15 @@ newAvgCost = (existingQty × existingAvgCost + receivedQty × receivedUnitCost)
   `ProductionRunRepository.complete()`'s finished-goods `InventoryStock` upsert (new —
   the finished product's per-unit cost is its accepted share's own portion of the
   transferred WIP value, see [Production](production.md) §11).
-- **Reader:** `ProductionMaterialIssueRepository.issue()`, valuing each consumed
+- **Readers:** `ProductionMaterialIssueRepository.issue()`, valuing each consumed
   component at its _current_ cost at the moment of consumption — never passed in by the
   caller. Two issues at two different times can legitimately value the same component
   differently if stock was replenished at a different price in between; this is the
   correct, standard behaviour of a moving weighted average, not a bug to special-case.
+  **Added Sprint 10:** `SalesFulfilmentRepository.create()` reads the exact same field
+  the exact same way, for the exact same reason — a Sales Fulfilment consumes
+  finished-goods stock that may have been produced (or received) at different costs
+  over time, and needs a real, current cost to value the COGS it posts. See §11c.
 - **Never touched by `InventoryStockRepository.adjustStock`**, in either direction — a
   manual correction (cycle count, damage, shrinkage) carries no monetary event. An
   Adjustment increase gets no cost basis; an Adjustment decrease doesn't need one (the
@@ -696,6 +704,20 @@ newAvgCost = (existingQty × existingAvgCost + receivedQty × receivedUnitCost)
 See [Accounting](accounting.md) §"Production Accounting" and
 [Production](production.md) §11 for the full Material Issue/Production Completion
 posting rules this costing figure feeds.
+
+## 11c. Sales Fulfilment Accounting Integration (Sprint 10)
+
+Sprint 10 makes `SalesFulfilmentRepository.create()` — the one place a Sales Order's
+finished-goods inventory is physically deducted — the second reader of
+`averageUnitCost` (§11b), posting `DR Cost of Goods Sold / CR Finished Goods Inventory`
+for the exact value of stock leaving. No schema change to `InventoryStock` itself was
+needed; only `SalesFulfilmentItem` gained two new snapshot columns (`unitCost`,
+`costAmount`) recording what each line was actually costed at, at the moment of
+fulfilment — see [Sales](sales.md) §4b and
+[Accounting](accounting.md) §"Sales Fulfilment Accounting" for the full posting rules,
+the zero-cost policy (matches Production's own precedent — skip the journal, never
+block the physical fulfilment), and the idempotency-ordering fix applied proactively
+this sprint.
 
 ## 11. Known Limitations (Sprint 4.5)
 

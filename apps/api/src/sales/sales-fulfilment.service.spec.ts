@@ -58,6 +58,8 @@ describe('SalesFulfilmentService', () => {
     const salesFulfilmentRepository = {
       create: jest.fn(),
       findManyBySalesOrder: jest.fn(),
+      findByIdempotencyKey: jest.fn().mockResolvedValue(null),
+      findJournalEntriesForFulfilments: jest.fn().mockResolvedValue(new Map()),
     } as unknown as jest.Mocked<SalesFulfilmentRepository>;
     const salesOrderRepository = {
       findById: jest.fn(),
@@ -188,6 +190,82 @@ describe('SalesFulfilmentService', () => {
       ).rejects.toThrow('This sales order has already been fully fulfilled');
     });
 
+    it('short-circuits on a matching idempotency key even though the order has already moved to FULFILLED — a naive re-check would otherwise wrongly reject the retry as "already fully fulfilled"', async () => {
+      const { service, salesOrderRepository, salesFulfilmentRepository } = makeService();
+      // The order is now FULFILLED (this call's own prior effect) — exactly the
+      // state a genuine retry arrives into.
+      const fulfilledOrder = { ...confirmedOrder, status: SalesOrderStatus.FULFILLED };
+      salesOrderRepository.findById.mockResolvedValue(fulfilledOrder);
+      const existingFulfilment = {
+        id: 'fulfilment-1',
+        items: [],
+      } as unknown as SalesFulfilmentWithItems;
+      salesFulfilmentRepository.findByIdempotencyKey.mockResolvedValue({
+        fulfilment: existingFulfilment,
+        journalEntry: null,
+      });
+
+      const result = await service.fulfil(
+        'org-1',
+        'order-1',
+        {
+          locationId: 'location-1',
+          fulfilmentDate: new Date('2026-08-25'),
+          idempotencyKey: 'retry-key-1',
+          items: [{ salesOrderItemId: 'item-1', quantity: 100 }],
+        },
+        'user-1',
+      );
+
+      expect(salesFulfilmentRepository.findByIdempotencyKey).toHaveBeenCalledWith(
+        'org-1',
+        'order-1',
+        'retry-key-1',
+      );
+      expect(result).toEqual({
+        fulfilment: existingFulfilment,
+        order: fulfilledOrder,
+        journalEntry: null,
+        wasCreated: false,
+      });
+      expect(salesFulfilmentRepository.create).not.toHaveBeenCalled();
+    });
+
+    it('short-circuits on a matching idempotency key even though the requirement is already fully consumed — a naive re-check would otherwise wrongly reject the retry as an over-fulfilment', async () => {
+      const { service, salesOrderRepository, salesFulfilmentRepository } = makeService();
+      // The order's own item is already fully fulfilled (this call's own prior
+      // effect) — exactly the state a genuine retry arrives into.
+      const partiallyFulfilledOrder = {
+        ...confirmedOrder,
+        status: SalesOrderStatus.PARTIALLY_FULFILLED,
+        items: [{ ...confirmedOrder.items[0]!, quantityFulfilled: 100 }],
+      };
+      salesOrderRepository.findById.mockResolvedValue(partiallyFulfilledOrder);
+      const existingFulfilment = {
+        id: 'fulfilment-1',
+        items: [],
+      } as unknown as SalesFulfilmentWithItems;
+      salesFulfilmentRepository.findByIdempotencyKey.mockResolvedValue({
+        fulfilment: existingFulfilment,
+        journalEntry: null,
+      });
+
+      const result = await service.fulfil(
+        'org-1',
+        'order-1',
+        {
+          locationId: 'location-1',
+          fulfilmentDate: new Date('2026-08-25'),
+          idempotencyKey: 'retry-key-1',
+          items: [{ salesOrderItemId: 'item-1', quantity: 100 }],
+        },
+        'user-1',
+      );
+
+      expect(result.wasCreated).toBe(false);
+      expect(salesFulfilmentRepository.create).not.toHaveBeenCalled();
+    });
+
     it('rejects an item that does not belong to this order', async () => {
       const { service, salesOrderRepository } = makeService();
       salesOrderRepository.findById.mockResolvedValue(confirmedOrder);
@@ -280,6 +358,7 @@ describe('SalesFulfilmentService', () => {
       const fulfilmentResult: FulfilSalesOrderResult = {
         fulfilment: { id: 'fulfilment-1', items: [] } as unknown as SalesFulfilmentWithItems,
         order: { ...confirmedOrder, status: SalesOrderStatus.PARTIALLY_FULFILLED },
+        journalEntry: null,
         wasCreated: true,
       };
       salesFulfilmentRepository.create.mockResolvedValue(fulfilmentResult);

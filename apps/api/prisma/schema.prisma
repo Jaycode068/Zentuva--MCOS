@@ -1850,6 +1850,23 @@ model SalesFulfilmentItem {
   /// cumulative-progress convention one level further down the chain — see
   /// docs/domains/distribution.md.
   quantityDispatched Float    @default(0)
+  /// Added Sprint 10 — the InventoryStock.averageUnitCost read for this item's
+  /// (organisationId, productId, locationId) at the exact moment this fulfilment
+  /// consumed stock. A snapshot, never re-derived later: averageUnitCost is a moving
+  /// weighted average that keeps changing as new stock arrives, so a later read must
+  /// reflect what was actually costed and posted at fulfilment time, not the
+  /// product's current average. `@default(0)` for the same reason
+  /// InventoryStock.averageUnitCost defaults to 0 — a product with no known cost
+  /// basis fulfils at cost 0 (see docs/domains/accounting.md "Sales Fulfilment
+  /// Accounting" for the zero-cost policy).
+  unitCost           Float    @default(0)
+  /// Added Sprint 10 — roundCurrency(quantityFulfilled × unitCost), this item's
+  /// exact contribution to the fulfilment's posted COGS journal. The sum of every
+  /// sibling item's costAmount on the same SalesFulfilment always equals exactly the
+  /// posted Journal Entry's DR COGS / CR Finished Goods Inventory amount — the
+  /// per-SKU traceability source, since JournalEntryLine carries no
+  /// productId/quantity.
+  costAmount         Float    @default(0)
   createdAt         DateTime @default(now())
 
   salesFulfilment SalesFulfilment @relation(fields: [salesFulfilmentId], references: [id], onDelete: Cascade)

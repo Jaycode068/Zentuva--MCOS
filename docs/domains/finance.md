@@ -254,9 +254,14 @@ financial-statement closing (Trial Balance → Profit & Loss, Balance Sheet), Ca
 Statement, Bank Reconciliation, Accounts Payable / supplier invoices, payroll, fixed
 assets, a full multi-jurisdiction tax engine, sophisticated customer/distributor
 pricing, credit scoring, Nigerian bank/payment-gateway integration, advanced financial
-analytics, budgeting, and financial forecasting. Accounting for Procurement,
-Production, Inventory, and Sales Fulfilment/Distribution is also not yet wired — see
-`accounting.md` §9 for the documented future integration shape.
+analytics, budgeting, and financial forecasting. Sprint 8 wired Inventory's Goods
+Receipt, Sprint 9 wired Production's Material Issue/Completion, and Sprint 10 wired
+Sales's Fulfilment (`DR Cost of Goods Sold / CR Finished Goods Inventory`, deliberately
+a separate event from this section's own `DR Accounts Receivable / CR Sales Revenue`
+Invoice posting — see [Sales](sales.md) §4b and `accounting.md` §11) — Distribution
+(Dispatch/Delivery) and Procurement's own PO-confirmation event remain unwired, and
+COGS-reversal for Sales Returns remains future work — see `accounting.md` §9.4/§11.9
+for the full remaining deferred-integration list.
 
 ## 10. API Reference
 

@@ -11,8 +11,9 @@
  * `WIP`/`FINISHED_GOODS_INVENTORY`/`PRODUCTION_LOSS` are posted to starting Sprint 9
  * (Material Issue/Production Completion, see
  * `ProductionMaterialIssueRepository.issue`/`ProductionRunRepository.complete`).
- * `COGS` remains unposted — reserved for the documented future Sales Fulfilment
- * integration (docs/domains/accounting.md "Future Integrations").
+ * `COGS` is posted to starting Sprint 10 (Sales Fulfilment, `DR Cost of Goods Sold /
+ * CR Finished Goods Inventory`, see `SalesFulfilmentRepository.create` and
+ * docs/domains/accounting.md "Sales Fulfilment Accounting").
  *
  * `GRNI_PENDING_APPROVAL` (Sprint 8, docs/domains/accounting.md "Accepted vs.
  * Payable") is a distinct liability/clearing account for goods physically accepted

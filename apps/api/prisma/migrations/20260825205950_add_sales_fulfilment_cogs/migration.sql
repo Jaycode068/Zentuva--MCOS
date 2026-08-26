@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "sales_fulfilment_items" ADD COLUMN     "costAmount" DOUBLE PRECISION NOT NULL DEFAULT 0,
+ADD COLUMN     "unitCost" DOUBLE PRECISION NOT NULL DEFAULT 0;

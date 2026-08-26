@@ -18,7 +18,7 @@ import { JwtAuthGuard } from '../identity/auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../identity/auth/guards/roles.guard';
 import { TokenPayload } from '../identity/auth/ports/token.port';
 import { SALES_AUDIT_ACTIONS } from './sales-audit-actions';
-import { SalesFulfilmentWithItems } from './sales-fulfilment.repository';
+import { JournalEntrySummary, SalesFulfilmentWithItems } from './sales-fulfilment.repository';
 import { SalesFulfilmentService } from './sales-fulfilment.service';
 import { SalesOrderWithRelations } from './sales-order.repository';
 import { SalesOrderService } from './sales-order.service';
@@ -172,11 +172,20 @@ export class SalesOrderController {
     return { items };
   }
 
-  /** `GET /:id/fulfilments` (Sprint 4.9) — fulfilment history, auth-only. */
+  /** `GET /:id/fulfilments` (Sprint 4.9) — fulfilment history, auth-only. Each item's
+   *  `journalEntry` (Sprint 10) is batch-fetched in one query rather than N. */
   @Get(':id/fulfilments')
   async listFulfilments(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const items = await this.salesFulfilmentService.listFulfilments(user.organisationId, id);
-    return { items: items.map(toSalesFulfilmentResponse) };
+    const journalEntries = await this.salesFulfilmentService.findJournalEntriesForFulfilments(
+      user.organisationId,
+      items.map((item) => item.id),
+    );
+    return {
+      items: items.map((item) =>
+        toSalesFulfilmentResponse(item, journalEntries.get(item.id) ?? null),
+      ),
+    };
   }
 
   /** `POST /:id/fulfil` (Sprint 4.9) — THE one write in this domain that actually moves
@@ -191,12 +200,8 @@ export class SalesOrderController {
     @CurrentUser() user: TokenPayload,
     @Req() req: Request,
   ) {
-    const { fulfilment, order, wasCreated } = await this.salesFulfilmentService.fulfil(
-      user.organisationId,
-      id,
-      body,
-      user.sub,
-    );
+    const { fulfilment, order, journalEntry, wasCreated } =
+      await this.salesFulfilmentService.fulfil(user.organisationId, id, body, user.sub);
 
     if (wasCreated) {
       await this.auditService.record({
@@ -213,20 +218,43 @@ export class SalesOrderController {
         ipAddress: req.ip,
         userAgent: req.headers['user-agent'],
       });
+
+      if (journalEntry) {
+        await this.auditService.record({
+          action: SALES_AUDIT_ACTIONS.FULFILMENT_COGS_POSTED,
+          entityType: 'SalesFulfilment',
+          entityId: fulfilment.id,
+          organisationId: user.organisationId,
+          actorUserId: user.sub,
+          metadata: {
+            journalEntryId: journalEntry.id,
+            journalNumber: journalEntry.journalNumber,
+            totalAmount: journalEntry.totalAmount,
+          },
+          ipAddress: req.ip,
+          userAgent: req.headers['user-agent'],
+        });
+      }
     }
 
     return toSalesOrderResponse(order);
   }
 }
 
-function toSalesFulfilmentResponse(fulfilment: SalesFulfilmentWithItems) {
+function toSalesFulfilmentResponse(
+  fulfilment: SalesFulfilmentWithItems,
+  journalEntry: JournalEntrySummary | null = null,
+) {
   return {
     id: fulfilment.id,
     fulfilmentDate: fulfilment.fulfilmentDate,
     location: fulfilment.location,
     notes: fulfilment.notes,
+    journalEntry,
     items: fulfilment.items.map((item) => ({
       id: item.id,
+      unitCost: item.unitCost,
+      costAmount: item.costAmount,
       product: item.product,
       quantityFulfilled: item.quantityFulfilled,
     })),

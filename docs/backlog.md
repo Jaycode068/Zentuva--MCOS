@@ -160,8 +160,11 @@ Accounts Payable`, with any quantity accepted beyond a Purchase Order's own orde
   added the first persisted inventory costing figure, `InventoryStock.averageUnitCost`
   — a moving weighted average updated by Goods Receipt and Production Completion,
   read by Production's Material Issue — still not a full FIFO/standard-costing engine.
-  Warehouse Transfers, Reservation/Allocation, Low Stock alerting, and a full Warehouse
-  Management System remain — see [`docs/domains/inventory.md`](domains/inventory.md).
+  Sprint 10 ("Sales Fulfilment & COGS Accounting Integration") made Sales Fulfilment
+  the second reader of that same figure, valuing the finished-goods stock a customer
+  order consumes. Warehouse Transfers, Reservation/Allocation, Low Stock alerting, and
+  a full Warehouse Management System remain — see
+  [`docs/domains/inventory.md`](domains/inventory.md).
 
 ### Epic 6 — Production
 
@@ -207,9 +210,15 @@ Accounts Payable`, with any quantity accepted beyond a Purchase Order's own orde
   never touches inventory. A mobile-first Field Sales workspace (`/field`) and a desktop
   Admin surface (`/settings/sales`) share this one backend, including the new Fulfilment
   UI. Sprint 6 ("Finance Foundation") shipped Invoicing/Payments as their own domain
-  (Epic 16, below) rather than folding them into Sales. Returns, inventory reservation,
-  delivery/route tracking, and a pricing engine remain — see
-  [`docs/domains/customers.md`](domains/customers.md) and
+  (Epic 16, below) rather than folding them into Sales. Sprint 10 ("Sales Fulfilment &
+  COGS Accounting Integration") wired Fulfilment to the General Ledger — `DR Cost of
+Goods Sold / CR Finished Goods Inventory`, one journal per fulfilment batch, valued
+  at Inventory's own moving-weighted-average cost (Sprint 9's costing engine, reused
+  not reinvented) — deliberately kept separate from Invoice's own `DR Accounts
+Receivable / CR Sales Revenue` posting (Sprint 6/7): revenue and inventory cost are
+  recognised at different business moments and neither event impersonates the other.
+  Returns/COGS-reversal, inventory reservation, delivery/route tracking, and a pricing
+  engine remain — see [`docs/domains/customers.md`](domains/customers.md) and
   [`docs/domains/sales.md`](domains/sales.md).
 
 ### Epic 8 — Distribution
@@ -345,14 +354,14 @@ Accounts Payable`, with any quantity accepted beyond a Purchase Order's own orde
   validation, immutable once posted), General Ledger/Trial Balance/Account Activity
   reporting, automatic posting for Finance's `invoice.issued`/`payment.recorded`/
   `credit-note.issued` events, (Sprint 8) automatic posting for Inventory's Goods
-  Receipt event, and (Sprint 9) automatic posting for Production's Material Issue and
-  Production Completion events. Deliberately excludes Chart of Accounts →
-  financial-statement closing (P&L, Balance Sheet, Cash Flow Statement), Bank
-  Reconciliation, a full Accounts Payable module (supplier invoice matching, payment
-  runs, AP ageing, an approval workflow to reclassify `GRNI — Pending Approval`
-  balances into `AP`), payroll, fixed-asset accounting, a full tax engine, budgeting,
-  year-end closing, labour/machine/overhead costing, and COGS accounting integration
-  for Sales Fulfilment — all future work.
+  Receipt event, (Sprint 9) automatic posting for Production's Material Issue and
+  Production Completion events, and (Sprint 10) automatic posting for Sales's
+  Fulfilment event. Deliberately excludes Chart of Accounts → financial-statement
+  closing (P&L, Balance Sheet, Cash Flow Statement), Bank Reconciliation, a full
+  Accounts Payable module (supplier invoice matching, payment runs, AP ageing, an
+  approval workflow to reclassify `GRNI — Pending Approval` balances into `AP`),
+  payroll, fixed-asset accounting, a full tax engine, budgeting, year-end closing,
+  labour/machine/overhead costing, and Sales Returns/COGS-reversal — all future work.
 - **Status:** Foundation implemented — Sprint 7 ("General Ledger & Accounting
   Foundation"). `InvoiceRepository.issue()`/`PaymentRepository.create()`/
   `CreditNoteRepository.issue()` each atomically post a double-entry `JournalEntry` via
@@ -376,7 +385,15 @@ Accounts Payable`, with any quantity accepted beyond a Purchase Order's own orde
   new persisted costing figure (`InventoryStock.averageUnitCost`, a moving weighted
   average — see [`docs/domains/inventory.md`](domains/inventory.md) §11b) — no new
   accounting mechanism, no production-specific journal table — see
-  [`docs/domains/accounting.md`](domains/accounting.md) §10.
+  [`docs/domains/accounting.md`](domains/accounting.md) §10. Sprint 10 ("Sales
+  Fulfilment & COGS Accounting Integration") closed the last major gap in this chain:
+  `SalesFulfilmentRepository.create()` now posts `DR Cost of Goods Sold / CR Finished
+Goods Inventory` through the same `postSystemJournalEntry` boundary, valued at the
+  same `averageUnitCost` Production already reads — no new system accounts needed
+  (`COGS` had been seeded and reserved since Sprint 7), no new costing engine, and
+  deliberately kept as a separate accounting event from Invoice's own `DR AR / CR Sales
+Revenue` posting, since revenue and inventory cost are recognised at different
+  business moments — see [`docs/domains/accounting.md`](domains/accounting.md) §11.
 
 ## 5. Current Sprint Status
 
@@ -410,6 +427,7 @@ Accounts Payable`, with any quantity accepted beyond a Purchase Order's own orde
 - ✓ Sprint 7 — General Ledger & Accounting Foundation
 - ✓ Sprint 8 — Procurement, Inventory & Accounting Integration
 - ✓ Sprint 9 — Manufacturing Accounting Integration
+- ✓ Sprint 10 — Sales Fulfilment & COGS Accounting Integration
 
 **Current focus:** Next sprint not yet scoped.
 
