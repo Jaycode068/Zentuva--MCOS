@@ -56,6 +56,10 @@ export const goodsReceiptItemInputSchema = z
     rejectedQuantity: z.number().nonnegative('Rejected quantity cannot be negative').default(0),
     rejectionReason: rejectionReasonSchema.optional(),
     rejectionNotes: z.string().trim().max(2000).optional(),
+    /** Added Sprint 11 (brief §21/§39) — when this line is a replacement for a
+     *  previously-rejected `GoodsReceiptItem`, its id. See `createGoodsReceiptSchema`'s
+     *  own `replacesGoodsReceiptId`. */
+    replacesRejectedItemId: z.string().trim().min(1).optional(),
   })
   .refine((data) => data.rejectedQuantity <= data.deliveredQuantity, {
     message: 'Rejected quantity cannot exceed delivered quantity',
@@ -83,6 +87,12 @@ export const createGoodsReceiptSchema = z.object({
    *  same Purchase Order returns the original receipt instead of creating a second
    *  one. */
   idempotencyKey: z.string().trim().min(1).optional(),
+  /** Added Sprint 11 (brief §21/§39) — set when this entire receipt is a supplier's
+   *  replacement shipment resolving a prior receipt's discrepancy. Reuses this
+   *  schema's/`InventoryService.receiveGoods`'s existing payable/GRNI computation
+   *  completely unmodified — see `GoodsReceipt.replacesGoodsReceiptId` schema
+   *  comment. */
+  replacesGoodsReceiptId: z.string().trim().min(1).optional(),
 });
 export type CreateGoodsReceiptInput = z.infer<typeof createGoodsReceiptSchema>;
 
@@ -94,6 +104,10 @@ export type CreateGoodsReceiptInput = z.infer<typeof createGoodsReceiptSchema>;
 export const updateGoodsReceiptDiscrepancySchema = z.object({
   status: discrepancyStatusSchema,
   notes: z.string().trim().max(2000).optional(),
+  /** Added Sprint 11 (brief §20) — the manual resolution actions only
+   *  (`CREDIT`/`ACCEPT_AS_IS`/`PRICE_ADJUSTMENT`/`OTHER`); `REPLACEMENT`/`RETURN` are
+   *  set automatically by the code paths that resolve them, never accepted here. */
+  resolutionAction: z.enum(['CREDIT', 'ACCEPT_AS_IS', 'PRICE_ADJUSTMENT', 'OTHER']).optional(),
 });
 export type UpdateGoodsReceiptDiscrepancyInput = z.infer<
   typeof updateGoodsReceiptDiscrepancySchema

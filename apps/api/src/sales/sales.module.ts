@@ -3,9 +3,13 @@ import { Module } from '@nestjs/common';
 import { ProductModule } from '../catalogue/product/product.module';
 import { AuthModule } from '../identity/auth/auth.module';
 import { IdentityModule } from '../identity/identity.module';
+import { FileStorageModule } from '../identity/organisation/infrastructure/file-storage.module';
 import { InventoryModule } from '../inventory/inventory.module';
 import { CustomerModule } from '../retail/customer/customer.module';
 import { OutletModule } from '../retail/outlet/outlet.module';
+import { CustomerReturnController } from './customer-return.controller';
+import { CustomerReturnRepository } from './customer-return.repository';
+import { CustomerReturnService } from './customer-return.service';
 import { SalesFulfilmentRepository } from './sales-fulfilment.repository';
 import { SalesFulfilmentService } from './sales-fulfilment.service';
 import { SalesOrderController } from './sales-order.controller';
@@ -43,13 +47,16 @@ import { SalesOrderService } from './sales-order.service';
     OutletModule,
     ProductModule,
     InventoryModule,
+    FileStorageModule,
   ],
-  controllers: [SalesOrderController],
+  controllers: [SalesOrderController, CustomerReturnController],
   providers: [
     SalesOrderRepository,
     SalesOrderService,
     SalesFulfilmentRepository,
     SalesFulfilmentService,
+    CustomerReturnRepository,
+    CustomerReturnService,
   ],
   exports: [SalesOrderRepository, SalesFulfilmentRepository],
 })

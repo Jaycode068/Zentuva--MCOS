@@ -535,24 +535,138 @@ Confirmed live: dispatching and delivering a previously-fulfilled order's items 
 both `InventoryStock.quantityOnHand` and the total Journal Entry count completely
 unchanged.
 
-### 11.8 Returns — prepared for, not built
+### 11.8 Returns — resolved by Sprint 11
 
-No Sales Return, Reverse Fulfilment, Inventory Return, COGS Reversal, or Customer
-Credit mechanism exists. `SalesOrderService.cancel()` already blocks cancellation once
-any fulfilment exists (Sprint 4.9) — a real reversal remains a future capability. A
-future implementation would post `DR Finished Goods Inventory / CR Cost of Goods Sold`
-(reversing the fulfilment's own posting) and, separately, `DR Sales Returns / CR
-Accounts Receivable` (reversing revenue, mirroring Sprint 7's existing Credit Note
-posting) — the architecture doesn't prevent either, but neither is implemented.
+Sprint 10 shipped with no Sales Return, Reverse Fulfilment, Inventory Return, COGS
+Reversal, or Customer Credit mechanism — `SalesOrderService.cancel()` already blocked
+cancellation once any fulfilment existed (Sprint 4.9), and a real reversal was
+documented as future work. **Sprint 11 builds exactly the mechanism this section
+predicted**: `CustomerReturn.receive()` posts `DR Finished Goods Inventory / CR Cost of
+Goods Sold` (reversing the fulfilment's own posting, valued at the resalable portion
+only) and, independently, issues a Credit Note (`DR Sales Returns / CR Accounts
+Receivable`, reusing Sprint 7's existing posting exactly, valued at the credited
+portion). See §12 below for the full design.
 
 ### 11.9 Deferred (unchanged scope boundary)
 
-Sales Returns, Customer Claims, Supplier Returns, a payment gateway, full P&L, Balance
-Sheet, budgeting, financial forecasting, payroll, labour costing, factory overhead
-allocation, depreciation, an advanced pricing engine, customer credit limits, and full
-credit management are all explicitly out of scope this sprint.
+A payment gateway, full P&L, Balance Sheet, budgeting, financial forecasting, payroll,
+labour costing, factory overhead allocation, depreciation, an advanced pricing engine,
+customer credit limits, and full credit management remain explicitly out of scope.
+Customer Returns and Supplier Returns are no longer on this list — see §12.
 
-## 12. API Reference
+## 12. Return Accounting (Sprint 11)
+
+The reverse-flow half of the operational→accounting chain — never an edit to an
+original transaction, always a new event that reverses its physical and financial
+consequences. Full non-accounting detail lives in [Sales](sales.md) §4c (Customer
+Returns) and [Inventory](inventory.md) §11d (Supplier Returns/Replacement Goods); this
+section is the accounting-specific summary, plus the [Sprint 11 Completion
+Report](../sprint-11-completion-report.md).
+
+### 12.1 Customer Return Accounting
+
+Two independent postings inside `CustomerReturnRepository.receive()`'s one atomic
+transaction — neither implies the other:
+
+- **COGS reversal**: `DR FINISHED_GOODS_INVENTORY / CR COGS`, valued at
+  `Σ (quantityResalable × unitCost)` across every returned line, where `unitCost` is
+  the _specific_ `SalesFulfilmentItem.unitCost` snapshot the original fulfilment
+  actually costed at (never a re-derived "current" average — the whole point of a
+  snapshot is that it doesn't move). Zero-skipped (no journal at all, never a
+  zero-value one) when nothing resalable was returned — same convention §11.4
+  established for Fulfilment itself.
+- **Credit Note issuance**: valued at `Σ (quantityCredited × unitPrice)`, where
+  `quantityCredited` defaults to the full returned quantity but is a genuinely
+  independent figure from `quantityResalable` (brief's explicit instruction: never
+  assume a customer's refund equals the physical resalable value — a business
+  typically still refunds a customer in full and absorbs a damaged-goods loss
+  internally). Posted via `issueCreditNoteWithinTransaction` (extracted from
+  `CreditNoteRepository.issue()`, see [Finance](finance.md) §9) inside the _same_
+  transaction as the COGS reversal and the inventory restock — if issuing the credit
+  note fails (no eligible invoice, over-credit, closed period), the entire receive()
+  call rolls back, including the inventory movement. Requires an eligible `Invoice`
+  (`PAYABLE_INVOICE_STATUSES`) for the return's Sales Order to exist; if the credited
+  amount is non-zero and no such invoice exists, the whole transaction aborts
+  (`NoEligibleInvoiceError`) rather than silently skipping the commercial settlement.
+
+Worked example (the Boby Bites scenario, verified live against this codebase's own
+running dev server, not just automated tests): 10 packs of Plantain Chips Classic
+Salted 500g returned, `unitCost = ₦426` (the fulfilment's own snapshotted cost),
+`unitPrice = ₦800`; inspection finds 7 resalable / 3 damaged, full credit issued:
+`DR Finished Goods Inventory ₦2,982 / CR COGS ₦2,982` (7 × ₦426), and a Credit Note
+for `₦8,000` (10 × ₦800) `DR Sales Returns / CR Accounts Receivable`.
+
+### 12.2 Supplier Return Accounting — the excess-first allocation
+
+`SupplierReturnRepository.create()` reverses a physical return to a supplier in one
+atomic call (no separate request/receive phase, unlike Customer Return — there is no
+inspection step; the goods are simply leaving). The reversal must correctly split
+between two different liability accounts, because Sprint 8's own Accepted-vs-Payable
+split (§9.2) means a `GoodsReceiptItem`'s accepted quantity can already be divided
+between a commercially-payable portion (`AP`) and an accepted-but-unapproved excess
+portion (`GRNI_PENDING_APPROVAL`).
+
+**The rule**: for a return of quantity `Q` against a `GoodsReceiptItem`, excess is
+drawn down _first_ — `excessPortion = min(Q, remainingExcess)`, where
+`remainingExcess = max(0, (acceptedQuantity - payableQuantity) - returnedExcessQuantity)`
+(cumulative across every prior return against that line); the rest,
+`payablePortion = Q - excessPortion`, comes from the payable/`AP` bucket. Two new
+cumulative columns on `GoodsReceiptItem` — `returnedQuantity` (caps eligibility at
+`acceptedQuantity`) and `returnedExcessQuantity` — make this correct across repeated
+partial returns, not just a single one-shot return.
+
+The journal: `DR AP (payablePortion × unitPrice)` + `DR GRNI_PENDING_APPROVAL
+(excessPortion × unitPrice)` / `CR INVENTORY (Q × unitPrice)`, zero-skipped per line
+when that portion is zero (an all-excess or all-payable return posts only one debit
+line, not a zero-value one). Valued at the **original** `PurchaseOrderItem.unitPrice`
+the receipt itself posted at — deliberately not the current `averageUnitCost`, which
+may have drifted since (a documented assumption, not an oversight): this is what
+guarantees the reversal ties out exactly to the amount the original receipt journal
+recorded, regardless of what's happened to the moving average since.
+
+Worked example (verified live against this codebase's own seed data, mirroring the
+brief's own excess-supply scenario): `GoodsReceiptItem` with `acceptedQuantity = 1100`,
+`payableQuantity = 1000` (100 units excess, `unitPrice = ₦150`). Returning 50 of the
+excess: `excessPortion = min(50, 100) = 50`, `payablePortion = 0`. Posted journal:
+`DR GRNI_PENDING_APPROVAL ₦7,500 / CR Inventory ₦7,500` — **no `AP` line at all**,
+leaving the payable liability for the other 1,000 units completely untouched, exactly
+as the brief's own worked example (§17/§37) requires.
+
+### 12.3 Replacement Goods — no new accounting logic
+
+A supplier's replacement shipment for previously-rejected goods is posted through the
+_existing_, completely unmodified `GoodsReceiptRepository.receive()` — see
+[Inventory](inventory.md) §11d for why this is provably safe: `payableQuantity` is
+already capped cumulatively by remaining-ordered-quantity across every receipt against
+a Purchase Order item (Sprint 8), so a replacement receipt mathematically cannot
+create a duplicate payable, regardless of whether the original PO's ordered quantity
+still has room (the replacement completes an unmet obligation, correctly becoming
+payable) or was already fully consumed by the original receipt (the replacement is
+correctly treated as further excess, subject to the same `GRNI_PENDING_APPROVAL`
+approval workflow as any other over-delivery). Zero new `SYSTEM_ACCOUNT_KEYS` needed.
+
+### 12.4 Costing assumptions, documented explicitly
+
+- Customer return restock cost = the _specific_ originating `SalesFulfilmentItem`'s
+  frozen `unitCost`, never the current `averageUnitCost`.
+- Supplier return reversal value = the _specific_ originating `PurchaseOrderItem`'s
+  frozen `unitPrice`, never the current `averageUnitCost`.
+- Both choices are deliberate: a return reverses a specific, already-recorded
+  transaction's value, not "whatever the average happens to be today." Where this
+  breaks down (e.g. a location's average has drifted so far that the return's implied
+  per-unit reversal no longer matches what's physically removed from
+  `InventoryStock.quantityOnHand` in aggregate) is the same class of imprecision
+  `averageUnitCost` already carries generally (§10.2/§11.2) — not a new limitation
+  introduced by returns.
+
+### 12.5 Zero new `SYSTEM_ACCOUNT_KEYS`
+
+`COGS`, `FINISHED_GOODS_INVENTORY`, `SALES_RETURNS`, `AR` (Customer Return) and `AP`,
+`GRNI_PENDING_APPROVAL`, `INVENTORY` (Supplier Return) all already existed, seeded
+since Sprint 7/8/9/10. A standard restockable customer return and a standard supplier
+return both post using only pre-existing system accounts.
+
+## 13. API Reference
 
 | Endpoint                                                   | Auth                | Notes                                                                      |
 | ---------------------------------------------------------- | ------------------- | -------------------------------------------------------------------------- |
@@ -573,12 +687,14 @@ credit management are all explicitly out of scope this sprint.
 | `GET /api/finance/ledger`                                  | Any authenticated   | `?accountId=&from=&to=&accountingPeriodId=&sourceType=&reference=&status=` |
 | `GET /api/finance/trial-balance`                           | Any authenticated   | `?from=&to=` or `?accountingPeriodId=`                                     |
 
-## 13. Known Limitations
+## 14. Known Limitations
 
 - No re-opening a closed accounting period, and no year-end closing automation.
 - `VOID` never generates an automatic reversing entry — a correction is a new manual
-  journal. As of Sprint 10, no Sales Return/Reverse Fulfilment COGS-reversal mechanism
-  exists either — see §11.8.
+  journal. **Resolved in Sprint 11** for the specific case of a Sales Fulfilment: a
+  `CustomerReturn` now provides a real COGS-reversal path (§11.8/§12) — this remains
+  a distinct new event, not an automatic reversal of the original journal itself,
+  which is still never mutated or voided.
 - Running balance in an unfiltered (multi-account) `GET /finance/ledger` view is a
   cumulative net across unrelated accounts — most meaningful once filtered to one
   account; see §6.
@@ -599,3 +715,8 @@ credit management are all explicitly out of scope this sprint.
 - No full module-level permission engine — RBAC remains binary
   (Owner/Administrator-write, Member-read), same deferred decision as every other
   domain in this codebase.
+- No `CreditNoteItem` line detail on a return-issued Credit Note (Sprint 11) — same
+  pre-existing limitation as every manually-issued one, see [Finance](finance.md) §11.
+- Return cost/value reversals use the specific originating transaction's frozen
+  cost/price, never the current `averageUnitCost` (§12.4) — consistent with, not an
+  exception to, this document's existing costing-precision limitations.

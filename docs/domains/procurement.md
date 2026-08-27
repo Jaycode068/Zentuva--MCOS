@@ -207,6 +207,12 @@ rather than an arbitrary-precision `Decimal` type.
   accounting.md §9). Confirming, issuing, or otherwise progressing a `PurchaseOrder`'s
   own status creates no accounting entry by itself; a supplier's commercial liability
   is still recognised only once goods are actually received.
+- **Supplier Returns & Replacement Goods** ([inventory.md](inventory.md), Sprint 11) —
+  the reverse of Goods Receipt: physically returning previously-accepted goods to a
+  supplier (`SupplierReturn`), and a supplier's replacement shipment for previously-
+  rejected goods (`GoodsReceipt.replacesGoodsReceiptId`). Both live entirely in
+  Inventory's domain, same rationale as Goods Receipt itself — `PurchaseOrder` is only
+  ever read, never written, by either mechanism.
 
 ## 7. API Reference
 
@@ -311,3 +317,8 @@ migration).
   change via the Edit dialog/`PATCH`, same mechanism as every other header edit.
   `PARTIALLY_RECEIVED`/`RECEIVED`, by contrast, have no UI action at all in this
   domain — they're set exclusively by Inventory's receiving endpoint.
+- **Resolved in Sprint 11** — Supplier Returns and Replacement Goods are now built (see
+  [inventory.md](inventory.md) "Supplier Returns"/"Replacement Goods"), closing a gap
+  this document previously left as future Procurement work. No Supplier Claims/dispute-
+  management workflow exists beyond the lightweight discrepancy-resolution state
+  (Sprint 4.4.1, extended Sprint 11) — deliberately out of scope, same as before.

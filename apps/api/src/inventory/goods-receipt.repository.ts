@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import {
+  DiscrepancyResolutionAction,
   DiscrepancyStatus,
   GoodsReceipt,
   GoodsReceiptItem,
@@ -62,6 +63,13 @@ export interface ReceiveGoodsItemData {
   unitPrice: number;
   rejectionReason?: RejectionReason;
   rejectionNotes?: string;
+  /** Added Sprint 11 (brief §21/§39) — when this item is a replacement for a
+   *  previously-rejected line, the id of that original `GoodsReceiptItem`. Reuses
+   *  `receive()`'s existing payable/GRNI computation completely unmodified (see
+   *  `GoodsReceiptItem.replacesRejectedItemId` schema comment) — the only extra work
+   *  is validating `deliveredQuantity` doesn't exceed what's still un-replaced on the
+   *  original line, and recording the traceability link. */
+  replacesRejectedItemId?: string;
 }
 
 export interface ReceiveGoodsData {
@@ -91,6 +99,12 @@ export interface ReceiveGoodsData {
    *  convention as `SalesFulfilmentRepository.create`/`DeliveryRepository.create`. */
   idempotencyKey?: string;
   items: ReceiveGoodsItemData[];
+  /** Added Sprint 11 — set when this entire receipt is a supplier's replacement
+   *  shipment for a prior receipt's discrepancy (brief §21/§39). Purely a
+   *  traceability/auto-resolution link — `receive()`'s payable/GRNI math is completely
+   *  unchanged by its presence (see `GoodsReceipt.replacesGoodsReceiptId` schema
+   *  comment). */
+  replacesGoodsReceiptId?: string;
 }
 
 /** Minimal Journal Entry summary surfaced on the goods-receipt response so Procurement/
@@ -128,6 +142,12 @@ export interface ReceiveGoodsResult {
  *  `PurchaseOrderRepository`/`SupplierRepository`; `InventoryService` catches this and
  *  translates it into a `400`. */
 export class GoodsReceiptConflictError extends Error {}
+
+/** Added Sprint 11 — thrown when a replacement item's `replacesRejectedItemId` doesn't
+ *  reference a real, same-organisation `GoodsReceiptItem`, or when the replacement
+ *  quantity claimed (across this and every prior replacement) would exceed that line's
+ *  own `rejectedQuantity` (brief §39: never over-replace). */
+export class InvalidReplacementError extends Error {}
 
 /**
  * Thin Prisma access for the GoodsReceipt aggregate (Sprint 4.4, refined Sprint 4.4.1,
@@ -404,6 +424,48 @@ export class GoodsReceiptRepository {
         return { ...item, payableQuantity };
       });
 
+      // Replacement goods (Sprint 11, brief §21/§39) — validate every
+      // `replacesRejectedItemId` references a real, same-organisation
+      // `GoodsReceiptItem` and that the cumulative replacement quantity claimed never
+      // exceeds that line's own `rejectedQuantity`. Deliberately does NOT touch
+      // `payableQuantity`/the journal math above in any way — see the schema comment
+      // on `GoodsReceiptItem.replacesRejectedItemId`.
+      const replacementItems = itemsWithPayable.filter((item) => item.replacesRejectedItemId);
+      const replacedItemIds = [
+        ...new Set(replacementItems.map((item) => item.replacesRejectedItemId as string)),
+      ];
+      if (replacedItemIds.length > 0) {
+        const originalItems = await tx.goodsReceiptItem.findMany({
+          where: {
+            id: { in: replacedItemIds },
+            goodsReceipt: { organisationId: data.organisationId },
+          },
+        });
+        const originalById = new Map(originalItems.map((row) => [row.id, row]));
+        const claimedByOriginalId = new Map<string, number>();
+        for (const item of replacementItems) {
+          const originalId = item.replacesRejectedItemId as string;
+          claimedByOriginalId.set(
+            originalId,
+            (claimedByOriginalId.get(originalId) ?? 0) + item.deliveredQuantity,
+          );
+        }
+        for (const [originalId, claimed] of claimedByOriginalId) {
+          const original = originalById.get(originalId);
+          if (!original) {
+            throw new InvalidReplacementError('Referenced rejected item not found');
+          }
+          const remainingReplaceable = roundQuantity(
+            original.rejectedQuantity - original.replacedQuantity,
+          );
+          if (roundQuantity(claimed) > remainingReplaceable) {
+            throw new InvalidReplacementError(
+              `Cannot replace ${claimed} — only ${remainingReplaceable} of the original rejection remains un-replaced`,
+            );
+          }
+        }
+      }
+
       const goodsReceipt = await tx.goodsReceipt.create({
         data: {
           organisationId: data.organisationId,
@@ -416,6 +478,7 @@ export class GoodsReceiptRepository {
           remarks: data.remarks,
           discrepancyStatus: data.discrepancyStatus,
           idempotencyKey: data.idempotencyKey,
+          replacesGoodsReceiptId: data.replacesGoodsReceiptId,
           items: {
             create: itemsWithPayable.map((item) => ({
               purchaseOrderItemId: item.purchaseOrderItemId,
@@ -426,11 +489,49 @@ export class GoodsReceiptRepository {
               payableQuantity: item.payableQuantity,
               rejectionReason: item.rejectionReason,
               rejectionNotes: item.rejectionNotes,
+              replacesRejectedItemId: item.replacesRejectedItemId,
             })),
           },
         },
         include: RELATIONS_INCLUDE,
       });
+
+      if (replacementItems.length > 0) {
+        const claimedByOriginalId = new Map<string, number>();
+        for (const item of replacementItems) {
+          const originalId = item.replacesRejectedItemId as string;
+          claimedByOriginalId.set(
+            originalId,
+            (claimedByOriginalId.get(originalId) ?? 0) + item.deliveredQuantity,
+          );
+        }
+        for (const [originalId, claimed] of claimedByOriginalId) {
+          await tx.goodsReceiptItem.update({
+            where: { id: originalId },
+            data: { replacedQuantity: { increment: claimed } },
+          });
+        }
+      }
+
+      if (data.replacesGoodsReceiptId) {
+        const originalReceiptItems = await tx.goodsReceiptItem.findMany({
+          where: { goodsReceiptId: data.replacesGoodsReceiptId },
+        });
+        // Re-fetched after the `replacedQuantity` increments above, so this already
+        // reflects this transaction's own replacement.
+        const fullyReplaced = originalReceiptItems.every(
+          (item) => roundQuantity(item.replacedQuantity) >= roundQuantity(item.rejectedQuantity),
+        );
+        await tx.goodsReceipt.update({
+          where: { id: data.replacesGoodsReceiptId },
+          data: {
+            discrepancyResolutionAction: DiscrepancyResolutionAction.REPLACEMENT,
+            discrepancyStatus: fullyReplaced
+              ? DiscrepancyStatus.RESOLVED
+              : DiscrepancyStatus.REPLACEMENT_RECEIVED,
+          },
+        });
+      }
 
       // Only the accepted portion ever becomes usable stock (brief's "Important
       // Business Rule": inventory must only increase by Accepted Quantity, never
@@ -552,10 +653,18 @@ export class GoodsReceiptRepository {
     id: string,
     status: DiscrepancyStatus,
     notes?: string,
+    /** Added Sprint 11 — the manual resolution actions (`CREDIT`/`ACCEPT_AS_IS`/
+     *  `PRICE_ADJUSTMENT`/`OTHER`); `REPLACEMENT`/`RETURN` are set automatically by
+     *  `receive()`/`SupplierReturnRepository.create()` instead, never via this path. */
+    resolutionAction?: DiscrepancyResolutionAction,
   ): Promise<GoodsReceiptWithRelations | null> {
     const result = await this.prisma.goodsReceipt.updateMany({
       where: { id, organisationId },
-      data: { discrepancyStatus: status, discrepancyNotes: notes },
+      data: {
+        discrepancyStatus: status,
+        discrepancyNotes: notes,
+        ...(resolutionAction ? { discrepancyResolutionAction: resolutionAction } : {}),
+      },
     });
     if (result.count === 0) {
       return null;

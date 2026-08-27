@@ -259,9 +259,20 @@ Receipt, Sprint 9 wired Production's Material Issue/Completion, and Sprint 10 wi
 Sales's Fulfilment (`DR Cost of Goods Sold / CR Finished Goods Inventory`, deliberately
 a separate event from this section's own `DR Accounts Receivable / CR Sales Revenue`
 Invoice posting — see [Sales](sales.md) §4b and `accounting.md` §11) — Distribution
-(Dispatch/Delivery) and Procurement's own PO-confirmation event remain unwired, and
-COGS-reversal for Sales Returns remains future work — see `accounting.md` §9.4/§11.9
-for the full remaining deferred-integration list.
+(Dispatch/Delivery) and Procurement's own PO-confirmation event remain unwired.
+**Sprint 11** resolves the "COGS-reversal for Sales Returns" gap this section used to
+flag: `CustomerReturn.receive()` (owned by [Sales](sales.md) §4c) posts the mirror
+entry (`DR Finished Goods Inventory / CR Cost of Goods Sold`) and reuses this domain's
+own Credit Note engine for the commercial settlement side, via a small extraction —
+`CreditNoteRepository.issue()`'s atomic body is now also available as a plain, DI-free
+`issueCreditNoteWithinTransaction(tx, ...)` function (same "plain function, not a
+NestJS provider" contract `postSystemJournalEntry` already established), so a Return's
+inventory movement, COGS reversal, and Credit Note issuance all share one outer
+transaction — no second, competing credit-note engine. `CreditNote` also gained a
+polymorphic `sourceType`/`sourceId` pair (mirroring `JournalEntry`'s own, `NULL` for
+every credit note created the original, purely-manual way) so Finance can trace a
+credit note back to the `CustomerReturn` that issued it. See `accounting.md`
+§9.4/§11.9 for the full remaining deferred-integration list.
 
 ## 10. API Reference
 
@@ -297,7 +308,9 @@ for the full remaining deferred-integration list.
 - **`OVERDUE` collapses `PARTIALLY_PAID`.** See §3 — an overdue invoice's status label
   does not distinguish "nothing paid" from "partially paid"; the underlying
   `amountPaid`/`amountOutstanding` figures remain fully accurate regardless.
-- **No `CreditNoteItem` line detail** — a single flat `amount` per credit note.
+- **No `CreditNoteItem` line detail** — a single flat `amount` per credit note, even
+  when Sprint 11's `CustomerReturn` issues one for a multi-line return (the sum across
+  every returned line, not a breakdown).
 - **No sophisticated credit management** — no customer credit limits, approval
   workflows, or credit scoring.
 - **No Nigerian bank/payment-gateway integration** — Payments are a manual

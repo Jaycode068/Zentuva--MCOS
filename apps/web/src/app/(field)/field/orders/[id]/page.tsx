@@ -12,10 +12,13 @@ import {
   SheetFooter,
   SheetHeader,
   SheetTitle,
+  Textarea,
 } from '@zentuva/ui';
 
+import { ImageUploadCard } from '@/components/app/image-upload-card';
 import { FieldStickyActionBar } from '@/components/field/FieldStickyActionBar';
 import { ApiError } from '@/lib/api-client';
+import { CUSTOMER_RETURN_REASON_LABELS } from '@/app/(app)/settings/returns/labels';
 
 import {
   cancelSalesOrder,
@@ -24,6 +27,10 @@ import {
   getSalesOrder,
   getSalesOrderAvailability,
   listInventoryLocations,
+  listSalesFulfilments,
+  requestCustomerReturn,
+  uploadCustomerReturnPhoto,
+  type CustomerReturnReason,
   type SalesOrder,
 } from '../../api';
 import { SALES_ORDER_STATUS_LABELS, SALES_ORDER_STATUS_VARIANT } from '../../labels';
@@ -35,6 +42,7 @@ export default function FieldOrderDetailPage({ params }: { params: { id: string 
   const { id } = params;
   const queryClient = useQueryClient();
   const [fulfilOpen, setFulfilOpen] = useState(false);
+  const [returnOpen, setReturnOpen] = useState(false);
 
   const { data: order } = useQuery({
     queryKey: ['sales-order', id],
@@ -57,6 +65,8 @@ export default function FieldOrderDetailPage({ params }: { params: { id: string 
   if (!order) {
     return <p className="p-4 text-sm text-muted-foreground">Loading…</p>;
   }
+
+  const hasFulfilmentHistory = order.items.some((item) => item.quantityFulfilled > 0);
 
   return (
     <div className="flex h-full flex-col">
@@ -121,7 +131,8 @@ export default function FieldOrderDetailPage({ params }: { params: { id: string 
 
       {(order.status === 'DRAFT' ||
         order.status === 'CONFIRMED' ||
-        order.status === 'PARTIALLY_FULFILLED') && (
+        order.status === 'PARTIALLY_FULFILLED' ||
+        hasFulfilmentHistory) && (
         <FieldStickyActionBar className="flex-col gap-2">
           {order.status === 'DRAFT' && (
             <Button
@@ -136,6 +147,16 @@ export default function FieldOrderDetailPage({ params }: { params: { id: string 
           {(order.status === 'CONFIRMED' || order.status === 'PARTIALLY_FULFILLED') && (
             <Button size="touch" className="w-full" onClick={() => setFulfilOpen(true)}>
               Fulfil Order
+            </Button>
+          )}
+          {hasFulfilmentHistory && (
+            <Button
+              variant="outline"
+              size="touch"
+              className="w-full"
+              onClick={() => setReturnOpen(true)}
+            >
+              Request Return
             </Button>
           )}
           {(order.status === 'DRAFT' || order.status === 'CONFIRMED') && (
@@ -160,6 +181,12 @@ export default function FieldOrderDetailPage({ params }: { params: { id: string 
           invalidate();
           setFulfilOpen(false);
         }}
+      />
+      <FieldReturnRequestSheet
+        order={order}
+        open={returnOpen}
+        onOpenChange={setReturnOpen}
+        onRequested={invalidate}
       />
     </div>
   );
@@ -378,6 +405,248 @@ function FieldFulfilSheet({
             onClick={() => mutation.mutate()}
           >
             {mutation.isPending ? 'Fulfilling…' : 'Fulfil'}
+          </Button>
+        )}
+      </SheetFooter>
+    </Sheet>
+  );
+}
+
+/** Full-screen (`side="full"`) return-request flow (Sprint 11, brief §29) — request
+ *  only: Select fulfilment line → quantity → reason → optional photo → submit. No
+ *  disposition/inspection/credit step here — that requires accounting judgement and
+ *  stays Admin-only (`/settings/returns`), same rule as cost/COGS fields never
+ *  appearing on Field (Sprint 10 §14). Two-step submit, mirrors
+ *  `FieldDeliverySheet`'s exact shape: the photo-upload endpoint needs the return's
+ *  own id, which only exists after the first write succeeds.
+ */
+function FieldReturnRequestSheet({
+  order,
+  open,
+  onOpenChange,
+  onRequested,
+}: {
+  order: SalesOrder;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onRequested: () => void;
+}) {
+  const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
+  const [returnId, setReturnId] = useState<string | null>(null);
+  const [locationId, setLocationId] = useState('');
+  const [reason, setReason] = useState<CustomerReturnReason>('DAMAGED');
+  const [notes, setNotes] = useState('');
+  const [quantities, setQuantities] = useState<Record<string, number>>({});
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+
+  const { data: locationsData } = useQuery({
+    queryKey: ['inventory-locations'],
+    queryFn: () => listInventoryLocations(),
+    enabled: open,
+  });
+  const { data: fulfilmentsData } = useQuery({
+    queryKey: ['sales-fulfilments', order.id],
+    queryFn: () => listSalesFulfilments(order.id),
+    enabled: open,
+  });
+
+  const activeLocations = (locationsData?.items ?? []).filter(
+    (location) => location.status === 'ACTIVE',
+  );
+  const rows = useMemo(
+    () =>
+      (fulfilmentsData?.items ?? []).flatMap((fulfilment) =>
+        fulfilment.items.map((item) => ({
+          salesFulfilmentItemId: item.id,
+          name: item.product.name,
+          unit: item.product.unit,
+          quantityFulfilled: item.quantityFulfilled,
+          fulfilmentDate: fulfilment.fulfilmentDate,
+        })),
+      ),
+    [fulfilmentsData],
+  );
+
+  const mutation = useMutation({
+    mutationFn: async () => {
+      const items = rows
+        .map((row) => ({
+          salesFulfilmentItemId: row.salesFulfilmentItemId,
+          quantityReturned: quantities[row.salesFulfilmentItemId] ?? 0,
+        }))
+        .filter((item) => item.quantityReturned > 0);
+      const created = await requestCustomerReturn({
+        salesOrderId: order.id,
+        locationId,
+        returnDate: new Date().toISOString().slice(0, 10),
+        reason,
+        notes: notes || undefined,
+        idempotencyKey,
+        items,
+      });
+      return created;
+    },
+    onSuccess: (created) => {
+      setQuantities({});
+      setReturnId(created.id);
+      onRequested();
+    },
+  });
+
+  const photoMutation = useMutation({
+    mutationFn: (file: File) => uploadCustomerReturnPhoto(returnId!, file),
+    onSuccess: (updated) => setPhotoUrl(updated.photoUrl),
+  });
+
+  const hasAnyQuantity = Object.values(quantities).some((value) => (value ?? 0) > 0);
+
+  function reset() {
+    setReturnId(null);
+    setNotes('');
+    setPhotoUrl(null);
+  }
+
+  return (
+    <Sheet
+      open={open}
+      onOpenChange={(next) => {
+        if (next) {
+          setIdempotencyKey(crypto.randomUUID());
+          reset();
+        }
+        onOpenChange(next);
+      }}
+      side="full"
+    >
+      <SheetHeader>
+        <SheetTitle>Request Return — {order.orderCode}</SheetTitle>
+      </SheetHeader>
+
+      {returnId ? (
+        <div className="flex-1 space-y-4 overflow-y-auto">
+          <p className="text-sm text-muted-foreground">
+            Return requested. Attach a photo of the returned/damaged goods (optional).
+          </p>
+          <ImageUploadCard
+            title="Return Photo"
+            description="A quick photo of the damaged packaging or defective item."
+            imageUrl={photoUrl}
+            fallbackInitials="RT"
+            onUpload={(file) => photoMutation.mutate(file)}
+            isUploading={photoMutation.isPending}
+            error={photoMutation.error instanceof ApiError ? photoMutation.error.message : null}
+            preferCamera
+          />
+        </div>
+      ) : rows.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          This order has no fulfilment history — nothing is eligible for return.
+        </p>
+      ) : (
+        <div className="flex-1 space-y-4 overflow-y-auto">
+          <div className="space-y-1.5">
+            <Label className="text-base">Receiving Location</Label>
+            <Select
+              className="h-12 text-base"
+              value={locationId}
+              onChange={(event) => setLocationId(event.target.value)}
+            >
+              <option value="">Select a location…</option>
+              {activeLocations.map((location) => (
+                <option key={location.id} value={location.id}>
+                  {location.name}
+                  {location.isDefault ? ' (Default)' : ''}
+                </option>
+              ))}
+            </Select>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-base">Reason</Label>
+            <Select
+              className="h-12 text-base"
+              value={reason}
+              onChange={(event) => setReason(event.target.value as CustomerReturnReason)}
+            >
+              {Object.entries(CUSTOMER_RETURN_REASON_LABELS).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            {rows.map((row) => {
+              const quantity = quantities[row.salesFulfilmentItemId] ?? 0;
+              return (
+                <div
+                  key={row.salesFulfilmentItemId}
+                  className="rounded-xl border border-border p-3"
+                >
+                  <p className="font-medium">{row.name}</p>
+                  <p className="text-xs text-muted-foreground">
+                    Fulfilled {row.quantityFulfilled} {row.unit} on{' '}
+                    {row.fulfilmentDate.slice(0, 10)}
+                  </p>
+                  <div className="mt-2 space-y-1">
+                    <Label className="text-xs">Return Quantity</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      className="h-11 text-base"
+                      value={quantity}
+                      onChange={(event) =>
+                        setQuantities((current) => ({
+                          ...current,
+                          [row.salesFulfilmentItemId]: Number(event.target.value) || 0,
+                        }))
+                      }
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-base">Notes (optional)</Label>
+            <Textarea
+              className="text-base"
+              rows={2}
+              value={notes}
+              onChange={(event) => setNotes(event.target.value)}
+              placeholder="Anything else worth noting about this return"
+            />
+          </div>
+
+          {mutation.isError && (
+            <p className="text-sm text-destructive">
+              {mutation.error instanceof ApiError
+                ? mutation.error.message
+                : 'Failed to request return.'}
+            </p>
+          )}
+        </div>
+      )}
+
+      <SheetFooter>
+        <Button
+          type="button"
+          variant="outline"
+          className="w-full"
+          onClick={() => onOpenChange(false)}
+        >
+          {returnId ? 'Done' : rows.length === 0 ? 'Close' : 'Cancel'}
+        </Button>
+        {!returnId && rows.length > 0 && (
+          <Button
+            type="button"
+            className="w-full"
+            disabled={!locationId || !hasAnyQuantity || mutation.isPending}
+            onClick={() => mutation.mutate()}
+          >
+            {mutation.isPending ? 'Requesting…' : 'Request Return'}
           </Button>
         )}
       </SheetFooter>

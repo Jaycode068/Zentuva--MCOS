@@ -8,6 +8,7 @@ import {
 import {
   GoodsReceiptConflictError,
   GoodsReceiptRepository,
+  InvalidReplacementError,
   ReceiveGoodsData,
 } from './goods-receipt.repository';
 
@@ -34,6 +35,10 @@ interface FakeGoodsReceiptItem {
   payableQuantity: number;
   rejectionReason?: string | null;
   rejectionNotes?: string | null;
+  returnedQuantity: number;
+  returnedExcessQuantity: number;
+  replacedQuantity: number;
+  replacesRejectedItemId?: string | null;
 }
 
 interface FakeGoodsReceipt {
@@ -48,6 +53,8 @@ interface FakeGoodsReceipt {
   receivedById: string;
   remarks?: string | null;
   discrepancyStatus: DiscrepancyStatus;
+  discrepancyResolutionAction?: string | null;
+  replacesGoodsReceiptId?: string | null;
   items: FakeGoodsReceiptItem[];
 }
 
@@ -104,11 +111,17 @@ function makeFakeTx(options: {
         grSequence += 1;
         const id = `gr-${grSequence}`;
         const itemsInput = (
-          data.items as { create: Omit<FakeGoodsReceiptItem, 'id' | 'goodsReceiptId'>[] }
+          data.items as {
+            create: Partial<Omit<FakeGoodsReceiptItem, 'id' | 'goodsReceiptId'>>[];
+          }
         ).create;
         const items = itemsInput.map((item, index) => ({
           id: `gri-${id}-${index}`,
           goodsReceiptId: id,
+          returnedQuantity: 0,
+          returnedExcessQuantity: 0,
+          replacedQuantity: 0,
+          replacesRejectedItemId: null,
           ...item,
           product: PRODUCT,
         }));
@@ -124,13 +137,71 @@ function makeFakeTx(options: {
           receivedById: data.receivedById,
           remarks: data.remarks,
           discrepancyStatus: data.discrepancyStatus,
+          discrepancyResolutionAction: null,
+          replacesGoodsReceiptId: (data.replacesGoodsReceiptId as string | undefined) ?? null,
           items,
         } as unknown as FakeGoodsReceipt;
         goodsReceipts.set(id, receipt);
         return receipt;
       }),
+      update: jest.fn(
+        async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
+          const receipt = goodsReceipts.get(where.id);
+          if (!receipt) throw new Error('goods receipt not found');
+          Object.assign(receipt, data);
+          return receipt;
+        },
+      ),
     },
     goodsReceiptItem: {
+      findMany: jest.fn(
+        async ({
+          where,
+        }: {
+          where: {
+            id?: { in: string[] };
+            goodsReceiptId?: string;
+            goodsReceipt?: { organisationId: string };
+          };
+        }) => {
+          const allItems = [...goodsReceipts.values()].flatMap((receipt) =>
+            receipt.items.map((item) => ({ item, receipt })),
+          );
+          return allItems
+            .filter(({ item, receipt }) => {
+              if (where.id && !where.id.in.includes(item.id)) return false;
+              if (where.goodsReceiptId && item.goodsReceiptId !== where.goodsReceiptId)
+                return false;
+              if (
+                where.goodsReceipt &&
+                receipt.organisationId !== where.goodsReceipt.organisationId
+              )
+                return false;
+              return true;
+            })
+            .map(({ item }) => item);
+        },
+      ),
+      update: jest.fn(
+        async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
+          for (const receipt of goodsReceipts.values()) {
+            const item = receipt.items.find((row) => row.id === where.id);
+            if (item) {
+              for (const [key, value] of Object.entries(data)) {
+                if (value && typeof value === 'object' && 'increment' in (value as object)) {
+                  const current = (item as unknown as Record<string, number>)[key] ?? 0;
+                  (item as unknown as Record<string, number>)[key] =
+                    current + (value as { increment: number }).increment;
+                } else {
+                  (item as unknown as Record<string, unknown>)[key] = value;
+                }
+              }
+              return item;
+            }
+          }
+          throw new Error('goods receipt item not found');
+        },
+      ),
       groupBy: jest.fn(
         async ({
           where,
@@ -566,5 +637,155 @@ describe('GoodsReceiptRepository (deliberate exception — real transaction logi
       expect(totalDebit).toBe(totalCredit);
       expect(lines).toHaveLength(2); // fully payable each time, no excess line
     }
+  });
+
+  describe('Replacement Goods (Sprint 11, brief §21/§39)', () => {
+    it('§39 worked example: PO=1000, accepted=950/rejected=50, a 50-unit replacement correctly becomes payable (completing the order to exactly 1000) and resolves the discrepancy', async () => {
+      const { repository, goodsReceipts } = setup();
+
+      const original = await repository.receive(
+        makeReceiveData({
+          purchaseOrderItems: [{ id: 'poi-1', quantity: 1000 }],
+          discrepancyStatus: DiscrepancyStatus.PENDING_SUPPLIER,
+          items: [
+            {
+              purchaseOrderItemId: 'poi-1',
+              productId: 'product-1',
+              deliveredQuantity: 1000,
+              rejectedQuantity: 50,
+              acceptedQuantity: 950,
+              unitPrice: 1000,
+              rejectionReason: 'DEFECTIVE',
+            },
+          ],
+        }),
+      );
+      expect(original.goodsReceipt.items[0]!.payableQuantity).toBe(950);
+      const originalItemId = original.goodsReceipt.items[0]!.id;
+
+      const replacement = await repository.receive(
+        makeReceiveData({
+          purchaseOrderItems: [{ id: 'poi-1', quantity: 1000 }],
+          goodsReceiptNumber: 'GRN-000002',
+          replacesGoodsReceiptId: original.goodsReceipt.id,
+          items: [
+            {
+              purchaseOrderItemId: 'poi-1',
+              productId: 'product-1',
+              deliveredQuantity: 50,
+              rejectedQuantity: 0,
+              acceptedQuantity: 50,
+              unitPrice: 1000,
+              replacesRejectedItemId: originalItemId,
+            },
+          ],
+        }),
+      );
+
+      // Correctly completes the order's payable total to exactly 1000 — not a
+      // duplicate, the sum of every receipt's own payableQuantity against this PO
+      // item never exceeds its ordered quantity.
+      expect(replacement.goodsReceipt.items[0]!.payableQuantity).toBe(50);
+      expect(replacement.journalEntry!.totalAmount).toBe(50_000);
+
+      const originalReceipt = goodsReceipts.get(original.goodsReceipt.id)!;
+      expect(originalReceipt.items[0]!.replacedQuantity).toBe(50);
+      expect(originalReceipt.discrepancyStatus).toBe(DiscrepancyStatus.RESOLVED);
+      expect(originalReceipt.discrepancyResolutionAction).toBe('REPLACEMENT');
+    });
+
+    it('§17/§21 style: a replacement against an already-fully-consumed PO posts to GRNI (excess), never a second AP line — no duplicate payable', async () => {
+      const { repository } = setup();
+
+      const original = await repository.receive(
+        makeReceiveData({
+          purchaseOrderItems: [{ id: 'poi-1', quantity: 1000 }],
+          discrepancyStatus: DiscrepancyStatus.PENDING_SUPPLIER,
+          items: [
+            {
+              purchaseOrderItemId: 'poi-1',
+              productId: 'product-1',
+              deliveredQuantity: 1100,
+              rejectedQuantity: 100,
+              acceptedQuantity: 1000,
+              unitPrice: 1000,
+              rejectionReason: 'DEFECTIVE',
+            },
+          ],
+        }),
+      );
+      expect(original.goodsReceipt.items[0]!.payableQuantity).toBe(1000);
+      const originalItemId = original.goodsReceipt.items[0]!.id;
+
+      const replacement = await repository.receive(
+        makeReceiveData({
+          purchaseOrderItems: [{ id: 'poi-1', quantity: 1000 }],
+          goodsReceiptNumber: 'GRN-000002',
+          replacesGoodsReceiptId: original.goodsReceipt.id,
+          items: [
+            {
+              purchaseOrderItemId: 'poi-1',
+              productId: 'product-1',
+              deliveredQuantity: 100,
+              rejectedQuantity: 0,
+              acceptedQuantity: 100,
+              unitPrice: 1000,
+              replacesRejectedItemId: originalItemId,
+            },
+          ],
+        }),
+      );
+
+      // The original PO obligation (1000) was already fully paid for by the first
+      // receipt — the replacement's 100 units correctly post as further excess,
+      // subject to the same GRNI approval workflow as any other over-delivery,
+      // never as a second payable.
+      expect(replacement.goodsReceipt.items[0]!.payableQuantity).toBe(0);
+      const entry = replacement.journalEntry!;
+      expect(entry.totalAmount).toBe(100_000);
+    });
+
+    it('rejects claiming a replacement quantity larger than what was actually rejected', async () => {
+      const { repository } = setup();
+
+      const original = await repository.receive(
+        makeReceiveData({
+          purchaseOrderItems: [{ id: 'poi-1', quantity: 1000 }],
+          items: [
+            {
+              purchaseOrderItemId: 'poi-1',
+              productId: 'product-1',
+              deliveredQuantity: 1000,
+              rejectedQuantity: 50,
+              acceptedQuantity: 950,
+              unitPrice: 1000,
+              rejectionReason: 'DEFECTIVE',
+            },
+          ],
+        }),
+      );
+      const originalItemId = original.goodsReceipt.items[0]!.id;
+
+      await expect(
+        repository.receive(
+          makeReceiveData({
+            purchaseOrderItems: [{ id: 'poi-1', quantity: 1000 }],
+            goodsReceiptNumber: 'GRN-000002',
+            replacesGoodsReceiptId: original.goodsReceipt.id,
+            items: [
+              {
+                purchaseOrderItemId: 'poi-1',
+                productId: 'product-1',
+                deliveredQuantity: 60,
+                rejectedQuantity: 0,
+                acceptedQuantity: 60,
+                unitPrice: 1000,
+                replacesRejectedItemId: originalItemId,
+              },
+            ],
+          }),
+        ),
+      ).rejects.toThrow(InvalidReplacementError);
+    });
   });
 });

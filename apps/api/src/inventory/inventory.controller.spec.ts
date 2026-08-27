@@ -8,6 +8,7 @@ import { GoodsReceiptWithRelations } from './goods-receipt.repository';
 import { InventoryController } from './inventory.controller';
 import { InventoryService, ReceiveGoodsResult } from './inventory.service';
 import { INVENTORY_AUDIT_ACTIONS } from './inventory-audit-actions';
+import { SupplierReturnService } from './supplier-return.service';
 
 describe('InventoryController', () => {
   const tokenUser: TokenPayload = {
@@ -30,6 +31,8 @@ describe('InventoryController', () => {
       remarks: null,
       discrepancyStatus: DiscrepancyStatus.NONE,
       discrepancyNotes: null,
+      discrepancyResolutionAction: null,
+      replacesGoodsReceiptId: null,
       idempotencyKey: null,
       locationId: 'loc-1',
       location: { id: 'loc-1', name: 'Main Warehouse' },
@@ -45,6 +48,10 @@ describe('InventoryController', () => {
           rejectedQuantity: 0,
           acceptedQuantity: 500,
           payableQuantity: 500,
+          returnedQuantity: 0,
+          returnedExcessQuantity: 0,
+          replacedQuantity: 0,
+          replacesRejectedItemId: null,
           rejectionReason: null,
           rejectionNotes: null,
           createdAt: new Date('2026-08-05'),
@@ -72,10 +79,19 @@ describe('InventoryController', () => {
       createLocation: jest.fn(),
       updateLocation: jest.fn(),
     } as unknown as jest.Mocked<InventoryService>;
+    const supplierReturnService = {
+      list: jest.fn(),
+      getById: jest.fn(),
+      create: jest.fn(),
+    } as unknown as jest.Mocked<SupplierReturnService>;
     const auditService = { record: jest.fn() } as unknown as jest.Mocked<AuditService>;
 
-    const controller = new InventoryController(inventoryService, auditService);
-    return { controller, inventoryService, auditService };
+    const controller = new InventoryController(
+      inventoryService,
+      supplierReturnService,
+      auditService,
+    );
+    return { controller, inventoryService, supplierReturnService, auditService };
   }
 
   const req = { ip: '127.0.0.1', headers: { 'user-agent': 'jest' } } as unknown as Request;
@@ -279,6 +295,7 @@ describe('InventoryController', () => {
         'org-1',
         'gr-1',
         'RESOLVED',
+        undefined,
         undefined,
       );
       expect(auditService.record).toHaveBeenCalledWith(

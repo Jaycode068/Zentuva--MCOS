@@ -185,6 +185,13 @@ export const WrenchIcon = icon(
   </>,
 );
 
+export const RotateCcwIcon = icon(
+  <>
+    <path d="M3 12a9 9 0 1 0 3-6.7" />
+    <path d="M3 4v5h5" />
+  </>,
+);
+
 export const MenuIcon = icon(<path d="M3 6h18M3 12h18M3 18h18" />);
 
 export const CloseIcon = icon(<path d="M6 6l12 12M18 6 6 18" />);

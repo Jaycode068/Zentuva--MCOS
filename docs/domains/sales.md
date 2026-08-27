@@ -205,6 +205,54 @@ Sales-domain-facing summary.
   already blocks cancellation once any fulfilment exists (Sprint 4.9); no COGS-reversal
   mechanism exists. Documented as explicit future work — see accounting.md.
 
+  > **Resolved in Sprint 11** — see §4c below. `SalesOrderService.cancel()`'s own
+  > post-fulfilment block is unchanged (a return is a new aggregate, not a status
+  > transition), but the COGS-reversal mechanism this bullet flagged as missing now
+  > exists via `CustomerReturn`.
+
+## 4c. Customer Returns (Sprint 11)
+
+`CustomerReturn` is a new aggregate (`apps/api/src/sales/customer-return.*`) — the
+reverse of Fulfilment, never an edit to it. Full detail lives in
+[accounting.md §"Customer Return Accounting"](accounting.md) and the
+[Sprint 11 Completion Report](../sprint-11-completion-report.md); this section is the
+Sales-domain-facing summary.
+
+- **Original transactions stay immutable.** A return never touches `SalesOrder`,
+  `SalesFulfilment`, or `Invoice` — it only reads them, and increments a new cumulative
+  `SalesFulfilmentItem.quantityReturned` counter (mirroring `quantityFulfilled`'s own
+  convention) to prevent over-return across concurrent requests.
+- **Two-phase lifecycle**, matching the brief's requirement to distinguish "requested"
+  from "physically received": `REQUESTED` (`POST /customer-returns` — no
+  inventory/accounting effect at all) → `RECEIVED` (`POST /:id/receive` — the one
+  atomic physical+financial event) or `CANCELLED` (`POST /:id/cancel`, releases the
+  reserved quantity). A `CustomerReturn` always references a specific
+  `SalesFulfilmentItem` — never guesses cost from the order alone, and correctly
+  attributes a return to one of several fulfilment batches when an order was fulfilled
+  in parts.
+- **Disposition vs. commercial settlement are two separate numbers.** Each item's
+  returned quantity is split at `receive()` time into `quantityResalable`/
+  `quantityDamaged`/`quantityQuarantine`/`quantityScrap` — only `quantityResalable`
+  restocks `InventoryStock` (at the specific original fulfilment cost, a weighted-
+  average upsert identical in shape to Goods Receipt's own). `quantityCredited` is a
+  independent field defaulting to the full returned quantity — a customer is typically
+  refunded in full regardless of physical disposition; the business absorbs a damaged-
+  goods loss internally rather than passing it back as a partial refund, unless
+  explicitly overridden downward.
+- **COGS reversal** (`DR Finished Goods Inventory / CR Cost of Goods Sold`, valued at
+  `quantityResalable × unitCost`) and **Credit Note issuance** (via the extracted
+  `issueCreditNoteWithinTransaction`, valued at `quantityCredited × unitPrice`) both
+  post inside `receive()`'s own transaction — everything rolls back together on any
+  failure (closed period, missing system account, no eligible invoice for the sale).
+  Both are independently zero-skipped (no journal/credit note at all, never a
+  zero-value one) when their respective total rounds to `0`.
+- **No new WMS/quarantine model.** Damaged/quarantine/scrap quantities are recorded as
+  data on the return only — no physical quarantine-location tracking exists yet (see
+  inventory.md "Known Limitations").
+- **Idempotency-before-precheck applied from day one** — both `request()`'s and
+  `receive()`'s own idempotency checks run before any business-rule pre-check, the
+  lesson Sprint 9/10 found live.
+
 ## 5. Workflows
 
 - **Create a Sales Order** — `POST /api/sales/orders` (Owner/Administrator only). Always
@@ -256,21 +304,32 @@ read-only, tenant-scoped repository methods. Audit events: `sales-order.created`
 distinguished by the `newStatus` field in its metadata — and (Sprint 10)
 `sales.fulfilment-cogs-posted`, fired only when a fresh fulfilment actually posted a
 non-null Journal Entry. A replayed idempotent fulfilment request (`wasCreated === false`)
-never emits a second audit event of either kind.
+never emits a second audit event of either kind. Sprint 11 adds
+`sales.customer-return-requested`, `sales.customer-return-received`,
+`sales.customer-return-cogs-reversed`, `sales.customer-return-credit-note-issued`,
+`sales.customer-return-cancelled`, and `sales.customer-return-photo-uploaded` — the
+`-cogs-reversed`/`-credit-note-issued` pair only fire alongside `-received` when their
+respective accounting event actually posted, same "wasCreated-gated" convention.
 
 ## 8. API Reference
 
-| Endpoint                                 | Auth                | Notes                                                                       |
-| ---------------------------------------- | ------------------- | --------------------------------------------------------------------------- |
-| `GET /api/sales/orders`                  | Any authenticated   | `?status=&customerId=&outletId=&search=`                                    |
-| `GET /api/sales/orders/:id`              | Any authenticated   |                                                                             |
-| `POST /api/sales/orders`                 | Owner/Administrator | Server-computed totals                                                      |
-| `PATCH /api/sales/orders/:id`            | Owner/Administrator | `DRAFT` only                                                                |
-| `POST /api/sales/orders/:id/confirm`     | Owner/Administrator | `DRAFT → CONFIRMED`                                                         |
-| `POST /api/sales/orders/:id/cancel`      | Owner/Administrator | From `DRAFT` or `CONFIRMED` only                                            |
-| `GET /api/sales/orders/:id/availability` | Any authenticated   | `?locationId=` optional; informational, never gates fulfilment              |
-| `GET /api/sales/orders/:id/fulfilments`  | Any authenticated   | Fulfilment history — each item includes `journalEntry` (Sprint 10)          |
-| `POST /api/sales/orders/:id/fulfil`      | Owner/Administrator | Atomic — decrements inventory, updates order status, posts COGS (Sprint 10) |
+| Endpoint                                       | Auth                | Notes                                                                       |
+| ---------------------------------------------- | ------------------- | --------------------------------------------------------------------------- |
+| `GET /api/sales/orders`                        | Any authenticated   | `?status=&customerId=&outletId=&search=`                                    |
+| `GET /api/sales/orders/:id`                    | Any authenticated   |                                                                             |
+| `POST /api/sales/orders`                       | Owner/Administrator | Server-computed totals                                                      |
+| `PATCH /api/sales/orders/:id`                  | Owner/Administrator | `DRAFT` only                                                                |
+| `POST /api/sales/orders/:id/confirm`           | Owner/Administrator | `DRAFT → CONFIRMED`                                                         |
+| `POST /api/sales/orders/:id/cancel`            | Owner/Administrator | From `DRAFT` or `CONFIRMED` only                                            |
+| `GET /api/sales/orders/:id/availability`       | Any authenticated   | `?locationId=` optional; informational, never gates fulfilment              |
+| `GET /api/sales/orders/:id/fulfilments`        | Any authenticated   | Fulfilment history — each item includes `journalEntry` (Sprint 10)          |
+| `POST /api/sales/orders/:id/fulfil`            | Owner/Administrator | Atomic — decrements inventory, updates order status, posts COGS (Sprint 10) |
+| `GET /api/sales/customer-returns`              | Any authenticated   | `?status=&customerId=&salesOrderId=&search=` (Sprint 11)                    |
+| `GET /api/sales/customer-returns/:id`          | Any authenticated   | (Sprint 11)                                                                 |
+| `POST /api/sales/customer-returns`             | Owner/Administrator | The request step — no inventory/accounting effect (Sprint 11)               |
+| `POST /api/sales/customer-returns/:id/receive` | Owner/Administrator | Atomic — disposition, COGS reversal, Credit Note (Sprint 11)                |
+| `POST /api/sales/customer-returns/:id/cancel`  | Owner/Administrator | `REQUESTED` only, releases the reserved quantity (Sprint 11)                |
+| `POST /api/sales/customer-returns/:id/photo`   | Owner/Administrator | Multipart, mirrors `Delivery`'s own photo upload (Sprint 11)                |
 
 ## 9. Known Limitations
 
@@ -292,12 +351,15 @@ never emits a second audit event of either kind.
   per-fulfilment stock guard, not by an earlier reservation).
 - No discounts beyond a single order-level amount (not a percentage, not per-line).
 - No sales commissions, targets, or agent performance tracking.
-- No Sales Returns / reverse fulfilment — once any fulfilment is recorded, the order can
-  no longer be cancelled at all, and there is no credit-back path for a customer return
-  or damaged-in-transit shipment. As of Sprint 10 this also means no COGS-reversal
-  mechanism exists (`DR Finished Goods Inventory / CR Cost of Goods Sold`) — a future
-  Sales Return/Reverse Fulfilment sprint would need to add it; the architecture doesn't
-  prevent it (see accounting.md).
+- **Resolved in Sprint 11** — `CustomerReturn` (§4c) now provides the COGS-reversal and
+  Credit Note path this bullet used to flag as missing. `SalesOrder.cancel()` is still
+  blocked post-fulfilment (unchanged) — a return remains a new, additive aggregate, not
+  a status rewind.
+- No quarantine/WMS model for damaged/quarantined returned stock (Sprint 11) — see
+  inventory.md.
+- No Supplier Claims-style workflow for customer returns (approval chain, replacement
+  logistics) — Sprint 11 deliberately keeps this to request→receive only, per its own
+  "do not over-engineer approvals" brief.
 - No FIFO/specific-identification costing, per-lot cost tracking, or landed-cost
   allocation in the Fulfilment COGS posting (Sprint 10) — it reuses Inventory's own
   moving-weighted-average `averageUnitCost` exactly as Production Material Issue does,

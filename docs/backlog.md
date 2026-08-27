@@ -162,8 +162,14 @@ Accounts Payable`, with any quantity accepted beyond a Purchase Order's own orde
   read by Production's Material Issue — still not a full FIFO/standard-costing engine.
   Sprint 10 ("Sales Fulfilment & COGS Accounting Integration") made Sales Fulfilment
   the second reader of that same figure, valuing the finished-goods stock a customer
-  order consumes. Warehouse Transfers, Reservation/Allocation, Low Stock alerting, and
-  a full Warehouse Management System remain — see
+  order consumes. Sprint 11 ("Returns, Claims & Reversals Foundation") added the
+  reverse-flow half: `SupplierReturn` (excess-first allocation between `AP` and
+  `GRNI — Pending Approval`, valued at the original receipt price) and Replacement
+  Goods (an ordinary `GoodsReceipt` against the same PO, provably unable to create a
+  duplicate payable) both live here; a new `RETURN` `InventoryTransactionType`
+  distinguishes both directions of a return from a manual `ADJUSTMENT`. Warehouse
+  Transfers, Reservation/Allocation, Low Stock alerting, a physical quarantine/hold
+  model for returned goods, and a full Warehouse Management System remain — see
   [`docs/domains/inventory.md`](domains/inventory.md).
 
 ### Epic 6 — Production
@@ -217,8 +223,17 @@ Goods Sold / CR Finished Goods Inventory`, one journal per fulfilment batch, val
   not reinvented) — deliberately kept separate from Invoice's own `DR Accounts
 Receivable / CR Sales Revenue` posting (Sprint 6/7): revenue and inventory cost are
   recognised at different business moments and neither event impersonates the other.
-  Returns/COGS-reversal, inventory reservation, delivery/route tracking, and a pricing
-  engine remain — see [`docs/domains/customers.md`](domains/customers.md) and
+  Sprint 11 ("Returns, Claims & Reversals Foundation") added **Customer Returns**:
+  `CustomerReturn`, a two-phase `REQUESTED → RECEIVED`/`CANCELLED` aggregate that
+  always references a specific `SalesFulfilmentItem`, never edits the original order/
+  fulfilment/invoice. `receive()` is the one atomic event — per-line disposition
+  (resalable/damaged/quarantine/scrap, only resalable restocks inventory), a COGS-
+  reversal journal (`DR Finished Goods Inventory / CR Cost of Goods Sold`, valued at
+  the original fulfilment's own frozen cost), and Credit Note issuance (reusing
+  Finance's existing engine, valued independently by a `quantityCredited` figure that
+  is never assumed equal to the resalable quantity). Inventory reservation, delivery/
+  route tracking, a pricing engine, and any WMS-grade quarantine/hold model for
+  returned goods remain — see [`docs/domains/customers.md`](domains/customers.md) and
   [`docs/domains/sales.md`](domains/sales.md).
 
 ### Epic 8 — Distribution
@@ -361,7 +376,8 @@ Receivable / CR Sales Revenue` posting (Sprint 6/7): revenue and inventory cost 
   Accounts Payable module (supplier invoice matching, payment runs, AP ageing, an
   approval workflow to reclassify `GRNI — Pending Approval` balances into `AP`),
   payroll, fixed-asset accounting, a full tax engine, budgeting, year-end closing,
-  labour/machine/overhead costing, and Sales Returns/COGS-reversal — all future work.
+  labour/machine/overhead costing — all future work. Sales Returns/COGS-reversal and
+  Supplier Returns are no longer future work — see Sprint 11 below.
 - **Status:** Foundation implemented — Sprint 7 ("General Ledger & Accounting
   Foundation"). `InvoiceRepository.issue()`/`PaymentRepository.create()`/
   `CreditNoteRepository.issue()` each atomically post a double-entry `JournalEntry` via
@@ -394,6 +410,14 @@ Goods Inventory` through the same `postSystemJournalEntry` boundary, valued at t
   deliberately kept as a separate accounting event from Invoice's own `DR AR / CR Sales
 Revenue` posting, since revenue and inventory cost are recognised at different
   business moments — see [`docs/domains/accounting.md`](domains/accounting.md) §11.
+  Sprint 11 ("Returns, Claims & Reversals Foundation") wired the reverse flow through
+  the same boundary: `CustomerReturn.receive()` posts a COGS-reversal journal (`DR
+Finished Goods Inventory / CR Cost of Goods Sold`) plus an independently-valued
+  Credit Note; `SupplierReturn.create()` posts an excess-first-allocated reversal
+  (`DR AP` and/or `DR GRNI_PENDING_APPROVAL` / `CR Inventory`) that correctly draws
+  down the excess/GRNI balance before touching the payable/AP balance — verified
+  against this codebase's own excess-supply seed data. Zero new system accounts
+  needed for either — see [`docs/domains/accounting.md`](domains/accounting.md) §12.
 
 ## 5. Current Sprint Status
 
@@ -428,6 +452,7 @@ Revenue` posting, since revenue and inventory cost are recognised at different
 - ✓ Sprint 8 — Procurement, Inventory & Accounting Integration
 - ✓ Sprint 9 — Manufacturing Accounting Integration
 - ✓ Sprint 10 — Sales Fulfilment & COGS Accounting Integration
+- ✓ Sprint 11 — Returns, Claims & Reversals Foundation
 
 **Current focus:** Next sprint not yet scoped.
 

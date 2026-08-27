@@ -30,4 +30,11 @@ export const INVENTORY_AUDIT_ACTIONS = {
   LOCATION_CREATED: 'inventory.location.created',
   LOCATION_UPDATED: 'inventory.location.updated',
   LOCATION_DEACTIVATED: 'inventory.location.deactivated',
+  /** Added Sprint 11 (docs/domains/procurement.md "Supplier Returns") — recorded on
+   *  every `POST /supplier-returns` (this is a one-shot atomic write, no separate
+   *  "requested" phase, unlike Customer Returns). */
+  SUPPLIER_RETURN_CREATED: 'supplier-return.created',
+  /** Fired alongside `SUPPLIER_RETURN_CREATED` only when a non-zero-value reversal
+   *  Journal Entry was actually posted. */
+  SUPPLIER_RETURN_JOURNAL_POSTED: 'supplier-return.journal-entry-posted',
 } as const;

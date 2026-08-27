@@ -10,6 +10,8 @@ import { InventoryService } from './inventory.service';
 import { InventoryLocationRepository } from './inventory-location.repository';
 import { InventoryStockRepository } from './inventory-stock.repository';
 import { InventoryTransactionRepository } from './inventory-transaction.repository';
+import { SupplierReturnRepository } from './supplier-return.repository';
+import { SupplierReturnService } from './supplier-return.service';
 
 /**
  * Inventory HTTP surface (Sprint 4.4). Imports `IdentityModule` for
@@ -47,6 +49,8 @@ import { InventoryTransactionRepository } from './inventory-transaction.reposito
     InventoryTransactionRepository,
     InventoryLocationRepository,
     InventoryService,
+    SupplierReturnRepository,
+    SupplierReturnService,
   ],
   exports: [InventoryStockRepository, InventoryTransactionRepository, InventoryLocationRepository],
 })

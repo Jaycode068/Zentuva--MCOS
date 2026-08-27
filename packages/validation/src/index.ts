@@ -9,6 +9,7 @@ export * from './pagination';
 export * from './procurement';
 export * from './production';
 export * from './retail';
+export * from './returns';
 export * from './sales';
 export * from './suppliers';
 export { z } from 'zod';

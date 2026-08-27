@@ -94,6 +94,8 @@ describe('InventoryService', () => {
     remarks: null,
     discrepancyStatus: DiscrepancyStatus.NONE,
     discrepancyNotes: null,
+    discrepancyResolutionAction: null,
+    replacesGoodsReceiptId: null,
     idempotencyKey: null,
     locationId: 'loc-1',
     location: { id: 'loc-1', name: 'Main Warehouse' },
@@ -109,6 +111,10 @@ describe('InventoryService', () => {
         rejectedQuantity: 0,
         acceptedQuantity: 500,
         payableQuantity: 500,
+        returnedQuantity: 0,
+        returnedExcessQuantity: 0,
+        replacedQuantity: 0,
+        replacesRejectedItemId: null,
         rejectionReason: null,
         rejectionNotes: null,
         createdAt: new Date('2026-08-05'),
@@ -596,6 +602,7 @@ describe('InventoryService', () => {
         'gr-1',
         DiscrepancyStatus.RESOLVED,
         'Replacement received in full',
+        undefined,
       );
       expect(result.discrepancyStatus).toBe(DiscrepancyStatus.RESOLVED);
     });

@@ -60,15 +60,18 @@ This roadmap tracks the intended build order. It is not a commitment to dates �
       Sprint 9 added the first persisted costing figure
       (`InventoryStock.averageUnitCost`, a moving weighted average, feeding
       Production's Material Issue); Sprint 10 made Sales Fulfilment a second reader of
-      that same figure; warehouse transfers, reservation, and a full WMS remain — see
-      [`docs/domains/inventory.md`](domains/inventory.md)
+      that same figure; Sprint 11 added `SupplierReturn` (excess-first AP/GRNI
+      allocation) and Replacement Goods (reusing `receive()` unmodified, provably
+      unable to double-pay), plus a new `RETURN` transaction type; warehouse
+      transfers, reservation, a physical quarantine model, and a full WMS remain —
+      see [`docs/domains/inventory.md`](domains/inventory.md)
 - [x] Production — manufacturing foundation shipped Sprint 4.6 (Bill of Materials,
       Production Orders with an immutable requirement snapshot, Material Issue against
       Inventory's `InventoryTransaction` ledger, Production Execution with
       server-computed Accepted quantity, finished-goods receipt back into Inventory);
       Sprint 9 wired Material Issue and Production Completion to the General Ledger
       (`DR WIP / CR Raw Material Inventory`, then `CR WIP / DR Finished Goods
-  Inventory / DR Production Loss` split by accepted/rejected quantity), reusing
+Inventory / DR Production Loss` split by accepted/rejected quantity), reusing
       Sprint 8's posting boundary; MRP/scheduling, labour/machine/overhead costing,
       multi-level BOMs, and batch/lot tracking remain — see
       [`docs/domains/production.md`](domains/production.md)
@@ -78,9 +81,11 @@ This roadmap tracks the intended build order. It is not a commitment to dates �
       Fulfilment — the one atomic, audited bridge into Inventory (`DRAFT → CONFIRMED →
 PARTIALLY_FULFILLED → FULFILLED`, idempotent, multi-batch); Sprint 10 wired
       Fulfilment to the General Ledger (`DR Cost of Goods Sold / CR Finished Goods
-    Inventory`, one journal per batch, valued at Inventory's own moving-weighted-
+Inventory`, one journal per batch, valued at Inventory's own moving-weighted-
       average cost), kept deliberately separate from Invoice's own AR/Revenue
-      posting; Returns/COGS-reversal/inventory reservation remain — see
+      posting; Sprint 11 added `CustomerReturn` (request→receive, per-line
+      disposition, COGS reversal, Credit Note issuance via Finance's existing engine)
+      — inventory reservation and a pricing engine remain — see
       [`docs/domains/customers.md`](domains/customers.md),
       [`docs/domains/sales.md`](domains/sales.md)
 - [x] Distribution — reframed as the Retail Intelligence Network, foundation shipped
@@ -89,7 +94,10 @@ PARTIALLY_FULFILLED → FULFILLED`, idempotent, multi-batch); Sprint 10 wired
       distributor mapping); Sprint 5 added `Dispatch`/`Delivery` (the physical release of
       already-fulfilled goods and confirmation of what arrived, chained off Sales
       Fulfilment, inventory deducted exactly once and never again at either stage);
-      fleet/route planning and a full Returns/Claims workflow remain — see
+      fleet/route planning remain (Customer/Supplier Returns are now built, but live
+      in Sales/Inventory respectively — Sprint 11 — never in Distribution itself,
+      matching this domain's existing "purely operational, never a business-event
+      trigger" boundary) — see
       [`docs/domains/outlets.md`](domains/outlets.md),
       [`docs/domains/territories.md`](domains/territories.md),
       [`docs/domains/retail-network.md`](domains/retail-network.md),
@@ -111,11 +119,13 @@ PARTIALLY_FULFILLED → FULFILLED`, idempotent, multi-batch); Sprint 10 wired
       Issue and Completion, two new system accounts — `WIP`, `PRODUCTION_LOSS` — plus
       elevating the existing Finished Goods account to a system account); Sprint 10
       closed the last major gap by wiring Sales's Fulfilment event (`DR Cost of Goods
-    Sold / CR Finished Goods Inventory`, no new system accounts needed — `COGS` had
-      been seeded and reserved since Sprint 7); not a complete accounting system —
-      financial-statement closing (P&L, Balance Sheet), Cash Flow Statement, Bank
-      Reconciliation, a full Accounts Payable module, labour/machine/overhead costing,
-      and Sales Returns/COGS-reversal remain — see
+Sold / CR Finished Goods Inventory`, no new system accounts needed — `COGS` had
+      been seeded and reserved since Sprint 7); Sprint 11 wired the reverse flow —
+      Customer Return (COGS reversal + independently-valued Credit Note) and Supplier
+      Return (excess-first-allocated `AP`/`GRNI` reversal), zero new system accounts
+      needed for either; not a complete accounting system — financial-statement
+      closing (P&L, Balance Sheet), Cash Flow Statement, Bank Reconciliation, a full
+      Accounts Payable module, and labour/machine/overhead costing remain — see
       [`docs/domains/accounting.md`](domains/accounting.md)
 
 ## Phase 3 — Extended Experiences

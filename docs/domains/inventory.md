@@ -401,20 +401,23 @@ this codebase uses.
 
 ## 7. API Reference
 
-| Endpoint                                                        | Auth                                           | Input                                                                                                                                                   | Output                                                                                                                                                    |
-| --------------------------------------------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /api/inventory`                                            | Any authenticated user                         | Optional `?search=`, `?productType=`                                                                                                                    | `200 { items: InventoryStockSummary[] }`                                                                                                                  |
-| `GET /api/inventory/transactions`                               | Any authenticated user                         | Optional `?productId=`, `?transactionType=`                                                                                                             | `200 { items: InventoryTransaction[] }`                                                                                                                   |
-| `GET /api/inventory/goods-receipts`                             | Any authenticated user                         | Optional `?search=`, `?purchaseOrderId=`                                                                                                                | `200 { items: GoodsReceipt[] }`                                                                                                                           |
-| `GET /api/inventory/goods-receipts/:id`                         | Any authenticated user                         | —                                                                                                                                                       | `200` — a single `GoodsReceipt`                                                                                                                           |
-| `POST /api/inventory/goods-receipts`                            | Owner or Administrator only (`403` for Member) | `{ purchaseOrderId, receivedDate, remarks?, items: [{ purchaseOrderItemId, deliveredQuantity, rejectedQuantity, rejectionReason?, rejectionNotes? }] }` | `201` — the created `GoodsReceipt`; `400` if the order is `DRAFT`/`CANCELLED`; `404` if the order/item doesn't exist                                      |
-| `PATCH /api/inventory/goods-receipts/:id/discrepancy`           | Owner or Administrator only (`403` for Member) | `{ status, notes? }`                                                                                                                                    | `200` — the updated `GoodsReceipt`; `404` if it doesn't exist                                                                                             |
-| `GET /api/inventory/purchase-orders/:purchaseOrderId/receiving` | Any authenticated user                         | —                                                                                                                                                       | `200` — per-item receiving summary + full receipt history; `404` if the order doesn't exist                                                               |
-| `GET /api/inventory/locations`                                  | Any authenticated user                         | —                                                                                                                                                       | `200 { items: InventoryLocation[] }`                                                                                                                      |
-| `POST /api/inventory/locations`                                 | Owner or Administrator only (`403` for Member) | `{ name }`                                                                                                                                              | `201` — the created `InventoryLocation`                                                                                                                   |
-| `PATCH /api/inventory/locations/:id`                            | Owner or Administrator only (`403` for Member) | `{ name?, status? }`                                                                                                                                    | `200` — the updated `InventoryLocation`; `400` if trying to deactivate the default location; `404` if not found                                           |
-| `POST /api/inventory/adjustments`                               | Owner or Administrator only (`403` for Member) | `{ productId, locationId?, quantity, reason, notes? }`                                                                                                  | `201` — the resulting balance/transaction; `400` if the result would be negative or the location is inactive; `404` if the product/location doesn't exist |
-| `GET /api/inventory/:productId`                                 | Any authenticated user                         | —                                                                                                                                                       | `200` — a zero-balance view if the product has never been received; `404` if the product doesn't exist                                                    |
+| Endpoint                                                        | Auth                                           | Input                                                                                                                                                                       | Output                                                                                                                                                    |
+| --------------------------------------------------------------- | ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/inventory`                                            | Any authenticated user                         | Optional `?search=`, `?productType=`                                                                                                                                        | `200 { items: InventoryStockSummary[] }`                                                                                                                  |
+| `GET /api/inventory/transactions`                               | Any authenticated user                         | Optional `?productId=`, `?transactionType=`                                                                                                                                 | `200 { items: InventoryTransaction[] }`                                                                                                                   |
+| `GET /api/inventory/goods-receipts`                             | Any authenticated user                         | Optional `?search=`, `?purchaseOrderId=`                                                                                                                                    | `200 { items: GoodsReceipt[] }`                                                                                                                           |
+| `GET /api/inventory/goods-receipts/:id`                         | Any authenticated user                         | —                                                                                                                                                                           | `200` — a single `GoodsReceipt`                                                                                                                           |
+| `POST /api/inventory/goods-receipts`                            | Owner or Administrator only (`403` for Member) | `{ purchaseOrderId, receivedDate, remarks?, items: [{ purchaseOrderItemId, deliveredQuantity, rejectedQuantity, rejectionReason?, rejectionNotes? }] }`                     | `201` — the created `GoodsReceipt`; `400` if the order is `DRAFT`/`CANCELLED`; `404` if the order/item doesn't exist                                      |
+| `PATCH /api/inventory/goods-receipts/:id/discrepancy`           | Owner or Administrator only (`403` for Member) | `{ status, notes?, resolutionAction? }` (Sprint 11: `resolutionAction` accepts only the manual values)                                                                      | `200` — the updated `GoodsReceipt`; `404` if it doesn't exist                                                                                             |
+| `GET /api/inventory/supplier-returns`                           | Any authenticated user                         | Optional `?supplierId=`, `?purchaseOrderId=`, `?goodsReceiptId=`, `?search=` (Sprint 11)                                                                                    | `200 { items: SupplierReturn[] }`                                                                                                                         |
+| `GET /api/inventory/supplier-returns/:id`                       | Any authenticated user                         | — (Sprint 11)                                                                                                                                                               | `200` — a single `SupplierReturn`                                                                                                                         |
+| `POST /api/inventory/supplier-returns`                          | Owner or Administrator only (`403` for Member) | `{ purchaseOrderId, goodsReceiptId, locationId, returnDate, reason, reasonNotes?, notes?, idempotencyKey?, items: [{ goodsReceiptItemId, quantityReturned }] }` (Sprint 11) | `201` — the created `SupplierReturn` + `journalEntry`; atomic, posts the excess/payable-split reversal journal                                            |
+| `GET /api/inventory/purchase-orders/:purchaseOrderId/receiving` | Any authenticated user                         | —                                                                                                                                                                           | `200` — per-item receiving summary + full receipt history; `404` if the order doesn't exist                                                               |
+| `GET /api/inventory/locations`                                  | Any authenticated user                         | —                                                                                                                                                                           | `200 { items: InventoryLocation[] }`                                                                                                                      |
+| `POST /api/inventory/locations`                                 | Owner or Administrator only (`403` for Member) | `{ name }`                                                                                                                                                                  | `201` — the created `InventoryLocation`                                                                                                                   |
+| `PATCH /api/inventory/locations/:id`                            | Owner or Administrator only (`403` for Member) | `{ name?, status? }`                                                                                                                                                        | `200` — the updated `InventoryLocation`; `400` if trying to deactivate the default location; `404` if not found                                           |
+| `POST /api/inventory/adjustments`                               | Owner or Administrator only (`403` for Member) | `{ productId, locationId?, quantity, reason, notes? }`                                                                                                                      | `201` — the resulting balance/transaction; `400` if the result would be negative or the location is inactive; `404` if the product/location doesn't exist |
+| `GET /api/inventory/:productId`                                 | Any authenticated user                         | —                                                                                                                                                                           | `200` — a zero-balance view if the product has never been received; `404` if the product doesn't exist                                                    |
 
 Route order matters for the underlying Nest controller: `/locations`, `/adjustments`,
 `/transactions`, `/goods-receipts`, and `/purchase-orders/:id/receiving` are
@@ -426,24 +429,27 @@ what was actually received.
 
 ## 8. Audit Events
 
-| Action                               | When                                                                                 |
-| ------------------------------------ | ------------------------------------------------------------------------------------ |
-| `goods-receipt.received`             | `POST /api/inventory/goods-receipts` — every call                                    |
-| `inventory.increased`                | Same call, only when at least one item's `acceptedQuantity > 0`                      |
-| `goods-receipt.discrepancy-recorded` | Same call, only when at least one item was rejected                                  |
-| `goods-receipt.replacement-received` | Same call, only when this wasn't the first `GoodsReceipt` recorded against the order |
-| `goods-receipt.journal-entry-posted` | Same call, only when a Journal Entry was actually posted (Sprint 8)                  |
-| `goods-receipt.resolved`             | `PATCH .../discrepancy`, only when the new status is `RESOLVED`                      |
-| `inventory.adjusted`                 | `POST /api/inventory/adjustments` — every call                                       |
-| `inventory.location.created`         | `POST /api/inventory/locations` — every call                                         |
-| `inventory.location.updated`         | `PATCH /api/inventory/locations/:id`, when the new status isn't `INACTIVE`           |
-| `inventory.location.deactivated`     | `PATCH /api/inventory/locations/:id`, only when the new status is `INACTIVE`         |
+| Action                                 | When                                                                                         |
+| -------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `goods-receipt.received`               | `POST /api/inventory/goods-receipts` — every call                                            |
+| `inventory.increased`                  | Same call, only when at least one item's `acceptedQuantity > 0`                              |
+| `goods-receipt.discrepancy-recorded`   | Same call, only when at least one item was rejected                                          |
+| `goods-receipt.replacement-received`   | Same call, only when this wasn't the first `GoodsReceipt` recorded against the order         |
+| `goods-receipt.journal-entry-posted`   | Same call, only when a Journal Entry was actually posted (Sprint 8)                          |
+| `goods-receipt.resolved`               | `PATCH .../discrepancy`, only when the new status is `RESOLVED`                              |
+| `inventory.adjusted`                   | `POST /api/inventory/adjustments` — every call                                               |
+| `inventory.location.created`           | `POST /api/inventory/locations` — every call                                                 |
+| `inventory.location.updated`           | `PATCH /api/inventory/locations/:id`, when the new status isn't `INACTIVE`                   |
+| `inventory.location.deactivated`       | `PATCH /api/inventory/locations/:id`, only when the new status is `INACTIVE`                 |
+| `supplier-return.created`              | `POST /api/inventory/supplier-returns` — every fresh call (Sprint 11)                        |
+| `supplier-return.journal-entry-posted` | Same call, only when a non-zero-value reversal Journal Entry was actually posted (Sprint 11) |
 
-Only these ten events exist — no audit action was invented for functionality that
-isn't actually implemented (Sprint 4.4.1 brief §14, extended Sprint 4.5, extended
-Sprint 8). Sprint 8 also gates every event on this list fired from `POST
-.../goods-receipts` on `wasCreated === true` — an idempotent replay (a retried request
-with the same `idempotencyKey`) re-emits none of them.
+No audit action was invented for functionality that isn't actually implemented
+(Sprint 4.4.1 brief §14, extended Sprint 4.5, extended Sprint 8, extended Sprint 11).
+Sprint 8 also gates every event on this list fired from `POST .../goods-receipts` on
+`wasCreated === true` — an idempotent replay (a retried request with the same
+`idempotencyKey`) re-emits none of them; Sprint 11's own `supplier-return.*` events
+follow the identical convention.
 
 ## 9. Prisma Schema (excerpt)
 
@@ -719,6 +725,50 @@ the zero-cost policy (matches Production's own precedent — skip the journal, n
 block the physical fulfilment), and the idempotency-ordering fix applied proactively
 this sprint.
 
+## 11d. Returns & Replacement Goods (Sprint 11)
+
+Sprint 11 adds the reverse-flow half of the receiving chain, entirely within this
+domain — full detail in [Accounting](accounting.md) §"Supplier Return Accounting" and
+the [Sprint 11 Completion Report](../sprint-11-completion-report.md).
+
+- **`SupplierReturn`** (`apps/api/src/inventory/supplier-return.*`) — a physical return
+  of previously-accepted goods to a supplier, created and posted atomically in a single
+  call (unlike `CustomerReturn`'s two-phase request/receive — there is no separate
+  inspection step; the goods are simply leaving). Always references a specific
+  `GoodsReceiptItem`. New cumulative columns `returnedQuantity`/
+  `returnedExcessQuantity` on `GoodsReceiptItem` cap eligibility at `acceptedQuantity`
+  and track the **excess-first allocation** rule: a return's value is drawn from the
+  remaining excess/`GRNI_PENDING_APPROVAL` balance before spilling into the payable/`AP`
+  balance, valued at the _original_ `PurchaseOrderItem.unitPrice` the receipt itself
+  posted at (never the current, possibly-drifted `averageUnitCost`) so the reversal
+  ties out exactly to the original receipt journal.
+- **Replacement goods need no new accounting logic at all.** A replacement is an
+  ordinary `GoodsReceipt` against the same Purchase Order, posted through the existing,
+  completely unmodified `receive()` — because `payableQuantity` is already capped
+  cumulatively by remaining-ordered-quantity across every receipt against a PO item
+  (Sprint 8), a replacement mathematically cannot create a duplicate payable. Only two
+  traceability fields were added: `GoodsReceipt.replacesGoodsReceiptId` and
+  `GoodsReceiptItem.replacesRejectedItemId` (+ a `replacedQuantity` cap preventing a
+  line from "replacing" more than was actually rejected).
+- **Discrepancy auto-resolution.** A `SupplierReturn` or replacement receipt that
+  references a `GoodsReceipt` with an active discrepancy automatically advances
+  `discrepancyStatus` toward `RESOLVED`/`REPLACEMENT_RECEIVED` and sets the new
+  `discrepancyResolutionAction` (`REPLACEMENT`/`RETURN`, auto-set; `CREDIT`/
+  `ACCEPT_AS_IS`/`PRICE_ADJUSTMENT`/`OTHER` remain a manual flip via the existing
+  `PATCH .../discrepancy` endpoint, Sprint 4.4.1, unchanged) — still not a workflow
+  engine, per that sprint's own explicit constraint.
+- **New `InventoryTransactionType.RETURN`** — both a customer-return restock (increase)
+  and a supplier-return removal (decrease) use this one new value, distinguishable from
+  `ADJUSTMENT` (a manual correction) and from `RECEIPT`/`ISSUE` (the forward-flow
+  events) — a return is a business event, not a stock correction.
+- **Customer-return disposition is the smallest safe extension, not a WMS.**
+  `CustomerReturn` (owned by [Sales](sales.md) §4c) splits a returned quantity into
+  resalable/damaged/quarantine/scrap — only the resalable portion ever touches
+  `InventoryStock`/`InventoryTransaction`. Damaged/quarantine/scrap quantities are
+  recorded as plain data on the return row; there is no physical quarantine-location
+  or hold-status model on `InventoryStock` itself. A future warehouse module would add
+  that; Sprint 11 deliberately does not.
+
 ## 11. Known Limitations (Sprint 4.5)
 
 - **No full Warehouse Management System.** `InventoryLocation` is deliberately minimal —
@@ -749,16 +799,19 @@ this sprint.
 - **No Inventory Counts (cycle counts as a first-class workflow), Batch/Lot Tracking, or
   Expiry Tracking** — a physical count today is recorded as one `ADJUSTMENT` with reason
   `PHYSICAL_COUNT`, not a dedicated count-session entity.
-- **No Quality Management module, Supplier Claims module, Supplier Returns module,
+- **No Quality Management module, Supplier Claims/dispute-management module,
   full Accounts Payable module (supplier invoice matching, payment runs, AP ageing,
-  vendor statements), Credit Notes, or automated supplier communication** —
-  `discrepancyStatus` is deliberately lightweight (a status + free-text notes), not a
-  workflow engine (Sprint 4.4.1 brief §18). Sprint 8 posts to a basic `AP` system
-  account (see §11a/[Accounting](accounting.md) §9), which is a liability-recognition
-  foundation, not a full AP module.
-- **No automatic linkage between a rejected `GoodsReceipt` and the later replacement**
-  that resolves it — a human must mark the original `RESOLVED`; the system doesn't infer
-  the connection.
+  vendor statements), or automated supplier communication** —
+  `discrepancyStatus` is deliberately lightweight (a status + free-text notes, extended
+  Sprint 11 with `discrepancyResolutionAction`), not a workflow engine (Sprint 4.4.1
+  brief §18). Sprint 8 posts to a basic `AP` system account (see
+  §11a/[Accounting](accounting.md) §9), which is a liability-recognition foundation,
+  not a full AP module. **Resolved in Sprint 11**: Supplier Returns and Replacement
+  Goods are now built (§11d) — the "Supplier Returns module" and automatic
+  rejected↔replacement linkage gaps this bullet used to flag no longer exist.
+- **No physical quarantine-location or hold-status model** (Sprint 11, §11d) — a
+  customer return's damaged/quarantine/scrap disposition is recorded as data only, not
+  as a distinct physical stock state on `InventoryStock`.
 - **The Purchase Order status write happens directly from inside
   `GoodsReceiptRepository`'s own transaction** — a deliberate, documented exception to
   ADR-002's domain-ownership convention, made for atomicity. See "Integration Points"

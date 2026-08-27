@@ -7,6 +7,74 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 11 Returns, Claims & Reversals Foundation] - 2026-08-27
+
+### Added
+
+- **`CustomerReturn` (Sales)** — a two-phase aggregate (`REQUESTED → RECEIVED`/
+  `CANCELLED`) that references a specific `SalesFulfilmentItem`, never edits the
+  original Sales Order/Fulfilment/Invoice. `POST /api/sales/customer-returns` is the
+  request step (no inventory/accounting effect); `POST /:id/receive` is the one
+  atomic physical+financial event — per-line disposition
+  (resalable/damaged/quarantine/scrap, only resalable restocks `InventoryStock` at the
+  fulfilment's own frozen cost), a COGS-reversal Journal Entry (`DR Finished Goods
+Inventory / CR Cost of Goods Sold`), and Credit Note issuance (an independently-
+  valued `quantityCredited`, never assumed equal to the resalable quantity) — all one
+  transaction, rolling back together on any failure. `POST /:id/cancel` releases the
+  reserved quantity; `POST /:id/photo` mirrors `Delivery`'s own photo-upload shape.
+- **`SupplierReturn` (Inventory)** — a single atomic write (`POST
+/api/inventory/supplier-returns`) reversing a physical return of previously-accepted
+  goods to a supplier. Implements an **excess-first allocation** rule: a return's
+  value is drawn from a `GoodsReceiptItem`'s remaining excess/`GRNI_PENDING_APPROVAL`
+  balance before spilling into the payable/`AP` balance, valued at the original
+  `PurchaseOrderItem.unitPrice` — verified against this codebase's own excess-supply
+  seed data to post `DR GRNI_PENDING_APPROVAL / CR Inventory` only, leaving `AP`
+  completely untouched, matching the brief's own worked example exactly.
+- **Replacement Goods (Inventory)** — a supplier's replacement shipment for
+  previously-rejected goods is now a traceable `GoodsReceipt`
+  (`replacesGoodsReceiptId`/`replacesRejectedItemId`, `replacedQuantity` capped at
+  what was actually rejected), posted through the _existing_, completely unmodified
+  `receive()` — no new accounting logic, since `payableQuantity`'s existing
+  remaining-ordered-quantity cap (Sprint 8) already makes a duplicate payable
+  mathematically impossible.
+- **Discrepancy resolution extended** — `GoodsReceipt.discrepancyResolutionAction`
+  (`REPLACEMENT`/`RETURN`/`CREDIT`/`ACCEPT_AS_IS`/`PRICE_ADJUSTMENT`/`OTHER`),
+  auto-set by a linked Supplier Return or replacement receipt; the other three values
+  remain a manual flip via the existing `PATCH .../discrepancy` endpoint.
+- **`issueCreditNoteWithinTransaction`** — `CreditNoteRepository.issue()`'s atomic
+  body extracted into a plain, DI-free function (same contract as
+  `postSystemJournalEntry`), so `CustomerReturn.receive()` can issue a Credit Note
+  inside its own outer transaction. `CreditNote` gained a polymorphic
+  `sourceType`/`sourceId` pair for Finance traceability back to the return that issued
+  it — behaviour-preserving for every pre-existing, manually-issued credit note.
+- **New `InventoryTransactionType.RETURN`** — both a customer-return restock
+  (increase) and a supplier-return removal (decrease), distinguishable from a manual
+  `ADJUSTMENT`.
+- **Admin `/settings/returns`** — a two-tab (Customer/Supplier) list-and-detail
+  surface, following this codebase's established list/dialog conventions.
+- **Field Sales returns request** — a mobile-first, full-screen sheet on the order
+  detail page (`Request Return`), request-only (no cost/COGS/disposition fields, same
+  rule Field's Fulfilment view already follows) with optional camera photo capture,
+  reusing `ImageUploadCard`'s `preferCamera` pattern.
+- Two new `*-independence.spec.ts` structural-guard files (Sales, Inventory) proving
+  the new repositories only post accounting through the approved
+  `postSystemJournalEntry`/`issueCreditNoteWithinTransaction` boundary, never by
+  writing `JournalEntry`/`JournalEntryLine` directly or importing a Finance
+  repository/service class.
+
+### Verified
+
+- Live, end-to-end, against the running dev servers (not just automated tests): the
+  Boby Bites customer-return scenario (10 packs returned, 7 resalable/3 damaged, full
+  credit) posted `DR Finished Goods Inventory ₦2,982 / CR COGS ₦2,982` and a `₦8,000`
+  Credit Note, both confirmed by direct database query; the excess-supply supplier-
+  return scenario (returning 50 of a 100-unit excess) posted `DR
+GRNI_PENDING_APPROVAL ₦7,500 / CR Inventory ₦7,500` with zero `AP` impact; the Field
+  Sales mobile return-request flow, confirmed to create a `REQUESTED` return
+  referencing the correct fulfilment batch with zero cost fields rendered.
+- Full backend suite: **72 test suites / 717 tests, all passing** (up from 68/684
+  after Sprint 10).
+
 ## [Sprint 10 Sales Fulfilment & COGS Accounting Integration] - 2026-08-26
 
 ### Added

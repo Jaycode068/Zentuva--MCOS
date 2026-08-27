@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import {
+  DiscrepancyResolutionAction,
   DiscrepancyStatus,
   InventoryTransactionType,
   LocationStatus,
@@ -10,11 +11,13 @@ import {
   CreateGoodsReceiptInput,
   CreateInventoryAdjustmentInput,
   CreateInventoryLocationInput,
+  CreateSupplierReturnInput,
   UpdateGoodsReceiptDiscrepancyInput,
   UpdateInventoryLocationInput,
   createGoodsReceiptSchema,
   createInventoryAdjustmentSchema,
   createInventoryLocationSchema,
+  createSupplierReturnSchema,
   updateGoodsReceiptDiscrepancySchema,
   updateInventoryLocationSchema,
 } from '@zentuva/validation';
@@ -36,6 +39,8 @@ import {
 } from './inventory.service';
 import { INVENTORY_AUDIT_ACTIONS } from './inventory-audit-actions';
 import { InventoryTransactionWithProduct } from './inventory-transaction.repository';
+import { SupplierReturnWithRelations } from './supplier-return.repository';
+import { SupplierReturnService } from './supplier-return.service';
 
 /**
  * Inventory HTTP surface (Sprint 4.4 brief, extended Sprint 4.4.1, extended again Sprint
@@ -62,6 +67,7 @@ import { InventoryTransactionWithProduct } from './inventory-transaction.reposit
 export class InventoryController {
   constructor(
     private readonly inventoryService: InventoryService,
+    private readonly supplierReturnService: SupplierReturnService,
     private readonly auditService: AuditService,
   ) {}
 
@@ -352,6 +358,7 @@ export class InventoryController {
       id,
       body.status as DiscrepancyStatus,
       body.notes,
+      body.resolutionAction as DiscrepancyResolutionAction | undefined,
     );
 
     if (body.status === 'RESOLVED') {
@@ -381,12 +388,114 @@ export class InventoryController {
     return toReceivingSummaryResponse(summary);
   }
 
+  @Get('supplier-returns')
+  async listSupplierReturns(
+    @CurrentUser() user: TokenPayload,
+    @Query('supplierId') supplierId?: string,
+    @Query('purchaseOrderId') purchaseOrderId?: string,
+    @Query('goodsReceiptId') goodsReceiptId?: string,
+    @Query('search') search?: string,
+  ) {
+    const items = await this.supplierReturnService.list(user.organisationId, {
+      supplierId,
+      purchaseOrderId,
+      goodsReceiptId,
+      search: search?.trim() || undefined,
+    });
+    return { items: items.map(toSupplierReturnResponse) };
+  }
+
+  @Get('supplier-returns/:id')
+  async getSupplierReturn(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
+    const supplierReturn = await this.supplierReturnService.getById(user.organisationId, id);
+    return toSupplierReturnResponse(supplierReturn);
+  }
+
+  /** `POST /supplier-returns` (Sprint 11, brief §15-19) — a single atomic write: no
+   *  separate request/receive phase, unlike Customer Returns. */
+  @Post('supplier-returns')
+  @UseGuards(RolesGuard)
+  @Roles('Owner', 'Administrator')
+  async createSupplierReturn(
+    @Body(new ZodValidationPipe(createSupplierReturnSchema)) body: CreateSupplierReturnInput,
+    @CurrentUser() user: TokenPayload,
+    @Req() req: Request,
+  ) {
+    const { supplierReturn, journalEntry, wasCreated } = await this.supplierReturnService.create(
+      user.organisationId,
+      body,
+      user.sub,
+    );
+
+    if (wasCreated) {
+      await this.auditService.record({
+        action: INVENTORY_AUDIT_ACTIONS.SUPPLIER_RETURN_CREATED,
+        entityType: 'SupplierReturn',
+        entityId: supplierReturn.id,
+        organisationId: user.organisationId,
+        actorUserId: user.sub,
+        metadata: {
+          returnCode: supplierReturn.returnCode,
+          goodsReceiptId: supplierReturn.goodsReceiptId,
+          items: supplierReturn.items.length,
+        },
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      });
+
+      if (journalEntry) {
+        await this.auditService.record({
+          action: INVENTORY_AUDIT_ACTIONS.SUPPLIER_RETURN_JOURNAL_POSTED,
+          entityType: 'SupplierReturn',
+          entityId: supplierReturn.id,
+          organisationId: user.organisationId,
+          actorUserId: user.sub,
+          metadata: {
+            journalEntryId: journalEntry.id,
+            journalNumber: journalEntry.journalNumber,
+            totalAmount: journalEntry.totalAmount,
+          },
+          ipAddress: req.ip,
+          userAgent: req.headers['user-agent'],
+        });
+      }
+    }
+
+    return { ...toSupplierReturnResponse(supplierReturn), journalEntry };
+  }
+
   /** Wildcard route — must stay last (see class doc comment). */
   @Get(':productId')
   async getByProduct(@CurrentUser() user: TokenPayload, @Param('productId') productId: string) {
     const stock = await this.inventoryService.getStockByProduct(user.organisationId, productId);
     return toStockResponse(stock);
   }
+}
+
+function toSupplierReturnResponse(supplierReturn: SupplierReturnWithRelations) {
+  return {
+    id: supplierReturn.id,
+    returnCode: supplierReturn.returnCode,
+    supplier: supplierReturn.supplier,
+    purchaseOrder: supplierReturn.purchaseOrder,
+    goodsReceipt: supplierReturn.goodsReceipt,
+    location: supplierReturn.location,
+    status: supplierReturn.status,
+    returnDate: supplierReturn.returnDate,
+    reason: supplierReturn.reason,
+    reasonNotes: supplierReturn.reasonNotes,
+    notes: supplierReturn.notes,
+    photoUrl: supplierReturn.photoUrl,
+    items: supplierReturn.items.map((item) => ({
+      id: item.id,
+      product: item.product,
+      goodsReceiptItemId: item.goodsReceiptItemId,
+      quantityReturned: item.quantityReturned,
+      unitCost: item.unitCost,
+      excessPortion: item.excessPortion,
+    })),
+    createdAt: supplierReturn.createdAt,
+  };
 }
 
 function toStockResponse(stock: InventoryStockSummary) {

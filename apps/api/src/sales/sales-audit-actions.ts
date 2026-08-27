@@ -18,4 +18,19 @@ export const SALES_AUDIT_ACTIONS = {
    *  `production.material-issue-journal-posted`/`.completion-journal-posted`
    *  pattern: a distinct audit action per new accounting event. */
   FULFILMENT_COGS_POSTED: 'sales.fulfilment-cogs-posted',
+  /** Added Sprint 11 (docs/domains/sales.md "Customer Returns") — the request step,
+   *  no inventory/accounting effect yet. */
+  RETURN_REQUESTED: 'sales.customer-return-requested',
+  /** Fired only when a fresh (non-idempotent-replay) `receive()` actually ran —
+   *  covers disposition + inventory movement, mirrors `ORDER_FULFILLED`'s own
+   *  "wasCreated-gated" convention. */
+  RETURN_RECEIVED: 'sales.customer-return-received',
+  /** Fired alongside `RETURN_RECEIVED` only when a COGS-reversal Journal Entry was
+   *  actually posted (non-zero resalable value) — mirrors `FULFILMENT_COGS_POSTED`. */
+  RETURN_COGS_REVERSED: 'sales.customer-return-cogs-reversed',
+  /** Fired alongside `RETURN_RECEIVED` only when a Credit Note was actually issued
+   *  (non-zero credited amount). */
+  RETURN_CREDIT_NOTE_ISSUED: 'sales.customer-return-credit-note-issued',
+  RETURN_CANCELLED: 'sales.customer-return-cancelled',
+  RETURN_PHOTO_UPLOADED: 'sales.customer-return-photo-uploaded',
 } as const;

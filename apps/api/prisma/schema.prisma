@@ -159,6 +159,10 @@ model Organisation {
   chartOfAccounts                  ChartOfAccount[]
   accountingPeriods                AccountingPeriod[]
   journalEntries                   JournalEntry[]
+  /// Added Sprint 11 — Returns, Claims & Reversals (docs/domains/sales.md,
+  /// docs/domains/procurement.md).
+  customerReturns                  CustomerReturn[]
+  supplierReturns                  SupplierReturn[]
 
   @@map("organisations")
 }
@@ -505,6 +509,10 @@ model Product {
   deliveryItems                DeliveryItem[]
   /// Added Sprint 6 — Finance (docs/domains/finance.md).
   invoiceItems                 InvoiceItem[]
+  /// Added Sprint 11 — Returns, Claims & Reversals (docs/domains/sales.md,
+  /// docs/domains/procurement.md).
+  customerReturnItems          CustomerReturnItem[]
+  supplierReturnItems          SupplierReturnItem[]
 
   @@unique([organisationId, slug])
   @@index([organisationId])
@@ -648,6 +656,8 @@ model Supplier {
   purchaseOrders PurchaseOrder[]
   /// Added Sprint 4.4 — Inventory (docs/domains/inventory.md).
   goodsReceipts  GoodsReceipt[]
+  /// Added Sprint 11 — Returns, Claims & Reversals (docs/domains/procurement.md).
+  supplierReturns SupplierReturn[]
 
   @@index([organisationId])
   @@index([organisationId, status])
@@ -717,6 +727,8 @@ model PurchaseOrder {
   /// rejection, or a vendor sending replacement goods each add another immutable
   /// `GoodsReceipt`, never editing a prior one.
   goodsReceipts GoodsReceipt[]
+  /// Added Sprint 11 — Returns, Claims & Reversals (docs/domains/procurement.md).
+  supplierReturns SupplierReturn[]
 
   @@index([organisationId])
   @@index([organisationId, status])
@@ -792,6 +804,10 @@ model InventoryLocation {
   /// relation this sprint adds to `InventoryLocation` — `InventoryStock`/
   /// `InventoryTransaction` gain nothing, since Dispatch/Delivery never touch them.
   dispatches       Dispatch[]
+  /// Added Sprint 11 — Returns, Claims & Reversals (docs/domains/sales.md,
+  /// docs/domains/procurement.md).
+  customerReturns  CustomerReturn[]
+  supplierReturns  SupplierReturn[]
 
   @@index([organisationId])
   @@index([organisationId, status])
@@ -850,6 +866,19 @@ model GoodsReceipt {
   /// replacement ships next week") — the one field on this otherwise-immutable row that
   /// can change over time, alongside `discrepancyStatus` itself.
   discrepancyNotes   String?
+  /// Added Sprint 11 (docs/domains/procurement.md "Discrepancy Resolution") — which of
+  /// the five brief-listed resolution actions this receipt's discrepancy was actually
+  /// resolved by. Auto-set to `REPLACEMENT`/`RETURN` when a replacement `GoodsReceipt`
+  /// or a `SupplierReturn` references this receipt; the other three values
+  /// (`CREDIT`/`ACCEPT_AS_IS`/`PRICE_ADJUSTMENT`/`OTHER`) are set manually via the
+  /// existing `PATCH .../discrepancy` endpoint. Purely descriptive — never drives any
+  /// accounting on its own.
+  discrepancyResolutionAction DiscrepancyResolutionAction?
+  /// Added Sprint 11 — self-reference to the original receipt this one replaces
+  /// defective/rejected goods for (brief §21/§39). `NULL` for every ordinary receipt.
+  /// Deliberately reuses `receive()`'s existing payable/GRNI computation completely
+  /// unmodified — see docs/domains/accounting.md "Replacement Goods".
+  replacesGoodsReceiptId String?
   /// Added Sprint 8 — same double-submit protection every other write-path in this
   /// codebase has (`Invoice.idempotencyKey`, `Payment.idempotencyKey`, ...). A retried
   /// `POST /goods-receipts` with the same key against the same Purchase Order returns
@@ -864,11 +893,16 @@ model GoodsReceipt {
   supplier      Supplier           @relation(fields: [supplierId], references: [id], onDelete: Restrict)
   location      InventoryLocation  @relation(fields: [locationId], references: [id], onDelete: Restrict)
   items         GoodsReceiptItem[]
+  /// Added Sprint 11 — see `replacesGoodsReceiptId` above.
+  replacesGoodsReceipt GoodsReceipt?  @relation("GoodsReceiptReplacement", fields: [replacesGoodsReceiptId], references: [id], onDelete: Restrict)
+  replacementReceipts  GoodsReceipt[] @relation("GoodsReceiptReplacement")
+  supplierReturns      SupplierReturn[]
 
   @@unique([purchaseOrderId, idempotencyKey])
   @@index([organisationId])
   @@index([organisationId, purchaseOrderId])
   @@index([locationId])
+  @@index([replacesGoodsReceiptId])
   @@map("goods_receipts")
 }
 
@@ -925,15 +959,36 @@ model GoodsReceiptItem {
   payableQuantity     Float            @default(0)
   rejectionReason     RejectionReason?
   rejectionNotes      String?
+  /// Added Sprint 11 (docs/domains/accounting.md "Supplier Return Accounting") —
+  /// cumulative quantity returned to the supplier across every `SupplierReturnItem`
+  /// ever recorded against this line. Caps eligibility at `acceptedQuantity`; never
+  /// decremented.
+  returnedQuantity        Float @default(0)
+  /// Added Sprint 11 — of `returnedQuantity`, how much has been allocated against the
+  /// excess/`GRNI_PENDING_APPROVAL` bucket rather than `AP` (excess-first allocation,
+  /// see `SupplierReturnRepository`). `returnedQuantity - returnedExcessQuantity` is
+  /// always the portion allocated against `AP`.
+  returnedExcessQuantity  Float @default(0)
+  /// Added Sprint 11 — cumulative quantity of this line's `rejectedQuantity` resolved
+  /// by a replacement `GoodsReceiptItem` (via `replacesRejectedItemId`). Caps at
+  /// `rejectedQuantity`; never decremented.
+  replacedQuantity        Float @default(0)
+  /// Added Sprint 11 — self-reference on the *replacement* line back to the original
+  /// rejected line it resolves (brief §21/§39). `NULL` for every ordinary line.
+  replacesRejectedItemId  String?
   createdAt           DateTime         @default(now())
 
   goodsReceipt      GoodsReceipt      @relation(fields: [goodsReceiptId], references: [id], onDelete: Cascade)
   purchaseOrderItem PurchaseOrderItem @relation(fields: [purchaseOrderItemId], references: [id], onDelete: Restrict)
   product           Product           @relation(fields: [productId], references: [id], onDelete: Restrict)
+  replacesRejectedItem GoodsReceiptItem?  @relation("GoodsReceiptItemReplacement", fields: [replacesRejectedItemId], references: [id], onDelete: Restrict)
+  replacementItems     GoodsReceiptItem[] @relation("GoodsReceiptItemReplacement")
+  supplierReturnItems  SupplierReturnItem[]
 
   @@index([goodsReceiptId])
   @@index([purchaseOrderItemId])
   @@index([productId])
+  @@index([replacesRejectedItemId])
   @@map("goods_receipt_items")
 }
 
@@ -949,6 +1004,21 @@ enum DiscrepancyStatus {
   REPLACEMENT_RECEIVED
   CREDIT_EXPECTED
   RESOLVED
+}
+
+/// Added Sprint 11 (docs/domains/procurement.md "Discrepancy Resolution", brief §20) —
+/// which commercial resolution a `GoodsReceipt`'s discrepancy was actually settled by.
+/// A descriptive record, not a workflow engine: `REPLACEMENT`/`RETURN` are set
+/// automatically by the code path that resolves them (a linked replacement receipt or
+/// `SupplierReturn`); the rest are set manually via the existing discrepancy-status
+/// endpoint. Deliberately not a full Supplier Claims/Dispute-Management system.
+enum DiscrepancyResolutionAction {
+  REPLACEMENT
+  RETURN
+  CREDIT
+  ACCEPT_AS_IS
+  PRICE_ADJUSTMENT
+  OTHER
 }
 
 /// The live stock balance — one row per (Organisation, Product, Location) as of Sprint
@@ -1009,6 +1079,11 @@ enum InventoryTransactionType {
   RECEIPT
   ISSUE
   ADJUSTMENT
+  /// Added Sprint 11 — a customer-return restock (increase) or a supplier-return
+  /// removal (decrease), distinguished from `ADJUSTMENT` per docs/domains/inventory.md
+  /// "Returns" (a Return is a business event, not a manual stock correction).
+  /// `referenceType` is `"CustomerReturn"`/`"SupplierReturn"`.
+  RETURN
 }
 
 /// Controlled reasons for an `ADJUSTMENT` transaction (Sprint 4.5 brief §5) — a simple
@@ -1545,6 +1620,8 @@ model Customer {
   invoices                     Invoice[]
   payments                     Payment[]
   creditNotes                  CreditNote[]
+  /// Added Sprint 11 — Returns, Claims & Reversals (docs/domains/sales.md).
+  customerReturns              CustomerReturn[]
 
   @@index([organisationId])
   @@index([organisationId, status])
@@ -1597,6 +1674,8 @@ model Outlet {
   dispatches   Dispatch[]
   /// Added Sprint 6 — Finance (docs/domains/finance.md).
   invoices     Invoice[]
+  /// Added Sprint 11 — Returns, Claims & Reversals (docs/domains/sales.md).
+  customerReturns CustomerReturn[]
 
   @@index([organisationId])
   @@index([organisationId, status])
@@ -1737,6 +1816,8 @@ model SalesOrder {
   /// Added Sprint 6 — Finance (docs/domains/finance.md). Denormalised inverse of
   /// `Invoice.salesOrderId`.
   invoices     Invoice[]
+  /// Added Sprint 11 — Returns, Claims & Reversals (docs/domains/sales.md).
+  customerReturns CustomerReturn[]
 
   @@index([organisationId])
   @@index([organisationId, status])
@@ -1867,6 +1948,13 @@ model SalesFulfilmentItem {
   /// per-SKU traceability source, since JournalEntryLine carries no
   /// productId/quantity.
   costAmount         Float    @default(0)
+  /// Added Sprint 11 (docs/domains/sales.md "Customer Returns") — cumulative quantity
+  /// returned by the customer across every `CustomerReturnItem` ever recorded against
+  /// this fulfilment line. Caps eligibility at `quantityFulfilled`; incremented at
+  /// return-request time (not receipt) so two concurrent requests can never together
+  /// exceed what was actually fulfilled; decremented if a request is cancelled before
+  /// being received.
+  quantityReturned  Float    @default(0)
   createdAt         DateTime @default(now())
 
   salesFulfilment SalesFulfilment @relation(fields: [salesFulfilmentId], references: [id], onDelete: Cascade)
@@ -1874,6 +1962,8 @@ model SalesFulfilmentItem {
   salesOrderItem  SalesOrderItem  @relation(fields: [salesOrderItemId], references: [id], onDelete: Restrict)
   /// Added Sprint 5 (docs/domains/distribution.md).
   dispatchItems   DispatchItem[]
+  /// Added Sprint 11 (docs/domains/sales.md "Customer Returns").
+  customerReturnItems CustomerReturnItem[]
 
   @@index([salesFulfilmentId])
   @@index([productId])
@@ -2325,6 +2415,14 @@ model CreditNote {
   creditNoteDate DateTime
   notes          String?
   idempotencyKey String?
+  /// Added Sprint 11 — polymorphic back-reference to whatever business event issued
+  /// this credit note (today: `"CUSTOMER_RETURN"` / `CustomerReturn.id`), mirroring
+  /// `JournalEntry.sourceType`/`sourceId`'s own "no hard FK, resolved by the reading
+  /// consumer" convention — this table must not depend on every future domain that
+  /// might one day issue a credit note. `NULL` for every credit note created the
+  /// original, purely-manual way (Sprint 6).
+  sourceType     String?
+  sourceId       String?
   createdById    String?
   updatedById    String?
   createdAt      DateTime         @default(now())
@@ -2337,6 +2435,7 @@ model CreditNote {
   @@unique([invoiceId, idempotencyKey])
   @@index([organisationId])
   @@index([organisationId, customerId])
+  @@index([sourceType, sourceId])
   @@map("credit_notes")
 }
 
@@ -2512,4 +2611,223 @@ model JournalEntryLine {
   @@index([journalEntryId])
   @@index([accountId])
   @@map("journal_entry_lines")
+}
+
+// ============================================================================
+// Sprint 11 — Returns, Claims & Reversals Foundation
+// (docs/domains/sales.md "Customer Returns", docs/domains/procurement.md
+// "Supplier Returns", docs/domains/accounting.md "Return Accounting")
+//
+// CORE PRINCIPLE: a return never edits an original transaction (SalesOrder,
+// SalesFulfilment, Invoice, PurchaseOrder, GoodsReceipt all stay immutable) — it is a
+// new, independently auditable event that reverses the physical and financial
+// consequences of the original one. CustomerReturn lives here (Sales owns customer-
+// return commercial rules); SupplierReturn/replacement/discrepancy-resolution live
+// next to GoodsReceipt above (Inventory, the existing home for goods-receiving).
+// ============================================================================
+
+/// Sprint 11 brief §6 — a controlled, structured reason plus free-text
+/// `CustomerReturn.reasonNotes`, not a full claims-management taxonomy.
+enum CustomerReturnReason {
+  DAMAGED
+  DEFECTIVE
+  WRONG_ITEM
+  WRONG_QUANTITY
+  CUSTOMER_REJECTED
+  QUALITY_ISSUE
+  EXPIRED
+  OTHER
+}
+
+/// `REQUESTED` (created — no inventory/accounting effect yet, brief §32) ->
+/// `RECEIVED` (terminal — the one atomic physical+financial event: disposition,
+/// inventory movement, COGS reversal, Credit Note) or `CANCELLED` (from `REQUESTED`
+/// only, releases the reserved `SalesFulfilmentItem.quantityReturned`). Deliberately
+/// smaller than the brief's own illustrative 6-state lifecycle — brief §31: "For
+/// simple MVP returns, a smaller lifecycle may be better," as long as request is
+/// distinguished from physical receipt, which this does.
+enum CustomerReturnStatus {
+  REQUESTED
+  RECEIVED
+  CANCELLED
+}
+
+/// A customer's request to return previously-fulfilled goods (brief §5). References
+/// the specific `SalesOrder` the goods came from; each item additionally references
+/// the specific `SalesFulfilmentItem` it's returning against (brief §12 — never
+/// guesses cost from the order alone). Creating this row has NO inventory or
+/// accounting effect — see `receive()` (`CustomerReturnRepository`) for the one
+/// atomic event that does.
+model CustomerReturn {
+  id             String               @id @default(cuid())
+  organisationId String
+  /// Auto-generated (`RET-000001`, ...), globally unique, immutable — same
+  /// collision-avoidance pattern as `SalesOrder.orderCode`.
+  returnCode     String               @unique
+  customerId     String
+  outletId       String?
+  salesOrderId   String
+  /// Where the returned goods are physically received — resalable quantity is
+  /// restocked here at `receive()` time.
+  locationId     String
+  status         CustomerReturnStatus @default(REQUESTED)
+  returnDate     DateTime
+  reason         CustomerReturnReason
+  reasonNotes    String?
+  notes          String?
+  /// Photo of the returned/damaged goods — same `FileStorage` port + absolute-URL
+  /// pattern as `Delivery.photoUrl`/`photoKey`. Optional (brief §29: "Do not make
+  /// photo mandatory for every return").
+  photoUrl       String?
+  photoKey       String?
+  /// Guards the *request* (`POST`) call — see `receivedIdempotencyKey` below for the
+  /// separate guard on the `receive()` call.
+  idempotencyKey String?
+  /// Set once `receive()` succeeds — guards a retried `receive()` call the same way
+  /// `idempotencyKey` guards the request call (Sprint 9→10 lesson: checked before any
+  /// business-rule pre-check).
+  receivedIdempotencyKey String?
+  receivedAt     DateTime?
+  /// Plain id, no FK relation — same convention as `GoodsReceipt.receivedById`.
+  receivedById   String?
+  createdById    String?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  organisation Organisation         @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  customer     Customer             @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  outlet       Outlet?              @relation(fields: [outletId], references: [id], onDelete: Restrict)
+  salesOrder   SalesOrder           @relation(fields: [salesOrderId], references: [id], onDelete: Restrict)
+  location     InventoryLocation    @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  items        CustomerReturnItem[]
+
+  @@unique([salesOrderId, idempotencyKey])
+  @@index([organisationId])
+  @@index([organisationId, customerId])
+  @@index([organisationId, status])
+  @@index([salesOrderId])
+  @@map("customer_returns")
+}
+
+/// One line of a `CustomerReturn` — always against a specific `SalesFulfilmentItem`
+/// (brief §12). `quantityReturned` is fixed at request time; the four disposition
+/// quantities plus `quantityCredited` are filled in at `receive()` time and must sum
+/// disposition-wise to `quantityReturned` (service-enforced).
+model CustomerReturnItem {
+  id                    String   @id @default(cuid())
+  customerReturnId      String
+  productId             String
+  salesFulfilmentItemId String
+  /// Requested/received quantity for this line, fixed at request creation.
+  quantityReturned      Float
+  /// Snapshot of `SalesFulfilmentItem.unitCost` at request time — immutable, the exact
+  /// cost basis the COGS reversal must tie back to (brief §9/§24).
+  unitCost              Float    @default(0)
+  /// Snapshot of `SalesOrderItem.unitPrice` at request time — the commercial value
+  /// basis for the Credit Note (brief §10).
+  unitPrice             Float    @default(0)
+  /// The four disposition buckets (brief §7/§8) — set at `receive()`, must sum to
+  /// `quantityReturned`. Only `quantityResalable` ever touches
+  /// `InventoryStock`/`InventoryTransaction` — the smallest safe extension short of a
+  /// full quarantine/WMS model (brief §8, documented limitation in
+  /// docs/domains/inventory.md).
+  quantityResalable     Float    @default(0)
+  quantityDamaged       Float    @default(0)
+  quantityQuarantine    Float    @default(0)
+  quantityScrap         Float    @default(0)
+  /// The commercial settlement quantity feeding the Credit Note — deliberately
+  /// separate from `quantityResalable` (brief §36: never assume they're equal).
+  /// Defaults to `quantityReturned` at `receive()` if not explicitly overridden.
+  quantityCredited      Float    @default(0)
+  createdAt             DateTime @default(now())
+
+  customerReturn      CustomerReturn      @relation(fields: [customerReturnId], references: [id], onDelete: Cascade)
+  product             Product             @relation(fields: [productId], references: [id], onDelete: Restrict)
+  salesFulfilmentItem SalesFulfilmentItem @relation(fields: [salesFulfilmentItemId], references: [id], onDelete: Restrict)
+
+  @@index([customerReturnId])
+  @@index([salesFulfilmentItemId])
+  @@index([productId])
+  @@map("customer_return_items")
+}
+
+/// MVP: a `SupplierReturn` is created and completed atomically in one call (unlike
+/// `CustomerReturn`'s two-phase lifecycle) — there is no disposition/inspection step
+/// to distinguish, the goods are simply leaving. Kept as a real column (rather than
+/// omitted) so a future approval workflow (brief §28) is additive, not a breaking
+/// change.
+enum SupplierReturnStatus {
+  COMPLETED
+}
+
+/// A physical return of previously-accepted goods to a supplier (brief §15-19).
+/// References the specific `GoodsReceipt` the goods came from; each item references
+/// the specific `GoodsReceiptItem` (needed for the excess-vs-payable allocation, brief
+/// §17-19). Created and posted atomically — see `SupplierReturnRepository.create`.
+model SupplierReturn {
+  id              String               @id @default(cuid())
+  organisationId  String
+  /// Auto-generated (`SRET-000001`, ...), globally unique, immutable.
+  returnCode      String               @unique
+  supplierId      String
+  purchaseOrderId String
+  goodsReceiptId  String
+  /// The source location the returned goods are physically removed from.
+  locationId      String
+  returnDate      DateTime
+  /// Reuses `RejectionReason` (Sprint 4.4.1) rather than a new enum — a supplier
+  /// return reason is the same taxonomy as a goods-receipt rejection reason.
+  reason          RejectionReason
+  reasonNotes     String?
+  notes           String?
+  photoUrl        String?
+  photoKey        String?
+  status          SupplierReturnStatus @default(COMPLETED)
+  idempotencyKey  String?
+  createdById     String?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+
+  organisation  Organisation         @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  supplier      Supplier             @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  purchaseOrder PurchaseOrder        @relation(fields: [purchaseOrderId], references: [id], onDelete: Restrict)
+  goodsReceipt  GoodsReceipt         @relation(fields: [goodsReceiptId], references: [id], onDelete: Restrict)
+  location      InventoryLocation    @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  items         SupplierReturnItem[]
+
+  @@unique([goodsReceiptId, idempotencyKey])
+  @@index([organisationId])
+  @@index([organisationId, supplierId])
+  @@index([purchaseOrderId])
+  @@index([goodsReceiptId])
+  @@map("supplier_returns")
+}
+
+/// One line of a `SupplierReturn`, always against a specific `GoodsReceiptItem`.
+/// `excessPortion`/`payablePortion` record exactly how this return's value was split
+/// between `GRNI_PENDING_APPROVAL` and `AP` (brief §17-19's excess-first allocation,
+/// docs/domains/accounting.md) — Finance traceability (brief §34), not re-derived.
+model SupplierReturnItem {
+  id                 String   @id @default(cuid())
+  supplierReturnId   String
+  productId          String
+  goodsReceiptItemId String
+  quantityReturned   Float
+  /// Snapshot of the original `GoodsReceiptItem.unitPrice` (via its `PurchaseOrderItem`)
+  /// — not current `averageUnitCost` — so the reversal ties out exactly to the
+  /// original receipt journal (brief §24, documented assumption).
+  unitCost           Float    @default(0)
+  /// Of `quantityReturned`, how much was allocated to the excess/GRNI bucket vs. the
+  /// payable/AP bucket (`quantityReturned - excessPortion`).
+  excessPortion      Float    @default(0)
+  createdAt          DateTime @default(now())
+
+  supplierReturn   SupplierReturn   @relation(fields: [supplierReturnId], references: [id], onDelete: Cascade)
+  product          Product          @relation(fields: [productId], references: [id], onDelete: Restrict)
+  goodsReceiptItem GoodsReceiptItem @relation(fields: [goodsReceiptItemId], references: [id], onDelete: Restrict)
+
+  @@index([supplierReturnId])
+  @@index([goodsReceiptItemId])
+  @@index([productId])
+  @@map("supplier_return_items")
 }

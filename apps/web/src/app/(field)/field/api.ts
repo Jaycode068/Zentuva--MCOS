@@ -9,6 +9,7 @@
 export * from '@/app/(app)/settings/retail/api';
 export * from '@/app/(app)/settings/sales/api';
 export * from '@/app/(app)/settings/distribution/api';
+export * from '@/app/(app)/settings/returns/api';
 export { listProducts } from '@/app/(app)/settings/products/api';
 export {
   getInventoryStockByProduct,

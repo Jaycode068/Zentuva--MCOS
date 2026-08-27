@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import {
   AdjustmentReason,
+  DiscrepancyResolutionAction,
   DiscrepancyStatus,
   LocationStatus,
   ProductStatus,
@@ -24,6 +25,7 @@ import {
   GoodsReceiptConflictError,
   GoodsReceiptRepository,
   GoodsReceiptWithRelations,
+  InvalidReplacementError,
   JournalEntrySummary,
   ListGoodsReceiptsParams,
   ReceiveGoodsItemData,
@@ -349,8 +351,23 @@ export class InventoryService {
         unitPrice: purchaseOrderItem.unitPrice,
         rejectionReason: inputItem.rejectionReason,
         rejectionNotes: inputItem.rejectionNotes,
+        replacesRejectedItemId: inputItem.replacesRejectedItemId,
       };
     });
+
+    // Replacement goods (Sprint 11, brief §21/§39) — a light existence/tenant check
+    // here (the referenced receipt's own items are re-validated authoritatively
+    // inside `GoodsReceiptRepository.receive`'s transaction); this is purely to avoid
+    // writing a cross-tenant id into `GoodsReceipt.replacesGoodsReceiptId`.
+    if (input.replacesGoodsReceiptId) {
+      const original = await this.goodsReceiptRepository.findById(
+        organisationId,
+        input.replacesGoodsReceiptId,
+      );
+      if (!original) {
+        throw new NotFoundException('The goods receipt being replaced was not found');
+      }
+    }
 
     const hasDiscrepancy = items.some((item) => item.rejectedQuantity > 0);
     const discrepancyStatus = hasDiscrepancy
@@ -386,6 +403,7 @@ export class InventoryService {
         discrepancyStatus,
         idempotencyKey: input.idempotencyKey,
         items,
+        replacesGoodsReceiptId: input.replacesGoodsReceiptId,
       });
       return { ...result, isFirstReceipt, hasDiscrepancy };
     } catch (error) {
@@ -393,6 +411,12 @@ export class InventoryService {
       // out of a receivable status between our pre-check above and now) — translate to
       // the same `400` a pre-check failure would have produced.
       if (error instanceof GoodsReceiptConflictError) {
+        throw new BadRequestException(error.message);
+      }
+      // Replacement goods (Sprint 11) — over-replacement or an invalid
+      // `replacesRejectedItemId` reference, re-checked authoritatively inside the
+      // same transaction.
+      if (error instanceof InvalidReplacementError) {
         throw new BadRequestException(error.message);
       }
       // The accounting posting's own guards, propagated from inside the same
@@ -472,12 +496,16 @@ export class InventoryService {
     id: string,
     status: DiscrepancyStatus,
     notes: string | undefined,
+    /** Added Sprint 11 — the manual resolution actions only; see
+     *  `GoodsReceiptRepository.updateDiscrepancyStatus`'s own doc comment. */
+    resolutionAction?: DiscrepancyResolutionAction,
   ): Promise<GoodsReceiptWithRelations> {
     const updated = await this.goodsReceiptRepository.updateDiscrepancyStatus(
       organisationId,
       id,
       status,
       notes,
+      resolutionAction,
     );
     if (!updated) {
       throw new NotFoundException('Goods receipt not found');
