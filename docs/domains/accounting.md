@@ -666,7 +666,102 @@ approval workflow as any other over-delivery). Zero new `SYSTEM_ACCOUNT_KEYS` ne
 since Sprint 7/8/9/10. A standard restockable customer return and a standard supplier
 return both post using only pre-existing system accounts.
 
-## 13. API Reference
+## 13. Supplier Invoice Matching & AP Accounting (Sprint 12)
+
+Sprint 12 built [Finance](finance.md) §12's Accounts Payable foundation on top of this
+layer. The accounting mechanics live here; the entities/lifecycle/API live in
+`finance.md` §12.
+
+### 13.1 The central formula — `computeLineMatch`
+
+For each Path A `SupplierInvoiceItem` (one that references a `GoodsReceiptItem`),
+`apps/api/src/finance/supplier-invoice-matching.ts` computes:
+
+```
+remainingPayable = max(0,
+  goodsReceiptItem.payableQuantity
+  - (goodsReceiptItem.returnedQuantity - goodsReceiptItem.returnedExcessQuantity)
+  - goodsReceiptItem.invoicedQuantity
+)
+recognizedAmount = min(item.lineTotal, remainingPayable × purchaseOrderItem.unitPrice)
+varianceAmount   = item.lineTotal - recognizedAmount   // always >= 0
+```
+
+`remainingPayable` starts from `payableQuantity` (Sprint 8's accepted-vs-payable
+split, §9.2), subtracts whatever Sprint 11 Returns already drew from the _payable_
+bucket specifically (`returnedQuantity - returnedExcessQuantity` — excess-first
+allocation, §12.2, means a return against pure excess leaves this term at zero), then
+subtracts what prior Supplier Invoices already claimed (`invoicedQuantity`, a new
+cumulative counter on `GoodsReceiptItem`, incremented only at `post()` time). This one
+formula is the entire reconciliation engine — it catches quantity mismatch, price
+mismatch, and any combination, without a discrepancy-type enum, and it is
+mathematically incapable of recognising more than what Goods Receipt already
+established as payable. `computeHeaderMatchStatus` derives the invoice-level
+`matchStatus` from Path A lines only: `MATCHED` if every line's `varianceAmount` is
+zero, `DISCREPANCY` if any is positive, `UNVERIFIED` if there are no Path A lines at
+all (a pure Path B invoice has nothing to reconcile).
+
+**Worked example** (the brief's own over-supply scenario): PO ordered 1,000 kg @
+₦1,000; a Goods Receipt delivered 1,100 kg, rejected 0, accepted 1,100, but
+`payableQuantity` capped at 1,000 (§9.2 — the 100 kg excess sits in
+`GRNI_PENDING_APPROVAL`, not `AP`). If the supplier invoices for the full 1,050 kg they
+believe they delivered beyond spec (₦1,050,000), `remainingPayable` is still 1,000 kg
+(nothing returned or previously invoiced), so `recognizedAmount = min(1,050,000,
+1,000 × 1,000) = ₦1,000,000`, `varianceAmount = ₦50,000`, header `DISCREPANCY` — AP
+is credited for exactly what Goods Receipt already recognised, never the inflated
+figure, and the ₦50,000 excess remains sitting in `GRNI_PENDING_APPROVAL` untouched
+(see §13.4).
+
+### 13.2 Path A posts no new journal — the liability already exists
+
+A Path A line's `recognizedAmount` reconciles against a liability Goods Receipt
+already posted (`DR Inventory / CR Accounts Payable`, §9.1) at receiving time. Posting
+a matching (or even discrepant) Supplier Invoice for it needs no new
+`postSystemJournalEntry` call — the debit/credit pair already exists in the ledger. A
+100%-Path-A invoice therefore posts **zero** journal entries; `post()` still calls
+`resolveOpenPeriodId` against the invoice date regardless, for consistency with every
+other financial event and future period-close integrity.
+
+### 13.3 Path B — a fresh liability against an explicit account
+
+A line with no `GoodsReceiptItem` to reconcile against (freight, a service invoice,
+anything Procurement never tracked) instead names a `debitAccountId` — a direct
+`ChartOfAccount.id` reference rather than one of the fixed `SYSTEM_ACCOUNT_KEYS`.
+This required one small, generic extension to the shared posting boundary itself:
+`PostingLineInput` (`accounting/journal-posting.ts`) gained an optional `accountId`
+alongside `systemKey` — exactly one of the two is required per line, both resolved
+tenant-scoped inside the same transaction (`resolveAccountId`/
+`resolveSystemAccountId`). No new posting mechanism, no new mandatory workflow — one
+more legal way to name an account. `validatePathBAccount`
+(`supplier-invoice-matching.ts`) is the policy layer restricting a Path B account to
+non-system `ASSET`/`EXPENSE` types, owned by AP's own code, not baked into the
+generic primitive — a deliberate narrowing so this capability stays AP accounting, not
+a general-purpose posting surface or an Expense Management module. At `post()`, every
+Path B line on one invoice is grouped by account and posted as a single balanced `DR
+<account>(s) / CR Accounts Payable` entry (not one journal per line).
+
+### 13.4 Discrepancy resolution stays manual — no reclassification engine
+
+`POST /:id/acknowledge-discrepancy` records a human sign-off
+(`discrepancyResolvedAt`/`By`/notes) on a `DISCREPANCY` invoice. It **never** touches
+`recognizedAmount`, `varianceAmount`, or any account balance — there is no tolerance
+engine and no automatic reclassification of `GRNI_PENDING_APPROVAL` into confirmed
+`AP` when a discrepancy is acknowledged, even though that is conceptually the eventual
+resolution for the over-supply case. Building that reclassification action (`DR
+GRNI_PENDING_APPROVAL / CR AP`, presumably gated on some approval) is explicit,
+deferred future work — acknowledging a discrepancy today changes nothing but a record
+of who looked at it and when.
+
+### 13.5 Zero new `SYSTEM_ACCOUNT_KEYS`
+
+`AP`, `INVENTORY`, `CASH`, `BANK` all already existed (Sprint 6/7/8). Supplier
+Payment's `DR AP / CR Cash-or-Bank` and Supplier Credit Note's `DR AP / CR Inventory`
+both reuse them directly. Only one new schema column was needed:
+`GoodsReceiptItem.invoicedQuantity` (a cumulative counter, mirroring
+`returnedQuantity`/`returnedExcessQuantity` from Sprint 11) — no new account, no new
+enum on the accounting side itself.
+
+## 14. API Reference
 
 | Endpoint                                                   | Auth                | Notes                                                                      |
 | ---------------------------------------------------------- | ------------------- | -------------------------------------------------------------------------- |
@@ -687,7 +782,7 @@ return both post using only pre-existing system accounts.
 | `GET /api/finance/ledger`                                  | Any authenticated   | `?accountId=&from=&to=&accountingPeriodId=&sourceType=&reference=&status=` |
 | `GET /api/finance/trial-balance`                           | Any authenticated   | `?from=&to=` or `?accountingPeriodId=`                                     |
 
-## 14. Known Limitations
+## 15. Known Limitations
 
 - No re-opening a closed accounting period, and no year-end closing automation.
 - `VOID` never generates an automatic reversing entry — a correction is a new manual
@@ -706,7 +801,14 @@ return both post using only pre-existing system accounts.
   Sales Fulfilment's COGS posting (Sprint 10, see §11) all post automatically;
   Distribution deliberately never posts (§11.7).
 - No approval workflow for `GRNI_PENDING_APPROVAL` balances — value posted there stays
-  there; a future sprint would add the action that reclassifies it into `AP`.
+  there; a future sprint would add the action that reclassifies it into `AP`. A
+  Supplier Invoice's discrepancy acknowledgement (§13.4) does not do this either — it
+  is sign-off only.
+- No payment runs, AP ageing report, or automated payment scheduling (Sprint 12) — a
+  Payables Overview and a flat payment ledger only, see [Finance](finance.md) §12.
+- No approval workflow gating which Chart of Accounts entries a Supplier Invoice's
+  Path B line may post against — restricted by account type (`ASSET`/`EXPENSE`,
+  non-system) only, not by a configurable policy (§13.3).
 - No labour, machine-hour, or overhead costing anywhere in Production Accounting (§10)
   or Sales Fulfilment Accounting (§11) — material cost only.
 - No FIFO/specific-identification costing, per-lot cost tracking, or landed-cost

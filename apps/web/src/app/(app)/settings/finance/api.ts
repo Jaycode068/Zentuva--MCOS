@@ -555,3 +555,352 @@ export function getAccountActivity(
     `/finance/accounts/${id}/activity${queryString ? `?${queryString}` : ''}`,
   );
 }
+
+// === Accounts Payable (Sprint 12, docs/domains/finance.md "Accounts Payable") ===
+
+export type SupplierInvoiceStatus =
+  'DRAFT' | 'POSTED' | 'PARTIALLY_PAID' | 'PAID' | 'OVERDUE' | 'VOID';
+export type SupplierInvoiceMatchStatus = 'UNVERIFIED' | 'MATCHED' | 'DISCREPANCY';
+
+export interface SupplierInvoiceItem {
+  id: string;
+  product: { id: string; code: string; name: string; unit: string } | null;
+  description: string | null;
+  quantity: number;
+  unitPrice: number;
+  lineTotal: number;
+  /** Set on a Path A line (reconciles against a Goods Receipt already recognised as
+   *  payable) — mutually exclusive with `debitAccount`. */
+  goodsReceiptItemId: string | null;
+  /** Set on a Path B line (no Goods Receipt link — posts a fresh liability against
+   *  this explicit, user-chosen Chart of Accounts entry). */
+  debitAccount: { id: string; code: string; name: string } | null;
+  /** Frozen at `post()` time — the capped, AP-eligible portion for a Path A line, or
+   *  the full `lineTotal` for a Path B line. `0` before the invoice is posted. */
+  recognizedAmount: number;
+  /** `lineTotal - recognizedAmount`, always >= 0. Non-zero only on an over-invoiced
+   *  Path A line. */
+  varianceAmount: number;
+}
+
+export interface SupplierInvoiceJournalEntry {
+  id: string;
+  journalNumber: string;
+  status: JournalEntryStatus;
+  totalAmount: number;
+}
+
+/** `GET/POST /api/finance/supplier-invoices`, `GET .../:id` response shape — see
+ *  `apps/api/src/finance/supplier-invoice.controller.ts`'s `toSupplierInvoiceResponse`. */
+export interface SupplierInvoice {
+  id: string;
+  supplier: { id: string; supplierCode: string; supplierName: string };
+  purchaseOrder: { id: string; purchaseOrderNumber: string } | null;
+  invoiceNumber: string;
+  invoiceDate: string;
+  dueDate: string;
+  paymentTerms: PaymentTermType;
+  status: SupplierInvoiceStatus;
+  currency: string;
+  subtotal: number;
+  taxAmount: number;
+  total: number;
+  /** `null` until posted — a DRAFT invoice has no match result yet. */
+  matchStatus: SupplierInvoiceMatchStatus | null;
+  recognizedAmount: number;
+  varianceAmount: number;
+  amountPaid: number;
+  amountCredited: number;
+  /** Derived server-side (`recognizedAmount - amountPaid - amountCredited`) — the
+   *  actual payable basis, never `total - amountPaid` (brief's central safety rule). */
+  amountOutstanding: number;
+  notes: string | null;
+  discrepancyResolvedAt: string | null;
+  discrepancyResolutionNotes: string | null;
+  items: SupplierInvoiceItem[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SupplierInvoiceItemInputPayload {
+  productId?: string;
+  description?: string;
+  quantity: number;
+  unitPrice: number;
+  goodsReceiptItemId?: string;
+  debitAccountId?: string;
+}
+
+export interface CreateSupplierInvoicePayload {
+  supplierId: string;
+  purchaseOrderId?: string;
+  invoiceNumber: string;
+  invoiceDate: string;
+  paymentTerms: PaymentTermType;
+  taxAmount?: number;
+  notes?: string;
+  idempotencyKey?: string;
+  items: SupplierInvoiceItemInputPayload[];
+}
+
+export interface UpdateSupplierInvoicePayload {
+  purchaseOrderId?: string | null;
+  invoiceNumber?: string;
+  invoiceDate?: string;
+  paymentTerms?: PaymentTermType;
+  taxAmount?: number;
+  notes?: string;
+  items?: SupplierInvoiceItemInputPayload[];
+}
+
+export interface ListSupplierInvoicesParams {
+  status?: SupplierInvoiceStatus;
+  supplierId?: string;
+  purchaseOrderId?: string;
+  search?: string;
+}
+
+export function listSupplierInvoices(
+  params: ListSupplierInvoicesParams = {},
+): Promise<{ items: SupplierInvoice[] }> {
+  const query = new URLSearchParams();
+  if (params.status) query.set('status', params.status);
+  if (params.supplierId) query.set('supplierId', params.supplierId);
+  if (params.purchaseOrderId) query.set('purchaseOrderId', params.purchaseOrderId);
+  if (params.search) query.set('search', params.search);
+  const queryString = query.toString();
+  return apiFetch<{ items: SupplierInvoice[] }>(
+    `/finance/supplier-invoices${queryString ? `?${queryString}` : ''}`,
+  );
+}
+
+export function getSupplierInvoice(id: string): Promise<SupplierInvoice> {
+  return apiFetch<SupplierInvoice>(`/finance/supplier-invoices/${id}`);
+}
+
+export function createSupplierInvoice(
+  input: CreateSupplierInvoicePayload,
+): Promise<SupplierInvoice> {
+  return apiFetch<SupplierInvoice>('/finance/supplier-invoices', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateSupplierInvoice(
+  id: string,
+  input: UpdateSupplierInvoicePayload,
+): Promise<SupplierInvoice> {
+  return apiFetch<SupplierInvoice>(`/finance/supplier-invoices/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+}
+
+export function postSupplierInvoice(
+  id: string,
+  idempotencyKey?: string,
+): Promise<SupplierInvoice & { journalEntry: SupplierInvoiceJournalEntry | null }> {
+  return apiFetch<SupplierInvoice & { journalEntry: SupplierInvoiceJournalEntry | null }>(
+    `/finance/supplier-invoices/${id}/post`,
+    { method: 'POST', body: JSON.stringify({ idempotencyKey }) },
+  );
+}
+
+export function acknowledgeSupplierInvoiceDiscrepancy(
+  id: string,
+  notes?: string,
+): Promise<SupplierInvoice> {
+  return apiFetch<SupplierInvoice>(`/finance/supplier-invoices/${id}/acknowledge-discrepancy`, {
+    method: 'POST',
+    body: JSON.stringify({ notes }),
+  });
+}
+
+export function voidSupplierInvoice(id: string): Promise<SupplierInvoice> {
+  return apiFetch<SupplierInvoice>(`/finance/supplier-invoices/${id}/void`, { method: 'POST' });
+}
+
+/** `GET/POST /api/finance/supplier-payments` response shape — see
+ *  `apps/api/src/finance/supplier-payment.controller.ts`'s `toSupplierPaymentResponse`. */
+export interface SupplierPayment {
+  id: string;
+  supplier: { id: string; supplierCode: string; supplierName: string };
+  paymentDate: string;
+  amount: number;
+  currency: string;
+  method: PaymentMethod;
+  reference: string | null;
+  notes: string | null;
+  status: PaymentStatus;
+  supplierInvoiceId: string | null;
+  createdAt: string;
+}
+
+export interface CreateSupplierPaymentPayload {
+  supplierInvoiceId: string;
+  amount: number;
+  method: PaymentMethod;
+  paymentDate: string;
+  reference?: string;
+  notes?: string;
+  idempotencyKey?: string;
+}
+
+export interface ListSupplierPaymentsParams {
+  supplierId?: string;
+  supplierInvoiceId?: string;
+}
+
+export function listSupplierPayments(
+  params: ListSupplierPaymentsParams = {},
+): Promise<{ items: SupplierPayment[] }> {
+  const query = new URLSearchParams();
+  if (params.supplierId) query.set('supplierId', params.supplierId);
+  if (params.supplierInvoiceId) query.set('supplierInvoiceId', params.supplierInvoiceId);
+  const queryString = query.toString();
+  return apiFetch<{ items: SupplierPayment[] }>(
+    `/finance/supplier-payments${queryString ? `?${queryString}` : ''}`,
+  );
+}
+
+export function createSupplierPayment(
+  input: CreateSupplierPaymentPayload,
+): Promise<SupplierPayment> {
+  return apiFetch<SupplierPayment>('/finance/supplier-payments', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function voidSupplierPayment(id: string): Promise<SupplierPayment> {
+  return apiFetch<SupplierPayment>(`/finance/supplier-payments/${id}/void`, { method: 'POST' });
+}
+
+/** `GET/POST /api/finance/supplier-credit-notes` response shape — see
+ *  `apps/api/src/finance/supplier-credit-note.controller.ts`'s
+ *  `toSupplierCreditNoteResponse`. Reuses `CreditNoteStatus` (identical shape to the
+ *  customer side, no separate enum). */
+export interface SupplierCreditNote {
+  id: string;
+  creditNoteCode: string;
+  supplier: { id: string; supplierCode: string; supplierName: string };
+  supplierInvoice: { id: string; invoiceNumber: string } | null;
+  supplierInvoiceId: string;
+  reason: string;
+  amount: number;
+  currency: string;
+  status: CreditNoteStatus;
+  creditNoteDate: string;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateSupplierCreditNotePayload {
+  supplierInvoiceId: string;
+  amount: number;
+  reason: string;
+  creditNoteDate: string;
+  notes?: string;
+  idempotencyKey?: string;
+}
+
+export interface ListSupplierCreditNotesParams {
+  supplierId?: string;
+  supplierInvoiceId?: string;
+}
+
+export function listSupplierCreditNotes(
+  params: ListSupplierCreditNotesParams = {},
+): Promise<{ items: SupplierCreditNote[] }> {
+  const query = new URLSearchParams();
+  if (params.supplierId) query.set('supplierId', params.supplierId);
+  if (params.supplierInvoiceId) query.set('supplierInvoiceId', params.supplierInvoiceId);
+  const queryString = query.toString();
+  return apiFetch<{ items: SupplierCreditNote[] }>(
+    `/finance/supplier-credit-notes${queryString ? `?${queryString}` : ''}`,
+  );
+}
+
+export function createSupplierCreditNote(
+  input: CreateSupplierCreditNotePayload,
+): Promise<SupplierCreditNote> {
+  return apiFetch<SupplierCreditNote>('/finance/supplier-credit-notes', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function issueSupplierCreditNote(id: string): Promise<SupplierCreditNote> {
+  return apiFetch<SupplierCreditNote>(`/finance/supplier-credit-notes/${id}/issue`, {
+    method: 'POST',
+  });
+}
+
+export function voidSupplierCreditNote(id: string): Promise<SupplierCreditNote> {
+  return apiFetch<SupplierCreditNote>(`/finance/supplier-credit-notes/${id}/void`, {
+    method: 'POST',
+  });
+}
+
+/** `GET /finance/accounts-payable/summary` response shape — powers the Payables
+ *  Overview cards. "This period" = the current calendar month. */
+export interface ApSummary {
+  totalOutstanding: number;
+  totalOverdue: number;
+  totalPartiallyPaid: number;
+  invoicedThisPeriod: number;
+  paymentsMadeThisPeriod: number;
+}
+
+export interface SupplierApRow {
+  supplierId: string;
+  supplierCode: string;
+  supplierName: string;
+  totalInvoiced: number;
+  totalRecognized: number;
+  totalPaid: number;
+  totalCredited: number;
+  totalOutstanding: number;
+}
+
+export interface SupplierFinancialSummary extends SupplierApRow {
+  recentInvoiceCount: number;
+  recentPaymentCount: number;
+}
+
+/** Deliberately never includes received/inventory figures — see
+ *  `apps/api/src/finance/accounts-payable.service.ts`'s own doc comment on why. The
+ *  Purchase Order dialog combines this with its own, separately-owned Inventory
+ *  receiving summary call. */
+export interface PurchaseOrderApSummary {
+  purchaseOrderId: string;
+  invoiceCount: number;
+  totalInvoiced: number;
+  totalRecognized: number;
+  totalPaid: number;
+  totalCredited: number;
+  totalOutstanding: number;
+  discrepancyCount: number;
+}
+
+export function getApSummary(): Promise<ApSummary> {
+  return apiFetch<ApSummary>('/finance/accounts-payable/summary');
+}
+
+export function listApBySupplier(): Promise<{ items: SupplierApRow[] }> {
+  return apiFetch<{ items: SupplierApRow[] }>('/finance/accounts-payable/by-supplier');
+}
+
+export function getSupplierFinancialSummary(supplierId: string): Promise<SupplierFinancialSummary> {
+  return apiFetch<SupplierFinancialSummary>(`/finance/accounts-payable/suppliers/${supplierId}`);
+}
+
+export function getPurchaseOrderApSummary(
+  purchaseOrderId: string,
+): Promise<PurchaseOrderApSummary> {
+  return apiFetch<PurchaseOrderApSummary>(
+    `/finance/accounts-payable/purchase-orders/${purchaseOrderId}`,
+  );
+}

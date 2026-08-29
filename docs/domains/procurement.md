@@ -213,6 +213,14 @@ rather than an arbitrary-precision `Decimal` type.
   rejected goods (`GoodsReceipt.replacesGoodsReceiptId`). Both live entirely in
   Inventory's domain, same rationale as Goods Receipt itself — `PurchaseOrder` is only
   ever read, never written, by either mechanism.
+- **Accounts Payable / Supplier Invoices** ([finance.md](finance.md) §12, Sprint 12) —
+  a `SupplierInvoice` may optionally reference a `PurchaseOrder`, read-only via the
+  exported `PurchaseOrderRepository` (same ADR-002 shape as the two integrations
+  above) — Procurement never gains a write path from this. The Purchase Order dialog's
+  "Financial Summary" block (invoiced/recognized/paid/outstanding, sourced from
+  `GET /finance/accounts-payable/purchase-orders/:id`) sits alongside, not merged
+  into, this domain's own Receiving Summary — two domains' read models shown together,
+  neither reading the other's tables.
 
 ## 7. API Reference
 

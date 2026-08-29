@@ -2,17 +2,25 @@
 
 - **Status:** Foundation implemented — Sprint 6 ("Finance Foundation"), extended
   Sprint 7 with automatic General Ledger posting — see [Accounting](accounting.md).
-  **Not** a General Ledger / accounting system itself — that layer lives in
-  `accounting.md`, see §9.
-- **Sprint:** 6 (Sprint 7 added the accounting integration described in §9)
+  Sprint 12 added Accounts Payable / Supplier Invoice Management — see §12. **Not** a
+  General Ledger / accounting system itself — that layer lives in `accounting.md`, see
+  §9.
+- **Sprint:** 6 (Sprint 7 added the accounting integration described in §9; Sprint 12
+  added Accounts Payable described in §12)
 - **Depends on:** [Identity](identity.md) (tenant boundary, `RolesGuard`,
   `OrganisationService` for the currency snapshot), [Sales](sales.md)
   (`SalesOrderRepository`, read-only, via `SalesModule`'s existing export),
-  [Customers](customers.md), [Outlets](outlets.md).
+  [Customers](customers.md), [Outlets](outlets.md). Sprint 12 additionally depends,
+  read-only, on [Suppliers](suppliers.md) (`SupplierRepository`) and
+  [Procurement](procurement.md) (`PurchaseOrderRepository`) — see §12.
 - **Explicitly does not depend on:** [Inventory](inventory.md),
-  [Distribution](distribution.md) — see §2.
+  [Distribution](distribution.md) — see §2. Still true after Sprint 12:
+  `SupplierInvoiceRepository` reaches directly into `GoodsReceiptItem` inside its own
+  transaction (the same narrow exception `SupplierReturnRepository` established in
+  Sprint 11) rather than importing `InventoryModule`.
 - **See also:** [Sprint 6 Completion Report](../sprint-6-completion-report.md),
   [Sprint 7 Completion Report](../sprint-7-completion-report.md),
+  [Sprint 12 Completion Report](../sprint-12-completion-report.md),
   [Accounting](accounting.md).
 
 ## 1. Business Purpose
@@ -251,10 +259,11 @@ invoice can never end up `ISSUED` with no accounting behind it.
 
 What remains genuinely deferred, unchanged by Sprint 7: Chart of Accounts →
 financial-statement closing (Trial Balance → Profit & Loss, Balance Sheet), Cash Flow
-Statement, Bank Reconciliation, Accounts Payable / supplier invoices, payroll, fixed
-assets, a full multi-jurisdiction tax engine, sophisticated customer/distributor
-pricing, credit scoring, Nigerian bank/payment-gateway integration, advanced financial
-analytics, budgeting, and financial forecasting. Sprint 8 wired Inventory's Goods
+Statement, Bank Reconciliation, payroll, fixed assets, a full multi-jurisdiction tax
+engine, sophisticated customer/distributor pricing, credit scoring, Nigerian
+bank/payment-gateway integration, advanced financial analytics, budgeting, and
+financial forecasting. Accounts Payable / supplier invoices — listed here as deferred
+through Sprint 11 — got its foundation in **Sprint 12**; see §12. Sprint 8 wired Inventory's Goods
 Receipt, Sprint 9 wired Production's Material Issue/Completion, and Sprint 10 wired
 Sales's Fulfilment (`DR Cost of Goods Sold / CR Finished Goods Inventory`, deliberately
 a separate event from this section's own `DR Accounts Receivable / CR Sales Revenue`
@@ -324,3 +333,132 @@ credit note back to the `CustomerReturn` that issued it. See `accounting.md`
 - No full module-level permission engine — RBAC remains binary
   (Owner/Administrator-write, Member-read), same deferred decision as every other
   domain in this codebase.
+
+## 12. Accounts Payable & Supplier Invoice Management (Sprint 12)
+
+Sprint 12 built the supplier-side mirror of §3's customer-side engine: what a supplier
+bills, what's actually owed, and what's been paid — reconciled against what Sprint 8's
+Goods Receipt already recognised, never a second, independent liability.
+
+**The central insight.** Goods Receipt already posts `DR Inventory / CR Accounts
+Payable` (+ `CR GRNI_PENDING_APPROVAL` for any excess) for the payable portion at
+receiving time (accounting.md §9). A Supplier Invoice that matches what was already
+recognised needs **no new journal entry** — it only becomes the specific, dated,
+numbered document Supplier Payments allocate against, and verifies/caps what it claims
+against what Goods Receipt already established. This is why every `SupplierInvoiceItem`
+takes exactly one of two paths:
+
+- **Path A** (`goodsReceiptItemId` set) — reconciles against a Goods Receipt line
+  already recognised as payable. `recognizedAmount = min(lineTotal, remainingPayable ×
+purchaseOrderItem.unitPrice)`, where `remainingPayable` is that line's payable
+  quantity minus whatever Sprint 11 Returns already drew from the payable bucket
+  specifically, minus what prior invoices already claimed
+  (`supplier-invoice-matching.ts`'s `computeLineMatch`). This caps recognition by
+  construction — an over-invoice can never inflate AP, it only surfaces a
+  `varianceAmount` and flags the header `DISCREPANCY`. No new journal is posted for a
+  Path A line: the liability already exists.
+- **Path B** (`debitAccountId` set) — no Goods Receipt to reconcile against (a
+  PO-less/GR-less bill — freight, a service invoice, anything Procurement never
+  tracked). The line names an explicit, user-chosen Chart of Accounts "Debit Account"
+  (restricted to non-system `ASSET`/`EXPENSE` types — never a default, never guessed),
+  recognised in full. At `post()`, every Path B line on an invoice is grouped by
+  account into one balanced `DR <account>(s) / CR Accounts Payable` journal entry per
+  invoice (not per line). This is deliberately narrow AP accounting, **not** an
+  Expense Management module — no claims, no approvals, no budgeting.
+
+A single invoice may freely mix both kinds of lines (e.g. goods reconciled against a
+Goods Receipt plus a freight line coded to a Logistics Expense account on the same
+supplier bill).
+
+### Entities
+
+- **`SupplierInvoice`** — `DRAFT → POSTED → {PARTIALLY_PAID → PAID}`, with `OVERDUE`
+  (lazy sweep, same convention as `Invoice`) and `VOID` side branches. `DRAFT` is
+  freely editable, including a line with neither `goodsReceiptItemId` nor
+  `debitAccountId` yet (brief's "no unnecessary restrictions" requirement) — `post()`
+  is the one-way transition that resolves every line to exactly one path, computes and
+  freezes `matchStatus`/`recognizedAmount`/`varianceAmount`, increments each Path A
+  line's `GoodsReceiptItem.invoicedQuantity`, and posts the Path B journal if any.
+  `matchStatus` (`UNVERIFIED`/`MATCHED`/`DISCREPANCY`) is derived from Path A lines
+  only — a pure-Path-B invoice is `UNVERIFIED`, never "matched" or "in discrepancy"
+  (there is nothing to reconcile). Uniqueness is `(supplierId, invoiceNumber)`, never
+  global — a supplier's own numbering.
+- **`SupplierInvoiceItem`** — `goodsReceiptItemId`/`debitAccountId` (mutually
+  exclusive by the time the invoice posts), frozen `recognizedAmount`/`varianceAmount`.
+- **`SupplierPayment`/`SupplierPaymentAllocation`** — exact structural mirror of
+  `Payment`/`PaymentAllocation`. The over-payment guard bounds against
+  `recognizedAmount - amountPaid - amountCredited`, never `total` — this is what makes
+  "no overpayment exposure on a discrepant invoice" automatic rather than a special
+  case. Posts `DR Accounts Payable / CR Cash-or-Bank`.
+- **`SupplierCreditNote`** — a small, dedicated model (not a reuse of `CreditNote`,
+  whose `customerId` is a required, non-nullable FK). Mirrors `CreditNote`'s
+  `DRAFT → ISSUED → VOID` shape, posts `DR Accounts Payable / CR Inventory` — the
+  mirror image of Goods Receipt's own posting.
+- **Discrepancy acknowledgement** — `POST /:id/acknowledge-discrepancy` records a
+  human sign-off (`discrepancyResolvedAt`/`By`/notes) on a `DISCREPANCY` invoice.
+  **Never** changes `recognizedAmount`/AP — no tolerance engine, no auto-resolution.
+  Converting GRNI excess into confirmed AP some future sprint may want remains explicit
+  deferred work (accounting.md §12.4).
+
+### Accounts Payable Read Model
+
+`AccountsPayableService` mirrors `AccountsReceivableService` exactly — every figure
+derived live via `groupBy`/`aggregate` over `SupplierInvoice`/`SupplierPayment`, never
+a stored balance. Powers the Payables Overview cards, a per-supplier balance (also
+surfacing on the Supplier detail view via [Suppliers](suppliers.md) §6), and a
+Purchase Order financial summary (also surfacing on the [Procurement](procurement.md)
+PO dialog) that is deliberately blind to received/inventory quantities — Finance never
+reads `GoodsReceiptItem`/`InventoryStock` for this figure, Inventory's own Receiving
+Summary covers that half.
+
+### Admin Surface
+
+Two new tabs on `/settings/finance/*`: **Payables** (summary cards + Supplier Invoice
+list; `SupplierInvoiceDialog` picks a supplier, optionally pulls Path A lines from one
+of that supplier's Goods Receipts with a live client-side preview of the
+Ordered/Payable/Invoiced/Discrepancy result, and/or adds Path B lines with a Debit
+Account picker) and **Supplier Payments** (a flat, read-only ledger + void, mirroring
+`payments/page.tsx`). The client-side preview is informational only — `post()` always
+recomputes and freezes the authoritative result server-side, same "preview only"
+convention `InvoiceDialog` already uses for its own live totals.
+
+### API Reference (Sprint 12)
+
+| Endpoint                                                          | Auth                | Notes                                               |
+| ----------------------------------------------------------------- | ------------------- | --------------------------------------------------- |
+| `GET /api/finance/supplier-invoices`                              | Any authenticated   | `?status=&supplierId=&purchaseOrderId=&search=`     |
+| `GET /api/finance/supplier-invoices/:id`                          | Any authenticated   |                                                     |
+| `POST /api/finance/supplier-invoices`                             | Owner/Administrator | Creates `DRAFT` — lines may be incomplete           |
+| `PATCH /api/finance/supplier-invoices/:id`                        | Owner/Administrator | `DRAFT` only                                        |
+| `POST /api/finance/supplier-invoices/:id/post`                    | Owner/Administrator | `DRAFT → POSTED`, computes/freezes the match result |
+| `POST /api/finance/supplier-invoices/:id/acknowledge-discrepancy` | Owner/Administrator | Sign-off only, never changes AP                     |
+| `POST /api/finance/supplier-invoices/:id/void`                    | Owner/Administrator | Guarded per lifecycle above                         |
+| `GET /api/finance/supplier-payments`                              | Any authenticated   | `?supplierId=&supplierInvoiceId=`                   |
+| `POST /api/finance/supplier-payments`                             | Owner/Administrator | Atomic, idempotent, single-invoice allocation       |
+| `POST /api/finance/supplier-payments/:id/void`                    | Owner/Administrator | Reverses the cumulative increment                   |
+| `GET /api/finance/supplier-credit-notes`                          | Any authenticated   | `?supplierId=&supplierInvoiceId=`                   |
+| `POST /api/finance/supplier-credit-notes`                         | Owner/Administrator | Creates `DRAFT`                                     |
+| `POST /api/finance/supplier-credit-notes/:id/issue`               | Owner/Administrator | `DRAFT → ISSUED`, applies the credit                |
+| `POST /api/finance/supplier-credit-notes/:id/void`                | Owner/Administrator | Reverses if it had been `ISSUED`                    |
+| `GET /api/finance/accounts-payable/summary`                       | Any authenticated   | Org-wide AP aggregate (Payables Overview cards)     |
+| `GET /api/finance/accounts-payable/by-supplier`                   | Any authenticated   | Per-supplier AP rows                                |
+| `GET /api/finance/accounts-payable/suppliers/:supplierId`         | Any authenticated   | Single supplier's balance + recent-activity counts  |
+| `GET /api/finance/accounts-payable/purchase-orders/:id`           | Any authenticated   | Single PO's AP rollup (never received/inventory)    |
+
+### Known Limitations (Sprint 12)
+
+- **No automatic GRNI-to-AP reclassification.** A `DISCREPANCY` invoice's excess is
+  never automatically moved into confirmed AP — acknowledgement is sign-off only. A
+  future sprint may want an explicit `DR GRNI_PENDING_APPROVAL / CR AP` reclassification
+  action; not built now (accounting.md §12.4).
+- **Single-invoice payment/credit allocation**, same deferred decision as §11's
+  customer-side equivalent.
+- **No approval workflow** for Path B postings — any Owner/Administrator can post
+  against any eligible non-system Asset/Expense account, restricted by account type
+  only, not by a configurable policy.
+- **No payment runs, AP ageing report, or automated payment scheduling** — a
+  Payables Overview and a flat payment ledger only, matching the brief's own
+  non-goals.
+- **No supplier portal/self-service, no payment-gateway integration, no bank
+  reconciliation** — Supplier Payments are a manual record-entry foundation, same
+  posture as customer-side Payments.

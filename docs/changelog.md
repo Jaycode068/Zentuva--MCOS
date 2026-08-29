@@ -7,6 +7,118 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 12 Accounts Payable & Supplier Invoice Management] - 2026-08-29
+
+### Added
+
+- **`SupplierInvoice`/`SupplierInvoiceItem` (Finance)** — the supplier-side mirror of
+  Invoice/InvoiceItem, matched against what Sprint 8's Goods Receipt already
+  recognised. Every line takes one of two paths: **Path A** (`goodsReceiptItemId`
+  set) reconciles against a Goods Receipt line's remaining payable value —
+  `recognizedAmount = min(lineTotal, remainingPayable × unitPrice)`, where
+  `remainingPayable` subtracts what Sprint 11 Returns already drew from the payable
+  bucket and what prior invoices already claimed (`GoodsReceiptItem.invoicedQuantity`,
+  a new cumulative counter) — capping recognition by construction, so an over-invoice
+  can never inflate AP, only surface a `varianceAmount` and flag the header
+  `DISCREPANCY`. No new journal is posted for a matching Path A line — the liability
+  already exists. **Path B** (`debitAccountId` set) is a fresh liability with no Goods
+  Receipt to reconcile against (freight, a service bill) — the line names an explicit,
+  user-chosen Chart of Accounts "Debit Account" (non-system `ASSET`/`EXPENSE` only,
+  never defaulted or guessed), recognised in full and grouped into one balanced `DR
+<account>(s) / CR Accounts Payable` journal per invoice. A single invoice may freely
+  mix both kinds of lines. Lifecycle: `DRAFT → POSTED → {PARTIALLY_PAID → PAID}`, with
+  `OVERDUE` (lazy sweep) and `VOID` side branches, mirroring `Invoice` exactly.
+  `POST /:id/acknowledge-discrepancy` records a human sign-off only — never changes
+  `recognizedAmount`/AP, no tolerance engine, no auto-resolution.
+- **`journal-posting.ts` extension** — `PostingLineInput` gained an optional
+  `accountId` alongside the existing `systemKey` (exactly one required per line,
+  both resolved tenant-scoped inside the same transaction) — the one small, generic
+  change needed for Path B, reused by no other domain yet.
+- **`SupplierPayment`/`SupplierPaymentAllocation` (Finance)** — direct structural
+  mirror of `Payment`/`PaymentAllocation`. The over-payment guard bounds against
+  `recognizedAmount - amountPaid - amountCredited`, never `total` — an over-invoiced
+  Path A invoice can never be over-paid, by construction. Posts `DR Accounts Payable /
+CR Cash-or-Bank`.
+- **`SupplierCreditNote` (Finance)** — a new, small model (not a reuse of the
+  customer-side `CreditNote`, whose `customerId` is a required, non-nullable FK).
+  Mirrors `CreditNote`'s `DRAFT → ISSUED → VOID` shape, posts `DR Accounts Payable /
+CR Inventory` — the mirror image of Goods Receipt's own posting.
+- **`AccountsPayableService` (Finance)** — direct structural mirror of
+  `AccountsReceivableService`: org-wide summary, per-supplier balance, a supplier
+  financial summary, and a Purchase Order financial summary (deliberately blind to
+  received/inventory quantities — Inventory's own Receiving Summary covers that
+  half). Every figure derived live via `groupBy`/`aggregate`, never a stored balance.
+- **Admin `/settings/finance/payables`** — AP summary cards (Total Outstanding,
+  Overdue, Partially Paid, Invoiced This Period, Payments Made) + the Supplier
+  Invoice list. `SupplierInvoiceDialog` picks a supplier, optionally pulls Path A
+  lines from one of that supplier's Goods Receipts with a live client-side preview
+  of the discrepancy result, and/or adds Path B lines with a Debit Account picker
+  (restricted client-side to non-system Asset/Expense accounts, re-validated
+  server-side authoritatively). `SupplierInvoiceDetailDialog` shows the frozen match
+  result per line, payment/credit-note history, and nests
+  `SupplierPaymentDialog`/`SupplierCreditNoteDialog`, mirroring `InvoiceDetailDialog`
+  exactly.
+- **Admin `/settings/finance/supplier-payments`** — a flat, read-only payment ledger
+  - void, mirroring `payments/page.tsx`.
+- **Supplier detail view** — the Suppliers list's row click now opens a read-only
+  `SupplierDetailDialog` (identity fields + Finance's AP financial summary for that
+  supplier) instead of jumping straight to Edit, which stays a separate, explicit
+  action.
+- **Purchase Order dialog "Financial Summary"** — a new read-only block (invoiced/
+  recognized/paid/outstanding, discrepancy count) sourced from Finance's own AP
+  read model, shown alongside the existing Receiving Summary — neither domain reads
+  the other's tables.
+- New `accounts-payable-independence.spec.ts` — structural guard proving the AP
+  files post accounting only through `postSystemJournalEntry`, never write
+  `JournalEntry`/`JournalEntryLine` directly, and never import an Inventory/
+  Procurement/Supplier service or controller (only the two exported repositories,
+  read-only) — same technique as `sales-finance-independence.spec.ts`.
+- 46 new repository-level tests (`supplier-invoice.repository.spec.ts`,
+  `supplier-payment.repository.spec.ts`, `supplier-credit-note.repository.spec.ts`,
+  plus the independence guard) covering every worked scenario from the brief:
+  normal purchase (create→post→partial pay→full pay), over-supply matching, an
+  over-invoice correctly capped and flagged (never inflating AP), a partial invoice
+  followed by one completing the remainder against the same Goods Receipt line, a
+  mixed Path A + Path B invoice, Path B rejecting a missing/wrong-type/system debit
+  account, closed-period rejection, and idempotent create/post/payment replay.
+
+### Changed
+
+- `GoodsReceiptItem` — added `invoicedQuantity` (cumulative, incremented only at
+  `SupplierInvoice.post()` time for Path A lines). Its response
+  (`GET /inventory/goods-receipts*`) now also surfaces `returnedQuantity`/
+  `returnedExcessQuantity` (already-existing Sprint 11 columns) and the originating
+  Purchase Order line's `unitPrice` — all genuinely this row's own data, exposed for
+  the Supplier Invoice line picker's "available to invoice" hint and default price;
+  Inventory computes nothing from them.
+- `apps/api/src/finance/finance.module.ts` — imports `SupplierModule`/
+  `PurchaseOrderModule` (read-only, via their exported repositories) for identity/PO
+  resolution — the same ADR-002 shape as its existing `SalesModule`/`CustomerModule`/
+  `OutletModule` imports. Still deliberately does not import `InventoryModule`:
+  `SupplierInvoiceRepository` reaches directly into `GoodsReceiptItem` inside its own
+  self-owned transaction, the same precedent `SupplierReturnRepository`/
+  `CustomerReturnRepository` (Sprint 11) already established.
+
+### Verified
+
+- Live, end-to-end, against the running dev servers (not just automated tests):
+  Scenario A (create a Path A invoice against PackRight Nigeria's over-supply
+  fixture, post it — `MATCHED`, ₦150,000 recognized — partial-pay ₦90,000
+  → `PARTIALLY_PAID`, pay the remaining ₦60,000 → `PAID`, AP back to zero, both
+  payments in history); the live discrepancy preview (invoicing 1,050 of 1,000
+  available immediately flags `Discrepancy` in the create dialog before saving);
+  a Path B invoice (a freight bill coded to a `Transport` expense account, no PO/GR)
+  posting `DR Transport / CR Accounts Payable` and landing `UNVERIFIED`/fully
+  recognized; the Supplier detail dialog's AP summary and the Purchase Order
+  dialog's new Financial Summary block both reflecting the same figures correctly;
+  and — a genuine cross-sprint composition check — a pre-existing Sprint 11
+  `SupplierReturn` against the _same_ Goods Receipt (excess-first allocation had
+  left the payable bucket untouched) composing correctly with Sprint 12's matching
+  formula with zero discrepancy.
+- Full monorepo quality gate: `prisma validate`, `lint`, `type-check`, `test`
+  (**77 test suites / 782 tests, all passing**, up from 73/736 before this sprint),
+  and `build`, all green.
+
 ## [Sprint 11 Returns, Claims & Reversals Foundation] - 2026-08-27
 
 ### Added

@@ -557,6 +557,15 @@ function toGoodsReceiptResponse(goodsReceipt: GoodsReceiptWithRelations) {
       // `acceptedQuantity` when goods were accepted beyond the Purchase Order's own
       // ordered quantity (docs/domains/accounting.md "Accepted vs. Payable").
       payableQuantity: item.payableQuantity,
+      // Added Sprint 11/12 — cumulative counters `SupplierReturnRepository`/
+      // `SupplierInvoiceRepository` maintain on this same row from their own
+      // transactions (docs/domains/accounting.md "Supplier Invoice Matching"). Exposed
+      // here purely as more of this row's own data, same as `payableQuantity` above —
+      // Inventory computes nothing from them.
+      returnedQuantity: item.returnedQuantity,
+      returnedExcessQuantity: item.returnedExcessQuantity,
+      invoicedQuantity: item.invoicedQuantity,
+      unitPrice: item.purchaseOrderItem.unitPrice,
       rejectionReason: item.rejectionReason,
       rejectionNotes: item.rejectionNotes,
     })),

@@ -20,8 +20,20 @@ export class NoOpenPeriodError extends Error {}
  *  fire outside a test double. */
 export class UnbalancedPostingError extends Error {}
 
+/** Added Sprint 12 — thrown when a `PostingLineInput` supplies neither/both of
+ *  `systemKey`/`accountId`, or when a direct `accountId` doesn't resolve to a
+ *  `ChartOfAccount` belonging to this organisation. */
+export class InvalidPostingLineError extends Error {}
+
 export interface PostingLineInput {
-  systemKey: string;
+  /** Exactly one of `systemKey`/`accountId` must be supplied. */
+  systemKey?: string;
+  /** Added Sprint 12 — a direct `ChartOfAccount.id` reference, for posting against a
+   *  specific, user-chosen ledger account (e.g. a Supplier Invoice's Path B "Debit
+   *  Account") rather than one of the fixed `SYSTEM_ACCOUNT_KEYS`. Still resolved and
+   *  tenant-scoped inside this same transaction (`resolveAccountId` below) — never
+   *  trusted as already-validated. */
+  accountId?: string;
   debit?: number;
   credit?: number;
   description?: string;
@@ -64,6 +76,27 @@ export async function resolveSystemAccountId(
   if (!account) {
     throw new MissingSystemAccountError(
       `No "${systemKey}" system account is configured for this organisation`,
+    );
+  }
+  return account.id;
+}
+
+/** Added Sprint 12 — resolves a direct `accountId` reference the same tenant-scoped
+ *  way `resolveSystemAccountId` resolves a `systemKey`, for a `PostingLineInput` that
+ *  names a specific, user-chosen `ChartOfAccount` rather than one of the fixed
+ *  `SYSTEM_ACCOUNT_KEYS`. */
+export async function resolveAccountId(
+  tx: Prisma.TransactionClient,
+  organisationId: string,
+  accountId: string,
+): Promise<string> {
+  const account = await tx.chartOfAccount.findFirst({
+    where: { id: accountId, organisationId },
+    select: { id: true },
+  });
+  if (!account) {
+    throw new InvalidPostingLineError(
+      `No such account "${accountId}" exists for this organisation`,
     );
   }
   return account.id;
@@ -156,12 +189,22 @@ export async function postSystemJournalEntry(
   const journalNumber = await generateJournalNumber(tx, input.organisationId);
 
   const lines = await Promise.all(
-    input.lines.map(async (line) => ({
-      accountId: await resolveSystemAccountId(tx, input.organisationId, line.systemKey),
-      description: line.description,
-      debit: roundCurrency(line.debit ?? 0),
-      credit: roundCurrency(line.credit ?? 0),
-    })),
+    input.lines.map(async (line) => {
+      if (Boolean(line.systemKey) === Boolean(line.accountId)) {
+        throw new InvalidPostingLineError(
+          'Exactly one of systemKey/accountId must be supplied per posting line',
+        );
+      }
+      const accountId = line.accountId
+        ? await resolveAccountId(tx, input.organisationId, line.accountId)
+        : await resolveSystemAccountId(tx, input.organisationId, line.systemKey!);
+      return {
+        accountId,
+        description: line.description,
+        debit: roundCurrency(line.debit ?? 0),
+        credit: roundCurrency(line.credit ?? 0),
+      };
+    }),
   );
 
   const journalEntry = await tx.journalEntry.create({

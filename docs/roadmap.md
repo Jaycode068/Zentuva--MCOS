@@ -43,12 +43,17 @@ This roadmap tracks the intended build order. It is not a commitment to dates �
       entity, and family-level reporting remain — see
       [`docs/domains/catalogue.md`](domains/catalogue.md)
 - [x] Supplier Management — foundation shipped Sprint 4.2 (master vendor records; Purchase
-      Orders and Product–Supplier relationships arrive with Procurement) — see
+      Orders and Product–Supplier relationships arrive with Procurement); Sprint 12
+      added a read-only Supplier detail view surfacing Finance's Accounts Payable
+      balance for that supplier — see
       [`docs/domains/suppliers.md`](domains/suppliers.md)
 - [x] Procurement — Purchase Order management shipped Sprint 4.3 (create/edit/cancel,
       automatic totals); status lifecycle now also reaches `PARTIALLY_RECEIVED`/
-      `RECEIVED`, set by Inventory's receiving workflow (Sprint 4.4.1); approval
-      workflow and invoicing remain — see
+      `RECEIVED`, set by Inventory's receiving workflow (Sprint 4.4.1); Sprint 12
+      added a read-only Financial Summary to the PO dialog (Finance's Accounts
+      Payable rollup, shown alongside — never merged into — the existing Receiving
+      Summary); approval workflow remains, and Supplier Invoices are Finance's own
+      `SupplierInvoice` (Sprint 12), not a Procurement entity — see
       [`docs/domains/procurement.md`](domains/procurement.md)
 - [x] Inventory — Goods Receiving shipped Sprint 4.4, refined Sprint 4.4.1 to
       distinguish Ordered/Delivered/Accepted/Rejected/Outstanding/Excess, receive
@@ -107,7 +112,9 @@ Inventory`, one journal per batch, valued at Inventory's own moving-weighted-
       partial-settlement support via a `PaymentAllocation` join table designed for
       future multi-invoice allocation without a rewrite; a lightweight, flat-amount
       Credit Note; Accounts Receivable computed on read, never independently stored)
-      — see [`docs/domains/finance.md`](domains/finance.md)
+      — see [`docs/domains/finance.md`](domains/finance.md); Sprint 12 added the
+      supplier-side mirror — Accounts Payable & Supplier Invoice Management, see
+      finance.md §12
 - [x] Accounting — foundation shipped Sprint 7 (tenant-defined Chart of Accounts,
       Accounting Periods, double-entry Journal Entries, General Ledger/Trial Balance/
       Account Activity; Finance's Invoice/Payment/Credit-Note events post
@@ -123,9 +130,15 @@ Sold / CR Finished Goods Inventory`, no new system accounts needed — `COGS` ha
       been seeded and reserved since Sprint 7); Sprint 11 wired the reverse flow —
       Customer Return (COGS reversal + independently-valued Credit Note) and Supplier
       Return (excess-first-allocated `AP`/`GRNI` reversal), zero new system accounts
-      needed for either; not a complete accounting system — financial-statement
-      closing (P&L, Balance Sheet), Cash Flow Statement, Bank Reconciliation, a full
-      Accounts Payable module, and labour/machine/overhead costing remain — see
+      needed for either; Sprint 12 built a Supplier Invoice matching engine that caps
+      AP recognition at exactly what Goods Receipt already posted (mathematically
+      incapable of inflating it, a discrepancy is surfaced not hidden) plus a
+      Path B posting for PO-less bills against an explicit, user-chosen Chart of
+      Accounts entry — `SupplierPayment`/`SupplierCreditNote` mirror the customer-side
+      engine exactly, zero new system accounts needed; not a complete accounting
+      system — financial-statement closing (P&L, Balance Sheet), Cash Flow Statement,
+      Bank Reconciliation, payment runs, AP ageing, an approval workflow to
+      reclassify GRNI into AP, and labour/machine/overhead costing remain — see
       [`docs/domains/accounting.md`](domains/accounting.md)
 
 ## Phase 3 — Extended Experiences

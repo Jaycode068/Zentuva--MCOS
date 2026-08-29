@@ -9,6 +9,9 @@ const TABS = [
   { label: 'Payments', href: '/settings/finance/payments' },
   { label: 'Receivables', href: '/settings/finance/receivables' },
   { label: 'Credit Notes', href: '/settings/finance/credit-notes' },
+  // Added Sprint 12 — Accounts Payable & Supplier Invoice Management.
+  { label: 'Payables', href: '/settings/finance/payables' },
+  { label: 'Supplier Payments', href: '/settings/finance/supplier-payments' },
   { label: 'Chart of Accounts', href: '/settings/finance/accounts' },
   { label: 'Journal Entries', href: '/settings/finance/journal-entries' },
   { label: 'General Ledger', href: '/settings/finance/ledger' },

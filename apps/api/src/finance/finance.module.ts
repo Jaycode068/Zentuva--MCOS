@@ -2,9 +2,11 @@ import { Module } from '@nestjs/common';
 
 import { AuthModule } from '../identity/auth/auth.module';
 import { IdentityModule } from '../identity/identity.module';
+import { PurchaseOrderModule } from '../procurement/purchase-order/purchase-order.module';
 import { CustomerModule } from '../retail/customer/customer.module';
 import { OutletModule } from '../retail/outlet/outlet.module';
 import { SalesModule } from '../sales/sales.module';
+import { SupplierModule } from '../suppliers/supplier/supplier.module';
 import { AccountingPeriodController } from './accounting/accounting-period.controller';
 import { AccountingPeriodRepository } from './accounting/accounting-period.repository';
 import { AccountingPeriodService } from './accounting/accounting-period.service';
@@ -27,6 +29,17 @@ import { InvoiceService } from './invoice.service';
 import { PaymentController } from './payment.controller';
 import { PaymentRepository } from './payment.repository';
 import { PaymentService } from './payment.service';
+import { AccountsPayableController } from './accounts-payable.controller';
+import { AccountsPayableService } from './accounts-payable.service';
+import { SupplierCreditNoteController } from './supplier-credit-note.controller';
+import { SupplierCreditNoteRepository } from './supplier-credit-note.repository';
+import { SupplierCreditNoteService } from './supplier-credit-note.service';
+import { SupplierInvoiceController } from './supplier-invoice.controller';
+import { SupplierInvoiceRepository } from './supplier-invoice.repository';
+import { SupplierInvoiceService } from './supplier-invoice.service';
+import { SupplierPaymentController } from './supplier-payment.controller';
+import { SupplierPaymentRepository } from './supplier-payment.repository';
+import { SupplierPaymentService } from './supplier-payment.service';
 
 /**
  * Finance HTTP surface (Sprint 6, docs/domains/finance.md) — Invoices, Payments, Credit
@@ -56,9 +69,28 @@ import { PaymentService } from './payment.service';
  * module wiring is needed for that path at all, and future domains (Procurement,
  * Production, Inventory) will be able to import those same functions without depending
  * on `FinanceModule`.
+ *
+ * Sprint 12 (docs/domains/finance.md "Accounts Payable") adds `SupplierInvoice`/
+ * `SupplierPayment`/`SupplierCreditNote`/`AccountsPayableService` here too, same
+ * "bundle the sub-concept, don't spin up a new module" convention. Imports
+ * `SupplierModule`/`PurchaseOrderModule` to read `SupplierRepository`/
+ * `PurchaseOrderRepository` read-only (identity/eligibility resolution) — same ADR-002
+ * shape as `SalesModule`/`CustomerModule`/`OutletModule` above. Still deliberately does
+ * NOT import `InventoryModule`: `SupplierInvoiceRepository` reaches directly into
+ * `GoodsReceiptItem` inside its own self-owned transaction for the 3-way match, the
+ * exact same precedent `SupplierReturnRepository`/`CustomerReturnRepository` (Sprint 11)
+ * already established — see `accounts-payable-independence.spec.ts`.
  */
 @Module({
-  imports: [IdentityModule, AuthModule, SalesModule, CustomerModule, OutletModule],
+  imports: [
+    IdentityModule,
+    AuthModule,
+    SalesModule,
+    CustomerModule,
+    OutletModule,
+    SupplierModule,
+    PurchaseOrderModule,
+  ],
   controllers: [
     InvoiceController,
     PaymentController,
@@ -68,6 +100,10 @@ import { PaymentService } from './payment.service';
     AccountingPeriodController,
     JournalEntryController,
     LedgerController,
+    SupplierInvoiceController,
+    SupplierPaymentController,
+    SupplierCreditNoteController,
+    AccountsPayableController,
   ],
   providers: [
     InvoiceRepository,
@@ -84,6 +120,13 @@ import { PaymentService } from './payment.service';
     JournalEntryRepository,
     JournalEntryService,
     LedgerService,
+    SupplierInvoiceRepository,
+    SupplierInvoiceService,
+    SupplierPaymentRepository,
+    SupplierPaymentService,
+    SupplierCreditNoteRepository,
+    SupplierCreditNoteService,
+    AccountsPayableService,
   ],
 })
 export class FinanceModule {}

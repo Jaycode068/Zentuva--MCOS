@@ -25,6 +25,7 @@ export interface ListGoodsReceiptsParams {
 export type GoodsReceiptWithRelations = GoodsReceipt & {
   items: (GoodsReceiptItem & {
     product: { id: string; code: string; name: string; unit: string };
+    purchaseOrderItem: { unitPrice: number };
   })[];
   supplier: { id: string; supplierCode: string; supplierName: string };
   purchaseOrder: { id: string; purchaseOrderNumber: string };
@@ -33,7 +34,13 @@ export type GoodsReceiptWithRelations = GoodsReceipt & {
 
 const RELATIONS_INCLUDE = {
   items: {
-    include: { product: { select: { id: true, code: true, name: true, unit: true } } },
+    include: {
+      product: { select: { id: true, code: true, name: true, unit: true } },
+      // Added Sprint 12 — lets `toGoodsReceiptResponse` surface each line's PO unit
+      // price, the reference price a Supplier Invoice line defaults to before the
+      // user overrides it with what the supplier actually billed.
+      purchaseOrderItem: { select: { unitPrice: true } },
+    },
     orderBy: { createdAt: 'asc' as const },
   },
   supplier: { select: { id: true, supplierCode: true, supplierName: true } },

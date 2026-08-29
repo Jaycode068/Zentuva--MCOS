@@ -18,6 +18,7 @@ import { useFieldArray, useForm } from 'react-hook-form';
 
 import { ApiError } from '@/lib/api-client';
 
+import { getPurchaseOrderApSummary } from '../finance/api';
 import { getPurchaseOrderReceivingSummary } from '../inventory/api';
 import { listProducts } from '../products/api';
 import { listSuppliers } from '../suppliers/api';
@@ -111,6 +112,16 @@ export function PurchaseOrderDialog({
     queryKey: ['purchase-order-receiving-summary', purchaseOrder?.id],
     queryFn: () => getPurchaseOrderReceivingSummary(purchaseOrder!.id),
     enabled: showReceivingSummary,
+  });
+
+  // Added Sprint 12 — Finance's own read model (never Inventory's), see
+  // `getPurchaseOrderApSummary`'s own doc comment for why it's deliberately blind to
+  // received/inventory figures. Shown alongside, not merged into, the Receiving
+  // Summary above — two domains, two summaries, no shared table.
+  const { data: apSummary } = useQuery({
+    queryKey: ['purchase-order-ap-summary', purchaseOrder?.id],
+    queryFn: () => getPurchaseOrderApSummary(purchaseOrder!.id),
+    enabled: isEdit,
   });
 
   const form = useForm<PurchaseOrderFormValues>({
@@ -412,6 +423,43 @@ export function PurchaseOrderDialog({
                 </tbody>
               </table>
             </div>
+          </div>
+        )}
+
+        {isEdit && apSummary && apSummary.invoiceCount > 0 && (
+          <div className="space-y-2 border-t border-border pt-3">
+            <Label>Financial Summary (Accounts Payable)</Label>
+            <div className="grid grid-cols-2 gap-3 rounded-md border border-border p-3 text-sm sm:grid-cols-4">
+              <div>
+                <p className="text-xs text-muted-foreground">Invoiced</p>
+                <p className="font-medium text-foreground">
+                  {formatCurrency(apSummary.totalInvoiced)}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Recognized</p>
+                <p className="font-medium text-foreground">
+                  {formatCurrency(apSummary.totalRecognized)}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Paid</p>
+                <p className="font-medium text-foreground">{formatCurrency(apSummary.totalPaid)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Outstanding</p>
+                <p className="font-medium text-foreground">
+                  {formatCurrency(apSummary.totalOutstanding)}
+                </p>
+              </div>
+            </div>
+            {apSummary.discrepancyCount > 0 && (
+              <p className="text-xs text-warning">
+                {apSummary.discrepancyCount} supplier invoice
+                {apSummary.discrepancyCount === 1 ? '' : 's'} against this order{' '}
+                {apSummary.discrepancyCount === 1 ? 'has' : 'have'} an unresolved discrepancy.
+              </p>
+            )}
           </div>
         )}
 

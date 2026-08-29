@@ -1,4 +1,5 @@
 export * from './accounting';
+export * from './accounts-payable';
 export * from './catalogue';
 export * from './distribution';
 export * from './env';

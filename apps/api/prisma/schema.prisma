@@ -163,6 +163,10 @@ model Organisation {
   /// docs/domains/procurement.md).
   customerReturns                  CustomerReturn[]
   supplierReturns                  SupplierReturn[]
+  /// Added Sprint 12 — Accounts Payable (docs/domains/finance.md).
+  supplierInvoices                 SupplierInvoice[]
+  supplierPayments                 SupplierPayment[]
+  supplierCreditNotes              SupplierCreditNote[]
 
   @@map("organisations")
 }
@@ -513,6 +517,8 @@ model Product {
   /// docs/domains/procurement.md).
   customerReturnItems          CustomerReturnItem[]
   supplierReturnItems          SupplierReturnItem[]
+  /// Added Sprint 12 — Accounts Payable (docs/domains/finance.md).
+  supplierInvoiceItems         SupplierInvoiceItem[]
 
   @@unique([organisationId, slug])
   @@index([organisationId])
@@ -658,6 +664,10 @@ model Supplier {
   goodsReceipts  GoodsReceipt[]
   /// Added Sprint 11 — Returns, Claims & Reversals (docs/domains/procurement.md).
   supplierReturns SupplierReturn[]
+  /// Added Sprint 12 — Accounts Payable (docs/domains/finance.md).
+  supplierInvoices SupplierInvoice[]
+  supplierPayments SupplierPayment[]
+  supplierCreditNotes SupplierCreditNote[]
 
   @@index([organisationId])
   @@index([organisationId, status])
@@ -729,6 +739,10 @@ model PurchaseOrder {
   goodsReceipts GoodsReceipt[]
   /// Added Sprint 11 — Returns, Claims & Reversals (docs/domains/procurement.md).
   supplierReturns SupplierReturn[]
+  /// Added Sprint 12 — Accounts Payable (docs/domains/finance.md). Header-level
+  /// reference only, for display/grouping — 3-way matching itself happens at the
+  /// `SupplierInvoiceItem` -> `GoodsReceiptItem` level, never here.
+  supplierInvoices SupplierInvoice[]
 
   @@index([organisationId])
   @@index([organisationId, status])
@@ -976,6 +990,12 @@ model GoodsReceiptItem {
   /// Added Sprint 11 — self-reference on the *replacement* line back to the original
   /// rejected line it resolves (brief §21/§39). `NULL` for every ordinary line.
   replacesRejectedItemId  String?
+  /// Added Sprint 12 (docs/domains/accounting.md "Supplier Invoice Matching") —
+  /// cumulative quantity claimed by every POSTED `SupplierInvoiceItem` (Path A lines
+  /// only) against this line's `payableQuantity`. Incremented only at
+  /// `SupplierInvoiceRepository.post()` time, never at DRAFT. Read the same way
+  /// `returnedQuantity` already is, to compute what remains invoiceable.
+  invoicedQuantity        Float @default(0)
   createdAt           DateTime         @default(now())
 
   goodsReceipt      GoodsReceipt      @relation(fields: [goodsReceiptId], references: [id], onDelete: Cascade)
@@ -984,6 +1004,7 @@ model GoodsReceiptItem {
   replacesRejectedItem GoodsReceiptItem?  @relation("GoodsReceiptItemReplacement", fields: [replacesRejectedItemId], references: [id], onDelete: Restrict)
   replacementItems     GoodsReceiptItem[] @relation("GoodsReceiptItemReplacement")
   supplierReturnItems  SupplierReturnItem[]
+  supplierInvoiceItems SupplierInvoiceItem[]
 
   @@index([goodsReceiptId])
   @@index([purchaseOrderItemId])
@@ -2506,6 +2527,9 @@ model ChartOfAccount {
   parent       ChartOfAccount?    @relation("AccountHierarchy", fields: [parentId], references: [id], onDelete: Restrict)
   children     ChartOfAccount[]   @relation("AccountHierarchy")
   journalLines JournalEntryLine[]
+  /// Added Sprint 12 — the "Debit Account" a Path B `SupplierInvoiceItem` (no Goods
+  /// Receipt reference) posts against, e.g. a Logistics/Utilities Expense account.
+  supplierInvoiceItems SupplierInvoiceItem[]
 
   @@unique([organisationId, code])
   /// Multiple `NULL`s are allowed in a Postgres unique index — only accounts
@@ -2830,4 +2854,252 @@ model SupplierReturnItem {
   @@index([goodsReceiptItemId])
   @@index([productId])
   @@map("supplier_return_items")
+}
+
+// ============================================================================
+// Sprint 12 — Accounts Payable & Supplier Invoice Management
+// (docs/domains/finance.md "Accounts Payable", docs/domains/accounting.md
+// "Supplier Invoice Matching")
+//
+// CORE PRINCIPLE: Goods Receipt (Sprint 8) already posts `DR Inventory / CR AP`
+// (+ `CR GRNI_PENDING_APPROVAL` for excess) at receiving time — a Supplier Invoice
+// that matches what was already recognised needs NO new journal entry; it only
+// reconciles/caps against that pre-existing liability (Path A). A line with no Goods
+// Receipt reference instead carries an explicit, user-chosen `debitAccountId` and
+// creates a fresh `DR <account> / CR AP` liability of its own (Path B) — this is
+// Finance posting against an existing Chart of Accounts entry, not an
+// expense-management workflow. Either way, AP is never silently inflated by an
+// invoice: `recognizedAmount` is always the capped, safe-to-pay figure; `total` is
+// the historical record of what was actually billed.
+// ============================================================================
+
+/// `DRAFT` (freely editable) -> `POSTED` (the one-way transition that freezes
+/// matching and creates any Path B liability) -> `{PARTIALLY_PAID -> PAID}`, with
+/// `VOID` (from `DRAFT` freely, or from `POSTED`/`OVERDUE` only while nothing has
+/// been paid/credited yet) and `OVERDUE` (lazy, read-time sweep, mirrors
+/// `InvoiceStatus`) as side-branches. Direct structural mirror of `InvoiceStatus`
+/// (`POSTED` instead of `ISSUED`, matching this domain's own vocabulary).
+enum SupplierInvoiceStatus {
+  DRAFT
+  POSTED
+  PARTIALLY_PAID
+  PAID
+  OVERDUE
+  VOID
+}
+
+/// Computed only from a `SupplierInvoice`'s Path A (Goods-Receipt-linked) lines, at
+/// `post()` time — `NULL` while still `DRAFT`. `UNVERIFIED` means the invoice has no
+/// Path A lines at all (pure Path B, nothing to 3-way-match). `DISCREPANCY` never
+/// blocks posting or payment — see `SupplierInvoiceItem.varianceAmount` and
+/// `SupplierInvoice.recognizedAmount`, which is always capped below `total` in that
+/// case so AP can never be silently inflated.
+enum SupplierInvoiceMatchStatus {
+  UNVERIFIED
+  MATCHED
+  DISCREPANCY
+}
+
+/// The document a supplier bills against — distinct from both the Goods Receipt
+/// (what physically arrived and became payable) and Accounts Payable itself (the
+/// General Ledger's own `AP` balance, which Goods Receipt already moves for the
+/// Path A case). `invoiceNumber` is the supplier's own numbering, scoped to
+/// `supplierId` — brief explicit: never assumed globally unique, unlike this
+/// codebase's own generated `<PREFIX>-000001` codes.
+model SupplierInvoice {
+  id              String                @id @default(cuid())
+  organisationId  String
+  supplierId      String
+  /// Optional header-level reference for display/grouping only — the actual 3-way
+  /// match happens per line, against `SupplierInvoiceItem.goodsReceiptItemId`.
+  purchaseOrderId String?
+  /// The supplier's own invoice number — see model doc comment.
+  invoiceNumber   String
+  invoiceDate     DateTime
+  /// Computed server-side from `invoiceDate + paymentTermDays(paymentTerms)` at
+  /// creation — same "snapshot, never recompute" rule as `Invoice.dueDate`.
+  dueDate         DateTime
+  paymentTerms    PaymentTermType
+  status          SupplierInvoiceStatus @default(DRAFT)
+  /// Snapshotted from `Organisation.currency` at creation.
+  currency        String
+  subtotal        Float
+  taxAmount       Float                 @default(0)
+  /// `subtotal + taxAmount`, server-computed — the full amount the supplier billed,
+  /// permanently preserved even when a discrepancy caps `recognizedAmount` below it.
+  total           Float
+  /// `NULL` until `post()` — see `SupplierInvoiceMatchStatus`.
+  matchStatus     SupplierInvoiceMatchStatus?
+  /// Frozen at `post()` — `Σ SupplierInvoiceItem.recognizedAmount`. The actual
+  /// AP-eligible amount: Payments/Credit Notes are validated against
+  /// `recognizedAmount - amountPaid - amountCredited`, never against `total`. This is
+  /// what makes "AP is never silently inflated" and "no overpayment exposure"
+  /// structural rather than a special case (docs/domains/accounting.md).
+  recognizedAmount Float                @default(0)
+  /// `total - recognizedAmount`, always >= 0 — how much of this invoice is NOT
+  /// currently payable (a Path A discrepancy only; Path B lines never contribute).
+  varianceAmount   Float                @default(0)
+  /// Cumulative, incremented only inside `SupplierPaymentRepository.create()`'s
+  /// transaction.
+  amountPaid       Float                @default(0)
+  /// Cumulative, incremented only inside `SupplierCreditNoteRepository.issue()`'s
+  /// transaction.
+  amountCredited   Float                @default(0)
+  notes            String?
+  /// Guards the `create()` call — see `postIdempotencyKey` for the separate guard on
+  /// `post()`, same two-key convention `CustomerReturn` (Sprint 11) established for
+  /// its own two-phase request/receive lifecycle.
+  idempotencyKey     String?
+  postIdempotencyKey String?
+  postedAt         DateTime?
+  postedById       String?
+  /// A human sign-off on a `DISCREPANCY`-status invoice — never changes
+  /// `recognizedAmount`/AP (docs/domains/accounting.md "Discrepancy Resolution").
+  discrepancyResolvedAt      DateTime?
+  discrepancyResolvedById    String?
+  discrepancyResolutionNotes String?
+  createdById      String?
+  updatedById      String?
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+
+  organisation       Organisation                @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  supplier            Supplier                    @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  purchaseOrder       PurchaseOrder?              @relation(fields: [purchaseOrderId], references: [id], onDelete: Restrict)
+  items               SupplierInvoiceItem[]
+  paymentAllocations  SupplierPaymentAllocation[]
+  creditNotes         SupplierCreditNote[]
+
+  @@unique([supplierId, invoiceNumber])
+  @@unique([supplierId, idempotencyKey])
+  @@unique([supplierId, postIdempotencyKey])
+  @@index([organisationId])
+  @@index([organisationId, supplierId])
+  @@index([organisationId, status])
+  @@map("supplier_invoices")
+}
+
+/// One line of a `SupplierInvoice` — always exactly one of `goodsReceiptItemId`
+/// (Path A, reconciles against an existing liability) or `debitAccountId` (Path B,
+/// creates a fresh one), enforced by `SupplierInvoiceRepository.post()`, not a
+/// database constraint (same "either/or, service-enforced" convention used
+/// throughout this codebase).
+model SupplierInvoiceItem {
+  id                String  @id @default(cuid())
+  supplierInvoiceId String
+  productId         String?
+  description       String?
+  quantity          Float
+  unitPrice         Float
+  /// Server-calculated as `roundCurrency(quantity * unitPrice)`.
+  lineTotal         Float
+  /// Path A — the specific `GoodsReceiptItem` this line reconciles against. `NULL`
+  /// for a Path B line.
+  goodsReceiptItemId String?
+  /// Path B — the Chart of Accounts entry this line's fresh liability debits
+  /// against (`AccountType` `ASSET`/`EXPENSE`, non-system, validated at `post()`).
+  /// `NULL` for a Path A line.
+  debitAccountId     String?
+  /// Frozen at `post()`. Path A: `min(lineTotal, remainingPayable × PO unit price)`.
+  /// Path B: always `lineTotal` (no cap — a direct, explicit entry).
+  recognizedAmount   Float   @default(0)
+  /// Frozen at `post()`. `lineTotal - recognizedAmount`, always >= 0 (Path A only;
+  /// always `0` for Path B).
+  varianceAmount     Float   @default(0)
+  createdAt         DateTime @default(now())
+
+  supplierInvoice  SupplierInvoice   @relation(fields: [supplierInvoiceId], references: [id], onDelete: Cascade)
+  product          Product?          @relation(fields: [productId], references: [id], onDelete: Restrict)
+  goodsReceiptItem GoodsReceiptItem? @relation(fields: [goodsReceiptItemId], references: [id], onDelete: Restrict)
+  debitAccount     ChartOfAccount?   @relation(fields: [debitAccountId], references: [id], onDelete: Restrict)
+
+  @@index([supplierInvoiceId])
+  @@index([goodsReceiptItemId])
+  @@index([debitAccountId])
+  @@map("supplier_invoice_items")
+}
+
+/// A supplier-scoped (NOT invoice-scoped) record of money paid out — direct mirror
+/// of `Payment`, see its own doc comment for why allocation is a join table rather
+/// than a direct FK.
+model SupplierPayment {
+  id             String        @id @default(cuid())
+  organisationId String
+  supplierId     String
+  paymentDate    DateTime
+  /// Total amount of this payment — may be allocated across one or more invoices via
+  /// `SupplierPaymentAllocation` (this sprint only ever creates exactly one
+  /// allocation row per payment, same as `Payment`'s own Sprint 6 scope).
+  amount         Float
+  /// Derived server-side from the target invoice's own snapshotted `currency`.
+  currency       String
+  method         PaymentMethod
+  reference      String?
+  notes          String?
+  status         PaymentStatus @default(RECORDED)
+  idempotencyKey String?
+  createdById    String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  organisation Organisation                @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  supplier     Supplier                    @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  allocations  SupplierPaymentAllocation[]
+
+  @@unique([supplierId, idempotencyKey])
+  @@index([organisationId])
+  @@index([organisationId, supplierId])
+  @@map("supplier_payments")
+}
+
+/// The join between a `SupplierPayment` and the `SupplierInvoice`(s) it was applied
+/// to — same future-proofing rationale as `PaymentAllocation`.
+model SupplierPaymentAllocation {
+  id                String   @id @default(cuid())
+  supplierPaymentId String
+  supplierInvoiceId String
+  amount            Float
+  createdAt         DateTime @default(now())
+
+  supplierPayment SupplierPayment @relation(fields: [supplierPaymentId], references: [id], onDelete: Cascade)
+  supplierInvoice SupplierInvoice @relation(fields: [supplierInvoiceId], references: [id], onDelete: Restrict)
+
+  @@index([supplierPaymentId])
+  @@index([supplierInvoiceId])
+  @@map("supplier_payment_allocations")
+}
+
+/// The financial consequence of a supplier-side commercial adjustment that reduces
+/// what the organisation owes — NOT a reuse of the customer `CreditNote` table
+/// (that model's `customerId` is a required, non-nullable FK; a new, small model
+/// mirroring its DRAFT/ISSUED/VOID shape is safer than retrofitting a polymorphic
+/// party onto well-tested Sprint 6/7/11 code). Posts `DR AP / CR INVENTORY` on
+/// `issue()` — see docs/domains/accounting.md.
+model SupplierCreditNote {
+  id                String           @id @default(cuid())
+  organisationId    String
+  /// Auto-generated (`SCN-000001`, ...), globally unique, immutable.
+  creditNoteCode    String           @unique
+  supplierId        String
+  supplierInvoiceId String?
+  reason            String
+  amount            Float
+  currency          String
+  status            CreditNoteStatus @default(DRAFT)
+  creditNoteDate    DateTime
+  notes             String?
+  idempotencyKey    String?
+  createdById       String?
+  updatedById       String?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  organisation    Organisation     @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  supplier        Supplier         @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  supplierInvoice SupplierInvoice? @relation(fields: [supplierInvoiceId], references: [id], onDelete: Restrict)
+
+  @@unique([supplierInvoiceId, idempotencyKey])
+  @@index([organisationId])
+  @@index([organisationId, supplierId])
+  @@map("supplier_credit_notes")
 }

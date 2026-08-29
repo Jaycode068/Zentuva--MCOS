@@ -9,6 +9,7 @@ import { ApiError } from '@/lib/api-client';
 
 import { listSuppliers, updateSupplier, type Supplier } from './api';
 import { CATEGORY_LABELS, STATUS_VARIANT } from './labels';
+import { SupplierDetailDialog } from './supplier-detail-dialog';
 import { SupplierDialog } from './supplier-dialog';
 
 const CATEGORY_FILTER_OPTIONS = Object.keys(CATEGORY_LABELS) as Supplier['supplierCategory'][];
@@ -24,6 +25,7 @@ export default function SuppliersSettingsPage() {
   const [categoryFilter, setCategoryFilter] = useState<'' | Supplier['supplierCategory']>('');
   const [createOpen, setCreateOpen] = useState(false);
   const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null);
+  const [detailSupplier, setDetailSupplier] = useState<Supplier | null>(null);
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['suppliers'] });
 
@@ -142,7 +144,7 @@ export default function SuppliersSettingsPage() {
                     <td className="px-4 py-3">
                       <button
                         type="button"
-                        onClick={() => setEditingSupplier(supplier)}
+                        onClick={() => setDetailSupplier(supplier)}
                         className="font-medium text-foreground hover:underline"
                       >
                         {supplier.supplierName}
@@ -205,6 +207,16 @@ export default function SuppliersSettingsPage() {
           supplier={editingSupplier}
           onOpenChange={() => setEditingSupplier(null)}
           onSaved={invalidate}
+        />
+      )}
+      {detailSupplier && (
+        <SupplierDetailDialog
+          supplier={detailSupplier}
+          onOpenChange={() => setDetailSupplier(null)}
+          onEdit={() => {
+            setEditingSupplier(detailSupplier);
+            setDetailSupplier(null);
+          }}
         />
       )}
     </main>

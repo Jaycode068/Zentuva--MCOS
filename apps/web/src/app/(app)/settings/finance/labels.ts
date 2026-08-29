@@ -8,6 +8,8 @@ import type {
   JournalEntryStatus,
   PaymentMethod,
   PaymentTermType,
+  SupplierInvoiceMatchStatus,
+  SupplierInvoiceStatus,
 } from './api';
 
 export const INVOICE_STATUS_LABELS: Record<InvoiceStatus, string> = {
@@ -109,4 +111,46 @@ export const JOURNAL_SOURCE_TYPE_LABELS: Record<string, string> = {
   PRODUCTION_RUN: 'Production Completion',
   // Added Sprint 10 — Sales Fulfilment → COGS Accounting integration.
   SALES_FULFILMENT: 'Sales Fulfilment',
+  // Added Sprint 12 — Accounts Payable & Supplier Invoice Management.
+  SUPPLIER_INVOICE: 'Supplier Invoice',
+  SUPPLIER_PAYMENT: 'Supplier Payment',
+  SUPPLIER_CREDIT_NOTE: 'Supplier Credit Note',
+};
+
+// === Accounts Payable (Sprint 12, docs/domains/finance.md "Accounts Payable") ===
+
+export const SUPPLIER_INVOICE_STATUS_LABELS: Record<SupplierInvoiceStatus, string> = {
+  DRAFT: 'Draft',
+  POSTED: 'Posted',
+  PARTIALLY_PAID: 'Partially Paid',
+  PAID: 'Paid',
+  OVERDUE: 'Overdue',
+  VOID: 'Void',
+};
+
+export const SUPPLIER_INVOICE_STATUS_VARIANT: Record<
+  SupplierInvoiceStatus,
+  NonNullable<BadgeProps['variant']>
+> = {
+  DRAFT: 'default',
+  POSTED: 'default',
+  PARTIALLY_PAID: 'warning',
+  PAID: 'success',
+  OVERDUE: 'destructive',
+  VOID: 'destructive',
+};
+
+export const SUPPLIER_INVOICE_MATCH_STATUS_LABELS: Record<SupplierInvoiceMatchStatus, string> = {
+  UNVERIFIED: 'Unverified',
+  MATCHED: 'Matched',
+  DISCREPANCY: 'Discrepancy',
+};
+
+export const SUPPLIER_INVOICE_MATCH_STATUS_VARIANT: Record<
+  SupplierInvoiceMatchStatus,
+  NonNullable<BadgeProps['variant']>
+> = {
+  UNVERIFIED: 'default',
+  MATCHED: 'success',
+  DISCREPANCY: 'warning',
 };

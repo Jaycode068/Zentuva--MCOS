@@ -118,6 +118,15 @@ export interface GoodsReceiptItem {
    *  quantity still covers. `acceptedQuantity > payableQuantity` means goods were
    *  accepted beyond the order — see `journalEntry` on the parent `GoodsReceipt`. */
   payableQuantity: number;
+  /** Added Sprint 11/12 — cumulative counters `SupplierReturnRepository`/
+   *  `SupplierInvoiceRepository` maintain on this line from their own transactions
+   *  (docs/domains/accounting.md "Supplier Invoice Matching"). `unitPrice` is the
+   *  Purchase Order's own reference price, the default a Supplier Invoice line starts
+   *  from before the user overrides it with what the supplier actually billed. */
+  returnedQuantity: number;
+  returnedExcessQuantity: number;
+  invoicedQuantity: number;
+  unitPrice: number;
   rejectionReason: RejectionReason | null;
   rejectionNotes: string | null;
 }

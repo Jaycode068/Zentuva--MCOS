@@ -125,8 +125,11 @@ delivered roughly in order, but later Epics may be reordered as priorities evolv
   also reaches `PARTIALLY_RECEIVED`/`RECEIVED`, set exclusively by Epic 5's receiving
   workflow (Sprint 4.4.1) — see [`docs/domains/procurement.md`](domains/procurement.md).
   Sprint 8 wired that same receiving workflow to Epic 17's accounting layer (see below);
-  Purchase Order confirmation itself still creates no accounting entry. Supplier
-  Performance, Purchase Approval Workflow, and Invoices remain.
+  Purchase Order confirmation itself still creates no accounting entry. Sprint 12 added
+  a read-only Financial Summary to the PO dialog, sourced from Epic 16's new Accounts
+  Payable read model (invoiced/recognized/paid/outstanding) — Procurement itself gained
+  no write path. Supplier Performance and Purchase Approval Workflow remain; Supplier
+  Invoices are Epic 16's own `SupplierInvoice` (Sprint 12), not a Procurement entity.
 
 ### Epic 5 — Inventory
 
@@ -325,13 +328,14 @@ Receivable / CR Sales Revenue` posting (Sprint 6/7): revenue and inventory cost 
   services from.
 - **Includes:** Supplier master data (identity, classification, contact/location fields,
   Active/Inactive status). Deliberately excludes Purchase Orders, Goods Receiving,
-  Invoices, Vendor Payments, Procurement Workflows, Contracts, Price Lists, and
-  Product–Supplier relationships — those belong to Epic 4 (Procurement) once it's built on
-  top of this foundation.
+  Procurement Workflows, Contracts, and Price Lists (those belong to Epic 4 once it's
+  built on top of this foundation), and Supplier Invoices/Vendor Payments (those belong
+  to Epic 16, Finance, as `SupplierInvoice`/`SupplierPayment` — Sprint 12).
 - **Status:** Foundation implemented — Sprint 4.2 ("Supplier Management"), reusing the
   Sprint 4.1 Product Catalogue's architecture (auto-generated immutable code, the same
   Owner/Administrator-write, Member-read-only authorization) — see
-  [`docs/domains/suppliers.md`](domains/suppliers.md).
+  [`docs/domains/suppliers.md`](domains/suppliers.md). Sprint 12 added a read-only
+  Supplier detail view surfacing Epic 16's Accounts Payable balance for that supplier.
 
 ### Epic 16 — Finance
 
@@ -339,11 +343,13 @@ Receivable / CR Sales Revenue` posting (Sprint 6/7): revenue and inventory cost 
   Distribution have already recorded — what a customer was billed, what they've paid,
   what they still owe. Explicitly **not** a General Ledger / accounting system.
 - **Includes:** Invoices, Payments (with partial-payment support), Credit Notes,
-  Accounts Receivable, Payment Terms, a minimal tax foundation. Deliberately excludes
-  Chart of Accounts, Journal Entries, General Ledger, Trial Balance, Profit & Loss,
-  Balance Sheet, Cash Flow Statement, Bank Reconciliation, payroll, fixed assets, a full
-  tax engine, sophisticated pricing, credit scoring, and payment-gateway integration —
-  all future sprints.
+  Accounts Receivable, Payment Terms, a minimal tax foundation, and (Sprint 12)
+  Accounts Payable — Supplier Invoices matched against Goods Receipt, Supplier
+  Payments, Supplier Credit Notes. Deliberately excludes Chart of Accounts, Journal
+  Entries, General Ledger, Trial Balance, Profit & Loss, Balance Sheet, Cash Flow
+  Statement, Bank Reconciliation, payroll, fixed assets, a full tax engine,
+  sophisticated pricing, credit scoring, payment-gateway integration, payment runs, AP
+  ageing, and an Expense Management module — all future sprints.
 - **Status:** Foundation implemented — Sprint 6 ("Finance Foundation"). Invoices are
   raised against a `FULFILLED` Sales Order, snapshotting commercial terms permanently;
   Payments support partial settlement via a `PaymentAllocation` join table designed for
@@ -355,7 +361,14 @@ Receivable / CR Sales Revenue` posting (Sprint 6/7): revenue and inventory cost 
   read Dispatch/Delivery data or write to any upstream domain's tables
   (`finance-independence.spec.ts`) — see [`docs/domains/finance.md`](domains/finance.md).
   Sprint 7 added the accounting layer described in Epic 17, below, and wired Finance's
-  three financial events to post to it automatically.
+  three financial events to post to it automatically. Sprint 12 ("Accounts Payable &
+  Supplier Invoice Management") added the supplier-side mirror: `SupplierInvoice`
+  reconciles what a supplier bills against what Sprint 8's Goods Receipt already
+  recognised as payable (capped, never inflated — a discrepancy is surfaced, not
+  hidden), `SupplierPayment`/`SupplierCreditNote` are direct structural mirrors of
+  `Payment`/`CreditNote`, and a PO-less/GR-less bill posts against an explicit,
+  user-chosen Chart of Accounts "Debit Account" rather than a guessed default — see
+  [`docs/domains/finance.md`](domains/finance.md) §12.
 
 ### Epic 17 — Accounting
 
@@ -370,14 +383,16 @@ Receivable / CR Sales Revenue` posting (Sprint 6/7): revenue and inventory cost 
   reporting, automatic posting for Finance's `invoice.issued`/`payment.recorded`/
   `credit-note.issued` events, (Sprint 8) automatic posting for Inventory's Goods
   Receipt event, (Sprint 9) automatic posting for Production's Material Issue and
-  Production Completion events, and (Sprint 10) automatic posting for Sales's
-  Fulfilment event. Deliberately excludes Chart of Accounts → financial-statement
-  closing (P&L, Balance Sheet, Cash Flow Statement), Bank Reconciliation, a full
-  Accounts Payable module (supplier invoice matching, payment runs, AP ageing, an
-  approval workflow to reclassify `GRNI — Pending Approval` balances into `AP`),
-  payroll, fixed-asset accounting, a full tax engine, budgeting, year-end closing,
-  labour/machine/overhead costing — all future work. Sales Returns/COGS-reversal and
-  Supplier Returns are no longer future work — see Sprint 11 below.
+  Production Completion events, (Sprint 10) automatic posting for Sales's Fulfilment
+  event, and (Sprint 12) Supplier Invoice matching against Goods Receipt (capped
+  recognition, discrepancy surfaced not hidden) plus a Path B posting for PO-less
+  bills against an explicit Chart of Accounts entry. Deliberately excludes Chart of
+  Accounts → financial-statement closing (P&L, Balance Sheet, Cash Flow Statement),
+  Bank Reconciliation, payment runs, AP ageing, an approval workflow to reclassify
+  `GRNI — Pending Approval` balances into `AP`, payroll, fixed-asset accounting, a
+  full tax engine, budgeting, year-end closing, labour/machine/overhead costing — all
+  future work. Sales Returns/COGS-reversal, Supplier Returns, and Accounts Payable /
+  supplier invoice matching are no longer future work — see Sprint 11/12 below.
 - **Status:** Foundation implemented — Sprint 7 ("General Ledger & Accounting
   Foundation"). `InvoiceRepository.issue()`/`PaymentRepository.create()`/
   `CreditNoteRepository.issue()` each atomically post a double-entry `JournalEntry` via
@@ -418,6 +433,15 @@ Finished Goods Inventory / CR Cost of Goods Sold`) plus an independently-valued
   down the excess/GRNI balance before touching the payable/AP balance — verified
   against this codebase's own excess-supply seed data. Zero new system accounts
   needed for either — see [`docs/domains/accounting.md`](domains/accounting.md) §12.
+  Sprint 12 ("Accounts Payable & Supplier Invoice Management") closed the remaining
+  gap this epic's own excluded-list used to name: `SupplierInvoiceRepository.post()`
+  computes and freezes a per-line match result (`computeLineMatch`) capping AP
+  recognition at what Goods Receipt already posted — mathematically incapable of
+  inflating it — and groups any PO-less/GR-less "Debit Account" lines into one
+  balanced journal per invoice, reusing a small, generic extension to the shared
+  posting boundary (`PostingLineInput.accountId`) rather than a new mechanism. Zero
+  new system accounts needed — see
+  [`docs/domains/accounting.md`](domains/accounting.md) §13.
 
 ## 5. Current Sprint Status
 
@@ -453,6 +477,7 @@ Finished Goods Inventory / CR Cost of Goods Sold`) plus an independently-valued
 - ✓ Sprint 9 — Manufacturing Accounting Integration
 - ✓ Sprint 10 — Sales Fulfilment & COGS Accounting Integration
 - ✓ Sprint 11 — Returns, Claims & Reversals Foundation
+- ✓ Sprint 12 — Accounts Payable & Supplier Invoice Management
 
 **Current focus:** Next sprint not yet scoped.
 

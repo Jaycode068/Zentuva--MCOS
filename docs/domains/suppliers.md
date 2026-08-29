@@ -118,10 +118,17 @@ permission engine."
 
 ## 6. Integration Points
 
-No other domain consumes `Supplier` yet. `Supplier.id` is the intended integration point
-for Procurement (Sprint 4.3+ — Purchase Orders reference a supplier instead of a free-text
-name), and later Inventory/Finance/Asset Register as they're built. `AuditService` is reused
-exactly as every other domain's write surface already does (`docs/domains/identity.md` §8).
+`Supplier.id` is the integration point for Procurement (Sprint 4.3+ — Purchase Orders
+reference a supplier instead of a free-text name) and, since Sprint 12, for
+[Finance](finance.md) §12's Accounts Payable — `SupplierInvoiceService` reads
+`Supplier` via the exported `SupplierRepository` (read-only, same ADR-002 shape as
+Procurement's own integration) for identity validation on Supplier Invoice creation.
+The Admin Suppliers list's row click now opens a read-only `SupplierDetailDialog`
+(identity fields plus a Finance-owned AP financial summary sourced from
+`GET /finance/accounts-payable/suppliers/:id`) instead of jumping straight to Edit —
+Suppliers never reads Finance's tables itself, only the response of that one endpoint.
+`AuditService` is reused exactly as every other domain's write surface already does
+(`docs/domains/identity.md` §8).
 
 ## 7. API Reference
 
