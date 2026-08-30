@@ -213,3 +213,8 @@ Enforced structurally by `cashflow-independence.spec.ts`, not just documented:
 - **CSV/print export of a forecast** — a cheap follow-up on top of the existing
   `GET /finance/cashflow/forecast` response, the same pattern Sprint 13 used for
   its own reports.
+- **Budget vs Forecast — built, Sprint 16.** `CashflowForecastService.
+getForecast()` is now also called directly by [Budgeting](budgeting.md)'s
+  `BudgetForecastService`, confirming this engine was already reusable by a
+  planning layer without any change to this file's own code — see
+  budgeting.md §9.

@@ -14,8 +14,10 @@ feature is built configurably so it can be reused by future tenants without code
 > -to-end to a real double-entry Accounting engine (Chart of Accounts, Journal Entries, General
 > Ledger) and a Finance domain covering Invoices/Payments/Credit Notes/Accounts Receivable,
 > Accounts Payable/Supplier Invoices, read-only Financial Statements & Management Reporting, Cash
-> & Bank Management / Reconciliation, and — most recently — a forward-looking Cashflow Management
-> & Forecasting layer that is never persisted and never posts a journal entry. See
+> & Bank Management / Reconciliation, a forward-looking Cashflow Management & Forecasting layer
+> that is never persisted and never posts a journal entry, and — most recently — a Budgeting &
+> Financial Planning layer where a `Budget` holds only planned amounts and is compared live
+> against the Ledger and the Cashflow Forecast, never a second accounting system. See
 > [docs/domains/README.md](docs/domains/README.md) for the current status of every domain and
 > [docs/roadmap.md](docs/roadmap.md) for the full build order.
 

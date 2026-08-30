@@ -31,6 +31,9 @@ const TABS = [
   { label: 'Cashflow', href: '/settings/finance/cashflow' },
   { label: 'Cashflow Items', href: '/settings/finance/cashflow-items' },
   { label: 'Cashflow Scenarios', href: '/settings/finance/cashflow-scenarios' },
+  // Added Sprint 16 — Budgeting & Financial Planning Foundation.
+  { label: 'Budgets', href: '/settings/finance/budgets' },
+  { label: 'Cost Centres', href: '/settings/finance/cost-centres' },
 ];
 
 /** Shared sub-navigation for the ten `/settings/finance/*` pages (Sprint 6 Finance +

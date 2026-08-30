@@ -876,7 +876,7 @@ cannot distinguish "Other Income"/"Other Expense" from Operating Revenue/Expense
 Current from a Fixed Asset — every `REVENUE` account counts as operating revenue,
 every `EXPENSE` account as an operating expense in §16.1's P&L. No organisation's real
 Chart of Accounts today has an account that would need this distinction, so this is
-recorded as a known limitation (§22) rather than solved with new classification
+recorded as a known limitation (§25) rather than solved with new classification
 metadata — directly matching the brief's own "do not create a large accounting
 redesign" instruction.
 
@@ -949,52 +949,80 @@ sourceId)`, but the write lands entirely inside the `CashflowForecastAdjustment`
   model.** The four new models hold only raw inputs; no `AccountType`,
   `ChartOfAccount`, or posting concept from earlier sections was touched.
 
-## 21. API Reference
+## 23. Budgeting (Sprint 16)
 
-| Endpoint                                                       | Auth                | Notes                                                                                         |
-| -------------------------------------------------------------- | ------------------- | --------------------------------------------------------------------------------------------- |
-| `GET /api/finance/accounts`                                    | Any authenticated   | `?type=&isActive=&search=`                                                                    |
-| `GET /api/finance/accounts/:id`                                | Any authenticated   |                                                                                               |
-| `POST /api/finance/accounts`                                   | Owner/Administrator |                                                                                               |
-| `PATCH /api/finance/accounts/:id`                              | Owner/Administrator | `code`/`type`/`systemKey` immutable                                                           |
-| `POST /api/finance/accounts/:id/activate` \| `/deactivate`     | Owner/Administrator | system accounts reject deactivate                                                             |
-| `GET /api/finance/accounts/:id/activity`                       | Any authenticated   | `?from=&to=`                                                                                  |
-| `GET /api/finance/accounting-periods`                          | Any authenticated   |                                                                                               |
-| `POST /api/finance/accounting-periods`                         | Owner/Administrator | overlap-checked                                                                               |
-| `POST /api/finance/accounting-periods/:id/close`               | Owner/Administrator | only from `OPEN`                                                                              |
-| `GET /api/finance/journal-entries`                             | Any authenticated   | `?status=&sourceType=&accountingPeriodId=`                                                    |
-| `GET /api/finance/journal-entries/:id`                         | Any authenticated   |                                                                                               |
-| `POST /api/finance/journal-entries`                            | Owner/Administrator | creates `DRAFT`, balance-validated                                                            |
-| `POST /api/finance/journal-entries/:id/post`                   | Owner/Administrator | atomic; period-open re-check                                                                  |
-| `POST /api/finance/journal-entries/:id/void`                   | Owner/Administrator | bare status flip                                                                              |
-| `GET /api/finance/ledger`                                      | Any authenticated   | `?accountId=&from=&to=&accountingPeriodId=&sourceType=&reference=&status=`                    |
-| `GET /api/finance/trial-balance`                               | Any authenticated   | `?from=&to=` or `?accountingPeriodId=`; rows now include `netBalance`/`systemKey` (Sprint 13) |
-| `GET /api/finance/reports/profit-loss`                         | Any authenticated   | `?from=&to=&accountingPeriodId=&compare=previous_period`                                      |
-| `GET /api/finance/reports/balance-sheet`                       | Any authenticated   | `?asOf=`                                                                                      |
-| `GET /api/finance/receivables/aging`                           | Any authenticated   | `?asOf=`                                                                                      |
-| `GET /api/finance/accounts-payable/aging`                      | Any authenticated   | `?asOf=`                                                                                      |
-| `GET /api/finance/reports/inventory-valuation`                 | Any authenticated   | `?locationId=&productType=`                                                                   |
-| `GET /api/finance/reports/reconciliation`                      | Any authenticated   | Inventory-to-GL only, this sprint                                                             |
-| `GET /api/finance/reports/revenue` \| `/cogs`                  | Any authenticated   | `?from=&to=`                                                                                  |
-| `GET /api/finance/reports/dashboard`                           | Any authenticated   | `?from=&to=&compare=previous_period`                                                          |
-| `GET/POST /api/finance/cash/accounts`                          | Any / Owner+Admin   | `POST` provisions a dedicated CoA row + optional opening balance                              |
-| `GET /api/finance/cash/accounts/:id/account-number`            | Owner/Administrator | Full value — audited with no metadata payload                                                 |
-| `GET/POST /api/finance/cash/transactions`                      | Any / Owner+Admin   | Outside the Payment/Supplier Payment flows                                                    |
-| `GET /api/finance/cash/bank-statements/transactions`           | Any authenticated   | `?cashAccountId=&matchStatus=`                                                                |
-| `POST /api/finance/cash/bank-statements/:cashAccountId/import` | Owner/Administrator | Already-mapped JSON rows; re-validated server-side                                            |
-| `GET/POST /api/finance/cash/reconciliations`                   | Any / Owner+Admin   | `POST` rejects a second `IN_PROGRESS` session per account                                     |
-| `POST /api/finance/cash/reconciliations/:id/auto-match`        | Owner/Administrator | Unambiguous same-date/same-amount pairs only                                                  |
-| `POST /api/finance/cash/reconciliations/:id/match`             | Owner/Administrator | Manual; idempotent on an identical repeat pair                                                |
-| `POST /api/finance/cash/reconciliations/:id/complete`          | Owner/Administrator | Rejects with unmatched counts if not fully matched                                            |
-| `GET /api/finance/cash/overview`                               | Any authenticated   | Cash Position Dashboard                                                                       |
-| `GET/PUT /api/finance/cashflow/settings`                       | Any / Owner+Admin   | Minimum reserve, default collection/payment delay days                                        |
-| `GET/POST /api/finance/cashflow/items`                         | Any / Owner+Admin   | `sourceType` server-derived from `recurrence`                                                 |
-| `GET/POST /api/finance/cashflow/scenarios`                     | Any / Owner+Admin   | Base/Conservative/Optimistic-style delay+multiplier knobs                                     |
-| `GET /api/finance/cashflow/adjustments` \| `PUT`               | Any / Owner+Admin   | Upsert by `(sourceType, sourceId)`; never writes to the source record                         |
-| `GET /api/finance/cashflow/forecast`                           | Any authenticated   | `?horizonDays=&bucketBy=&scenarioId=&cashAccountId=`; never stored, recomputed every call     |
-| `GET /api/finance/cashflow/accounts/breakdown`                 | Any authenticated   | `?horizonDays=`; per-cash-account projected closing balances                                  |
+Sprint 16 adds a planning layer on top of the primitives above — see
+[Budgeting](budgeting.md) for the full domain writeup. Summary of the
+accounting mechanics: **there are none**, the same posture Sprint 15 already
+established for Cashflow Management.
 
-## 22. Known Limitations
+- **`Budget`/`BudgetLine` never call `postSystemJournalEntry`, ever** —
+  asserted by zero occurrences in `budgeting-independence.spec.ts`. Every
+  "actual" figure Budget vs Actual shows is a live read of already-posted
+  `JournalEntryLine` rows, using the exact normal-balance-sign convention
+  §16.1 already established (`REVENUE` → `credit − debit`; `EXPENSE`/
+  `COST_OF_SALES` → `debit − credit`) — not a second formula.
+- **Budget vs Forecast composes Sprint 15's `CashflowForecastService`
+  directly** — the same "reuse an existing engine rather than build a second
+  one" discipline Sprint 15 itself followed for AR/AP aging (§20).
+- **Zero new `SYSTEM_ACCOUNT_KEYS`, zero schema changes to any existing
+  model.** `Budget`/`BudgetLine`/`CostCentre` hold only planned inputs; no
+  `AccountType`, `ChartOfAccount`, or posting concept from earlier sections
+  was touched.
+
+## 24. API Reference
+
+| Endpoint                                                                        | Auth                | Notes                                                                                         |
+| ------------------------------------------------------------------------------- | ------------------- | --------------------------------------------------------------------------------------------- |
+| `GET /api/finance/accounts`                                                     | Any authenticated   | `?type=&isActive=&search=`                                                                    |
+| `GET /api/finance/accounts/:id`                                                 | Any authenticated   |                                                                                               |
+| `POST /api/finance/accounts`                                                    | Owner/Administrator |                                                                                               |
+| `PATCH /api/finance/accounts/:id`                                               | Owner/Administrator | `code`/`type`/`systemKey` immutable                                                           |
+| `POST /api/finance/accounts/:id/activate` \| `/deactivate`                      | Owner/Administrator | system accounts reject deactivate                                                             |
+| `GET /api/finance/accounts/:id/activity`                                        | Any authenticated   | `?from=&to=`                                                                                  |
+| `GET /api/finance/accounting-periods`                                           | Any authenticated   |                                                                                               |
+| `POST /api/finance/accounting-periods`                                          | Owner/Administrator | overlap-checked                                                                               |
+| `POST /api/finance/accounting-periods/:id/close`                                | Owner/Administrator | only from `OPEN`                                                                              |
+| `GET /api/finance/journal-entries`                                              | Any authenticated   | `?status=&sourceType=&accountingPeriodId=`                                                    |
+| `GET /api/finance/journal-entries/:id`                                          | Any authenticated   |                                                                                               |
+| `POST /api/finance/journal-entries`                                             | Owner/Administrator | creates `DRAFT`, balance-validated                                                            |
+| `POST /api/finance/journal-entries/:id/post`                                    | Owner/Administrator | atomic; period-open re-check                                                                  |
+| `POST /api/finance/journal-entries/:id/void`                                    | Owner/Administrator | bare status flip                                                                              |
+| `GET /api/finance/ledger`                                                       | Any authenticated   | `?accountId=&from=&to=&accountingPeriodId=&sourceType=&reference=&status=`                    |
+| `GET /api/finance/trial-balance`                                                | Any authenticated   | `?from=&to=` or `?accountingPeriodId=`; rows now include `netBalance`/`systemKey` (Sprint 13) |
+| `GET /api/finance/reports/profit-loss`                                          | Any authenticated   | `?from=&to=&accountingPeriodId=&compare=previous_period`                                      |
+| `GET /api/finance/reports/balance-sheet`                                        | Any authenticated   | `?asOf=`                                                                                      |
+| `GET /api/finance/receivables/aging`                                            | Any authenticated   | `?asOf=`                                                                                      |
+| `GET /api/finance/accounts-payable/aging`                                       | Any authenticated   | `?asOf=`                                                                                      |
+| `GET /api/finance/reports/inventory-valuation`                                  | Any authenticated   | `?locationId=&productType=`                                                                   |
+| `GET /api/finance/reports/reconciliation`                                       | Any authenticated   | Inventory-to-GL only, this sprint                                                             |
+| `GET /api/finance/reports/revenue` \| `/cogs`                                   | Any authenticated   | `?from=&to=`                                                                                  |
+| `GET /api/finance/reports/dashboard`                                            | Any authenticated   | `?from=&to=&compare=previous_period`                                                          |
+| `GET/POST /api/finance/cash/accounts`                                           | Any / Owner+Admin   | `POST` provisions a dedicated CoA row + optional opening balance                              |
+| `GET /api/finance/cash/accounts/:id/account-number`                             | Owner/Administrator | Full value — audited with no metadata payload                                                 |
+| `GET/POST /api/finance/cash/transactions`                                       | Any / Owner+Admin   | Outside the Payment/Supplier Payment flows                                                    |
+| `GET /api/finance/cash/bank-statements/transactions`                            | Any authenticated   | `?cashAccountId=&matchStatus=`                                                                |
+| `POST /api/finance/cash/bank-statements/:cashAccountId/import`                  | Owner/Administrator | Already-mapped JSON rows; re-validated server-side                                            |
+| `GET/POST /api/finance/cash/reconciliations`                                    | Any / Owner+Admin   | `POST` rejects a second `IN_PROGRESS` session per account                                     |
+| `POST /api/finance/cash/reconciliations/:id/auto-match`                         | Owner/Administrator | Unambiguous same-date/same-amount pairs only                                                  |
+| `POST /api/finance/cash/reconciliations/:id/match`                              | Owner/Administrator | Manual; idempotent on an identical repeat pair                                                |
+| `POST /api/finance/cash/reconciliations/:id/complete`                           | Owner/Administrator | Rejects with unmatched counts if not fully matched                                            |
+| `GET /api/finance/cash/overview`                                                | Any authenticated   | Cash Position Dashboard                                                                       |
+| `GET/PUT /api/finance/cashflow/settings`                                        | Any / Owner+Admin   | Minimum reserve, default collection/payment delay days                                        |
+| `GET/POST /api/finance/cashflow/items`                                          | Any / Owner+Admin   | `sourceType` server-derived from `recurrence`                                                 |
+| `GET/POST /api/finance/cashflow/scenarios`                                      | Any / Owner+Admin   | Base/Conservative/Optimistic-style delay+multiplier knobs                                     |
+| `GET /api/finance/cashflow/adjustments` \| `PUT`                                | Any / Owner+Admin   | Upsert by `(sourceType, sourceId)`; never writes to the source record                         |
+| `GET /api/finance/cashflow/forecast`                                            | Any authenticated   | `?horizonDays=&bucketBy=&scenarioId=&cashAccountId=`; never stored, recomputed every call     |
+| `GET /api/finance/cashflow/accounts/breakdown`                                  | Any authenticated   | `?horizonDays=`; per-cash-account projected closing balances                                  |
+| `GET/POST /api/finance/budgets`                                                 | Any / Owner+Admin   | `POST` derives `startDate`/`endDate` from `fiscalYear` + org config                           |
+| `GET /api/finance/budgets/:id/siblings`                                         | Any authenticated   | Every version/scenario sharing this budget's own code+fiscal year                             |
+| `POST /api/finance/budgets/:id/approve` \| `/activate` \| `/close` \| `/revise` | Owner/Administrator | Status-guarded lifecycle transitions                                                          |
+| `GET/POST /api/finance/budgets/:id/lines`                                       | Any / Owner+Admin   | `POST` upserts Revenue/OpEx by natural key; CAPEX is always a fresh insert                    |
+| `GET /api/finance/budgets/:id/vs-actual`                                        | Any authenticated   | Never stored, recomputed every call                                                           |
+| `GET /api/finance/budgets/:id/vs-forecast`                                      | Any authenticated   | Composes Sprint 15's forecast; `{applicable: false}` once the fiscal year has ended           |
+| `GET/POST /api/finance/cost-centres`                                            | Any / Owner+Admin   | A pure budget-line tag, never linked to the Chart of Accounts                                 |
+
+## 25. Known Limitations
 
 - No re-opening a closed accounting period, and no year-end closing automation.
 - `VOID` never generates an automatic reversing entry — a correction is a new manual

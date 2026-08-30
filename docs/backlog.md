@@ -570,6 +570,40 @@ Finished Goods Inventory / CR Cost of Goods Sold`) plus an independently-valued
   See [`docs/domains/cashflow.md`](domains/cashflow.md) and
   [`docs/domains/finance.md`](domains/finance.md) §15.
 
+### Epic 20 — Budgeting & Financial Planning
+
+- **Objective:** answer what none of Epics 16-19 answer — what did we plan to
+  earn/spend, and how does reality compare? Explicitly not a second accounting
+  system: actuals are always read live from the General Ledger, never
+  duplicated into budget tables. Explicitly a foundation for a future
+  loan/debt/investment/capital management epic, which this epic does not
+  itself build.
+- **Includes:** a `Budget` (fiscal-year-scoped, its own version _and_ its own
+  scenario via `version`/`revisesBudgetId`/`scenarioName` — no separate
+  `BudgetVersion`/`BudgetScenario` tables) with `BudgetLine`s distinguishing
+  Revenue/Operating Expense (a required Chart of Accounts reference) from
+  CAPEX (optional — no Fixed Asset account exists yet); a `DRAFT → APPROVED →
+ACTIVE → CLOSED` lifecycle (plus an automatic `SUPERSEDED` on revision-
+  activation); Cost Centres (a lightweight, standalone budget-line tag, never
+  linked to the Chart of Accounts); Budget vs Actual (one scoped Ledger query
+  per budget, the same normal-balance-sign convention Epic 16's own reporting
+  layer established); Budget vs Cashflow Forecast (genuinely reuses Epic 19's
+  own forecast engine, never a duplicated one). Deliberately excludes loan
+  management, debt management, investment management, capital planning, AI/ML
+  financial planning, credit scoring, expense management, payroll, tax
+  management, procurement-commitment budgeting, and purchase-requisition
+  budgeting — all explicit future work, though the architecture (planned
+  CAPEX + Budget vs Forecast) was deliberately shaped so a future capital-
+  decision layer can read from it without any schema change.
+- **Status:** Foundation implemented — Sprint 16 ("Budgeting & Financial
+  Planning Foundation"). Zero `postSystemJournalEntry` calls anywhere in the
+  module — proven executably by `budgeting-independence.spec.ts`, not just
+  documented here. Three new models (`Budget`, `BudgetLine`, `CostCentre`)
+  hold only planned inputs, never a computed result; zero schema changes to
+  any pre-existing model; zero new `SYSTEM_ACCOUNT_KEYS`. See
+  [`docs/domains/budgeting.md`](domains/budgeting.md) and
+  [`docs/domains/finance.md`](domains/finance.md) §16.
+
 ## 5. Current Sprint Status
 
 **Completed:**
@@ -608,6 +642,7 @@ Finished Goods Inventory / CR Cost of Goods Sold`) plus an independently-valued
 - ✓ Sprint 13 — Financial Statements & Management Reporting Foundation
 - ✓ Sprint 14 — Cash & Bank Management / Reconciliation Foundation
 - ✓ Sprint 15 — Cashflow Management & Forecasting
+- ✓ Sprint 16 — Budgeting & Financial Planning Foundation
 
 **Current focus:** Next sprint not yet scoped.
 

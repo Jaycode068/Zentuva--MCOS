@@ -4173,6 +4173,171 @@ async function seedCashflowFixtures(organisationId: string, actorUserId: string)
   });
 }
 
+/** Sprint 16 — Budgeting & Financial Planning Foundation (docs/domains/
+ *  budgeting.md). Idempotency-gated on the "Base" 2026 Operating Budget
+ *  already existing — every write inside is skipped on a re-seed. */
+async function seedBudgetingFixtures(organisationId: string, actorUserId: string): Promise<void> {
+  console.log('Seeding Budgeting & Financial Planning fixtures...');
+
+  const existing = await prisma.budget.findFirst({
+    where: { organisationId, budgetCode: 'BUD-2026-OPS', scenarioName: 'Base' },
+  });
+  if (existing) {
+    return;
+  }
+
+  // --- Cost Centres (docs/domains/budgeting.md §10).
+  const costCentreNames = [
+    ['PROD', 'Production'],
+    ['PROC', 'Procurement'],
+    ['SALES', 'Sales'],
+    ['DIST', 'Distribution'],
+    ['FIN', 'Finance'],
+    ['ADMIN', 'Administration'],
+    ['MKT', 'Marketing'],
+  ] as const;
+  const costCentres: Record<string, { id: string }> = {};
+  for (const [code, name] of costCentreNames) {
+    costCentres[code] = await prisma.costCentre.create({
+      data: { organisationId, code, name, createdById: actorUserId },
+    });
+  }
+
+  // --- Chart of Accounts rows every budget line below plans against — all
+  // pre-existing seeded rows, zero new accounts needed.
+  const revenueAccount = await prisma.chartOfAccount.findFirstOrThrow({
+    where: { organisationId, code: '4100' },
+  });
+  const salariesAccount = await prisma.chartOfAccount.findFirstOrThrow({
+    where: { organisationId, code: '6100' },
+  });
+  const utilitiesAccount = await prisma.chartOfAccount.findFirstOrThrow({
+    where: { organisationId, code: '6200' },
+  });
+  const rentAccount = await prisma.chartOfAccount.findFirstOrThrow({
+    where: { organisationId, code: '6300' },
+  });
+  const transportAccount = await prisma.chartOfAccount.findFirstOrThrow({
+    where: { organisationId, code: '6500' },
+  });
+
+  function monthlyLines(
+    chartOfAccountId: string,
+    lineType: 'REVENUE' | 'OPERATING_EXPENSE',
+    monthlyAmount: number,
+    costCentreId: string,
+  ) {
+    return Array.from({ length: 12 }, (_, month) => ({
+      chartOfAccountId,
+      costCentreId,
+      lineType,
+      periodMonth: new Date(2026, month, 1),
+      amount: monthlyAmount,
+      createdById: actorUserId,
+      updatedById: actorUserId,
+    }));
+  }
+
+  async function createBudgetWithLines(params: {
+    scenarioName: string;
+    revenueMonthly: number;
+    status: 'DRAFT' | 'ACTIVE';
+  }): Promise<void> {
+    const budget = await prisma.budget.create({
+      data: {
+        organisationId,
+        budgetCode: 'BUD-2026-OPS',
+        name: '2026 Operating Budget',
+        description:
+          "Boby Bites' first full-year operating plan — revenue, salaries, utilities, rent, transport, and two CAPEX items.",
+        fiscalYear: 2026,
+        scenarioName: params.scenarioName,
+        startDate: new Date(2026, 0, 1),
+        endDate: new Date(2026, 11, 31),
+        currency: 'NGN',
+        status: params.status,
+        approvedById: params.status === 'ACTIVE' ? actorUserId : undefined,
+        approvedAt: params.status === 'ACTIVE' ? new Date() : undefined,
+        activatedAt: params.status === 'ACTIVE' ? new Date() : undefined,
+        createdById: actorUserId,
+        lines: {
+          create: [
+            ...monthlyLines(
+              revenueAccount.id,
+              'REVENUE',
+              params.revenueMonthly,
+              costCentres.SALES!.id,
+            ),
+            ...monthlyLines(
+              salariesAccount.id,
+              'OPERATING_EXPENSE',
+              600_000,
+              costCentres.ADMIN!.id,
+            ),
+            ...monthlyLines(
+              utilitiesAccount.id,
+              'OPERATING_EXPENSE',
+              120_000,
+              costCentres.ADMIN!.id,
+            ),
+            // Matches Sprint 15's own seeded Factory Rent CashflowForecastItem
+            // (₦1,500,000/month) — the two figures agree deliberately, so
+            // Budget vs Cashflow Forecast reads coherently end-to-end.
+            ...monthlyLines(rentAccount.id, 'OPERATING_EXPENSE', 1_500_000, costCentres.PROD!.id),
+            ...monthlyLines(transportAccount.id, 'OPERATING_EXPENSE', 80_000, costCentres.DIST!.id),
+          ],
+        },
+      },
+    });
+
+    if (params.status === 'ACTIVE') {
+      // --- CAPEX (docs/domains/budgeting.md §6) — discrete named items, no
+      // Chart of Accounts row (no Fixed Asset account exists yet).
+      await prisma.budgetLine.createMany({
+        data: [
+          {
+            budgetId: budget.id,
+            costCentreId: costCentres.PROD!.id,
+            lineType: 'CAPEX',
+            periodMonth: new Date(2026, 5, 1),
+            amount: 8_000_000,
+            description: 'New Packaging Machine',
+            createdById: actorUserId,
+            updatedById: actorUserId,
+          },
+          {
+            budgetId: budget.id,
+            costCentreId: costCentres.DIST!.id,
+            lineType: 'CAPEX',
+            periodMonth: new Date(2026, 8, 1),
+            amount: 3_500_000,
+            description: 'Delivery Van',
+            createdById: actorUserId,
+            updatedById: actorUserId,
+          },
+        ],
+      });
+    }
+  }
+
+  // --- Base (₦3,000,000/month revenue), ACTIVE — the real, in-force plan
+  // Budget vs Actual/Forecast compare against.
+  await createBudgetWithLines({
+    scenarioName: 'Base',
+    revenueMonthly: 3_000_000,
+    status: 'ACTIVE',
+  });
+
+  // --- Growth (₦3,900,000/month revenue, +30%), DRAFT — a what-if sibling
+  // sharing the same budgetCode+fiscalYear, never activated, never touching
+  // the Base budget's own lines or any GL data (docs/domains/budgeting.md §4).
+  await createBudgetWithLines({
+    scenarioName: 'Growth',
+    revenueMonthly: 3_900_000,
+    status: 'DRAFT',
+  });
+}
+
 async function main(): Promise<void> {
   // Read early (rather than inside `seedUser`) because the organisation's `businessEmail`
   // needs it before any user is created.
@@ -4380,6 +4545,7 @@ async function main(): Promise<void> {
   );
   await seedCashAndBank(organisation.id, ownerUser.id);
   await seedCashflowFixtures(organisation.id, ownerUser.id);
+  await seedBudgetingFixtures(organisation.id, ownerUser.id);
 
   console.log('Recording an audit log entry for this seed run...');
   await prisma.auditLog.create({

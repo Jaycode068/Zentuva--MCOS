@@ -1878,3 +1878,253 @@ export function getCashflowAccountBreakdown(
     `/finance/cashflow/accounts/breakdown?horizonDays=${horizonDays}`,
   );
 }
+
+// === Budgeting & Financial Planning (Sprint 16, docs/domains/budgeting.md) ===
+
+export type BudgetStatus = 'DRAFT' | 'APPROVED' | 'ACTIVE' | 'SUPERSEDED' | 'CLOSED';
+export type BudgetLineType = 'REVENUE' | 'OPERATING_EXPENSE' | 'CAPEX';
+export type CostCentreStatus = 'ACTIVE' | 'INACTIVE';
+
+/** `GET/POST /api/finance/cost-centres` response shape — a lightweight
+ *  budget-line tag, never linked to the Chart of Accounts. */
+export interface CostCentre {
+  id: string;
+  code: string;
+  name: string;
+  description: string | null;
+  status: CostCentreStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateCostCentrePayload {
+  code: string;
+  name: string;
+  description?: string;
+}
+
+export interface UpdateCostCentrePayload {
+  name?: string;
+  description?: string | null;
+}
+
+export function listCostCentres(
+  params: { status?: CostCentreStatus } = {},
+): Promise<{ items: CostCentre[] }> {
+  const query = new URLSearchParams();
+  if (params.status) query.set('status', params.status);
+  const queryString = query.toString();
+  return apiFetch<{ items: CostCentre[] }>(
+    `/finance/cost-centres${queryString ? `?${queryString}` : ''}`,
+  );
+}
+
+export function createCostCentre(input: CreateCostCentrePayload): Promise<CostCentre> {
+  return apiFetch<CostCentre>('/finance/cost-centres', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateCostCentre(id: string, input: UpdateCostCentrePayload): Promise<CostCentre> {
+  return apiFetch<CostCentre>(`/finance/cost-centres/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+}
+
+export function deactivateCostCentre(id: string): Promise<CostCentre> {
+  return apiFetch<CostCentre>(`/finance/cost-centres/${id}/deactivate`, { method: 'POST' });
+}
+
+export function activateCostCentre(id: string): Promise<CostCentre> {
+  return apiFetch<CostCentre>(`/finance/cost-centres/${id}/activate`, { method: 'POST' });
+}
+
+/** `GET/POST /api/finance/budgets` response shape — a `Budget` row is its own
+ *  version *and* its own scenario (no separate version/scenario tables — see
+ *  docs/domains/budgeting.md §3/§4). */
+export interface Budget {
+  id: string;
+  budgetCode: string;
+  name: string;
+  description: string | null;
+  fiscalYear: number;
+  scenarioName: string;
+  version: number;
+  revisesBudgetId: string | null;
+  cashflowScenarioId: string | null;
+  startDate: string;
+  endDate: string;
+  currency: string;
+  status: BudgetStatus;
+  notes: string | null;
+  approvedAt: string | null;
+  activatedAt: string | null;
+  closedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateBudgetPayload {
+  budgetCode: string;
+  name: string;
+  description?: string;
+  fiscalYear: number;
+  scenarioName?: string;
+  cashflowScenarioId?: string;
+  currency: string;
+  notes?: string;
+  idempotencyKey?: string;
+}
+
+export interface UpdateBudgetPayload {
+  name?: string;
+  description?: string | null;
+  cashflowScenarioId?: string | null;
+  notes?: string | null;
+}
+
+export function listBudgets(
+  params: { status?: BudgetStatus; fiscalYear?: number; budgetCode?: string } = {},
+): Promise<{ items: Budget[] }> {
+  const query = new URLSearchParams();
+  if (params.status) query.set('status', params.status);
+  if (params.fiscalYear) query.set('fiscalYear', String(params.fiscalYear));
+  if (params.budgetCode) query.set('budgetCode', params.budgetCode);
+  const queryString = query.toString();
+  return apiFetch<{ items: Budget[] }>(`/finance/budgets${queryString ? `?${queryString}` : ''}`);
+}
+
+export function getBudget(id: string): Promise<Budget> {
+  return apiFetch<Budget>(`/finance/budgets/${id}`);
+}
+
+export function getBudgetSiblings(id: string): Promise<{ items: Budget[] }> {
+  return apiFetch<{ items: Budget[] }>(`/finance/budgets/${id}/siblings`);
+}
+
+export function createBudget(input: CreateBudgetPayload): Promise<Budget> {
+  return apiFetch<Budget>('/finance/budgets', { method: 'POST', body: JSON.stringify(input) });
+}
+
+export function updateBudget(id: string, input: UpdateBudgetPayload): Promise<Budget> {
+  return apiFetch<Budget>(`/finance/budgets/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+}
+
+export function approveBudget(id: string): Promise<Budget> {
+  return apiFetch<Budget>(`/finance/budgets/${id}/approve`, { method: 'POST' });
+}
+
+export function activateBudget(id: string): Promise<Budget> {
+  return apiFetch<Budget>(`/finance/budgets/${id}/activate`, { method: 'POST' });
+}
+
+export function closeBudget(id: string): Promise<Budget> {
+  return apiFetch<Budget>(`/finance/budgets/${id}/close`, { method: 'POST' });
+}
+
+export function reviseBudget(id: string): Promise<Budget> {
+  return apiFetch<Budget>(`/finance/budgets/${id}/revise`, { method: 'POST' });
+}
+
+/** `GET/POST /api/finance/budgets/:id/lines`. */
+export interface BudgetLine {
+  id: string;
+  budgetId: string;
+  chartOfAccountId: string | null;
+  costCentreId: string | null;
+  lineType: BudgetLineType;
+  periodMonth: string;
+  amount: number;
+  description: string | null;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UpsertBudgetLinePayload {
+  chartOfAccountId?: string;
+  costCentreId?: string;
+  lineType: BudgetLineType;
+  periodMonth: string;
+  amount: number;
+  description?: string;
+  notes?: string;
+  idempotencyKey?: string;
+}
+
+export function listBudgetLines(budgetId: string): Promise<{ items: BudgetLine[] }> {
+  return apiFetch<{ items: BudgetLine[] }>(`/finance/budgets/${budgetId}/lines`);
+}
+
+export function upsertBudgetLine(
+  budgetId: string,
+  input: UpsertBudgetLinePayload,
+): Promise<BudgetLine> {
+  return apiFetch<BudgetLine>(`/finance/budgets/${budgetId}/lines`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+/** `GET /api/finance/budgets/:id/vs-actual` response shape. */
+export interface BudgetAccountVarianceRow {
+  chartOfAccountId: string;
+  accountCode: string;
+  accountName: string;
+  lineType: BudgetLineType;
+  budget: number;
+  actual: number;
+  variance: number;
+  variancePercent: number | null;
+  favourable: boolean | null;
+}
+
+export interface BudgetCapexWithoutAccountRow {
+  description: string | null;
+  periodMonth: string;
+  budget: number;
+}
+
+export interface BudgetVarianceReport {
+  budgetId: string;
+  totalRevenueBudget: number;
+  totalRevenueActual: number;
+  totalExpenseBudget: number;
+  totalExpenseActual: number;
+  totalCapexBudget: number;
+  totalCapexActual: number;
+  accountVariance: BudgetAccountVarianceRow[];
+  capexWithoutAccount: BudgetCapexWithoutAccountRow[];
+  topVariances: BudgetAccountVarianceRow[];
+}
+
+export function getBudgetVsActual(budgetId: string): Promise<BudgetVarianceReport> {
+  return apiFetch<BudgetVarianceReport>(`/finance/budgets/${budgetId}/vs-actual`);
+}
+
+/** `GET /api/finance/budgets/:id/vs-forecast` response shape — genuinely
+ *  reuses Sprint 15's `CashflowForecastService`, never a duplicated engine. */
+export interface BudgetForecastPeriod {
+  periodStart: string;
+  periodEnd: string;
+  label: string;
+  budgetedExpenditure: number;
+  forecastExpenditure: number;
+  availableCash: number;
+  potentialShortfall: number;
+}
+
+export interface BudgetVsForecastResult {
+  applicable: boolean;
+  reason?: string;
+  periods: BudgetForecastPeriod[];
+}
+
+export function getBudgetVsForecast(budgetId: string): Promise<BudgetVsForecastResult> {
+  return apiFetch<BudgetVsForecastResult>(`/finance/budgets/${budgetId}/vs-forecast`);
+}

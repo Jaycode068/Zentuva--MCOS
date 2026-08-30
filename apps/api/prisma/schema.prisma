@@ -178,6 +178,9 @@ model Organisation {
   cashflowScenarios                 CashflowScenario[]
   cashflowForecastAdjustments       CashflowForecastAdjustment[]
   cashflowSettings                  CashflowSettings?
+  /// Added Sprint 16 — Budgeting & Financial Planning (docs/domains/budgeting.md).
+  budgets                           Budget[]
+  costCentres                       CostCentre[]
 
   @@map("organisations")
 }
@@ -2555,6 +2558,10 @@ model ChartOfAccount {
   /// Account" side of a `CashTransaction`.
   cashAccount                CashAccount?
   cashTransactionsAsContra   CashTransaction[]
+  /// Added Sprint 16 — a `BudgetLine` planned against this account (`REVENUE`/
+  /// `OPERATING_EXPENSE` lines only; `CAPEX` lines may omit an account entirely —
+  /// see docs/domains/budgeting.md).
+  budgetLines                BudgetLine[]
 
   @@unique([organisationId, code])
   /// Multiple `NULL`s are allowed in a Postgres unique index — only accounts
@@ -3538,6 +3545,10 @@ model CashflowScenario {
   updatedAt         DateTime            @updatedAt
 
   organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  /// Added Sprint 16 — a `Budget` may optionally pair itself with this scenario's
+  /// own delay/multiplier knobs when computing Budget vs Forecast (docs/domains/
+  /// budgeting.md "Budget vs Forecast") — genuine reuse, not a duplicated engine.
+  budgets      Budget[]
 
   @@unique([organisationId, idempotencyKey])
   @@index([organisationId])
@@ -3594,4 +3605,150 @@ model CashflowSettings {
   organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
 
   @@map("cashflow_settings")
+}
+
+// ============================================================================
+// Sprint 16 — Budgeting & Financial Planning Foundation
+// (docs/domains/budgeting.md)
+// ============================================================================
+
+enum BudgetStatus {
+  DRAFT
+  APPROVED
+  ACTIVE
+  /// Set automatically when a later revision of the same `budgetCode`+
+  /// `scenarioName` is activated — never a directly-settable status.
+  SUPERSEDED
+  CLOSED
+}
+
+enum BudgetLineType {
+  REVENUE
+  OPERATING_EXPENSE
+  CAPEX
+}
+
+enum CostCentreStatus {
+  ACTIVE
+  INACTIVE
+}
+
+/// A named financial plan for one fiscal year. A `Budget` row *is* its own
+/// version (`version`/`revisesBudgetId`) *and* its own scenario
+/// (`scenarioName`) — see docs/domains/budgeting.md §3/§4 for why this sprint
+/// deliberately did not introduce separate `BudgetVersion`/`BudgetScenario`
+/// tables. Never posts a Journal Entry — `budgeting-independence.spec.ts`
+/// proves it structurally.
+model Budget {
+  id             String       @id @default(cuid())
+  organisationId String
+  /// Shared across every version/scenario of "the same budget" (e.g.
+  /// "BUD-2026-OPS") — `id` is unique per row, `budgetCode` is not.
+  budgetCode     String
+  name           String
+  description    String?
+  fiscalYear     Int
+  /// "Base" unless this row is an alternative what-if plan — see docs/domains/
+  /// budgeting.md §4. Sibling rows share `budgetCode`+`fiscalYear`, differ only
+  /// in `scenarioName`, and are never part of each other's revision chain.
+  scenarioName   String       @default("Base")
+  /// Incremented by `revise()`; the original is always `version: 1`.
+  version        Int          @default(1)
+  /// The prior version this row revises, if any (self-relation) — `null` for
+  /// an original budget.
+  revisesBudgetId String?
+  /// Optional pairing with a Sprint 15 `CashflowScenario` for Budget vs
+  /// Forecast (docs/domains/budgeting.md §9) — reuses Sprint 15's own
+  /// delay/multiplier knobs rather than duplicating them.
+  cashflowScenarioId String?
+  /// Computed once from the organisation's own `fiscalYearStart` at create
+  /// time and stored — never recomputed from `fiscalYear` alone afterward,
+  /// the same explicit-range convention `AccountingPeriod` already uses.
+  startDate      DateTime
+  endDate        DateTime
+  currency       String
+  status         BudgetStatus @default(DRAFT)
+  notes          String?
+  idempotencyKey String?
+  createdById    String?
+  approvedById   String?
+  approvedAt     DateTime?
+  activatedAt    DateTime?
+  closedAt       DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  organisation     Organisation      @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  revisesBudget    Budget?           @relation("BudgetRevision", fields: [revisesBudgetId], references: [id], onDelete: SetNull)
+  revisions        Budget[]          @relation("BudgetRevision")
+  cashflowScenario CashflowScenario? @relation(fields: [cashflowScenarioId], references: [id], onDelete: SetNull)
+  lines            BudgetLine[]
+
+  @@unique([organisationId, budgetCode, scenarioName, version])
+  @@unique([organisationId, idempotencyKey])
+  @@index([organisationId, status])
+  @@index([organisationId, budgetCode])
+  @@map("budgets")
+}
+
+/// One planned amount for one Chart of Accounts row (or, for `CAPEX`, a
+/// discrete named item with no account yet — see docs/domains/budgeting.md
+/// §6) in one calendar month of a `Budget`. Quarterly/annual totals are
+/// always computed on read from these rows, never separately stored.
+model BudgetLine {
+  id               String         @id @default(cuid())
+  budgetId         String
+  /// Required for `REVENUE`/`OPERATING_EXPENSE` (so Budget vs Actual has a
+  /// real GL row to compare against); optional for `CAPEX` — no seeded Fixed
+  /// Asset account exists yet to require one against.
+  chartOfAccountId String?
+  costCentreId     String?
+  lineType         BudgetLineType
+  /// Always the first day of the month — service-truncated/validated to fall
+  /// within the parent `Budget`'s own `startDate`/`endDate`.
+  periodMonth      DateTime
+  amount           Float
+  description      String?
+  notes            String?
+  createdById      String?
+  updatedById      String?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  budget         Budget          @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+  chartOfAccount ChartOfAccount? @relation(fields: [chartOfAccountId], references: [id], onDelete: Restrict)
+  costCentre     CostCentre?     @relation(fields: [costCentreId], references: [id], onDelete: SetNull)
+
+  /// Postgres never collides two rows on a `NULL` column within a unique
+  /// index (the same semantics `ChartOfAccount.systemKey`/
+  /// `CashflowForecastItem.cashAccountId` already rely on) — so this
+  /// transparently becomes "one line per account+cost-centre+month" for
+  /// Revenue/OpEx (`chartOfAccountId` set, upsert semantics) while imposing
+  /// no collision limit at all on CAPEX line items (`chartOfAccountId: null`,
+  /// which are discrete named items, not account-bucket cells).
+  @@unique([budgetId, chartOfAccountId, costCentreId, periodMonth, lineType])
+  @@index([budgetId])
+  @@map("budget_lines")
+}
+
+/// A lightweight planning dimension a `BudgetLine` may optionally tag itself
+/// with (e.g. "Production", "Sales") — never a redesign of the accounting
+/// model around cost centres, and never linked to `ChartOfAccount` itself.
+model CostCentre {
+  id             String            @id @default(cuid())
+  organisationId String
+  code           String
+  name           String
+  description    String?
+  status         CostCentreStatus  @default(ACTIVE)
+  createdById    String?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  budgetLines  BudgetLine[]
+
+  @@unique([organisationId, code])
+  @@index([organisationId])
+  @@map("cost_centres")
 }

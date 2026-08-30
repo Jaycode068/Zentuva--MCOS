@@ -5,6 +5,8 @@ import type {
   AccountType,
   BankReconciliationStatus,
   BankTransactionMatchStatus,
+  BudgetLineType,
+  BudgetStatus,
   CashAccountStatus,
   CashAccountType,
   CashTransactionType,
@@ -13,6 +15,7 @@ import type {
   CashflowForecastSourceType,
   CashflowItemStatus,
   CashflowRecurrence,
+  CostCentreStatus,
   CreditNoteStatus,
   InvoiceStatus,
   JournalEntryStatus,
@@ -268,4 +271,41 @@ export const CASHFLOW_CONFIDENCE_VARIANT: Record<
   CONFIRMED: 'success',
   EXPECTED: 'default',
   ESTIMATED: 'warning',
+};
+
+// === Budgeting & Financial Planning (Sprint 16, docs/domains/budgeting.md) ===
+
+export const BUDGET_STATUS_LABELS: Record<BudgetStatus, string> = {
+  DRAFT: 'Draft',
+  APPROVED: 'Approved',
+  ACTIVE: 'Active',
+  SUPERSEDED: 'Superseded',
+  CLOSED: 'Closed',
+};
+
+export const BUDGET_STATUS_VARIANT: Record<BudgetStatus, NonNullable<BadgeProps['variant']>> = {
+  DRAFT: 'default',
+  APPROVED: 'warning',
+  ACTIVE: 'success',
+  SUPERSEDED: 'default',
+  CLOSED: 'destructive',
+};
+
+export const BUDGET_LINE_TYPE_LABELS: Record<BudgetLineType, string> = {
+  REVENUE: 'Revenue',
+  OPERATING_EXPENSE: 'Operating Expense',
+  CAPEX: 'CAPEX',
+};
+
+export const COST_CENTRE_STATUS_LABELS: Record<CostCentreStatus, string> = {
+  ACTIVE: 'Active',
+  INACTIVE: 'Inactive',
+};
+
+export const COST_CENTRE_STATUS_VARIANT: Record<
+  CostCentreStatus,
+  NonNullable<BadgeProps['variant']>
+> = {
+  ACTIVE: 'success',
+  INACTIVE: 'default',
 };

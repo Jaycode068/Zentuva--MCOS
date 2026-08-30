@@ -7,6 +7,83 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 16 Budgeting & Financial Planning Foundation] - 2026-08-30
+
+### Added
+
+- **`Budget` (Finance) — a fiscal-year plan that is its own version _and_ its
+  own scenario.** No separate `BudgetVersion`/`BudgetScenario` tables:
+  `version`+`revisesBudgetId` distinguish revisions (a new sibling row,
+  copying every current line, never overwriting the one it replaces —
+  activating it supersedes the prior `ACTIVE` row instead), and
+  `scenarioName` distinguishes a what-if plan (e.g. "Growth") from `"Base"`,
+  a sibling sharing the same `budgetCode` that never touches another
+  scenario's lines. Lifecycle: `DRAFT → APPROVED → ACTIVE → CLOSED`, plus an
+  automatic `SUPERSEDED` on revision-activation.
+- **`BudgetLine` — Revenue, Operating Expense, and CAPEX.**
+  `chartOfAccountId` is required for Revenue/Operating Expense (a real
+  General Ledger row to compare against) and optional for CAPEX (no seeded
+  Fixed Asset account exists yet). A single unique constraint gives both
+  "one line per account+cost-centre+month" upsert behaviour (the monthly-
+  grid mental model) and unlimited independent CAPEX items, for free, via
+  Postgres's own NULL semantics.
+- **`CostCentre` (Finance)** — a small, standalone budget-line tag (e.g.
+  "Production," "Sales"), never linked to the Chart of Accounts.
+- **Budget vs Actual — never a second accounting system.** One
+  `JournalEntryLine` query per budget, scoped to exactly the accounts it
+  references and its own fiscal-year date range, converted to a signed
+  actual using the exact normal-balance-sign convention Sprint 13's
+  Financial Statements already established. Null-safe variance percent
+  (never `NaN`/`Infinity`), and a per-line-type favourable/unfavourable flag
+  (higher-than-budget is good for Revenue, bad for Operating Expense/CAPEX).
+- **Budget vs Cashflow Forecast — genuine Sprint 15 reuse.** Calls Sprint
+  15's own `CashflowForecastService.getForecast()` directly; a budget's
+  optional pairing with a Sprint 15 `CashflowScenario` flows straight
+  through. Zero forecast logic duplicated.
+- **`Organisation.fiscalYearStart` gets its first real consumer.** Added
+  Sprint 3.4, never read by any domain before this sprint — every `Budget`'s
+  `startDate`/`endDate` is now derived from it at creation and stored, the
+  same explicit-range convention `AccountingPeriod` already uses.
+- **Admin `/settings/finance/{budgets, cost-centres}`.** Two new tabs: a
+  Budgets list (with an Overview strip sourced from the currently `ACTIVE`
+  budget's own Budget vs Actual, and a create dialog) and Cost Centres. A
+  full Budget detail page (`/settings/finance/budgets/[id]`, not a tab) —
+  status-gated lifecycle actions, an editable monthly grid per line type
+  while `DRAFT` (with an inline "Add Line" mini-form and client-computed
+  quarterly/annual totals), a CAPEX section, Budget vs Actual, Budget vs
+  Forecast (a budgeted-vs-forecast-expenditure chart plus a shortfall-
+  flagged table), and a Scenario Comparison table when siblings exist.
+- **`budgeting-independence.spec.ts`** — a new structural guard: zero
+  `postSystemJournalEntry` calls anywhere in the module, no forbidden-table
+  writes (including every Cash/Cashflow table), and no Sales/Inventory/
+  Procurement/Production import.
+
+### Verified
+
+- Full backend suite: 1010 tests / 120 suites (up from 953/110), including
+  `budgeting-independence.spec.ts` and repository/service tests for the
+  full lifecycle (create/approve/activate/close/revise), the account-type-
+  eligibility and fiscal-month-range guards on every line write, and the
+  Budget vs Actual/Forecast computations against hand-built fixtures.
+- Live end-to-end verification against the real Boby Bites dev environment:
+  the seeded "2026 Operating Budget" (Base, `ACTIVE`) showed real, live
+  numbers on Budget vs Actual — Revenue Budget ₦36,000,000.00 vs. Actual
+  ₦15,053,800.00 (the real `4100 Product Sales` ledger balance), matching a
+  direct Trial Balance cross-check exactly. Budget vs Forecast showed
+  October 2026's forecast expenditure at ₦21,500,000 — directly traceable to
+  Sprint 15's own seeded ₦20,000,000 equipment payment — and real projected
+  shortfalls in November/December, proving live composition of Sprint 15's
+  forecast engine rather than a parallel calculation. Editing a `DRAFT`
+  sibling scenario's grid cell saved on blur and left the Trial Balance
+  completely unaffected. Revising the `ACTIVE` budget produced a new `DRAFT`
+  v2 while v1 stayed `ACTIVE` and unchanged; the audit log showed exactly
+  one new `budget.revised` row. RBAC verified live: a Member JWT got `200`
+  on reads and `403` on writes; an unauthenticated request got `401`.
+  Verified responsive at 375px.
+- Zero new database migrations beyond the additive Sprint 16 models — no
+  changes to any pre-existing model, and no new `SYSTEM_ACCOUNT_KEYS`, since
+  this domain posts nothing.
+
 ## [Sprint 15 Cashflow Management & Forecasting] - 2026-08-30
 
 ### Added

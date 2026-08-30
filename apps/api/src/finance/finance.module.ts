@@ -78,6 +78,16 @@ import { CashflowScenarioService } from './cashflow/cashflow-scenario.service';
 import { CashflowSettingsController } from './cashflow/cashflow-settings.controller';
 import { CashflowSettingsRepository } from './cashflow/cashflow-settings.repository';
 import { CashflowSettingsService } from './cashflow/cashflow-settings.service';
+import { BudgetActualsService } from './budgeting/budget-actuals.service';
+import { BudgetForecastService } from './budgeting/budget-forecast.service';
+import { BudgetLineRepository } from './budgeting/budget-line.repository';
+import { BudgetLineService } from './budgeting/budget-line.service';
+import { BudgetController } from './budgeting/budget.controller';
+import { BudgetRepository } from './budgeting/budget.repository';
+import { BudgetService } from './budgeting/budget.service';
+import { CostCentreController } from './budgeting/cost-centre.controller';
+import { CostCentreRepository } from './budgeting/cost-centre.repository';
+import { CostCentreService } from './budgeting/cost-centre.service';
 
 /**
  * Finance HTTP surface (Sprint 6, docs/domains/finance.md) — Invoices, Payments, Credit
@@ -150,6 +160,18 @@ import { CashflowSettingsService } from './cashflow/cashflow-settings.service';
  * `CashflowSettings`). Never calls `postSystemJournalEntry` and never writes to
  * any table outside its own four models — see `cashflow-independence.spec.ts`.
  * No new module imports needed.
+ *
+ * Sprint 16 (docs/domains/budgeting.md) adds `budgeting/` — `Budget`/
+ * `BudgetLine`/`CostCentre`. A `Budget` row is its own version *and* its own
+ * scenario (no separate `BudgetVersion`/`BudgetScenario` tables — see
+ * docs/domains/budgeting.md §3/§4). `BudgetActualsService` reads actuals
+ * straight from posted `JournalEntryLine` rows (the same normal-balance-sign
+ * convention `FinancialStatementService`, Sprint 13, already established);
+ * `BudgetForecastService` composes Sprint 15's `CashflowForecastService`
+ * directly for Budget vs Forecast — genuine reuse, not a duplicated engine.
+ * Never calls `postSystemJournalEntry` and never writes to any table outside
+ * its own three models — see `budgeting-independence.spec.ts`. No new module
+ * imports needed.
  */
 @Module({
   imports: [
@@ -189,6 +211,8 @@ import { CashflowSettingsService } from './cashflow/cashflow-settings.service';
     CashflowScenarioController,
     CashflowAdjustmentController,
     CashflowForecastController,
+    CostCentreController,
+    BudgetController,
   ],
   providers: [
     InvoiceRepository,
@@ -235,6 +259,14 @@ import { CashflowSettingsService } from './cashflow/cashflow-settings.service';
     CashflowAdjustmentRepository,
     CashflowAdjustmentService,
     CashflowForecastService,
+    CostCentreRepository,
+    CostCentreService,
+    BudgetRepository,
+    BudgetService,
+    BudgetLineRepository,
+    BudgetLineService,
+    BudgetActualsService,
+    BudgetForecastService,
   ],
 })
 export class FinanceModule {}

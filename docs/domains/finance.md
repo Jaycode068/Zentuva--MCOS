@@ -7,12 +7,14 @@
   Sprint 14 added Cash & Bank Management / Reconciliation — see §14 and
   [Cash & Bank Management](cash-management.md). Sprint 15 added a forward-looking
   Cashflow Management & Forecasting layer — see §15 and [Cashflow](cashflow.md).
-  **Not** a General Ledger / accounting system itself — that layer lives in
-  `accounting.md`, see §9.
+  Sprint 16 added a Budgeting & Financial Planning layer — see §16 and
+  [Budgeting](budgeting.md). **Not** a General Ledger / accounting system itself —
+  that layer lives in `accounting.md`, see §9.
 - **Sprint:** 6 (Sprint 7 added the accounting integration described in §9; Sprint 12
   added Accounts Payable described in §12; Sprint 13 added Reporting described in
   §13; Sprint 14 added Cash & Bank Management described in §14; Sprint 15 added
-  Cashflow Management & Forecasting described in §15)
+  Cashflow Management & Forecasting described in §15; Sprint 16 added Budgeting &
+  Financial Planning described in §16)
 - **Depends on:** [Identity](identity.md) (tenant boundary, `RolesGuard`,
   `OrganisationService` for the currency snapshot), [Sales](sales.md)
   (`SalesOrderRepository`, read-only, via `SalesModule`'s existing export),
@@ -30,8 +32,9 @@
   [Sprint 13 Completion Report](../sprint-13-completion-report.md),
   [Sprint 14 Completion Report](../sprint-14-completion-report.md),
   [Sprint 15 Completion Report](../sprint-15-completion-report.md),
+  [Sprint 16 Completion Report](../sprint-16-completion-report.md),
   [Accounting](accounting.md), [Cash & Bank Management](cash-management.md),
-  [Cashflow](cashflow.md).
+  [Cashflow](cashflow.md), [Budgeting](budgeting.md).
 
 ## 1. Business Purpose
 
@@ -597,7 +600,7 @@ Unreconciled) rather than being folded into a second, busier dashboard.
 
 ### API Reference (Sprint 14)
 
-See [Accounting](accounting.md) §21 for the full endpoint table (`/finance/cash/
+See [Accounting](accounting.md) §24 for the full endpoint table (`/finance/cash/
 accounts`, `/finance/cash/transactions`, `/finance/cash/bank-statements/*`,
 `/finance/cash/reconciliations/*`, `/finance/cash/overview`).
 
@@ -674,7 +677,7 @@ Items** (management-entered commitments + the Cashflow Settings card), and
 
 ### API Reference (Sprint 15)
 
-See [Accounting](accounting.md) §21 for the full endpoint table (`/finance/
+See [Accounting](accounting.md) §24 for the full endpoint table (`/finance/
 cashflow/settings`, `/finance/cashflow/items`, `/finance/cashflow/scenarios`,
 `/finance/cashflow/adjustments`, `/finance/cashflow/forecast`, `/finance/
 cashflow/accounts/breakdown`).
@@ -689,4 +692,66 @@ cashflow/accounts/breakdown`).
 - **No loan/debt/investment/capital management, budgeting, budget-vs-actual,
   AI/ML forecasting, credit scoring, expense management, payroll, bank API/
   Open Banking/payment gateway integration, treasury management, or advanced
-  financial modelling** — explicit non-goals of Sprint 15, unchanged.
+  financial modelling** — explicit non-goals of Sprint 15, unchanged. Budgeting
+  and budget-vs-actual were built the very next sprint — see §16.
+
+## 16. Budgeting & Financial Planning (Sprint 16)
+
+Sprint 16 adds a planning layer on top of the primitives above — full domain
+writeup in [Budgeting](budgeting.md); accounting mechanics (or rather, the
+deliberate lack of any) in [Accounting](accounting.md) §23. Summary of the
+Finance-facing surface:
+
+- **A `Budget` never becomes a second accounting system.** `Budget`/
+  `BudgetLine` hold only planned amounts; "actual" is always a live read of
+  posted `JournalEntryLine` rows via the exact same normal-balance-sign
+  convention Sprint 13's `FinancialStatementService` already established.
+- **A `Budget` row is its own version _and_ its own scenario** — no separate
+  `BudgetVersion`/`BudgetScenario` tables. Revising creates a new sibling row
+  (`version+1`, `revisesBudgetId` set) that copies every current line;
+  activating it supersedes the row it replaces. A scenario (e.g. "Growth") is
+  a sibling sharing the same `budgetCode`, never touching another scenario's
+  lines.
+- **`BudgetLine` — Revenue, Operating Expense, and CAPEX.** `chartOfAccountId`
+  is required for Revenue/OpEx (a real GL row to compare against) and
+  optional for CAPEX (no seeded Fixed Asset account exists yet). One unique
+  constraint gives both "one line per account+month" upsert behaviour and
+  unlimited discrete CAPEX items, for free, via Postgres's own NULL
+  semantics.
+- **Budget vs Actual** — one scoped `JournalEntryLine` query per budget,
+  bucketed in application code, converted to a signed actual per
+  `AccountType`, with a null-safe variance percent and a per-line-type
+  favourable/unfavourable flag.
+- **Budget vs Forecast** — genuinely reuses Sprint 15's own
+  `CashflowForecastService`, never a duplicated engine; a budget's own
+  optional pairing with a Sprint 15 `CashflowScenario` flows straight
+  through.
+- **Cost Centres** — a small, standalone tag a Budget Line may optionally
+  attach itself to, never linked to the Chart of Accounts.
+
+### Admin Surface
+
+Two new tabs on `/settings/finance/*`: **Budgets** (list + an Overview strip
+sourced from the currently `ACTIVE` budget's own Budget vs Actual, + a create
+dialog) and **Cost Centres**. Budget detail is its own page
+(`/settings/finance/budgets/[id]`, not a tab) — status-gated lifecycle
+actions, a monthly grid per line type (editable while `DRAFT`), a CAPEX
+section, Budget vs Actual, Budget vs Forecast (a chart + shortfall table),
+and a Scenario Comparison table when siblings exist.
+
+### API Reference (Sprint 16)
+
+See [Accounting](accounting.md) §24 for the full endpoint table (`/finance/
+budgets`, `/finance/budgets/:id/lines`, `/finance/budgets/:id/vs-actual`,
+`/finance/budgets/:id/vs-forecast`, `/finance/cost-centres`).
+
+### Known Limitations (Sprint 16)
+
+- **CAPEX items with no linked account can't be compared against actuals** —
+  a documented consequence of no Fixed Assets module existing yet.
+- **The Budgets Overview page sources from a single `ACTIVE` budget** —
+  aggregating across multiple simultaneously-active budgets is left for a
+  future iteration.
+- **No loan/debt/investment/capital management, AI/ML financial planning,
+  payroll, expense management, tax management, or procurement-commitment
+  budgeting** — all explicit non-goals of Sprint 16, unchanged.

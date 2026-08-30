@@ -119,7 +119,9 @@ Inventory`, one journal per batch, valued at Inventory's own moving-weighted-
       Valuation/Reconciliation, a Management Dashboard — see finance.md §13; Sprint 14
       gave `Payment`/`SupplierPayment` an optional `cashAccountId` — see finance.md §14;
       Sprint 15 added a forward-looking Cashflow Management & Forecasting layer,
-      never persisted, never posts — see finance.md §15
+      never persisted, never posts — see finance.md §15; Sprint 16 added a
+      Budgeting & Financial Planning layer, planned amounts only, actuals
+      always read live from the Ledger — see finance.md §16
 - [x] Accounting — foundation shipped Sprint 7 (tenant-defined Chart of Accounts,
       Accounting Periods, double-entry Journal Entries, General Ledger/Trial Balance/
       Account Activity; Finance's Invoice/Payment/Credit-Note events post
@@ -152,10 +154,12 @@ Sold / CR Finished Goods Inventory`, no new system accounts needed — `COGS` ha
       complete accounting system — a historical Cash Flow Statement (the
       indirect/direct-method report, distinct from Sprint 15's forward-looking
       forecast below), payment runs, an approval workflow to reclassify GRNI
-      into AP, labour/machine/overhead costing, budgeting, and multi-company
+      into AP, labour/machine/overhead costing, and multi-company
       consolidation remain; Sprint 15 added Cashflow Management (below) with
       **zero schema changes to any existing accounting model** and zero new
-      system accounts — see [`docs/domains/accounting.md`](domains/accounting.md)
+      system accounts; Sprint 16 added Budgeting (below), also with **zero
+      schema changes to any existing accounting model** and zero new system
+      accounts — see [`docs/domains/accounting.md`](domains/accounting.md)
 - [x] Cash & Bank Management — foundation shipped Sprint 14 ("Cash & Bank
       Management / Reconciliation Foundation"). A `CashAccount` master, each linked
       to its own dedicated, system-provisioned Chart of Accounts row (never the
@@ -190,6 +194,19 @@ Sold / CR Finished Goods Inventory`, no new system accounts needed — `COGS` ha
       loan/debt/investment/capital management — though the source-type model is
       deliberately extensible toward one later — see
       [`docs/domains/cashflow.md`](domains/cashflow.md)
+- [x] Budgeting & Financial Planning — foundation shipped Sprint 16
+      ("Budgeting & Financial Planning Foundation"). A `Budget` row is its own
+      version _and_ its own scenario — no separate `BudgetVersion`/
+      `BudgetScenario` tables; `BudgetLine`s distinguish Revenue/Operating
+      Expense (a required Chart of Accounts reference) from CAPEX (optional —
+      no Fixed Asset account exists yet); Budget vs Actual reads the General
+      Ledger live via the same normal-balance-sign convention Sprint 13
+      established, never duplicating a balance; Budget vs Forecast genuinely
+      reuses Sprint 15's own `CashflowForecastService`, never a second engine;
+      Cost Centres are a lightweight budget-line tag, never linked to the
+      Chart of Accounts. Explicitly a foundation for a future loan/debt/
+      investment/capital management epic — see
+      [`docs/domains/budgeting.md`](domains/budgeting.md)
 
 ## Phase 3 — Extended Experiences
 
