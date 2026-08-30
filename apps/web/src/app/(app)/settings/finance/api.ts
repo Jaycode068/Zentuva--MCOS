@@ -136,6 +136,8 @@ export interface Payment {
   notes: string | null;
   status: PaymentStatus;
   invoiceId: string | null;
+  /** Added Sprint 14 — which specific Cash Account received the money, if any. */
+  cashAccountId: string | null;
   createdAt: string;
 }
 
@@ -146,6 +148,9 @@ export interface CreatePaymentPayload {
   paymentDate: string;
   reference?: string;
   notes?: string;
+  /** Added Sprint 14 — optional; shown when the org has at least one matching-type
+   *  Cash Account. */
+  cashAccountId?: string;
   /** Client-generated once per payment attempt, reused across retries of the same
    *  submit — protects against a double-tap or flaky-network retry double-recording a
    *  payment. */
@@ -740,6 +745,8 @@ export interface SupplierPayment {
   notes: string | null;
   status: PaymentStatus;
   supplierInvoiceId: string | null;
+  /** Added Sprint 14 — which specific Cash Account money was paid from, if any. */
+  cashAccountId: string | null;
   createdAt: string;
 }
 
@@ -750,6 +757,9 @@ export interface CreateSupplierPaymentPayload {
   paymentDate: string;
   reference?: string;
   notes?: string;
+  /** Added Sprint 14 — optional; shown when the org has at least one matching-type
+   *  Cash Account. */
+  cashAccountId?: string;
   idempotencyKey?: string;
 }
 
@@ -1178,4 +1188,394 @@ export function getDashboard(
   return apiFetch<DashboardResult>(
     `/finance/reports/dashboard${queryString ? `?${queryString}` : ''}`,
   );
+}
+
+// === Cash & Bank Management (Sprint 14, docs/domains/cash-management.md) ===
+
+export type CashAccountType = 'BANK' | 'CASH' | 'OTHER_CASH_EQUIVALENT';
+export type CashAccountStatus = 'ACTIVE' | 'INACTIVE';
+export type CashTransactionType = 'RECEIPT' | 'PAYMENT';
+export type BankTransactionMatchStatus = 'UNMATCHED' | 'MATCHED' | 'RECONCILED';
+export type BankReconciliationStatus = 'IN_PROGRESS' | 'COMPLETED';
+export type ReconciliationMatchType = 'MANUAL' | 'EXACT_AUTO';
+
+/** `GET/POST /api/finance/cash/accounts` response shape. `accountNumberMasked` is
+ *  the only account-number field ever returned here — see `getCashAccountNumber`
+ *  for the separate, Owner/Administrator-only reveal endpoint
+ *  (docs/domains/cash-management.md "Bank Account Security"). */
+export interface CashAccount {
+  id: string;
+  accountCode: string;
+  name: string;
+  accountType: CashAccountType;
+  currency: string;
+  bankName: string | null;
+  accountNumberMasked: string | null;
+  accountName: string | null;
+  description: string | null;
+  status: CashAccountStatus;
+  linkedChartOfAccountId: string;
+  openingBalance: number;
+  openingBalanceDate: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateCashAccountPayload {
+  accountCode: string;
+  name: string;
+  accountType: CashAccountType;
+  currency: string;
+  bankName?: string;
+  accountNumber?: string;
+  accountName?: string;
+  description?: string;
+  openingBalance?: number;
+  openingBalanceDate?: string;
+  idempotencyKey?: string;
+}
+
+export interface UpdateCashAccountPayload {
+  name?: string;
+  bankName?: string;
+  accountNumber?: string;
+  accountName?: string;
+  description?: string;
+}
+
+export function listCashAccounts(
+  params: { status?: CashAccountStatus; accountType?: CashAccountType } = {},
+): Promise<{ items: CashAccount[] }> {
+  const query = new URLSearchParams();
+  if (params.status) query.set('status', params.status);
+  if (params.accountType) query.set('accountType', params.accountType);
+  const queryString = query.toString();
+  return apiFetch<{ items: CashAccount[] }>(
+    `/finance/cash/accounts${queryString ? `?${queryString}` : ''}`,
+  );
+}
+
+export function getCashAccount(id: string): Promise<CashAccount> {
+  return apiFetch<CashAccount>(`/finance/cash/accounts/${id}`);
+}
+
+export function getCashAccountNumber(id: string): Promise<{ accountNumber: string | null }> {
+  return apiFetch<{ accountNumber: string | null }>(`/finance/cash/accounts/${id}/account-number`);
+}
+
+export function createCashAccount(input: CreateCashAccountPayload): Promise<CashAccount> {
+  return apiFetch<CashAccount>('/finance/cash/accounts', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateCashAccount(
+  id: string,
+  input: UpdateCashAccountPayload,
+): Promise<CashAccount> {
+  return apiFetch<CashAccount>(`/finance/cash/accounts/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+}
+
+export function deactivateCashAccount(id: string): Promise<CashAccount> {
+  return apiFetch<CashAccount>(`/finance/cash/accounts/${id}/deactivate`, { method: 'POST' });
+}
+
+export function activateCashAccount(id: string): Promise<CashAccount> {
+  return apiFetch<CashAccount>(`/finance/cash/accounts/${id}/activate`, { method: 'POST' });
+}
+
+/** `GET/POST /api/finance/cash/transactions` response shape. */
+export interface CashTransaction {
+  id: string;
+  cashAccountId: string;
+  cashAccount: { id: string; accountCode: string; name: string };
+  transactionType: CashTransactionType;
+  transactionDate: string;
+  amount: number;
+  description: string;
+  reference: string | null;
+  contraAccountId: string;
+  contraAccount: { id: string; code: string; name: string };
+  status: PaymentStatus;
+  createdAt: string;
+}
+
+export interface CreateCashTransactionPayload {
+  cashAccountId: string;
+  transactionType: CashTransactionType;
+  transactionDate: string;
+  amount: number;
+  description: string;
+  reference?: string;
+  contraAccountId: string;
+  idempotencyKey?: string;
+}
+
+export function listCashTransactions(
+  params: { cashAccountId?: string } = {},
+): Promise<{ items: CashTransaction[] }> {
+  const query = new URLSearchParams();
+  if (params.cashAccountId) query.set('cashAccountId', params.cashAccountId);
+  const queryString = query.toString();
+  return apiFetch<{ items: CashTransaction[] }>(
+    `/finance/cash/transactions${queryString ? `?${queryString}` : ''}`,
+  );
+}
+
+export function createCashTransaction(
+  input: CreateCashTransactionPayload,
+): Promise<CashTransaction> {
+  return apiFetch<CashTransaction>('/finance/cash/transactions', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function voidCashTransaction(id: string): Promise<CashTransaction> {
+  return apiFetch<CashTransaction>(`/finance/cash/transactions/${id}/void`, { method: 'POST' });
+}
+
+/** One already-mapped, already-normalised CSV row (docs/domains/cash-management.md
+ *  "CSV Import") — produced client-side by the column-mapping dialog, re-validated
+ *  server-side independently. */
+export interface BankStatementImportRow {
+  transactionDate: string;
+  valueDate?: string;
+  description: string;
+  reference?: string;
+  debit?: number;
+  credit?: number;
+  balance?: number;
+  externalReference?: string;
+}
+
+export interface BankStatementImport {
+  id: string;
+  cashAccountId: string;
+  filename: string;
+  importedById: string | null;
+  importedAt: string;
+  totalRows: number;
+  importedRows: number;
+  duplicateRows: number;
+  errorRows: number;
+}
+
+export interface BankStatementTransaction {
+  id: string;
+  cashAccountId: string;
+  importBatchId: string | null;
+  transactionDate: string;
+  valueDate: string | null;
+  description: string;
+  reference: string | null;
+  debit: number;
+  credit: number;
+  amount: number;
+  balance: number | null;
+  externalReference: string | null;
+  importedAt: string;
+  matchStatus: BankTransactionMatchStatus;
+}
+
+export function listBankStatementImports(
+  cashAccountId?: string,
+): Promise<{ items: BankStatementImport[] }> {
+  const query = new URLSearchParams();
+  if (cashAccountId) query.set('cashAccountId', cashAccountId);
+  const queryString = query.toString();
+  return apiFetch<{ items: BankStatementImport[] }>(
+    `/finance/cash/bank-statements/imports${queryString ? `?${queryString}` : ''}`,
+  );
+}
+
+export function listBankStatementTransactions(
+  params: { cashAccountId?: string; matchStatus?: BankTransactionMatchStatus } = {},
+): Promise<{ items: BankStatementTransaction[] }> {
+  const query = new URLSearchParams();
+  if (params.cashAccountId) query.set('cashAccountId', params.cashAccountId);
+  if (params.matchStatus) query.set('matchStatus', params.matchStatus);
+  const queryString = query.toString();
+  return apiFetch<{ items: BankStatementTransaction[] }>(
+    `/finance/cash/bank-statements/transactions${queryString ? `?${queryString}` : ''}`,
+  );
+}
+
+export function importBankStatement(
+  cashAccountId: string,
+  input: { filename: string; rows: BankStatementImportRow[]; idempotencyKey?: string },
+): Promise<BankStatementImport> {
+  return apiFetch<BankStatementImport>(`/finance/cash/bank-statements/${cashAccountId}/import`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+/** `GET/POST /api/finance/cash/reconciliations` list-row shape. */
+export interface BankReconciliation {
+  id: string;
+  cashAccountId: string;
+  periodStart: string;
+  periodEnd: string;
+  openingBankBalance: number;
+  closingBankBalance: number;
+  status: BankReconciliationStatus;
+  reconciledById: string | null;
+  reconciledAt: string | null;
+  createdAt: string;
+}
+
+export interface ReconciliationMatchRow {
+  id: string;
+  matchType: ReconciliationMatchType;
+  matchedAt: string;
+  bankStatementTransaction: {
+    id: string;
+    transactionDate: string;
+    description: string;
+    reference: string | null;
+    debit: number;
+    credit: number;
+    amount: number;
+  };
+  journalEntryLine: {
+    id: string;
+    debit: number;
+    credit: number;
+    description: string | null;
+    journalEntryId: string;
+    journalNumber: string;
+    date: string;
+  };
+}
+
+export interface UnmatchedBankRow {
+  id: string;
+  transactionDate: string;
+  description: string;
+  reference: string | null;
+  debit: number;
+  credit: number;
+  amount: number;
+}
+
+export interface UnmatchedBookRow {
+  id: string;
+  debit: number;
+  credit: number;
+  description: string | null;
+  journalEntryId: string;
+  journalNumber: string;
+  date: string;
+}
+
+/** `GET /api/finance/cash/reconciliations/:id` — the full reconciliation workspace
+ *  view: matched/unmatched panels plus the live Book Balance/Difference figures
+ *  (docs/domains/cash-management.md "Reconciliation"). */
+export interface BankReconciliationDetail extends BankReconciliation {
+  bookBalance: number;
+  difference: number;
+  matches: ReconciliationMatchRow[];
+  unmatchedBank: UnmatchedBankRow[];
+  unmatchedBook: UnmatchedBookRow[];
+}
+
+export interface CreateBankReconciliationPayload {
+  cashAccountId: string;
+  periodStart: string;
+  periodEnd: string;
+  openingBankBalance: number;
+  closingBankBalance: number;
+  idempotencyKey?: string;
+}
+
+export function listBankReconciliations(
+  cashAccountId?: string,
+): Promise<{ items: BankReconciliation[] }> {
+  const query = new URLSearchParams();
+  if (cashAccountId) query.set('cashAccountId', cashAccountId);
+  const queryString = query.toString();
+  return apiFetch<{ items: BankReconciliation[] }>(
+    `/finance/cash/reconciliations${queryString ? `?${queryString}` : ''}`,
+  );
+}
+
+export function getBankReconciliation(id: string): Promise<BankReconciliationDetail> {
+  return apiFetch<BankReconciliationDetail>(`/finance/cash/reconciliations/${id}`);
+}
+
+export function createBankReconciliation(
+  input: CreateBankReconciliationPayload,
+): Promise<BankReconciliation> {
+  return apiFetch<BankReconciliation>('/finance/cash/reconciliations', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function autoMatchReconciliation(id: string): Promise<{ matchedCount: number }> {
+  return apiFetch<{ matchedCount: number }>(`/finance/cash/reconciliations/${id}/auto-match`, {
+    method: 'POST',
+  });
+}
+
+export function matchReconciliation(
+  id: string,
+  input: { bankStatementTransactionId: string; journalEntryLineId: string },
+): Promise<ReconciliationMatchRow> {
+  return apiFetch<ReconciliationMatchRow>(`/finance/cash/reconciliations/${id}/match`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function unmatchReconciliation(id: string, matchId: string): Promise<{ success: boolean }> {
+  return apiFetch<{ success: boolean }>(`/finance/cash/reconciliations/${id}/unmatch/${matchId}`, {
+    method: 'POST',
+  });
+}
+
+export function completeReconciliation(id: string): Promise<BankReconciliation> {
+  return apiFetch<BankReconciliation>(`/finance/cash/reconciliations/${id}/complete`, {
+    method: 'POST',
+  });
+}
+
+export interface CashAccountPosition {
+  id: string;
+  accountCode: string;
+  name: string;
+  accountType: CashAccountType;
+  bookBalance: number;
+  reconciledBalance: number;
+  unreconciledDifference: number;
+}
+
+export interface CashRecentTransaction {
+  id: string;
+  date: string;
+  description: string;
+  journalNumber: string;
+  debit: number;
+  credit: number;
+  cashAccountId: string;
+  cashAccountName: string;
+}
+
+export interface CashOverview {
+  totalCash: number;
+  bankBalance: number;
+  cashOnHand: number;
+  totalUnreconciled: number;
+  accounts: CashAccountPosition[];
+  accountsRequiringReconciliation: CashAccountPosition[];
+  recentTransactions: CashRecentTransaction[];
+}
+
+export function getCashOverview(): Promise<CashOverview> {
+  return apiFetch<CashOverview>('/finance/cash/overview');
 }

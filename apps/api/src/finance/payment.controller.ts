@@ -114,6 +114,7 @@ export function toPaymentResponse(payment: PaymentWithRelations) {
     notes: payment.notes,
     status: payment.status,
     invoiceId: payment.allocations[0]?.invoiceId ?? null,
+    cashAccountId: payment.cashAccountId,
     createdAt: payment.createdAt,
   };
 }

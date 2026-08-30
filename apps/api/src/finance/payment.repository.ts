@@ -32,9 +32,17 @@ export interface CreatePaymentData {
   paymentDate: Date;
   reference?: string;
   notes?: string;
+  /** Added Sprint 14 (docs/domains/cash-management.md) — which specific
+   *  `CashAccount` received the money. Optional: when omitted, posting falls back
+   *  to the pre-Sprint-14 `method`-based generic `CASH`/`BANK` system account. */
+  cashAccountId?: string;
   idempotencyKey?: string;
   createdById: string;
 }
+
+/** Thrown when `cashAccountId` doesn't resolve to an active `CashAccount` belonging
+ *  to this organisation. */
+export class InvalidCashAccountError extends Error {}
 
 export interface CreatePaymentResult {
   payment: PaymentWithRelations;
@@ -165,6 +173,18 @@ export class PaymentRepository {
         );
       }
 
+      let cashAccountLinkedAccountId: string | undefined;
+      if (data.cashAccountId) {
+        const cashAccount = await tx.cashAccount.findFirst({
+          where: { id: data.cashAccountId, organisationId: data.organisationId },
+          select: { linkedChartOfAccountId: true },
+        });
+        if (!cashAccount) {
+          throw new InvalidCashAccountError('Cash account not found for this organisation');
+        }
+        cashAccountLinkedAccountId = cashAccount.linkedChartOfAccountId;
+      }
+
       const payment = await tx.payment.create({
         data: {
           organisationId: data.organisationId,
@@ -175,6 +195,7 @@ export class PaymentRepository {
           method: data.method,
           reference: data.reference,
           notes: data.notes,
+          cashAccountId: data.cashAccountId,
           idempotencyKey: data.idempotencyKey,
           createdById: data.createdById,
           allocations: {
@@ -208,13 +229,15 @@ export class PaymentRepository {
         sourceId: payment.id,
         actorUserId: data.createdById,
         lines: [
-          {
-            systemKey:
-              data.method === PaymentMethod.CASH
-                ? SYSTEM_ACCOUNT_KEYS.CASH
-                : SYSTEM_ACCOUNT_KEYS.BANK,
-            debit: data.amount,
-          },
+          cashAccountLinkedAccountId
+            ? { accountId: cashAccountLinkedAccountId, debit: data.amount }
+            : {
+                systemKey:
+                  data.method === PaymentMethod.CASH
+                    ? SYSTEM_ACCOUNT_KEYS.CASH
+                    : SYSTEM_ACCOUNT_KEYS.BANK,
+                debit: data.amount,
+              },
           { systemKey: SYSTEM_ACCOUNT_KEYS.AR, credit: data.amount },
         ],
       });

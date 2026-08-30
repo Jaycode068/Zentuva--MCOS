@@ -31,6 +31,16 @@
  * ("Production Loss / Scrap") carries the portion of a production run's material cost
  * attributable to rejected output — see docs/domains/accounting.md "Production
  * Accounting".
+ *
+ * `CASH_BANK_PARENT` (Sprint 14, docs/domains/cash-management.md) elevates the
+ * already-seeded, previously-non-system "1100 Cash & Bank" row — the parent a new
+ * `CashAccount` of type `OTHER_CASH_EQUIVALENT` provisions its own dedicated child
+ * account under (`CASH`/`BANK`-typed cash accounts provision under the existing
+ * `CASH`/`BANK` keys instead). `OPENING_BALANCE_EQUITY` elevates the already-seeded,
+ * previously-non-system "3100 Owner's Capital" row — the credit side of a new
+ * `CashAccount`'s opening-balance posting (`DR <its own CoA row> / CR
+ * OPENING_BALANCE_EQUITY`), reusing the existing Equity concept rather than
+ * inventing a parallel "Capital Contribution" mechanism.
  */
 export const SYSTEM_ACCOUNT_KEYS = {
   AR: 'AR',
@@ -45,6 +55,8 @@ export const SYSTEM_ACCOUNT_KEYS = {
   WIP: 'WIP',
   FINISHED_GOODS_INVENTORY: 'FINISHED_GOODS_INVENTORY',
   PRODUCTION_LOSS: 'PRODUCTION_LOSS',
+  CASH_BANK_PARENT: 'CASH_BANK_PARENT',
+  OPENING_BALANCE_EQUITY: 'OPENING_BALANCE_EQUITY',
 } as const;
 
 export type SystemAccountKey = (typeof SYSTEM_ACCOUNT_KEYS)[keyof typeof SYSTEM_ACCOUNT_KEYS];

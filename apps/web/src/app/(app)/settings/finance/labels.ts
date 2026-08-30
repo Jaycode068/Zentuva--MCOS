@@ -3,6 +3,11 @@ import type { BadgeProps } from '@zentuva/ui';
 import type {
   AccountingPeriodStatus,
   AccountType,
+  BankReconciliationStatus,
+  BankTransactionMatchStatus,
+  CashAccountStatus,
+  CashAccountType,
+  CashTransactionType,
   CreditNoteStatus,
   InvoiceStatus,
   JournalEntryStatus,
@@ -153,4 +158,58 @@ export const SUPPLIER_INVOICE_MATCH_STATUS_VARIANT: Record<
   UNVERIFIED: 'default',
   MATCHED: 'success',
   DISCREPANCY: 'warning',
+};
+
+// === Cash & Bank Management (Sprint 14, docs/domains/cash-management.md) ===
+
+export const CASH_ACCOUNT_TYPE_LABELS: Record<CashAccountType, string> = {
+  BANK: 'Bank',
+  CASH: 'Cash',
+  OTHER_CASH_EQUIVALENT: 'Other Cash Equivalent',
+};
+
+export const CASH_ACCOUNT_STATUS_LABELS: Record<CashAccountStatus, string> = {
+  ACTIVE: 'Active',
+  INACTIVE: 'Inactive',
+};
+
+export const CASH_ACCOUNT_STATUS_VARIANT: Record<
+  CashAccountStatus,
+  NonNullable<BadgeProps['variant']>
+> = {
+  ACTIVE: 'success',
+  INACTIVE: 'default',
+};
+
+export const CASH_TRANSACTION_TYPE_LABELS: Record<CashTransactionType, string> = {
+  RECEIPT: 'Receipt',
+  PAYMENT: 'Payment',
+};
+
+export const BANK_TRANSACTION_MATCH_STATUS_LABELS: Record<BankTransactionMatchStatus, string> = {
+  UNMATCHED: 'Unmatched',
+  MATCHED: 'Matched',
+  RECONCILED: 'Reconciled',
+};
+
+export const BANK_TRANSACTION_MATCH_STATUS_VARIANT: Record<
+  BankTransactionMatchStatus,
+  NonNullable<BadgeProps['variant']>
+> = {
+  UNMATCHED: 'warning',
+  MATCHED: 'default',
+  RECONCILED: 'success',
+};
+
+export const BANK_RECONCILIATION_STATUS_LABELS: Record<BankReconciliationStatus, string> = {
+  IN_PROGRESS: 'In Progress',
+  COMPLETED: 'Completed',
+};
+
+export const BANK_RECONCILIATION_STATUS_VARIANT: Record<
+  BankReconciliationStatus,
+  NonNullable<BadgeProps['variant']>
+> = {
+  IN_PROGRESS: 'warning',
+  COMPLETED: 'success',
 };

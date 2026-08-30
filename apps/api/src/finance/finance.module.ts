@@ -50,6 +50,20 @@ import { ReconciliationController } from './reports/reconciliation.controller';
 import { ReconciliationService } from './reports/reconciliation.service';
 import { RevenueCogsController } from './reports/revenue-cogs.controller';
 import { RevenueCogsService } from './reports/revenue-cogs.service';
+import { BankReconciliationController } from './cash/bank-reconciliation.controller';
+import { BankReconciliationRepository } from './cash/bank-reconciliation.repository';
+import { BankReconciliationService } from './cash/bank-reconciliation.service';
+import { BankStatementController } from './cash/bank-statement.controller';
+import { BankStatementRepository } from './cash/bank-statement.repository';
+import { BankStatementService } from './cash/bank-statement.service';
+import { CashAccountController } from './cash/cash-account.controller';
+import { CashAccountRepository } from './cash/cash-account.repository';
+import { CashAccountService } from './cash/cash-account.service';
+import { CashDashboardController } from './cash/cash-dashboard.controller';
+import { CashDashboardService } from './cash/cash-dashboard.service';
+import { CashTransactionController } from './cash/cash-transaction.controller';
+import { CashTransactionRepository } from './cash/cash-transaction.repository';
+import { CashTransactionService } from './cash/cash-transaction.service';
 
 /**
  * Finance HTTP surface (Sprint 6, docs/domains/finance.md) — Invoices, Payments, Credit
@@ -102,6 +116,16 @@ import { RevenueCogsService } from './reports/revenue-cogs.service';
  * mirroring Sprint 11/12's own "reach into another domain's table" precedent) —
  * `FinanceModule` still never imports `InventoryModule`; see
  * `reports-independence.spec.ts`.
+ *
+ * Sprint 14 (docs/domains/cash-management.md) adds `cash/` — `CashAccount` (each
+ * linked to its own dedicated, system-provisioned Chart of Accounts row, never the
+ * generic `CASH`/`BANK` system accounts), `CashTransaction`, `BankStatementImport`/
+ * `BankStatementTransaction` (CSV import), and `BankReconciliation`/
+ * `ReconciliationMatch` (matching a bank statement against posted
+ * `JournalEntryLine` rows). Every accounting-affecting write still goes through the
+ * shared `postSystemJournalEntry` boundary; `BankReconciliation` itself posts
+ * nothing — it is a read/review layer over already-posted lines. No new module
+ * imports were needed — see `cash-independence.spec.ts`.
  */
 @Module({
   imports: [
@@ -131,6 +155,11 @@ import { RevenueCogsService } from './reports/revenue-cogs.service';
     ReconciliationController,
     RevenueCogsController,
     DashboardController,
+    CashAccountController,
+    CashTransactionController,
+    BankStatementController,
+    BankReconciliationController,
+    CashDashboardController,
   ],
   providers: [
     InvoiceRepository,
@@ -159,6 +188,15 @@ import { RevenueCogsService } from './reports/revenue-cogs.service';
     ReconciliationService,
     RevenueCogsService,
     DashboardService,
+    CashAccountRepository,
+    CashAccountService,
+    CashTransactionRepository,
+    CashTransactionService,
+    BankStatementRepository,
+    BankStatementService,
+    BankReconciliationRepository,
+    BankReconciliationService,
+    CashDashboardService,
   ],
 })
 export class FinanceModule {}

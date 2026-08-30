@@ -24,6 +24,8 @@
  * apps/api/.env.example for the predictable local-development values (Sprint 2.2 brief:
  * "documented development passwords").
  */
+import { createHash } from 'crypto';
+
 import * as bcrypt from 'bcrypt';
 import { PrismaClient } from '@prisma/client';
 
@@ -2999,9 +3001,15 @@ async function postSeedJournalEntry(
     sourceType: string;
     sourceId: string;
     actorUserId: string;
-    lines: { systemKey: string; debit?: number; credit?: number }[];
+    /** Exactly one of `systemKey`/`accountId` per line — added Sprint 14 to mirror
+     *  the real `journal-posting.ts`'s own `accountId` alternative (cash-account
+     *  postings target a specific, non-system CoA row, never a system key). */
+    lines: { systemKey?: string; accountId?: string; debit?: number; credit?: number }[];
   },
-): Promise<void> {
+): Promise<{
+  id: string;
+  lines: { id: string; accountId: string; debit: number; credit: number }[];
+}> {
   const existing = await prisma.journalEntry.findUnique({
     where: {
       organisationId_sourceType_sourceId: {
@@ -3010,9 +3018,10 @@ async function postSeedJournalEntry(
         sourceId: input.sourceId,
       },
     },
+    include: { lines: true },
   });
   if (existing) {
-    return;
+    return existing;
   }
 
   const period = await prisma.accountingPeriod.findFirst({
@@ -3031,11 +3040,13 @@ async function postSeedJournalEntry(
 
   const lines = await Promise.all(
     input.lines.map(async (line) => {
-      const account = await prisma.chartOfAccount.findFirst({
-        where: { organisationId, systemKey: line.systemKey },
-      });
+      const account = line.accountId
+        ? await prisma.chartOfAccount.findFirst({ where: { organisationId, id: line.accountId } })
+        : await prisma.chartOfAccount.findFirst({
+            where: { organisationId, systemKey: line.systemKey },
+          });
       if (!account) {
-        throw new Error(`seedFinance: no "${line.systemKey}" system account configured`);
+        throw new Error(`seedFinance: no "${line.systemKey ?? line.accountId}" account configured`);
       }
       return {
         accountId: account.id,
@@ -3056,7 +3067,7 @@ async function postSeedJournalEntry(
     journalNumber = `JE-${String(sequence).padStart(6, '0')}`;
   }
 
-  await prisma.journalEntry.create({
+  return prisma.journalEntry.create({
     data: {
       organisationId,
       journalNumber,
@@ -3071,6 +3082,7 @@ async function postSeedJournalEntry(
       createdById: input.actorUserId,
       lines: { create: lines },
     },
+    include: { lines: true },
   });
 }
 
@@ -3403,6 +3415,523 @@ async function seedFinance(
   });
 }
 
+// ============================================================================
+// Sprint 14 — Cash & Bank Management / Reconciliation Foundation
+// (docs/domains/cash-management.md)
+// ============================================================================
+
+/** Standalone, independently idempotency-gated backfill for the two new Sprint 14
+ *  system accounts — same "elevate an already-seeded row" pattern
+ *  `seedProductionAccountingAccounts` used for `FINISHED_GOODS_INVENTORY`. Elevates
+ *  the already-seeded, non-system "1100 Cash & Bank" row to `CASH_BANK_PARENT` and
+ *  "3100 Owner's Capital" to `OPENING_BALANCE_EQUITY`. */
+async function seedCashBankSystemAccounts(organisationId: string): Promise<void> {
+  const cashBankParent = await prisma.chartOfAccount.findFirst({
+    where: { organisationId, code: '1100' },
+  });
+  if (cashBankParent && !cashBankParent.systemKey) {
+    await prisma.chartOfAccount.update({
+      where: { id: cashBankParent.id },
+      data: { isSystemAccount: true, systemKey: 'CASH_BANK_PARENT' },
+    });
+  }
+
+  const ownersCapital = await prisma.chartOfAccount.findFirst({
+    where: { organisationId, code: '3100' },
+  });
+  if (ownersCapital && !ownersCapital.systemKey) {
+    await prisma.chartOfAccount.update({
+      where: { id: ownersCapital.id },
+      data: { isSystemAccount: true, systemKey: 'OPENING_BALANCE_EQUITY' },
+    });
+  }
+}
+
+/** Two plain, non-system Chart of Accounts rows Sprint 14's seeded `CashTransaction`
+ *  fixtures post against as their "contra account" — "Other Income" (for
+ *  non-invoice POS receipts) and "Bank Charges" (for bank fees). Neither existed
+ *  before Sprint 14; both are ordinary tenant-defined accounts, not system ones. */
+async function seedCashTransactionContraAccounts(
+  organisationId: string,
+  actorUserId: string,
+): Promise<{ otherIncomeId: string; bankChargesId: string }> {
+  let otherIncome = await prisma.chartOfAccount.findFirst({
+    where: { organisationId, code: '4300' },
+  });
+  if (!otherIncome) {
+    const revenueParent = await prisma.chartOfAccount.findFirst({
+      where: { organisationId, code: '4000' },
+    });
+    otherIncome = await prisma.chartOfAccount.create({
+      data: {
+        organisationId,
+        code: '4300',
+        name: 'Other Income',
+        type: 'REVENUE',
+        parentId: revenueParent?.id,
+        createdById: actorUserId,
+        updatedById: actorUserId,
+      },
+    });
+  }
+
+  let bankCharges = await prisma.chartOfAccount.findFirst({
+    where: { organisationId, code: '6700' },
+  });
+  if (!bankCharges) {
+    const expensesParent = await prisma.chartOfAccount.findFirst({
+      where: { organisationId, code: '6000' },
+    });
+    bankCharges = await prisma.chartOfAccount.create({
+      data: {
+        organisationId,
+        code: '6700',
+        name: 'Bank Charges',
+        type: 'EXPENSE',
+        parentId: expensesParent?.id,
+        createdById: actorUserId,
+        updatedById: actorUserId,
+      },
+    });
+  }
+
+  return { otherIncomeId: otherIncome.id, bankChargesId: bankCharges.id };
+}
+
+/** `${parentCode}01`, `${parentCode}02`, ... — same shape as the real
+ *  `CashAccountRepository`'s own `generateChildAccountCode` (never imported here —
+ *  seed scripts in this repo never import from `src/`, see `seedFinance`'s own doc
+ *  comment). */
+async function generateSeedChildAccountCode(
+  organisationId: string,
+  parentCode: string,
+): Promise<string> {
+  let sequence = 1;
+  let candidate = `${parentCode}${String(sequence).padStart(2, '0')}`;
+  while (await prisma.chartOfAccount.findFirst({ where: { organisationId, code: candidate } })) {
+    sequence += 1;
+    candidate = `${parentCode}${String(sequence).padStart(2, '0')}`;
+  }
+  return candidate;
+}
+
+/** Mirrors `CashAccountRepository.create()`'s own logic (provision a dedicated
+ *  child Chart of Accounts row under the `CASH`/`BANK`/`CASH_BANK_PARENT` system
+ *  account, then post the opening balance) — never imported from `src/`, hand-
+ *  rolled the same way every other seed fixture in this file mirrors its real
+ *  service's shape. */
+async function seedCashAccount(
+  organisationId: string,
+  actorUserId: string,
+  input: {
+    accountCode: string;
+    name: string;
+    accountType: 'BANK' | 'CASH' | 'OTHER_CASH_EQUIVALENT';
+    currency: string;
+    bankName?: string;
+    accountNumber?: string;
+    accountName?: string;
+    openingBalance: number;
+    openingBalanceDate: Date;
+  },
+): Promise<{ id: string; linkedChartOfAccountId: string }> {
+  const existing = await prisma.cashAccount.findFirst({
+    where: { organisationId, accountCode: input.accountCode },
+  });
+  if (existing) {
+    return existing;
+  }
+
+  const parentSystemKey =
+    input.accountType === 'BANK'
+      ? 'BANK'
+      : input.accountType === 'CASH'
+        ? 'CASH'
+        : 'CASH_BANK_PARENT';
+  const parent = await prisma.chartOfAccount.findFirstOrThrow({
+    where: { organisationId, systemKey: parentSystemKey },
+  });
+  const childCode = await generateSeedChildAccountCode(organisationId, parent.code);
+  const linkedChartOfAccount = await prisma.chartOfAccount.create({
+    data: {
+      organisationId,
+      code: childCode,
+      name: input.name,
+      type: parent.type,
+      parentId: parent.id,
+      isSystemAccount: false,
+      createdById: actorUserId,
+      updatedById: actorUserId,
+    },
+  });
+
+  const cashAccount = await prisma.cashAccount.create({
+    data: {
+      organisationId,
+      accountCode: input.accountCode,
+      name: input.name,
+      accountType: input.accountType,
+      currency: input.currency,
+      bankName: input.bankName,
+      accountNumber: input.accountNumber,
+      accountName: input.accountName,
+      linkedChartOfAccountId: linkedChartOfAccount.id,
+      openingBalance: input.openingBalance,
+      openingBalanceDate: input.openingBalanceDate,
+      createdById: actorUserId,
+      updatedById: actorUserId,
+    },
+  });
+
+  if (input.openingBalance > 0) {
+    await postSeedJournalEntry(organisationId, {
+      date: input.openingBalanceDate,
+      description: `Opening balance — ${input.name}`,
+      sourceType: 'CASH_ACCOUNT_OPENING_BALANCE',
+      sourceId: cashAccount.id,
+      actorUserId,
+      lines: [
+        { accountId: linkedChartOfAccount.id, debit: input.openingBalance },
+        { systemKey: 'OPENING_BALANCE_EQUITY', credit: input.openingBalance },
+      ],
+    });
+  }
+
+  return cashAccount;
+}
+
+/**
+ * Sprint 14 fixtures (docs/domains/cash-management.md) — three Cash Accounts
+ * (GTBank, Access Bank, Petty Cash), a handful of `CashTransaction`s outside the
+ * existing Payment/SupplierPayment flows, a CSV-style bank statement import for
+ * GTBank, and two reconciliation sessions: an earlier period fully matched and
+ * `COMPLETED` (demonstrating a proven, immutable reconciliation), and an August
+ * period left deliberately `IN_PROGRESS` with one matched pair, one unmatched bank
+ * transaction, and one unmatched book transaction — the exact starting state the
+ * live-verification scenario resolves and completes. Idempotent via a single
+ * upfront `CASH-001` existence check; entirely independent of `seedFinance`'s own
+ * gated fixtures (no shared idempotency key, no shared source rows).
+ */
+async function seedCashAndBank(organisationId: string, actorUserId: string): Promise<void> {
+  console.log('Seeding Cash & Bank Management fixtures...');
+
+  const existing = await prisma.cashAccount.findFirst({
+    where: { organisationId, accountCode: 'CASH-001' },
+  });
+  if (existing) {
+    return;
+  }
+
+  await seedCashBankSystemAccounts(organisationId);
+  const { otherIncomeId, bankChargesId } = await seedCashTransactionContraAccounts(
+    organisationId,
+    actorUserId,
+  );
+
+  const gtBank = await seedCashAccount(organisationId, actorUserId, {
+    accountCode: 'CASH-001',
+    name: 'GTBank Current Account',
+    accountType: 'BANK',
+    currency: 'NGN',
+    bankName: 'GTBank',
+    accountNumber: '0123456789',
+    accountName: 'Boby Bites Nigeria Ltd',
+    openingBalance: 10_000_000,
+    openingBalanceDate: new Date('2026-08-01'),
+  });
+  await seedCashAccount(organisationId, actorUserId, {
+    accountCode: 'CASH-002',
+    name: 'Access Bank Current Account',
+    accountType: 'BANK',
+    currency: 'NGN',
+    bankName: 'Access Bank',
+    accountNumber: '0987654321',
+    accountName: 'Boby Bites Nigeria Ltd',
+    openingBalance: 2_000_000,
+    openingBalanceDate: new Date('2026-08-01'),
+  });
+  await seedCashAccount(organisationId, actorUserId, {
+    accountCode: 'CASH-003',
+    name: 'Petty Cash',
+    accountType: 'CASH',
+    currency: 'NGN',
+    openingBalance: 200_000,
+    openingBalanceDate: new Date('2026-08-01'),
+  });
+
+  async function postCashTransaction(input: {
+    sourceId: string;
+    transactionType: 'RECEIPT' | 'PAYMENT';
+    date: Date;
+    amount: number;
+    description: string;
+    contraAccountId: string;
+  }): Promise<{ id: string; journalEntryLineId: string }> {
+    const cashTransaction = await prisma.cashTransaction.create({
+      data: {
+        organisationId,
+        cashAccountId: gtBank.id,
+        transactionType: input.transactionType,
+        transactionDate: input.date,
+        amount: input.amount,
+        description: input.description,
+        contraAccountId: input.contraAccountId,
+        idempotencyKey: `seed-${input.sourceId}`,
+        createdById: actorUserId,
+      },
+    });
+    const posting = await postSeedJournalEntry(organisationId, {
+      date: input.date,
+      description: input.description,
+      sourceType: 'CASH_TRANSACTION',
+      sourceId: cashTransaction.id,
+      actorUserId,
+      lines:
+        input.transactionType === 'RECEIPT'
+          ? [
+              { accountId: gtBank.linkedChartOfAccountId, debit: input.amount },
+              { accountId: input.contraAccountId, credit: input.amount },
+            ]
+          : [
+              { accountId: input.contraAccountId, debit: input.amount },
+              { accountId: gtBank.linkedChartOfAccountId, credit: input.amount },
+            ],
+    });
+    const cashAccountLine = posting.lines.find(
+      (line) => line.accountId === gtBank.linkedChartOfAccountId,
+    )!;
+    return { id: cashTransaction.id, journalEntryLineId: cashAccountLine.id };
+  }
+
+  // --- Period 1 (2-3 Aug) — cleanly matched, reconciled and COMPLETED below.
+  const ct1 = await postCashTransaction({
+    sourceId: 'CT-SEED-1',
+    transactionType: 'RECEIPT',
+    date: new Date('2026-08-02'),
+    amount: 300_000,
+    description: 'POS Settlement',
+    contraAccountId: otherIncomeId,
+  });
+  const ct2 = await postCashTransaction({
+    sourceId: 'CT-SEED-2',
+    transactionType: 'PAYMENT',
+    date: new Date('2026-08-03'),
+    amount: 5_000,
+    description: 'Bank Charge',
+    contraAccountId: bankChargesId,
+  });
+
+  // --- Period 2 (6-31 Aug) — the main, deliberately-unresolved scenario.
+  const ct3 = await postCashTransaction({
+    sourceId: 'CT-SEED-3',
+    transactionType: 'RECEIPT',
+    date: new Date('2026-08-10'),
+    amount: 850_000,
+    description: 'POS Settlement',
+    contraAccountId: otherIncomeId,
+  });
+  // ct4 (₦45,000 "Petty cash top-up transfer") is deliberately left with no
+  // matching bank statement row — an "unmatched book transaction" for the live
+  // -verification scenario to resolve (docs/domains/cash-management.md
+  // "Reconciliation").
+  await postCashTransaction({
+    sourceId: 'CT-SEED-4',
+    transactionType: 'PAYMENT',
+    date: new Date('2026-08-15'),
+    amount: 45_000,
+    description: 'Petty cash top-up transfer',
+    contraAccountId: bankChargesId,
+  });
+
+  // --- Bank statement import (one CSV-style batch covering both periods).
+  function dedupeHash(row: {
+    date: Date;
+    debit: number;
+    credit: number;
+    reference: string;
+    description: string;
+  }): string {
+    const input = [
+      gtBank.id,
+      row.date.toISOString().slice(0, 10),
+      row.debit.toFixed(2),
+      row.credit.toFixed(2),
+      row.reference.trim().toLowerCase(),
+      row.description.trim().toLowerCase(),
+    ].join('|');
+    return createHash('sha256').update(input).digest('hex');
+  }
+
+  const importRows = [
+    {
+      date: new Date('2026-08-02'),
+      description: 'POS Settlement',
+      reference: 'POS-0802',
+      debit: 0,
+      credit: 300_000,
+    },
+    {
+      date: new Date('2026-08-03'),
+      description: 'Bank Charge',
+      reference: 'CHG-0803',
+      debit: 5_000,
+      credit: 0,
+    },
+    {
+      date: new Date('2026-08-10'),
+      description: 'POS Settlement',
+      reference: 'POS-0810',
+      debit: 0,
+      credit: 850_000,
+    },
+    // Deliberately unmatched bank transaction (a card-processing fee the books
+    // haven't recorded yet) — resolved live during verification.
+    {
+      date: new Date('2026-08-20'),
+      description: 'Card Processing Fee',
+      reference: 'FEE-0820',
+      debit: 12_000,
+      credit: 0,
+    },
+  ];
+
+  const existingImport = await prisma.bankStatementImport.findFirst({
+    where: { organisationId, cashAccountId: gtBank.id, idempotencyKey: 'seed-BSI-2026-08' },
+  });
+  const bankStatementImport =
+    existingImport ??
+    (await prisma.bankStatementImport.create({
+      data: {
+        organisationId,
+        cashAccountId: gtBank.id,
+        filename: 'gtbank-august-2026.csv',
+        importedById: actorUserId,
+        idempotencyKey: 'seed-BSI-2026-08',
+        totalRows: importRows.length,
+        importedRows: importRows.length,
+        duplicateRows: 0,
+        errorRows: 0,
+      },
+    }));
+
+  const bankTransactionsByReference = new Map<string, { id: string }>();
+  if (!existingImport) {
+    for (const row of importRows) {
+      const created = await prisma.bankStatementTransaction.create({
+        data: {
+          organisationId,
+          cashAccountId: gtBank.id,
+          importBatchId: bankStatementImport.id,
+          transactionDate: row.date,
+          description: row.description,
+          reference: row.reference,
+          debit: row.debit,
+          credit: row.credit,
+          amount: roundCurrencySeed(row.credit - row.debit),
+          dedupeHash: dedupeHash(row),
+        },
+      });
+      bankTransactionsByReference.set(row.reference, created);
+    }
+  } else {
+    const rows = await prisma.bankStatementTransaction.findMany({
+      where: { importBatchId: bankStatementImport.id },
+    });
+    for (const row of rows) {
+      if (row.reference) bankTransactionsByReference.set(row.reference, row);
+    }
+  }
+
+  // --- Reconciliation 1 (Aug 1-5) — fully matched, COMPLETED.
+  const existingRecon1 = await prisma.bankReconciliation.findFirst({
+    where: { organisationId, cashAccountId: gtBank.id, idempotencyKey: 'seed-RECON-2026-08-P1' },
+  });
+  if (!existingRecon1) {
+    const recon1 = await prisma.bankReconciliation.create({
+      data: {
+        organisationId,
+        cashAccountId: gtBank.id,
+        periodStart: new Date('2026-08-01'),
+        periodEnd: new Date('2026-08-05'),
+        openingBankBalance: 10_000_000,
+        closingBankBalance: 10_295_000,
+        status: 'IN_PROGRESS',
+        idempotencyKey: 'seed-RECON-2026-08-P1',
+        createdById: actorUserId,
+      },
+    });
+    await prisma.reconciliationMatch.create({
+      data: {
+        bankReconciliationId: recon1.id,
+        bankStatementTransactionId: bankTransactionsByReference.get('POS-0802')!.id,
+        journalEntryLineId: ct1.journalEntryLineId,
+        matchType: 'EXACT_AUTO',
+        matchedById: actorUserId,
+      },
+    });
+    await prisma.reconciliationMatch.create({
+      data: {
+        bankReconciliationId: recon1.id,
+        bankStatementTransactionId: bankTransactionsByReference.get('CHG-0803')!.id,
+        journalEntryLineId: ct2.journalEntryLineId,
+        matchType: 'EXACT_AUTO',
+        matchedById: actorUserId,
+      },
+    });
+    await prisma.bankStatementTransaction.updateMany({
+      where: {
+        id: {
+          in: [
+            bankTransactionsByReference.get('POS-0802')!.id,
+            bankTransactionsByReference.get('CHG-0803')!.id,
+          ],
+        },
+      },
+      data: { matchStatus: 'RECONCILED' },
+    });
+    await prisma.bankReconciliation.update({
+      where: { id: recon1.id },
+      data: { status: 'COMPLETED', reconciledById: actorUserId, reconciledAt: new Date() },
+    });
+  }
+
+  // --- Reconciliation 2 (Aug 6-31) — IN_PROGRESS, one matched pair (auto-matched
+  // during live verification), one unmatched bank txn, one unmatched book txn.
+  const existingRecon2 = await prisma.bankReconciliation.findFirst({
+    where: { organisationId, cashAccountId: gtBank.id, idempotencyKey: 'seed-RECON-2026-08-P2' },
+  });
+  if (!existingRecon2) {
+    const recon2 = await prisma.bankReconciliation.create({
+      data: {
+        organisationId,
+        cashAccountId: gtBank.id,
+        periodStart: new Date('2026-08-06'),
+        periodEnd: new Date('2026-08-31'),
+        openingBankBalance: 10_295_000,
+        closingBankBalance: 11_133_000,
+        status: 'IN_PROGRESS',
+        idempotencyKey: 'seed-RECON-2026-08-P2',
+        createdById: actorUserId,
+      },
+    });
+    await prisma.reconciliationMatch.create({
+      data: {
+        bankReconciliationId: recon2.id,
+        bankStatementTransactionId: bankTransactionsByReference.get('POS-0810')!.id,
+        journalEntryLineId: ct3.journalEntryLineId,
+        matchType: 'EXACT_AUTO',
+        matchedById: actorUserId,
+      },
+    });
+    await prisma.bankStatementTransaction.update({
+      where: { id: bankTransactionsByReference.get('POS-0810')!.id },
+      data: { matchStatus: 'MATCHED' },
+    });
+    // 'FEE-0820' (unmatched bank) and CT-SEED-4 (unmatched book) are deliberately
+    // left unmatched — see the function's own doc comment.
+  }
+}
+
 async function main(): Promise<void> {
   // Read early (rather than inside `seedUser`) because the organisation's `businessEmail`
   // needs it before any user is created.
@@ -3608,6 +4137,7 @@ async function main(): Promise<void> {
     customersByCode,
     productsByCode,
   );
+  await seedCashAndBank(organisation.id, ownerUser.id);
 
   console.log('Recording an audit log entry for this seed run...');
   await prisma.auditLog.create({

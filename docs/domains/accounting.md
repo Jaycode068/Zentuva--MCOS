@@ -880,36 +880,87 @@ recorded as a known limitation (§18) rather than solved with new classification
 metadata — directly matching the brief's own "do not create a large accounting
 redesign" instruction.
 
-## 17. API Reference
+## 17. Cash & Bank Management (Sprint 14)
 
-| Endpoint                                                   | Auth                | Notes                                                                                         |
-| ---------------------------------------------------------- | ------------------- | --------------------------------------------------------------------------------------------- |
-| `GET /api/finance/accounts`                                | Any authenticated   | `?type=&isActive=&search=`                                                                    |
-| `GET /api/finance/accounts/:id`                            | Any authenticated   |                                                                                               |
-| `POST /api/finance/accounts`                               | Owner/Administrator |                                                                                               |
-| `PATCH /api/finance/accounts/:id`                          | Owner/Administrator | `code`/`type`/`systemKey` immutable                                                           |
-| `POST /api/finance/accounts/:id/activate` \| `/deactivate` | Owner/Administrator | system accounts reject deactivate                                                             |
-| `GET /api/finance/accounts/:id/activity`                   | Any authenticated   | `?from=&to=`                                                                                  |
-| `GET /api/finance/accounting-periods`                      | Any authenticated   |                                                                                               |
-| `POST /api/finance/accounting-periods`                     | Owner/Administrator | overlap-checked                                                                               |
-| `POST /api/finance/accounting-periods/:id/close`           | Owner/Administrator | only from `OPEN`                                                                              |
-| `GET /api/finance/journal-entries`                         | Any authenticated   | `?status=&sourceType=&accountingPeriodId=`                                                    |
-| `GET /api/finance/journal-entries/:id`                     | Any authenticated   |                                                                                               |
-| `POST /api/finance/journal-entries`                        | Owner/Administrator | creates `DRAFT`, balance-validated                                                            |
-| `POST /api/finance/journal-entries/:id/post`               | Owner/Administrator | atomic; period-open re-check                                                                  |
-| `POST /api/finance/journal-entries/:id/void`               | Owner/Administrator | bare status flip                                                                              |
-| `GET /api/finance/ledger`                                  | Any authenticated   | `?accountId=&from=&to=&accountingPeriodId=&sourceType=&reference=&status=`                    |
-| `GET /api/finance/trial-balance`                           | Any authenticated   | `?from=&to=` or `?accountingPeriodId=`; rows now include `netBalance`/`systemKey` (Sprint 13) |
-| `GET /api/finance/reports/profit-loss`                     | Any authenticated   | `?from=&to=&accountingPeriodId=&compare=previous_period`                                      |
-| `GET /api/finance/reports/balance-sheet`                   | Any authenticated   | `?asOf=`                                                                                      |
-| `GET /api/finance/receivables/aging`                       | Any authenticated   | `?asOf=`                                                                                      |
-| `GET /api/finance/accounts-payable/aging`                  | Any authenticated   | `?asOf=`                                                                                      |
-| `GET /api/finance/reports/inventory-valuation`             | Any authenticated   | `?locationId=&productType=`                                                                   |
-| `GET /api/finance/reports/reconciliation`                  | Any authenticated   | Inventory-to-GL only, this sprint                                                             |
-| `GET /api/finance/reports/revenue` \| `/cogs`              | Any authenticated   | `?from=&to=`                                                                                  |
-| `GET /api/finance/reports/dashboard`                       | Any authenticated   | `?from=&to=&compare=previous_period`                                                          |
+Sprint 14 connects the General Ledger to the organisation's real-world cash and bank
+accounts, and builds a reconciliation workflow entirely on top of the primitives
+above — see [Cash & Bank Management](cash-management.md) for the full domain
+writeup. Summary of the accounting mechanics:
 
-## 18. Known Limitations
+- **A `CashAccount` is never itself a ledger account.** Each one is linked to its
+  own dedicated, non-system `ChartOfAccount` row, system-provisioned at creation as
+  a child of the org's `CASH`/`BANK` system account (or the new
+  `CASH_BANK_PARENT` key for an `OTHER_CASH_EQUIVALENT`) — never the generic
+  `CASH`/`BANK` system account itself, which would collapse every bank's book
+  balance into one shared figure. `Payment`/`SupplierPayment` gained an optional
+  `cashAccountId`: when set, the cash-side posting line targets that dedicated CoA
+  row directly (`accountId`, not `systemKey`); when absent, posting falls back
+  unchanged to the pre-Sprint-14 `method`-based `CASH`/`BANK` resolution.
+- **Opening balance** posts `DR <the new CoA row> / CR OPENING_BALANCE_EQUITY` (a
+  new system key elevating the already-seeded "3100 Owner's Capital" row) —
+  idempotent, period-aware, and atomic with the `CashAccount`/`ChartOfAccount`
+  creation itself, via the same `postSystemJournalEntry` boundary every other
+  domain uses.
+- **`CashTransaction`** covers cash movements outside the `Payment`/
+  `SupplierPayment` flows (a bank charge, a petty cash top-up, a miscellaneous
+  receipt) — `RECEIPT` posts `DR <cash account's CoA> / CR <contra account>`,
+  `PAYMENT` posts the reverse, against an explicit, user-chosen, non-system contra
+  account (the same "Path B" policy `SupplierInvoiceItem.debitAccountId`, Sprint
+  12, already established).
+- **Reconciliation posts nothing.** `BankReconciliation`/`ReconciliationMatch` are a
+  read/review layer over already-posted `JournalEntryLine` rows and already-
+  imported `BankStatementTransaction` rows — a `ReconciliationMatch` references a
+  `JournalEntryLine.id` directly (never `Payment`/`SupplierPayment`/
+  `CashTransaction` polymorphically), so "book transaction" always means the GL's
+  own record, never a second interpretation of it. `complete()` requires zero
+  unmatched items on both sides — a real, unexplained numeric difference between
+  the entered bank-statement balance and the book balance may still remain even
+  after every transaction is matched (e.g. the statement balance was entered before
+  a later row was imported), and is deliberately never forced to zero.
+- **Zero new system accounts were needed for the CASH/BANK cases themselves** —
+  `CASH_BANK_PARENT` and `OPENING_BALANCE_EQUITY` both elevate already-seeded rows,
+  the same backfill pattern Sprint 9 used for `FINISHED_GOODS_INVENTORY`.
+
+## 18. API Reference
+
+| Endpoint                                                       | Auth                | Notes                                                                                         |
+| -------------------------------------------------------------- | ------------------- | --------------------------------------------------------------------------------------------- |
+| `GET /api/finance/accounts`                                    | Any authenticated   | `?type=&isActive=&search=`                                                                    |
+| `GET /api/finance/accounts/:id`                                | Any authenticated   |                                                                                               |
+| `POST /api/finance/accounts`                                   | Owner/Administrator |                                                                                               |
+| `PATCH /api/finance/accounts/:id`                              | Owner/Administrator | `code`/`type`/`systemKey` immutable                                                           |
+| `POST /api/finance/accounts/:id/activate` \| `/deactivate`     | Owner/Administrator | system accounts reject deactivate                                                             |
+| `GET /api/finance/accounts/:id/activity`                       | Any authenticated   | `?from=&to=`                                                                                  |
+| `GET /api/finance/accounting-periods`                          | Any authenticated   |                                                                                               |
+| `POST /api/finance/accounting-periods`                         | Owner/Administrator | overlap-checked                                                                               |
+| `POST /api/finance/accounting-periods/:id/close`               | Owner/Administrator | only from `OPEN`                                                                              |
+| `GET /api/finance/journal-entries`                             | Any authenticated   | `?status=&sourceType=&accountingPeriodId=`                                                    |
+| `GET /api/finance/journal-entries/:id`                         | Any authenticated   |                                                                                               |
+| `POST /api/finance/journal-entries`                            | Owner/Administrator | creates `DRAFT`, balance-validated                                                            |
+| `POST /api/finance/journal-entries/:id/post`                   | Owner/Administrator | atomic; period-open re-check                                                                  |
+| `POST /api/finance/journal-entries/:id/void`                   | Owner/Administrator | bare status flip                                                                              |
+| `GET /api/finance/ledger`                                      | Any authenticated   | `?accountId=&from=&to=&accountingPeriodId=&sourceType=&reference=&status=`                    |
+| `GET /api/finance/trial-balance`                               | Any authenticated   | `?from=&to=` or `?accountingPeriodId=`; rows now include `netBalance`/`systemKey` (Sprint 13) |
+| `GET /api/finance/reports/profit-loss`                         | Any authenticated   | `?from=&to=&accountingPeriodId=&compare=previous_period`                                      |
+| `GET /api/finance/reports/balance-sheet`                       | Any authenticated   | `?asOf=`                                                                                      |
+| `GET /api/finance/receivables/aging`                           | Any authenticated   | `?asOf=`                                                                                      |
+| `GET /api/finance/accounts-payable/aging`                      | Any authenticated   | `?asOf=`                                                                                      |
+| `GET /api/finance/reports/inventory-valuation`                 | Any authenticated   | `?locationId=&productType=`                                                                   |
+| `GET /api/finance/reports/reconciliation`                      | Any authenticated   | Inventory-to-GL only, this sprint                                                             |
+| `GET /api/finance/reports/revenue` \| `/cogs`                  | Any authenticated   | `?from=&to=`                                                                                  |
+| `GET /api/finance/reports/dashboard`                           | Any authenticated   | `?from=&to=&compare=previous_period`                                                          |
+| `GET/POST /api/finance/cash/accounts`                          | Any / Owner+Admin   | `POST` provisions a dedicated CoA row + optional opening balance                              |
+| `GET /api/finance/cash/accounts/:id/account-number`            | Owner/Administrator | Full value — audited with no metadata payload                                                 |
+| `GET/POST /api/finance/cash/transactions`                      | Any / Owner+Admin   | Outside the Payment/Supplier Payment flows                                                    |
+| `GET /api/finance/cash/bank-statements/transactions`           | Any authenticated   | `?cashAccountId=&matchStatus=`                                                                |
+| `POST /api/finance/cash/bank-statements/:cashAccountId/import` | Owner/Administrator | Already-mapped JSON rows; re-validated server-side                                            |
+| `GET/POST /api/finance/cash/reconciliations`                   | Any / Owner+Admin   | `POST` rejects a second `IN_PROGRESS` session per account                                     |
+| `POST /api/finance/cash/reconciliations/:id/auto-match`        | Owner/Administrator | Unambiguous same-date/same-amount pairs only                                                  |
+| `POST /api/finance/cash/reconciliations/:id/match`             | Owner/Administrator | Manual; idempotent on an identical repeat pair                                                |
+| `POST /api/finance/cash/reconciliations/:id/complete`          | Owner/Administrator | Rejects with unmatched counts if not fully matched                                            |
+| `GET /api/finance/cash/overview`                               | Any authenticated   | Cash Position Dashboard                                                                       |
+
+## 19. Known Limitations
 
 - No re-opening a closed accounting period, and no year-end closing automation.
 - `VOID` never generates an automatic reversing entry — a correction is a new manual
@@ -920,8 +971,6 @@ redesign" instruction.
 - Running balance in an unfiltered (multi-account) `GET /finance/ledger` view is a
   cumulative net across unrelated accounts — most meaningful once filtered to one
   account; see §6.
-- Trial Balance has no financial-statement layer on top of it (no P&L, no Balance
-  Sheet) — see §9.4.
 - No General Ledger integration for Procurement's own PO-confirmation event or
   Distribution's Dispatch/Delivery events — Finance's three events, Inventory's Goods
   Receipt (Sprint 8), Production's Material Issue/Completion (Sprint 9, see §10), and
@@ -949,3 +998,14 @@ redesign" instruction.
 - Return cost/value reversals use the specific originating transaction's frozen
   cost/price, never the current `averageUnitCost` (§12.4) — consistent with, not an
   exception to, this document's existing costing-precision limitations.
+- **`cashAccountId` on `Payment`/`SupplierPayment` is optional, not required**
+  (Sprint 14 §17) — a payment recorded with no cash account still posts correctly
+  via the pre-existing `method`-based `CASH`/`BANK` fallback; nothing in this
+  codebase forces every payment to name a specific bank account.
+- No reopening a `COMPLETED` `BankReconciliation` — a correction happens via a new
+  `CashTransaction`/journal entry handled in a later session, the same "never
+  rewrite history" convention `Payment.void()` already establishes (§17).
+- No bank-statement balance recompute/auto-correct when a `BankReconciliation`'s own
+  `openingBankBalance`/`closingBankBalance` disagrees with the sum of its matched
+  transactions — both are user-entered facts from the physical statement, surfaced
+  as a Difference figure, never silently adjusted (§17).

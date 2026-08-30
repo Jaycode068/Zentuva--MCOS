@@ -12,6 +12,7 @@ import {
 } from './supplier-invoice.repository';
 import {
   CreateSupplierPaymentResult,
+  InvalidCashAccountError,
   ListSupplierPaymentsParams,
   OverPaymentError,
   PaymentAlreadyVoidedError,
@@ -74,6 +75,7 @@ export class SupplierPaymentService {
         paymentDate: input.paymentDate,
         reference: input.reference,
         notes: input.notes,
+        cashAccountId: input.cashAccountId,
         idempotencyKey: input.idempotencyKey,
         createdById: actorUserId,
       });
@@ -81,6 +83,7 @@ export class SupplierPaymentService {
       if (
         error instanceof OverPaymentError ||
         error instanceof PaymentInvoiceConflictError ||
+        error instanceof InvalidCashAccountError ||
         error instanceof MissingSystemAccountError ||
         error instanceof NoOpenPeriodError ||
         error instanceof UnbalancedPostingError

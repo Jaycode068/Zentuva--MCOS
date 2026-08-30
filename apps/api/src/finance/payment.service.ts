@@ -9,6 +9,7 @@ import {
 import { InvoiceRepository, PAYABLE_INVOICE_STATUSES } from './invoice.repository';
 import {
   CreatePaymentResult,
+  InvalidCashAccountError,
   ListPaymentsParams,
   OverPaymentError,
   PaymentAlreadyVoidedError,
@@ -70,6 +71,7 @@ export class PaymentService {
         paymentDate: input.paymentDate,
         reference: input.reference,
         notes: input.notes,
+        cashAccountId: input.cashAccountId,
         idempotencyKey: input.idempotencyKey,
         createdById: actorUserId,
       });
@@ -77,6 +79,7 @@ export class PaymentService {
       if (
         error instanceof OverPaymentError ||
         error instanceof PaymentInvoiceConflictError ||
+        error instanceof InvalidCashAccountError ||
         error instanceof MissingSystemAccountError ||
         error instanceof NoOpenPeriodError ||
         error instanceof UnbalancedPostingError

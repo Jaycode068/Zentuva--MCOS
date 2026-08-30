@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle, Select } from '@zentuva/ui';
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
@@ -15,7 +16,7 @@ import {
   type ReportPeriodPreset,
 } from '@/lib/report-date-range';
 
-import { getDashboard } from './api';
+import { getCashOverview, getDashboard } from './api';
 
 /**
  * Management Dashboard (Sprint 13, docs/domains/accounting.md §16.5) — the Finance
@@ -34,6 +35,14 @@ export default function FinanceOverviewPage() {
     queryKey: ['finance-dashboard', from.toISOString(), to.toISOString(), compare],
     queryFn: () =>
       getDashboard({ from: toDateInputValue(from), to: toDateInputValue(to), compare }),
+  });
+
+  // Added Sprint 14 — a couple of cross-link cards into the Cash & Bank workspace
+  // (docs/domains/cash-management.md §14), not a full second dashboard bolted on
+  // here — the Cash Position Dashboard lives at its own `/settings/finance/cash`.
+  const { data: cashOverview } = useQuery({
+    queryKey: ['cash-overview'],
+    queryFn: () => getCashOverview(),
   });
 
   const current = data?.pnl.current;
@@ -163,10 +172,52 @@ export default function FinanceOverviewPage() {
             />
           </div>
 
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          <div className="mb-8 grid grid-cols-1 gap-6 lg:grid-cols-2">
             <ChartCard title="Revenue vs. COGS vs. Gross Profit" data={revenueCogsChart} />
             <ChartCard title="Accounts Receivable vs. Accounts Payable" data={arApChart} />
           </div>
+
+          {cashOverview && (
+            <>
+              <p className="mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Cash &amp; Bank
+              </p>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <Link href="/settings/finance/cash">
+                  <Card className="h-full transition-colors hover:border-primary/50">
+                    <CardHeader>
+                      <CardTitle className="text-sm font-medium text-muted-foreground">
+                        Total Cash
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-2xl font-semibold">
+                        {formatCurrency(cashOverview.totalCash, 'NGN')}
+                      </p>
+                    </CardContent>
+                  </Card>
+                </Link>
+                <Link href="/settings/finance/cash">
+                  <Card className="h-full transition-colors hover:border-primary/50">
+                    <CardHeader>
+                      <CardTitle className="text-sm font-medium text-muted-foreground">
+                        Unreconciled
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <p
+                        className={`text-2xl font-semibold ${
+                          cashOverview.totalUnreconciled > 0.01 ? 'text-destructive' : ''
+                        }`}
+                      >
+                        {formatCurrency(cashOverview.totalUnreconciled, 'NGN')}
+                      </p>
+                    </CardContent>
+                  </Card>
+                </Link>
+              </div>
+            </>
+          )}
         </>
       )}
     </main>

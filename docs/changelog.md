@@ -7,6 +7,99 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 14 Cash & Bank Management / Reconciliation Foundation] - 2026-08-30
+
+### Added
+
+- **`CashAccount` (Finance) — the cash/bank account master.** Every bank account,
+  petty cash drawer, or settlement account the organisation actually holds money
+  in, each linked to its own dedicated, non-system Chart of Accounts row —
+  auto-provisioned at creation as a child of the org's `CASH`/`BANK`/
+  `CASH_BANK_PARENT` (new) system account, never the generic system account itself
+  (which would collapse every bank's book balance into one shared figure).
+  `accountNumber` is stored in full but only ever returned masked
+  (`accountNumberMasked`, last 4 digits); the full value is reachable only via a
+  separate, Owner/Administrator-only `GET .../account-number` reveal endpoint whose
+  own audit event carries no metadata payload.
+- **Opening balance.** Supplying one at `CashAccount` creation atomically posts
+  `DR <the new dedicated CoA row> / CR Opening Balance Equity` (a new system key
+  elevating the already-seeded "3100 Owner's Capital" row) through the same
+  `postSystemJournalEntry` boundary every other domain uses — idempotent,
+  period-aware, RBAC-protected, and rolled back together with the account/CoA
+  creation on any failure.
+- **`Payment`/`SupplierPayment` gained an optional `cashAccountId`.** When set,
+  the cash-side posting line targets that account's own dedicated CoA row instead
+  of the generic `CASH`/`BANK` system account resolved from `method`; when
+  omitted, posting is byte-for-byte identical to pre-Sprint-14 behaviour — no
+  existing flow, fixture, or test needed to change.
+- **`CashTransaction` (Finance)** — cash movements outside the existing Payment/
+  Supplier Payment flows (a bank charge, a petty cash payment, a miscellaneous
+  receipt), posting `RECEIPT`/`PAYMENT` against an explicit, user-chosen,
+  non-system "Contra Account" — the same Path B policy `SupplierInvoiceItem.
+debitAccountId` (Sprint 12) already established.
+- **Bank Statement Import (CSV).** Client-side column mapping (`papaparse`) lets
+  the user map arbitrary CSV headers to Zentuva fields (`Transaction Date`,
+  `Description`, `Debit`, `Credit`, `Reference`, etc.) since not every bank
+  exports the same columns; the backend independently re-validates every row and
+  applies two independent duplicate-detection layers (a deterministic content
+  hash, and — where supplied — a stable external reference), skipping and
+  reporting duplicates rather than hard-failing the batch.
+- **`BankReconciliation`/`ReconciliationMatch` (Finance) — the core feature of
+  this sprint.** A session for one `CashAccount` over one free bank-statement
+  period; `ReconciliationMatch` references a `JournalEntryLine.id` directly
+  (never `Payment`/`SupplierPayment`/`CashTransaction` polymorphically) — the
+  literal embodiment of "the GL remains the source of truth." A bulk "Auto-match
+  Exact" action matches only unambiguous same-date/same-amount pairs; anything
+  else is matched manually. `complete()` requires zero unmatched bank/book items
+  — never a silent "force the books to equal the bank" — and a session becomes
+  immutable once `COMPLETED`; reopening one is explicit deferred work. Only one
+  `IN_PROGRESS` session per `CashAccount` is permitted at a time.
+- **Book Balance vs. Reconciled Balance vs. Unreconciled Difference** — the
+  central UX distinction this sprint exists to make obvious. Book Balance is
+  always live via `LedgerService.getAccountActivity` (unchanged since Sprint
+  7/13); Reconciled Balance is the most recent `COMPLETED` session's own
+  `closingBankBalance`; neither is ever labelled "available cash."
+- **Admin `/settings/finance/{cash, cash-accounts, cash-transactions,
+bank-statements, reconciliation}`.** Five new tabs: a Cash Position Dashboard
+  (Total Cash, Bank Balances, Cash on Hand, Unreconciled, Recent Transactions,
+  Accounts Requiring Reconciliation); a Cash Account list + full detail page per
+  account (Book/Reconciled/Unreconciled strip, masked number + reveal, recent
+  activity, reconciliation history, statement imports); a Cash Transaction ledger;
+  a CSV import wizard (pick file → map columns → preview → commit); and a
+  Reconciliation workspace (Matched/Unmatched Bank/Unmatched Book panels, a live
+  Difference strip, Auto-match, click-to-select manual match, Complete). The
+  existing Sprint 13 Management Dashboard gained two small cross-link cards
+  (Total Cash, Unreconciled) rather than a second, busier dashboard bolted on.
+- **`cash-independence.spec.ts`** — a new structural guard (mirrors `reports-
+independence.spec.ts`'s technique): no Cash & Bank file writes a Sales/Inventory/
+  Procurement/Production table, no file writes `JournalEntry`/`JournalEntryLine`
+  directly (every posting goes through `postSystemJournalEntry`), and
+  `BankReconciliation` itself posts nothing at all.
+
+### Verified
+
+- Full backend suite: 892 tests / 99 suites (up from 852/91), including
+  `cash-independence.spec.ts` and repository-level tests for `CashAccount`
+  provisioning/opening-balance posting, `CashTransaction` posting/validation,
+  bank-statement import/deduplication, and the full reconciliation lifecycle
+  (create/match/auto-match/unmatch/complete).
+- Live end-to-end verification against the real Boby Bites dev environment: GTBank/
+  Access Bank/Petty Cash cash accounts (seeded), a customer payment recorded into
+  GTBank's own dedicated Chart of Accounts row (confirmed via Trial Balance — the
+  generic `1120 Bank` system account stayed completely untouched), a CSV bank
+  -statement import via the real API, an in-progress reconciliation session
+  resolved live (a new `CashTransaction` recorded to match an unmatched bank fee,
+  a follow-up statement row imported to match an unmatched book transaction),
+  bulk auto-match, and a full Complete — the session became immutable immediately
+  afterward. Trial Balance continued to balance exactly throughout, with zero
+  duplicate journal entries. The audit trail for the account-number reveal action
+  carried no metadata payload. Verified responsive at 375px on the reconciliation
+  workspace and the Cash Overview dashboard.
+- Zero new database migrations beyond the additive Sprint 14 models/columns and
+  two elevated system accounts (`CASH_BANK_PARENT`, `OPENING_BALANCE_EQUITY`) —
+  the same "elevate an already-seeded row" backfill pattern Sprint 9 used for
+  `FINISHED_GOODS_INVENTORY`.
+
 ## [Sprint 13 Financial Statements & Management Reporting Foundation] - 2026-08-30
 
 ### Added

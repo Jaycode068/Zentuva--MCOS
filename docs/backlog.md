@@ -348,12 +348,11 @@ Receivable / CR Sales Revenue` posting (Sprint 6/7): revenue and inventory cost 
   Payments, Supplier Credit Notes, and (Sprint 13) a read-only Financial Statements &
   Management Reporting layer — Profit & Loss, Balance Sheet, AR/AP ageing, Inventory
   Valuation/Reconciliation, a Management Dashboard. Deliberately excludes Cash Flow
-  Statement, Bank Reconciliation, payroll, fixed assets, a full tax engine,
-  sophisticated pricing, credit scoring, payment-gateway integration, payment runs,
-  an Expense Management module, budgeting/forecasting, and multi-company
-  consolidation — all future sprints. Chart of Accounts, Journal Entries, General
-  Ledger, Trial Balance, Profit & Loss, and Balance Sheet are no longer excluded — see
-  Sprint 7/13 below.
+  Statement, payroll, fixed assets, a full tax engine, sophisticated pricing, credit
+  scoring, payment-gateway integration, payment runs, an Expense Management module,
+  budgeting/forecasting, and multi-company consolidation — all future sprints. Chart
+  of Accounts, Journal Entries, General Ledger, Trial Balance, Profit & Loss, Balance
+  Sheet, and (Sprint 14, Epic 18 below) Bank Reconciliation are no longer excluded.
 - **Status:** Foundation implemented — Sprint 6 ("Finance Foundation"). Invoices are
   raised against a `FULFILLED` Sales Order, snapshotting commercial terms permanently;
   Payments support partial settlement via a `PaymentAllocation` join table designed for
@@ -378,7 +377,12 @@ Receivable / CR Sales Revenue` posting (Sprint 6/7): revenue and inventory cost 
   Inventory-to-Ledger Reconciliation report, and a Management Dashboard — deriving
   every figure from data Sprints 6-12 already produce, with **zero schema changes**
   and no new writes anywhere in Finance — see
-  [`docs/domains/finance.md`](domains/finance.md) §13.
+  [`docs/domains/finance.md`](domains/finance.md) §13. Sprint 14 ("Cash & Bank
+  Management / Reconciliation Foundation") gave `Payment`/`SupplierPayment` an
+  optional `cashAccountId` so a payment can identify the specific bank/cash account
+  it moved through, fully backward-compatible with every payment recorded before
+  this sprint — see [`docs/domains/finance.md`](domains/finance.md) §14 and Epic 18
+  below for the new Cash & Bank Management domain itself.
 
 ### Epic 17 — Accounting
 
@@ -396,17 +400,19 @@ Receivable / CR Sales Revenue` posting (Sprint 6/7): revenue and inventory cost 
   Production Completion events, (Sprint 10) automatic posting for Sales's Fulfilment
   event, (Sprint 12) Supplier Invoice matching against Goods Receipt (capped
   recognition, discrepancy surfaced not hidden) plus a Path B posting for PO-less
-  bills against an explicit Chart of Accounts entry, and (Sprint 13) a read-only
+  bills against an explicit Chart of Accounts entry, (Sprint 13) a read-only
   Financial Statements & Management Reporting layer (P&L, Balance Sheet, AR/AP
   ageing, Inventory Valuation/Reconciliation, Dashboard) derived from the existing
-  ledger with zero schema changes. Deliberately excludes Cash Flow Statement, Bank
-  Reconciliation, payment runs, an approval workflow to reclassify `GRNI — Pending
-Approval` balances into `AP`, payroll, fixed-asset accounting, a full tax engine,
-  budgeting, year-end closing / retained-earnings closing workflow, labour/machine/
-  overhead costing, multi-company consolidation, and advanced BI/data-warehouse
-  tooling — all future work. Sales Returns/COGS-reversal, Supplier Returns, Accounts
-  Payable/supplier invoice matching, and Profit & Loss/Balance Sheet reporting are no
-  longer future work — see Sprint 11/12/13 below.
+  ledger with zero schema changes, and (Sprint 14) two new elevated system accounts
+  (`CASH_BANK_PARENT`, `OPENING_BALANCE_EQUITY`) backing Cash & Bank Management's
+  opening-balance postings (Epic 18). Deliberately excludes Cash Flow Statement,
+  payment runs, an approval workflow to reclassify `GRNI — Pending Approval`
+  balances into `AP`, payroll, fixed-asset accounting, a full tax engine, budgeting,
+  year-end closing / retained-earnings closing workflow, labour/machine/overhead
+  costing, multi-company consolidation, and advanced BI/data-warehouse tooling —
+  all future work. Sales Returns/COGS-reversal, Supplier Returns, Accounts
+  Payable/supplier invoice matching, Profit & Loss/Balance Sheet reporting, and Bank
+  Reconciliation are no longer future work — see Sprint 11/12/13/14 below.
 - **Status:** Foundation implemented — Sprint 7 ("General Ledger & Accounting
   Foundation"). `InvoiceRepository.issue()`/`PaymentRepository.create()`/
   `CreditNoteRepository.issue()` each atomically post a double-entry `JournalEntry` via
@@ -465,7 +471,58 @@ Finished Goods Inventory / CR Cost of Goods Sold`) plus an independently-valued
   read-only exception lets Finance read `InventoryStock` directly for an Inventory
   Valuation and an Inventory-to-Ledger Reconciliation report that surfaces — never
   auto-corrects — a discrepancy. **Zero database migrations.** See
-  [`docs/domains/accounting.md`](domains/accounting.md) §16.
+  [`docs/domains/accounting.md`](domains/accounting.md) §16. Sprint 14 ("Cash &
+  Bank Management / Reconciliation Foundation") added `CASH_BANK_PARENT`
+  (elevating the already-seeded "1100 Cash & Bank" row) and
+  `OPENING_BALANCE_EQUITY` (elevating "3100 Owner's Capital") — the same
+  system-account-elevation backfill pattern Sprint 9 used for
+  `FINISHED_GOODS_INVENTORY` — backing the new Cash & Bank Management domain's
+  opening-balance postings. See [`docs/domains/accounting.md`](domains/accounting.md)
+  §17 and Epic 18 below.
+
+### Epic 18 — Cash & Bank Management
+
+- **Objective:** connect the General Ledger to the organisation's real-world cash
+  and bank accounts — what cash/bank accounts exist, what the accounting system
+  says the balance should be, what the actual bank statement says, and what
+  remains unreconciled. Explicitly a foundation for future cashflow forecasting,
+  loan/debt/investment management, and capital-planning intelligence — none of
+  which this epic itself builds.
+- **Includes:** a `CashAccount` master (each linked to its own dedicated,
+  system-provisioned Chart of Accounts row, never the generic `CASH`/`BANK` system
+  accounts), an optional opening balance posted atomically at account creation,
+  `CashTransaction` for cash movements outside the existing Payment/Supplier
+  Payment flows, CSV bank-statement import (client-side column mapping,
+  server-side re-validation and two-layer deduplication), and a
+  `BankReconciliation` workflow (bulk unambiguous auto-match, manual match, a hard
+  zero-unmatched completion rule, immutable once completed) distinguishing Book
+  Balance from Reconciled Balance from Unreconciled Difference. Deliberately
+  excludes loan management, debt management, investment management, capital
+  planning, cashflow forecasting, AI financial recommendations, bank API/Open
+  Banking integration, payment-gateway integration, payroll, expense management,
+  budgeting, advanced treasury management, a multi-currency treasury engine, and
+  complex bank-matching AI — all explicit future work, though the architecture
+  (the `CashAccount`/Chart-of-Accounts link, and the `accountId`-based posting
+  extension it reuses from Sprint 12) was deliberately shaped so those can be
+  added later without rebuilding this foundation.
+- **Status:** Foundation implemented — Sprint 14 ("Cash & Bank Management /
+  Reconciliation Foundation"). `CashAccountRepository.create()` atomically
+  provisions a dedicated child Chart of Accounts row (under the org's `CASH`/
+  `BANK`/`CASH_BANK_PARENT` system account, chosen by `accountType`) and, if an
+  opening balance is supplied, posts `DR <that row> / CR OPENING_BALANCE_EQUITY`
+  through the same `postSystemJournalEntry` boundary every other domain uses — no
+  new posting mechanism. `Payment`/`SupplierPayment` gained an optional
+  `cashAccountId` that, when set, targets that specific account's own CoA row
+  instead of the generic `CASH`/`BANK` system account; omitting it preserves
+  pre-Sprint-14 behaviour exactly. `BankReconciliation`/`ReconciliationMatch` never
+  post anything — a `ReconciliationMatch` references a `JournalEntryLine.id`
+  directly (the GL's own record, never a polymorphic guess at which table
+  produced it), and `complete()` is blocked while any bank or book transaction
+  remains unmatched, never silently forcing the books to equal the bank. Zero
+  schema changes touched any existing table's meaning — only additive columns/
+  models and two elevated system accounts (Epic 17 above). See
+  [`docs/domains/cash-management.md`](domains/cash-management.md) and
+  [`docs/domains/finance.md`](domains/finance.md) §14.
 
 ## 5. Current Sprint Status
 
@@ -503,6 +560,7 @@ Finished Goods Inventory / CR Cost of Goods Sold`) plus an independently-valued
 - ✓ Sprint 11 — Returns, Claims & Reversals Foundation
 - ✓ Sprint 12 — Accounts Payable & Supplier Invoice Management
 - ✓ Sprint 13 — Financial Statements & Management Reporting Foundation
+- ✓ Sprint 14 — Cash & Bank Management / Reconciliation Foundation
 
 **Current focus:** Next sprint not yet scoped.
 

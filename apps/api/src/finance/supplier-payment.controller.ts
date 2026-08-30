@@ -115,6 +115,7 @@ export function toSupplierPaymentResponse(payment: SupplierPaymentWithRelations)
     notes: payment.notes,
     status: payment.status,
     supplierInvoiceId: payment.allocations[0]?.supplierInvoiceId ?? null,
+    cashAccountId: payment.cashAccountId,
     createdAt: payment.createdAt,
   };
 }

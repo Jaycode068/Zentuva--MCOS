@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import {
   Button,
   Dialog,
@@ -17,7 +17,7 @@ import {
 import { ApiError } from '@/lib/api-client';
 import { formatCurrency } from '@/lib/format-currency';
 
-import { createPayment, type Invoice, type PaymentMethod } from '../api';
+import { createPayment, listCashAccounts, type Invoice, type PaymentMethod } from '../api';
 import { PAYMENT_METHOD_LABELS } from '../labels';
 
 function toDateInputValue(value: string): string {
@@ -44,6 +44,13 @@ export function PaymentDialog({
   const [paymentDate, setPaymentDate] = useState(() => toDateInputValue(new Date().toISOString()));
   const [reference, setReference] = useState('');
   const [notes, setNotes] = useState('');
+  const [cashAccountId, setCashAccountId] = useState('');
+
+  const { data: cashAccountsData } = useQuery({
+    queryKey: ['cash-accounts', 'ACTIVE'],
+    queryFn: () => listCashAccounts({ status: 'ACTIVE' }),
+  });
+  const cashAccounts = cashAccountsData?.items ?? [];
 
   const mutation = useMutation({
     mutationFn: () =>
@@ -54,6 +61,7 @@ export function PaymentDialog({
         paymentDate,
         reference: reference || undefined,
         notes: notes || undefined,
+        cashAccountId: cashAccountId || undefined,
         idempotencyKey,
       }),
     onSuccess: onRecorded,
@@ -137,6 +145,23 @@ export function PaymentDialog({
             />
           </div>
         </div>
+
+        {cashAccounts.length > 0 && (
+          <div className="space-y-1.5">
+            <Label>Cash Account (optional)</Label>
+            <Select
+              value={cashAccountId}
+              onChange={(event) => setCashAccountId(event.target.value)}
+            >
+              <option value="">Not specified</option>
+              {cashAccounts.map((account) => (
+                <option key={account.id} value={account.id}>
+                  {account.name}
+                </option>
+              ))}
+            </Select>
+          </div>
+        )}
 
         <div className="space-y-1.5">
           <Label>Reference (optional)</Label>

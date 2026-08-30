@@ -2,11 +2,14 @@
 
 - **Status:** Foundation implemented — Sprint 6 ("Finance Foundation"), extended
   Sprint 7 with automatic General Ledger posting — see [Accounting](accounting.md).
-  Sprint 12 added Accounts Payable / Supplier Invoice Management — see §12. **Not** a
-  General Ledger / accounting system itself — that layer lives in `accounting.md`, see
-  §9.
+  Sprint 12 added Accounts Payable / Supplier Invoice Management — see §12. Sprint 13
+  added a read-only Financial Statements & Management Reporting layer — see §13.
+  Sprint 14 added Cash & Bank Management / Reconciliation — see §14 and
+  [Cash & Bank Management](cash-management.md). **Not** a General Ledger / accounting
+  system itself — that layer lives in `accounting.md`, see §9.
 - **Sprint:** 6 (Sprint 7 added the accounting integration described in §9; Sprint 12
-  added Accounts Payable described in §12)
+  added Accounts Payable described in §12; Sprint 13 added Reporting described in
+  §13; Sprint 14 added Cash & Bank Management described in §14)
 - **Depends on:** [Identity](identity.md) (tenant boundary, `RolesGuard`,
   `OrganisationService` for the currency snapshot), [Sales](sales.md)
   (`SalesOrderRepository`, read-only, via `SalesModule`'s existing export),
@@ -21,7 +24,9 @@
 - **See also:** [Sprint 6 Completion Report](../sprint-6-completion-report.md),
   [Sprint 7 Completion Report](../sprint-7-completion-report.md),
   [Sprint 12 Completion Report](../sprint-12-completion-report.md),
-  [Accounting](accounting.md).
+  [Sprint 13 Completion Report](../sprint-13-completion-report.md),
+  [Sprint 14 Completion Report](../sprint-14-completion-report.md),
+  [Accounting](accounting.md), [Cash & Bank Management](cash-management.md).
 
 ## 1. Business Purpose
 
@@ -523,3 +528,92 @@ breakdown table) below their existing list.
   Trial Balance. Deferred as a cheap follow-up.
 - **No budgeting, forecasting, multi-company consolidation, or configurable KPI
   engine** — explicit non-goals of Sprint 13, unchanged.
+
+## 14. Cash & Bank Management / Reconciliation (Sprint 14)
+
+Sprint 14 connects the General Ledger to the organisation's real-world cash and bank
+accounts — full domain writeup in [Cash & Bank Management](cash-management.md);
+accounting mechanics in [Accounting](accounting.md) §17. Summary of the
+Finance-facing surface:
+
+- **`CashAccount`** — an actual place money is held (a bank account, a petty cash
+  drawer, a POS settlement account), each linked to its own dedicated, system-
+  provisioned Chart of Accounts row — never the generic `CASH`/`BANK` system
+  accounts every `Payment`/`SupplierPayment` posted against pre-Sprint-14. An
+  optional opening balance posts atomically with the account's own creation.
+  `accountNumber` is stored in full but only ever returned masked
+  (`accountNumberMasked`); the full value is available only via a separate,
+  Owner/Administrator-only reveal endpoint, and is never written into any audit
+  `metadata` payload.
+- **`Payment`/`SupplierPayment` gained an optional `cashAccountId`** — reused, not
+  duplicated: when supplied, the existing posting logic targets that specific
+  account's own Chart of Accounts row instead of the generic `CASH`/`BANK` system
+  account resolved from `method`. Fully backward-compatible — omitting it preserves
+  the exact pre-Sprint-14 behaviour, so no existing flow or test needed to change.
+- **`CashTransaction`** — a controlled mechanism for cash movements outside the
+  existing Payment/Supplier Payment flows (a bank charge, a petty cash payment, a
+  miscellaneous receipt), posting against an explicit, user-chosen, non-system
+  Chart of Accounts "Contra Account" — the same Path B policy Supplier Invoices
+  (Sprint 12) already established. Customer/supplier payments continue to use their
+  own existing workflows unchanged.
+- **Bank Statement Import** — manual entry via a CSV upload, with a client-side
+  column-mapping step (`Transaction Date`/`Description`/`Debit`/`Credit`/
+  `Reference`/etc. → Zentuva fields) since not every bank exports the same columns.
+  The backend independently re-validates and deduplicates every row (a content
+  hash plus, where supplied, a stable external reference) — never trusting
+  client-side parsing/validation alone.
+- **Reconciliation** — a session for one `CashAccount` over one bank-statement
+  period, showing Matched / Unmatched Bank / Unmatched Book panels and a live
+  Book-Balance-vs-Bank-Statement-Balance Difference. A bulk "Auto-match Exact"
+  action matches only unambiguous same-date/same-amount pairs; anything else is
+  matched manually, one pair at a time. `complete()` is blocked while any bank or
+  book item remains unmatched — never a silent "force the books to equal the
+  bank." Once `COMPLETED`, a session is immutable; reopening one is explicit
+  deferred work (§15).
+- **Book Balance vs Reconciled Balance vs Unreconciled Difference** — the central
+  UX distinction (brief-driven): Book Balance is always live from the General
+  Ledger (`LedgerService.getAccountActivity`, unchanged since Sprint 7/13);
+  Reconciled Balance is the most recent `COMPLETED` session's own
+  `closingBankBalance`; Unreconciled Difference is simply their gap. None of the
+  three is ever labelled "available cash."
+
+### Admin Surface
+
+Five new tabs on `/settings/finance/*`: **Cash Overview** (the Cash Position
+Dashboard — Total Cash, Bank Balances, Cash on Hand, Unreconciled, Recent
+Transactions, Accounts Requiring Reconciliation), **Cash Accounts** (list + a full
+detail page per account, not a dialog — Book/Reconciled/Unreconciled strip, masked
+number + reveal, recent activity, reconciliation history, statement imports),
+**Cash Transactions**, **Bank Statements** (the CSV import wizard), and
+**Reconciliation** (session list + a matching workspace per session). The existing
+Sprint 13 Management Dashboard gained two small cross-link cards (Total Cash,
+Unreconciled) rather than being folded into a second, busier dashboard.
+
+### API Reference (Sprint 14)
+
+See [Accounting](accounting.md) §18 for the full endpoint table (`/finance/cash/
+accounts`, `/finance/cash/transactions`, `/finance/cash/bank-statements/*`,
+`/finance/cash/reconciliations/*`, `/finance/cash/overview`).
+
+### Known Limitations (Sprint 14)
+
+- **No field-level encryption for `accountNumber`** — stored in full, masked at the
+  API response layer only. No crypto-at-rest infrastructure exists anywhere else in
+  this codebase to build on; documented as a known hardening gap, not a security
+  guarantee this sprint claims to provide.
+- **No reopening a completed reconciliation** — a correction happens via a new
+  `CashTransaction`/journal entry handled in a later session.
+- **No bank API integration, Open Banking, or automatic bank connections** — manual
+  entry and CSV import only, per the brief's own explicit non-goal.
+- **No loan management, debt management, investment management, capital planning,
+  or cashflow forecasting** — this sprint is deliberately only the foundation those
+  future capabilities would build on (a `CashAccount`/Chart-of-Accounts link and the
+  `accountId`-based posting mechanism already support a future `DR Bank / CR Loan
+Liability`-style entry without further schema change).
+- **No CSV export of reconciliation results, and no multi-currency treasury
+  engine** — `CashAccount.currency` is a plain string per account, not a converting
+  engine.
+- **Reconciliation matching is intentionally simple** — a single deterministic
+  same-date/same-amount bulk auto-match plus fully manual matching, never a
+  confidence-scored suggestion engine. `ReconciliationMatch.confidenceScore` exists
+  as an unused, future-proofing column only.

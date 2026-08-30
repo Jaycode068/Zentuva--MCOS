@@ -114,6 +114,9 @@ export const createSupplierPaymentSchema = z.object({
   paymentDate: z.coerce.date(),
   reference: z.string().trim().max(200).optional(),
   notes: z.string().trim().max(2000).optional(),
+  /** Added Sprint 14 (docs/domains/cash-management.md) — which specific
+   *  `CashAccount` money was paid from. Optional. */
+  cashAccountId: z.string().trim().min(1).optional(),
   idempotencyKey: z.string().trim().min(1).max(100).optional(),
 });
 export type CreateSupplierPaymentInput = z.infer<typeof createSupplierPaymentSchema>;

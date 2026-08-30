@@ -167,6 +167,12 @@ model Organisation {
   supplierInvoices                 SupplierInvoice[]
   supplierPayments                 SupplierPayment[]
   supplierCreditNotes              SupplierCreditNote[]
+  /// Added Sprint 14 — Cash & Bank Management (docs/domains/cash-management.md).
+  cashAccounts                     CashAccount[]
+  cashTransactions                 CashTransaction[]
+  bankStatementImports             BankStatementImport[]
+  bankStatementTransactions        BankStatementTransaction[]
+  bankReconciliations              BankReconciliation[]
 
   @@map("organisations")
 }
@@ -2373,6 +2379,13 @@ model Payment {
   reference      String?
   notes          String?
   status         PaymentStatus @default(RECORDED)
+  /// Added Sprint 14 (docs/domains/cash-management.md) — which specific
+  /// `CashAccount` received the money. Nullable and optional: when absent, posting
+  /// falls back to the pre-Sprint-14 behaviour of resolving the generic `CASH`/
+  /// `BANK` system account from `method` alone — existing rows/flows are
+  /// unaffected. When present, the posting line targets that account's own
+  /// dedicated Chart of Accounts row instead.
+  cashAccountId  String?
   /// Client-supplied, optional. Same double-submit protection as every
   /// other idempotency key in this codebase.
   idempotencyKey String?
@@ -2382,11 +2395,13 @@ model Payment {
 
   organisation Organisation        @relation(fields: [organisationId], references: [id], onDelete: Cascade)
   customer     Customer            @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  cashAccount  CashAccount?        @relation(fields: [cashAccountId], references: [id], onDelete: Restrict)
   allocations  PaymentAllocation[]
 
   @@unique([customerId, idempotencyKey])
   @@index([organisationId])
   @@index([organisationId, customerId])
+  @@index([cashAccountId])
   @@map("payments")
 }
 
@@ -2530,6 +2545,11 @@ model ChartOfAccount {
   /// Added Sprint 12 — the "Debit Account" a Path B `SupplierInvoiceItem` (no Goods
   /// Receipt reference) posts against, e.g. a Logistics/Utilities Expense account.
   supplierInvoiceItems SupplierInvoiceItem[]
+  /// Added Sprint 14 — the dedicated CoA row a `CashAccount` is linked to (system-
+  /// provisioned, never the generic `CASH`/`BANK` system accounts), and the "Contra
+  /// Account" side of a `CashTransaction`.
+  cashAccount                CashAccount?
+  cashTransactionsAsContra   CashTransaction[]
 
   @@unique([organisationId, code])
   /// Multiple `NULL`s are allowed in a Postgres unique index — only accounts
@@ -2631,6 +2651,9 @@ model JournalEntryLine {
 
   journalEntry JournalEntry   @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
   account      ChartOfAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  /// Added Sprint 14 — set when this line has been matched to a bank statement
+  /// transaction during reconciliation (docs/domains/cash-management.md).
+  reconciliationMatch ReconciliationMatch?
 
   @@index([journalEntryId])
   @@index([accountId])
@@ -3037,6 +3060,9 @@ model SupplierPayment {
   reference      String?
   notes          String?
   status         PaymentStatus @default(RECORDED)
+  /// Added Sprint 14 — see `Payment.cashAccountId`'s doc comment; identical
+  /// optional/backward-compatible semantics on the supplier side.
+  cashAccountId  String?
   idempotencyKey String?
   createdById    String?
   createdAt      DateTime      @default(now())
@@ -3044,11 +3070,13 @@ model SupplierPayment {
 
   organisation Organisation                @relation(fields: [organisationId], references: [id], onDelete: Cascade)
   supplier     Supplier                    @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  cashAccount  CashAccount?                @relation(fields: [cashAccountId], references: [id], onDelete: Restrict)
   allocations  SupplierPaymentAllocation[]
 
   @@unique([supplierId, idempotencyKey])
   @@index([organisationId])
   @@index([organisationId, supplierId])
+  @@index([cashAccountId])
   @@map("supplier_payments")
 }
 
@@ -3102,4 +3130,290 @@ model SupplierCreditNote {
   @@index([organisationId])
   @@index([organisationId, supplierId])
   @@map("supplier_credit_notes")
+}
+
+// ============================================================================
+// Sprint 14 — Cash & Bank Management / Reconciliation Foundation
+// (docs/domains/cash-management.md)
+//
+// CORE PRINCIPLE: the General Ledger remains the sole accounting source of truth.
+// `CashAccount` links to its own dedicated, system-provisioned `ChartOfAccount` row
+// (never the generic `CASH`/`BANK` system accounts a plain `Payment.method` still
+// falls back to) so a "book balance" per bank/cash account can be derived live from
+// `JournalEntryLine`, exactly the way every other balance in this codebase already
+// is. No model here independently stores a balance that could drift from the GL —
+// see each model's own doc comment for the specific reasoning.
+// ============================================================================
+
+enum CashAccountType {
+  BANK
+  CASH
+  OTHER_CASH_EQUIVALENT
+}
+
+enum CashAccountStatus {
+  ACTIVE
+  INACTIVE
+}
+
+/// Cash movements recorded directly against a `CashAccount` that originate outside
+/// the existing `Payment`/`SupplierPayment` flows (a bank charge, a petty cash
+/// payment, a miscellaneous non-invoice receipt) — never a substitute for either of
+/// those workflows.
+enum CashTransactionType {
+  RECEIPT
+  PAYMENT
+}
+
+/// `UNMATCHED` (default) -> `MATCHED` (paired to a `JournalEntryLine` via a
+/// `ReconciliationMatch` inside an `IN_PROGRESS` session) -> `RECONCILED` (that
+/// session has been marked `COMPLETED`). A same-transaction-maintained mirror of
+/// `ReconciliationMatch`'s own existence — never independently editable.
+enum BankTransactionMatchStatus {
+  UNMATCHED
+  MATCHED
+  RECONCILED
+}
+
+/// `IN_PROGRESS` (freely matched/unmatched) -> `COMPLETED` (immutable — see
+/// `BankReconciliationRepository.complete()`'s zero-unmatched rule). Reopening a
+/// completed session is explicitly deferred (docs/domains/cash-management.md
+/// "Known Limitations") — corrections happen via a new correcting transaction
+/// handled in a subsequent session, the same "never rewrite history" convention
+/// `Payment.void()`/`SupplierPayment.void()` already establish.
+enum BankReconciliationStatus {
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum ReconciliationMatchType {
+  MANUAL
+  EXACT_AUTO
+}
+
+/// An actual place an organisation holds money — a specific bank account, a petty
+/// cash drawer, a POS settlement account. Distinct from the generic `CASH`/`BANK`
+/// system accounts every `Payment`/`SupplierPayment` posted against pre-Sprint-14:
+/// each `CashAccount` gets its OWN dedicated, non-system `ChartOfAccount` row
+/// (`linkedChartOfAccountId`, system-provisioned at `create()`, never a
+/// user-supplied create input) so its book balance is always derivable on its own
+/// from `JournalEntryLine`, never a shared/collapsed figure.
+model CashAccount {
+  id             String            @id @default(cuid())
+  organisationId String
+  /// Tenant-defined, e.g. "CASH-001" — unique per organisation, not global.
+  accountCode    String
+  name           String
+  accountType    CashAccountType
+  currency       String
+  bankName       String?
+  /// Stored in full — see `accountNumberMasked` (API response layer only, never a
+  /// DB column) for the masked value every list/detail read returns. No
+  /// field-level encryption exists anywhere in this codebase to build on; this is
+  /// documented as a known limitation, not a security gap this sprint claims to
+  /// close (docs/domains/cash-management.md "Known Limitations"). Never included
+  /// in any audit `metadata` payload — see `cash-bank-audit-actions.ts`.
+  accountNumber  String?
+  accountName    String?
+  description    String?
+  status         CashAccountStatus @default(ACTIVE)
+  /// System-provisioned at `create()` — a dedicated child of the org's `CASH`/
+  /// `BANK`/`CASH_BANK_PARENT` system account (chosen by `accountType`), never the
+  /// system account itself. `@unique` — exactly one `CashAccount` per CoA row.
+  linkedChartOfAccountId String       @unique
+  /// Write-once provenance of what was entered at `create()` time — NOT a live
+  /// balance. The actual accounting fact is the journal entry posted alongside it
+  /// (`sourceType: 'CASH_ACCOUNT_OPENING_BALANCE'`); this column is never updated
+  /// afterward.
+  openingBalance     Float    @default(0)
+  openingBalanceDate DateTime?
+  /// Guards `create()` — the whole operation (CoA provisioning + opening-balance
+  /// posting) is money-affecting and must be replay-safe, same Sprint 9/10 lesson
+  /// every other financially-material create() in this codebase follows.
+  idempotencyKey String?
+  createdById    String?
+  updatedById    String?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  organisation         Organisation   @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  linkedChartOfAccount ChartOfAccount @relation(fields: [linkedChartOfAccountId], references: [id], onDelete: Restrict)
+  cashTransactions           CashTransaction[]
+  bankStatementImports       BankStatementImport[]
+  bankStatementTransactions  BankStatementTransaction[]
+  bankReconciliations        BankReconciliation[]
+  payments                   Payment[]
+  supplierPayments           SupplierPayment[]
+
+  @@unique([organisationId, accountCode])
+  @@unique([organisationId, idempotencyKey])
+  @@index([organisationId])
+  @@index([organisationId, status])
+  @@map("cash_accounts")
+}
+
+/// A cash movement recorded directly against a `CashAccount`, outside the existing
+/// `Payment`/`SupplierPayment` flows (see `CashTransactionType`'s doc comment). The
+/// "other side" of the entry is an explicit, user-chosen `contraAccountId` —
+/// service-validated to be a non-system, tenant-owned account — the same "Path B"
+/// pattern `SupplierInvoiceItem.debitAccountId` (Sprint 12) already established.
+/// `RECEIPT` posts `DR <cash account's CoA> / CR contraAccount`; `PAYMENT` posts the
+/// reverse. Stores no balance of its own — every figure is derived from the
+/// `JournalEntryLine`s this posts.
+model CashTransaction {
+  id              String              @id @default(cuid())
+  organisationId  String
+  cashAccountId   String
+  transactionType CashTransactionType
+  transactionDate DateTime
+  amount          Float
+  description     String
+  reference       String?
+  contraAccountId String
+  status          PaymentStatus       @default(RECORDED)
+  idempotencyKey  String?
+  createdById     String?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  organisation  Organisation   @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  cashAccount   CashAccount    @relation(fields: [cashAccountId], references: [id], onDelete: Restrict)
+  contraAccount ChartOfAccount @relation(fields: [contraAccountId], references: [id], onDelete: Restrict)
+
+  @@unique([cashAccountId, idempotencyKey])
+  @@index([organisationId])
+  @@index([organisationId, cashAccountId])
+  @@map("cash_transactions")
+}
+
+/// One CSV import batch (brief §7/§8) against a single `CashAccount`. Header/summary
+/// only — the actual rows are `BankStatementTransaction`s referencing this via
+/// `importBatchId`. Idempotency-gated the same way every other financially-material
+/// (here: reconciliation-affecting) create in this codebase is.
+model BankStatementImport {
+  id             String   @id @default(cuid())
+  organisationId String
+  cashAccountId  String
+  filename       String
+  importedById   String?
+  importedAt     DateTime @default(now())
+  idempotencyKey String?
+  totalRows      Int      @default(0)
+  importedRows   Int      @default(0)
+  duplicateRows  Int      @default(0)
+  errorRows      Int      @default(0)
+
+  organisation Organisation               @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  cashAccount  CashAccount                @relation(fields: [cashAccountId], references: [id], onDelete: Restrict)
+  transactions BankStatementTransaction[]
+
+  @@unique([cashAccountId, idempotencyKey])
+  @@index([organisationId, cashAccountId])
+  @@map("bank_statement_imports")
+}
+
+/// One row of an external bank statement — via manual entry or CSV import (brief
+/// §7/§8). `balance` (where the statement supplied a running balance) is a
+/// display-only copy of what the bank reported, never used in any reconciliation
+/// difference computation. `dedupeHash`/`externalReference` are the two independent
+/// duplicate-detection layers a re-import is checked against (see
+/// `bank-statement.service.ts`).
+model BankStatementTransaction {
+  id                String                      @id @default(cuid())
+  organisationId    String
+  cashAccountId     String
+  importBatchId     String?
+  transactionDate   DateTime
+  valueDate         DateTime?
+  description       String
+  reference         String?
+  debit             Float                       @default(0)
+  credit            Float                       @default(0)
+  /// `credit - debit`, computed at write time — never independently edited.
+  amount            Float
+  /// Display-only — see model doc comment.
+  balance           Float?
+  externalReference String?
+  importedAt        DateTime                    @default(now())
+  /// `sha256(cashAccountId|date|debit|credit|reference|description)` — see
+  /// `bank-statement.service.ts` for the exact normalisation. Deterministic
+  /// duplicate-detection layer one.
+  dedupeHash        String
+  matchStatus       BankTransactionMatchStatus  @default(UNMATCHED)
+
+  organisation Organisation          @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  cashAccount  CashAccount           @relation(fields: [cashAccountId], references: [id], onDelete: Restrict)
+  importBatch  BankStatementImport?  @relation(fields: [importBatchId], references: [id], onDelete: Restrict)
+  match        ReconciliationMatch?
+
+  @@unique([cashAccountId, dedupeHash])
+  /// Multiple `NULL`s allowed (Postgres semantics) — only rows that actually
+  /// supplied an external reference constrain each other. Duplicate-detection
+  /// layer two.
+  @@unique([cashAccountId, externalReference])
+  @@index([organisationId, cashAccountId])
+  @@index([cashAccountId, transactionDate])
+  @@map("bank_statement_transactions")
+}
+
+/// A reconciliation session for one `CashAccount` over one bank-statement period
+/// (brief §9) — deliberately a free date range, not tied to `AccountingPeriod` (a
+/// bank statement cycle is bank-defined, and this model never itself posts a
+/// journal entry, so it has no "open period" to respect). `openingBankBalance`/
+/// `closingBankBalance` are user-entered facts copied from the physical statement
+/// — external reality, not derived from Zentuva's own books, so they cannot "drift"
+/// from the GL; they're the very thing the GL is being checked against. Only one
+/// `IN_PROGRESS` session per `CashAccount` is permitted at a time (service-enforced).
+model BankReconciliation {
+  id                 String                    @id @default(cuid())
+  organisationId     String
+  cashAccountId      String
+  periodStart        DateTime
+  periodEnd          DateTime
+  openingBankBalance Float
+  closingBankBalance Float
+  status             BankReconciliationStatus @default(IN_PROGRESS)
+  reconciledById     String?
+  reconciledAt       DateTime?
+  idempotencyKey     String?
+  createdById        String?
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
+
+  organisation Organisation           @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  cashAccount  CashAccount            @relation(fields: [cashAccountId], references: [id], onDelete: Restrict)
+  matches      ReconciliationMatch[]
+
+  @@unique([cashAccountId, idempotencyKey])
+  @@index([organisationId, cashAccountId])
+  @@index([organisationId, status])
+  @@map("bank_reconciliations")
+}
+
+/// A confirmed pairing between one `BankStatementTransaction` and one book-side
+/// `JournalEntryLine` — deliberately references the GL row directly rather than
+/// `Payment`/`SupplierPayment`/`CashTransaction` polymorphically: every book-side
+/// cash movement ultimately produces exactly one `JournalEntryLine` against the
+/// cash account's linked `ChartOfAccount`, so this is the literal embodiment of
+/// "the GL remains the source of truth." Both foreign keys are globally unique — a
+/// given bank line and a given book line can only ever correspond to each other
+/// once, full stop. `confidenceScore` is intentionally unused in Sprint 14 — a
+/// future-proofing column only, for a possible future suggested-match mode.
+model ReconciliationMatch {
+  id                         String                   @id @default(cuid())
+  bankReconciliationId       String
+  bankStatementTransactionId String                   @unique
+  journalEntryLineId         String                   @unique
+  matchType                  ReconciliationMatchType
+  confidenceScore            Float?
+  matchedById                String?
+  matchedAt                  DateTime                 @default(now())
+  createdAt                  DateTime                 @default(now())
+
+  bankReconciliation       BankReconciliation       @relation(fields: [bankReconciliationId], references: [id], onDelete: Restrict)
+  bankStatementTransaction BankStatementTransaction @relation(fields: [bankStatementTransactionId], references: [id], onDelete: Restrict)
+  journalEntryLine         JournalEntryLine         @relation(fields: [journalEntryLineId], references: [id], onDelete: Restrict)
+
+  @@index([bankReconciliationId])
+  @@map("reconciliation_matches")
 }

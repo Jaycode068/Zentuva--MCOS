@@ -116,7 +116,8 @@ Inventory`, one journal per batch, valued at Inventory's own moving-weighted-
       supplier-side mirror — Accounts Payable & Supplier Invoice Management, see
       finance.md §12; Sprint 13 added a read-only Financial Statements & Management
       Reporting layer — Profit & Loss, Balance Sheet, AR/AP ageing, Inventory
-      Valuation/Reconciliation, a Management Dashboard — see finance.md §13
+      Valuation/Reconciliation, a Management Dashboard — see finance.md §13; Sprint 14
+      gave `Payment`/`SupplierPayment` an optional `cashAccountId` — see finance.md §14
 - [x] Accounting — foundation shipped Sprint 7 (tenant-defined Chart of Accounts,
       Accounting Periods, double-entry Journal Entries, General Ledger/Trial Balance/
       Account Activity; Finance's Invoice/Payment/Credit-Note events post
@@ -143,11 +144,30 @@ Sold / CR Finished Goods Inventory`, no new system accounts needed — `COGS` ha
       schema changes**), a computed "Retained Earnings (Undistributed)" line makes
       the accounting equation hold without a year-end-closing mechanism, and AR/AP
       ageing plus an Inventory-to-Ledger Reconciliation (surfaces, never
-      auto-corrects, a discrepancy) round out the reporting layer; not a complete
-      accounting system — Cash Flow Statement, Bank Reconciliation, payment runs, an
-      approval workflow to reclassify GRNI into AP, labour/machine/overhead costing,
+      auto-corrects, a discrepancy) round out the reporting layer; Sprint 14 added
+      two elevated system accounts (`CASH_BANK_PARENT`, `OPENING_BALANCE_EQUITY`)
+      backing Cash & Bank Management's opening-balance postings (below); not a
+      complete accounting system — Cash Flow Statement, payment runs, an approval
+      workflow to reclassify GRNI into AP, labour/machine/overhead costing,
       budgeting/forecasting, and multi-company consolidation remain — see
       [`docs/domains/accounting.md`](domains/accounting.md)
+- [x] Cash & Bank Management — foundation shipped Sprint 14 ("Cash & Bank
+      Management / Reconciliation Foundation"). A `CashAccount` master, each linked
+      to its own dedicated, system-provisioned Chart of Accounts row (never the
+      generic `CASH`/`BANK` system accounts every `Payment`/`SupplierPayment`
+      posted against before this sprint); an optional opening balance posted
+      atomically at account creation; `CashTransaction` for cash movements outside
+      the existing Payment/Supplier Payment flows; CSV bank-statement import
+      (client-side column mapping, server-side re-validation and two-layer
+      deduplication); and a `BankReconciliation` workflow — bulk unambiguous
+      auto-match, manual match, a hard zero-unmatched completion rule, immutable
+      once completed — distinguishing Book Balance from Reconciled Balance from
+      Unreconciled Difference. Never a second accounting system: every posting goes
+      through the same `postSystemJournalEntry` boundary every other domain uses,
+      and `BankReconciliation` itself posts nothing at all. Explicitly a foundation
+      for future cashflow forecasting, loan/debt/investment management, and
+      capital-planning intelligence — none of which this sprint builds — see
+      [`docs/domains/cash-management.md`](domains/cash-management.md)
 
 ## Phase 3 — Extended Experiences
 

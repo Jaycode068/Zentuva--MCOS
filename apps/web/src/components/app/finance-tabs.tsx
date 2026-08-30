@@ -21,6 +21,12 @@ const TABS = [
   { label: 'General Ledger', href: '/settings/finance/ledger' },
   { label: 'Trial Balance', href: '/settings/finance/trial-balance' },
   { label: 'Accounting Periods', href: '/settings/finance/accounting-periods' },
+  // Added Sprint 14 — Cash & Bank Management / Reconciliation Foundation.
+  { label: 'Cash Overview', href: '/settings/finance/cash' },
+  { label: 'Cash Accounts', href: '/settings/finance/cash-accounts' },
+  { label: 'Cash Transactions', href: '/settings/finance/cash-transactions' },
+  { label: 'Bank Statements', href: '/settings/finance/bank-statements' },
+  { label: 'Reconciliation', href: '/settings/finance/reconciliation' },
 ];
 
 /** Shared sub-navigation for the ten `/settings/finance/*` pages (Sprint 6 Finance +
