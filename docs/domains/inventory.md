@@ -769,6 +769,28 @@ the [Sprint 11 Completion Report](../sprint-11-completion-report.md).
   or hold-status model on `InventoryStock` itself. A future warehouse module would add
   that; Sprint 11 deliberately does not.
 
+## 11e. Finance's Read-Only Reporting Reach (Sprint 13)
+
+Sprint 13 gave [Finance](finance.md) §13 an Inventory Valuation report and an
+Inventory-to-Ledger Reconciliation report — both need `InventoryStock.
+quantityOnHand × averageUnitCost`, reusing this domain's own Sprint 9
+moving-weighted-average costing figure rather than building a second costing engine.
+This is the first time Finance has ever read Inventory's tables. Rather than
+importing `InventoryModule` (which would widen `FinanceModule`'s whole dependency
+graph and weaken the "Finance never imports InventoryModule" guarantee
+`finance-independence.spec.ts` has held since Sprint 6), `InventoryValuationService`
+reaches directly into `this.prisma.inventoryStock.findMany(...)` — **read-only, no
+transaction, no write verb anywhere in the file** — the same "narrow, documented
+exception to reach into another domain's own table" pattern Sprint 11/12 already used
+for _writes_ inside a self-owned transaction (`SupplierReturnRepository`/
+`SupplierInvoiceRepository` reaching into `tx.goodsReceiptItem`), applied here to a
+plain read instead. `finance-independence.spec.ts`'s existing assertion needed **zero
+changes**; a new `reports-independence.spec.ts` (in Finance) separately confirms the
+new reporting files never write to `inventoryStock`/`inventoryTransaction` and never
+import an Inventory service or controller — only the plain Prisma client. Inventory's
+own module boundary and costing logic are unchanged by this; it is purely a new,
+narrow consumer reading a table it already owned.
+
 ## 11. Known Limitations (Sprint 4.5)
 
 - **No full Warehouse Management System.** `InventoryLocation` is deliberately minimal —

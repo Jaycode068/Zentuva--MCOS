@@ -12,6 +12,10 @@ const TABS = [
   // Added Sprint 12 — Accounts Payable & Supplier Invoice Management.
   { label: 'Payables', href: '/settings/finance/payables' },
   { label: 'Supplier Payments', href: '/settings/finance/supplier-payments' },
+  // Added Sprint 13 — Financial Statements & Management Reporting Foundation.
+  { label: 'Profit & Loss', href: '/settings/finance/profit-loss' },
+  { label: 'Balance Sheet', href: '/settings/finance/balance-sheet' },
+  { label: 'Inventory Valuation', href: '/settings/finance/inventory-valuation' },
   { label: 'Chart of Accounts', href: '/settings/finance/accounts' },
   { label: 'Journal Entries', href: '/settings/finance/journal-entries' },
   { label: 'General Ledger', href: '/settings/finance/ledger' },

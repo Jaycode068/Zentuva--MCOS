@@ -5,6 +5,19 @@ import { PrismaService } from '../prisma/prisma.service';
 import { SYSTEM_ACCOUNT_KEYS } from './accounting/chart-of-account-keys';
 import { postSystemJournalEntry } from './accounting/journal-posting';
 
+/** One row of `getOutstandingForAging`'s result (Sprint 13, docs/domains/finance.md
+ *  "Accounts Receivable Aging") — everything `AccountsReceivableService.
+ *  getAgingReport()` needs to bucket by days-past-due, nothing more. */
+export interface AgingInvoiceRow {
+  id: string;
+  invoiceCode: string;
+  customerId: string;
+  customerCode: string;
+  customerName: string;
+  dueDate: Date;
+  amountOutstanding: number;
+}
+
 export interface ListInvoicesParams {
   status?: InvoiceStatus;
   customerId?: string;
@@ -227,6 +240,111 @@ export class InvoiceRepository {
     return result._sum.total ?? 0;
   }
 
+  /** Every still-payable invoice's `dueDate`+outstanding balance — the raw material
+   *  for `AccountsReceivableService.getAgingReport()` (Sprint 13). Deliberately a
+   *  lean, purpose-built `select`, not `findManyByOrganisation`'s full relations. */
+  async getOutstandingForAging(organisationId: string): Promise<AgingInvoiceRow[]> {
+    const invoices = await this.prisma.invoice.findMany({
+      where: { organisationId, status: { in: PAYABLE_INVOICE_STATUSES } },
+      select: {
+        id: true,
+        invoiceCode: true,
+        dueDate: true,
+        total: true,
+        amountPaid: true,
+        amountCredited: true,
+        customer: { select: CUSTOMER_SELECT },
+      },
+    });
+    return invoices.map((invoice) => ({
+      id: invoice.id,
+      invoiceCode: invoice.invoiceCode,
+      customerId: invoice.customer.id,
+      customerCode: invoice.customer.customerCode,
+      customerName: invoice.customer.customerName,
+      dueDate: invoice.dueDate,
+      amountOutstanding: roundCurrency(invoice.total - invoice.amountPaid - invoice.amountCredited),
+    }));
+  }
+
+  /** Per-product revenue breakdown for a date range (Sprint 13, docs/domains/
+   *  accounting.md §16.4) — sums `InvoiceItem.lineTotal`, which totals up to exactly
+   *  `Invoice.total` per invoice, the same tax-inclusive figure `SALES_REVENUE` is
+   *  credited for at `issue()` (above) — so this breakdown reconciles in aggregate
+   *  to the GL-tied headline revenue figure `FinancialStatementService` reports,
+   *  never a second, independently-derived revenue number. Excludes `DRAFT`/`VOID`
+   *  invoices — an unissued or voided invoice was never recognised as revenue. */
+  async getRevenueByProduct(
+    organisationId: string,
+    params: { from?: Date; to?: Date } = {},
+  ): Promise<{ productId: string | null; productName: string; totalRevenue: number }[]> {
+    const grouped = await this.prisma.invoiceItem.groupBy({
+      by: ['productId', 'productName'],
+      where: {
+        invoice: {
+          organisationId,
+          status: { notIn: [InvoiceStatus.DRAFT, InvoiceStatus.VOID] },
+          ...(params.from || params.to
+            ? {
+                invoiceDate: {
+                  ...(params.from ? { gte: params.from } : {}),
+                  ...(params.to ? { lte: params.to } : {}),
+                },
+              }
+            : {}),
+        },
+      },
+      _sum: { lineTotal: true },
+    });
+    return grouped
+      .map((group) => ({
+        productId: group.productId,
+        productName: group.productName,
+        totalRevenue: roundCurrency(group._sum.lineTotal ?? 0),
+      }))
+      .sort((a, b) => b.totalRevenue - a.totalRevenue);
+  }
+
+  /** Per-customer revenue breakdown for a date range — same rules as
+   *  `getRevenueByProduct` above (excludes `DRAFT`/`VOID`, sums `Invoice.total`). */
+  async getRevenueByCustomer(
+    organisationId: string,
+    params: { from?: Date; to?: Date } = {},
+  ): Promise<{ customerId: string; customerName: string; totalRevenue: number }[]> {
+    const invoices = await this.prisma.invoice.findMany({
+      where: {
+        organisationId,
+        status: { notIn: [InvoiceStatus.DRAFT, InvoiceStatus.VOID] },
+        ...(params.from || params.to
+          ? {
+              invoiceDate: {
+                ...(params.from ? { gte: params.from } : {}),
+                ...(params.to ? { lte: params.to } : {}),
+              },
+            }
+          : {}),
+      },
+      select: { total: true, customer: { select: CUSTOMER_SELECT } },
+    });
+    const byCustomer = new Map<
+      string,
+      { customerId: string; customerName: string; totalRevenue: number }
+    >();
+    for (const invoice of invoices) {
+      const existing = byCustomer.get(invoice.customer.id);
+      if (existing) {
+        existing.totalRevenue = roundCurrency(existing.totalRevenue + invoice.total);
+      } else {
+        byCustomer.set(invoice.customer.id, {
+          customerId: invoice.customer.id,
+          customerName: invoice.customer.customerName,
+          totalRevenue: roundCurrency(invoice.total),
+        });
+      }
+    }
+    return [...byCustomer.values()].sort((a, b) => b.totalRevenue - a.totalRevenue);
+  }
+
   /** A cheap, tenant-scoped conditional `updateMany` that transitions any invoice past
    *  its `dueDate` and still `ISSUED`/`PARTIALLY_PAID` to `OVERDUE`, run before every
    *  read in this repository. No cron/scheduler infrastructure exists anywhere in this
@@ -244,4 +362,10 @@ export class InvoiceRepository {
       data: { status: InvoiceStatus.OVERDUE },
     });
   }
+}
+
+/** Rounds to 2 decimal places for currency figures — same convention used throughout
+ *  this domain. */
+function roundCurrency(value: number): number {
+  return Math.round(value * 100) / 100;
 }

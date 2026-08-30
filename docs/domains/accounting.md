@@ -761,28 +761,155 @@ both reuse them directly. Only one new schema column was needed:
 `returnedQuantity`/`returnedExcessQuantity` from Sprint 11) — no new account, no new
 enum on the accounting side itself.
 
-## 14. API Reference
+## 16. Financial Statements & Management Reporting (Sprint 13)
 
-| Endpoint                                                   | Auth                | Notes                                                                      |
-| ---------------------------------------------------------- | ------------------- | -------------------------------------------------------------------------- |
-| `GET /api/finance/accounts`                                | Any authenticated   | `?type=&isActive=&search=`                                                 |
-| `GET /api/finance/accounts/:id`                            | Any authenticated   |                                                                            |
-| `POST /api/finance/accounts`                               | Owner/Administrator |                                                                            |
-| `PATCH /api/finance/accounts/:id`                          | Owner/Administrator | `code`/`type`/`systemKey` immutable                                        |
-| `POST /api/finance/accounts/:id/activate` \| `/deactivate` | Owner/Administrator | system accounts reject deactivate                                          |
-| `GET /api/finance/accounts/:id/activity`                   | Any authenticated   | `?from=&to=`                                                               |
-| `GET /api/finance/accounting-periods`                      | Any authenticated   |                                                                            |
-| `POST /api/finance/accounting-periods`                     | Owner/Administrator | overlap-checked                                                            |
-| `POST /api/finance/accounting-periods/:id/close`           | Owner/Administrator | only from `OPEN`                                                           |
-| `GET /api/finance/journal-entries`                         | Any authenticated   | `?status=&sourceType=&accountingPeriodId=`                                 |
-| `GET /api/finance/journal-entries/:id`                     | Any authenticated   |                                                                            |
-| `POST /api/finance/journal-entries`                        | Owner/Administrator | creates `DRAFT`, balance-validated                                         |
-| `POST /api/finance/journal-entries/:id/post`               | Owner/Administrator | atomic; period-open re-check                                               |
-| `POST /api/finance/journal-entries/:id/void`               | Owner/Administrator | bare status flip                                                           |
-| `GET /api/finance/ledger`                                  | Any authenticated   | `?accountId=&from=&to=&accountingPeriodId=&sourceType=&reference=&status=` |
-| `GET /api/finance/trial-balance`                           | Any authenticated   | `?from=&to=` or `?accountingPeriodId=`                                     |
+Sprints 7-12 built a real, GL-backed accounting engine but never a way to read it as a
+_statement_. Sprint 13 is a reporting layer only — it derives every figure from data
+that already exists (posted `JournalEntry`/`JournalEntryLine` rows, `Invoice`/
+`SupplierInvoice` rows, `InventoryStock`), and never writes a Journal Entry, adjusts a
+balance, or recomputes something another domain already owns. See
+[Finance](finance.md) §13 for the API/frontend surface; this section covers the
+accounting mechanics.
 
-## 15. Known Limitations
+### 16.1 The central formula — normal-balance-sign summation per `AccountType`
+
+`FinancialStatementService` (`apps/api/src/finance/reports/financial-statement.
+service.ts`) derives the Profit & Loss and Balance Sheet from `ChartOfAccount.type`
+alone — **no schema change was needed**. Every `POSTED` `JournalEntryLine`, grouped by
+account (via a new shared `getAccountBalances` helper in `ledger.service.ts`, also
+used by the pre-existing Trial Balance), has a raw `netBalance = debit − credit`.
+`Asset`/`Cost-of-Sales`/`Expense` accounts are **debit-normal** (`amount =
+netBalance`); `Liability`/`Equity`/`Revenue` accounts are **credit-normal** (`amount =
+-netBalance`). Summing signed amounts within one `AccountType` group nets contra
+accounts automatically — `SALES_RETURNS` (`type: REVENUE`, a contra-revenue account)
+correctly reduces `SALES_REVENUE`'s total with no "is this a contra account" flag
+anywhere. **Research confirmed this before any code was written** — this is the direct
+answer to "identify the minimum architectural enhancement required... do not create a
+large accounting redesign": the minimum is zero.
+
+**Profit & Loss**: Revenue = Σ(REVENUE), Cost of Sales = Σ(COST_OF_SALES), Gross
+Profit = Revenue − Cost of Sales, Operating Expenses = Σ(EXPENSE) (every `EXPENSE`
+account counts as operating — there is no way to split "Other Expense" from Operating
+using only `AccountType`, see §16.6), Net Profit = Gross Profit − Operating Expenses.
+Gross Margin = `null` (never `NaN`/`Infinity`) when Revenue is zero.
+
+**Balance Sheet**: Assets = Σ(ASSET), Liabilities = Σ(LIABILITY), recorded Equity =
+Σ(EQUITY). Both P&L and Balance Sheet reuse the exact same `getAccountBalances` query
+the Trial Balance already used since Sprint 7 — a Balance Sheet is simply "the Trial
+Balance's Asset/Liability/Equity rows, cumulative since inception rather than a
+period," reusing, never duplicating, the balance computation.
+
+### 16.2 Retained Earnings — computed, never a posted account
+
+This codebase has no year-end closing mechanism (unchanged by this sprint, per its
+own explicit non-goal — see §36 of the brief). Because every `JournalEntry` is
+balanced by construction, `Σ(Assets) − Σ(Liabilities) − Σ(recorded Equity)` at any
+instant _always_ exactly equals cumulative net income since the ledger's first
+posting — not a coincidence, the accounting equation holding through double-entry
+construction. The Balance Sheet therefore reports a computed **"Retained Earnings
+(Undistributed)"** line under Equity, equal to all-time net profit (a `getProfitAndLoss`
+call with no `from`, i.e. since inception, through the Balance Sheet's `asOf` date) —
+never a posted account, never something a future closing entry needs to reconcile
+against. `Assets = Liabilities + Equity` holds exactly, by construction, always; the
+service reports the raw `difference` rather than assuming it.
+
+### 16.3 Inventory Valuation & Inventory-to-Ledger Reconciliation
+
+`InventoryValuationService` computes `Σ(InventoryStock.quantityOnHand ×
+averageUnitCost)`, reusing Inventory's existing moving-weighted-average costing figure
+(Sprint 9) — no second costing engine. This is genuinely new territory for Finance,
+which has never read Inventory's tables: rather than importing `InventoryModule`
+(which would widen `FinanceModule`'s whole dependency graph), the service reaches
+directly into `this.prisma.inventoryStock.findMany(...)` — **read-only, no
+transaction** — the same "narrow, documented exception to reach into another domain's
+own table" pattern Sprint 11/12 established for _writes_ inside a self-owned
+transaction, applied here to a plain read. `finance-independence.spec.ts`'s existing
+"`FinanceModule` never imports `InventoryModule`" assertion needed **zero changes**
+and stays true (verified by `reports-independence.spec.ts`).
+
+`ReconciliationService` compares that subledger total against the GL's `INVENTORY +
+FINISHED_GOODS_INVENTORY` system-account balances (via a new `LedgerService.
+getSystemAccountBalance` helper). **`WIP` is deliberately excluded** — it represents
+in-progress production value with no corresponding `InventoryStock` row, not physical
+stock on a shelf. The report returns `{inventorySubledgerValue, glInventoryBalance,
+difference}` and **never adjusts either side** — a real difference (and live
+verification against this codebase's own accumulated Sprint 8-12 test data did surface
+one) is a genuine finding for accounting to investigate, not something this report may
+silently fix (brief §15/§33).
+
+### 16.4 AR/AP Aging, Revenue, and COGS reporting
+
+`AccountsReceivableService`/`AccountsPayableService` gained `getAgingReport()` —
+additive methods on the _existing_ services (aging is more AR/AP reporting, not a new
+domain). Standard Current/1-30/31-60/61-90/90+ buckets by `asOf − dueDate` in days,
+computed purely in the service layer — no aging-bucket concept existed anywhere in
+this codebase before (`OVERDUE` was, and remains, a lazy boolean sweep with no
+days-past-due number stored). AP's aging additionally surfaces `GRNI_PENDING_
+APPROVAL`'s current balance and a count of `DISCREPANCY`-matchStatus invoices.
+
+Revenue/COGS reporting uses two deliberately different, non-competing sources: the
+headline **total** always comes from `JournalEntryLine` filtered to `SALES_REVENUE`/
+`SALES_RETURNS` or `COGS` (ties exactly to the GL — the same `getAccountBalances`
+query underlying §16.1); a supplementary **by-product/by-customer breakdown** comes
+from `Invoice`/`InvoiceItem` (Finance's own tables) for revenue, and a new read-only
+`SalesFulfilmentRepository.getCogsBreakdownByProduct()` (summing `SalesFulfilmentItem.
+costAmount`, exported via `SalesModule`, already imported by `FinanceModule` since
+Sprint 10) for COGS. Neither breakdown is treated as a second source of truth for the
+headline number.
+
+### 16.5 Management Dashboard
+
+`DashboardService` composes — never recomputes — the above: P&L totals + Gross
+Margin, `AccountsReceivableService.getSummary()`, `AccountsPayableService.
+getSummary()`, and `InventoryValuationService`'s grand total, for a selected period,
+plus an optional comparison to the immediately-preceding period of identical length
+(`null`, not misleading zeroes, when that period has zero posted activity at all). A
+small Operational section (Sales Orders count/total, `ProductionRun.completedAt`
+count) uses the same narrow, direct read-only Prisma reach as §16.3, kept
+intentionally tiny — "what is happening right now," not every metric this codebase
+could produce (brief §18).
+
+### 16.6 Known classification gap, deliberately not solved by a schema change
+
+`AccountType`'s six values (`ASSET|LIABILITY|EQUITY|REVENUE|COST_OF_SALES|EXPENSE`)
+cannot distinguish "Other Income"/"Other Expense" from Operating Revenue/Expense, or a
+Current from a Fixed Asset — every `REVENUE` account counts as operating revenue,
+every `EXPENSE` account as an operating expense in §16.1's P&L. No organisation's real
+Chart of Accounts today has an account that would need this distinction, so this is
+recorded as a known limitation (§18) rather than solved with new classification
+metadata — directly matching the brief's own "do not create a large accounting
+redesign" instruction.
+
+## 17. API Reference
+
+| Endpoint                                                   | Auth                | Notes                                                                                         |
+| ---------------------------------------------------------- | ------------------- | --------------------------------------------------------------------------------------------- |
+| `GET /api/finance/accounts`                                | Any authenticated   | `?type=&isActive=&search=`                                                                    |
+| `GET /api/finance/accounts/:id`                            | Any authenticated   |                                                                                               |
+| `POST /api/finance/accounts`                               | Owner/Administrator |                                                                                               |
+| `PATCH /api/finance/accounts/:id`                          | Owner/Administrator | `code`/`type`/`systemKey` immutable                                                           |
+| `POST /api/finance/accounts/:id/activate` \| `/deactivate` | Owner/Administrator | system accounts reject deactivate                                                             |
+| `GET /api/finance/accounts/:id/activity`                   | Any authenticated   | `?from=&to=`                                                                                  |
+| `GET /api/finance/accounting-periods`                      | Any authenticated   |                                                                                               |
+| `POST /api/finance/accounting-periods`                     | Owner/Administrator | overlap-checked                                                                               |
+| `POST /api/finance/accounting-periods/:id/close`           | Owner/Administrator | only from `OPEN`                                                                              |
+| `GET /api/finance/journal-entries`                         | Any authenticated   | `?status=&sourceType=&accountingPeriodId=`                                                    |
+| `GET /api/finance/journal-entries/:id`                     | Any authenticated   |                                                                                               |
+| `POST /api/finance/journal-entries`                        | Owner/Administrator | creates `DRAFT`, balance-validated                                                            |
+| `POST /api/finance/journal-entries/:id/post`               | Owner/Administrator | atomic; period-open re-check                                                                  |
+| `POST /api/finance/journal-entries/:id/void`               | Owner/Administrator | bare status flip                                                                              |
+| `GET /api/finance/ledger`                                  | Any authenticated   | `?accountId=&from=&to=&accountingPeriodId=&sourceType=&reference=&status=`                    |
+| `GET /api/finance/trial-balance`                           | Any authenticated   | `?from=&to=` or `?accountingPeriodId=`; rows now include `netBalance`/`systemKey` (Sprint 13) |
+| `GET /api/finance/reports/profit-loss`                     | Any authenticated   | `?from=&to=&accountingPeriodId=&compare=previous_period`                                      |
+| `GET /api/finance/reports/balance-sheet`                   | Any authenticated   | `?asOf=`                                                                                      |
+| `GET /api/finance/receivables/aging`                       | Any authenticated   | `?asOf=`                                                                                      |
+| `GET /api/finance/accounts-payable/aging`                  | Any authenticated   | `?asOf=`                                                                                      |
+| `GET /api/finance/reports/inventory-valuation`             | Any authenticated   | `?locationId=&productType=`                                                                   |
+| `GET /api/finance/reports/reconciliation`                  | Any authenticated   | Inventory-to-GL only, this sprint                                                             |
+| `GET /api/finance/reports/revenue` \| `/cogs`              | Any authenticated   | `?from=&to=`                                                                                  |
+| `GET /api/finance/reports/dashboard`                       | Any authenticated   | `?from=&to=&compare=previous_period`                                                          |
+
+## 18. Known Limitations
 
 - No re-opening a closed accounting period, and no year-end closing automation.
 - `VOID` never generates an automatic reversing entry — a correction is a new manual

@@ -469,6 +469,9 @@ export function voidJournalEntry(id: string): Promise<JournalEntry> {
 /** `GET /finance/ledger` response line — see `LedgerService.getLedger`. */
 export interface LedgerLine {
   id: string;
+  /** Added Sprint 13 — the parent Journal Entry's own id, distinct from `id` above
+   *  (the line's own id) — needed to open its detail view. */
+  journalEntryId: string;
   date: string;
   journalNumber: string;
   account: { id: string; code: string; name: string };
@@ -513,8 +516,11 @@ export interface TrialBalanceRow {
   code: string;
   name: string;
   type: AccountType;
+  systemKey: string | null;
   debit: number;
   credit: number;
+  /** `debit − credit` — added Sprint 13, see `LedgerService`'s own doc comment. */
+  netBalance: number;
 }
 
 export interface TrialBalance {
@@ -902,5 +908,274 @@ export function getPurchaseOrderApSummary(
 ): Promise<PurchaseOrderApSummary> {
   return apiFetch<PurchaseOrderApSummary>(
     `/finance/accounts-payable/purchase-orders/${purchaseOrderId}`,
+  );
+}
+
+// === Reporting (Sprint 13, docs/domains/accounting.md §16) ===
+
+export interface FinancialStatementLine {
+  accountId: string;
+  code: string;
+  name: string;
+  amount: number;
+}
+
+export interface ProfitAndLossResult {
+  from: string | null;
+  to: string;
+  revenue: number;
+  revenueLines: FinancialStatementLine[];
+  costOfSales: number;
+  costOfSalesLines: FinancialStatementLine[];
+  grossProfit: number;
+  grossMarginPercent: number | null;
+  operatingExpenses: number;
+  operatingExpenseLines: FinancialStatementLine[];
+  netProfit: number;
+}
+
+export interface ProfitAndLossComparison {
+  current: ProfitAndLossResult;
+  previous: ProfitAndLossResult | null;
+}
+
+export interface BalanceSheetResult {
+  asOf: string;
+  assets: number;
+  assetLines: FinancialStatementLine[];
+  liabilities: number;
+  liabilityLines: FinancialStatementLine[];
+  recordedEquity: number;
+  equityLines: FinancialStatementLine[];
+  retainedEarnings: number;
+  totalEquity: number;
+  difference: number;
+  balanced: boolean;
+}
+
+export function getProfitAndLoss(
+  params: { from?: string; to?: string; accountingPeriodId?: string; compare?: boolean } = {},
+): Promise<ProfitAndLossComparison> {
+  const query = new URLSearchParams();
+  if (params.from) query.set('from', params.from);
+  if (params.to) query.set('to', params.to);
+  if (params.accountingPeriodId) query.set('accountingPeriodId', params.accountingPeriodId);
+  if (params.compare) query.set('compare', 'previous_period');
+  const queryString = query.toString();
+  return apiFetch<ProfitAndLossComparison>(
+    `/finance/reports/profit-loss${queryString ? `?${queryString}` : ''}`,
+  );
+}
+
+export function getBalanceSheet(params: { asOf?: string } = {}): Promise<BalanceSheetResult> {
+  const query = new URLSearchParams();
+  if (params.asOf) query.set('asOf', params.asOf);
+  const queryString = query.toString();
+  return apiFetch<BalanceSheetResult>(
+    `/finance/reports/balance-sheet${queryString ? `?${queryString}` : ''}`,
+  );
+}
+
+// --- AR / AP Aging ---
+
+export interface CustomerAgingRow {
+  customerId: string;
+  customerCode: string;
+  customerName: string;
+  current: number;
+  days1To30: number;
+  days31To60: number;
+  days61To90: number;
+  days90Plus: number;
+  totalOutstanding: number;
+}
+
+export interface ArAgingReport {
+  asOf: string;
+  current: number;
+  days1To30: number;
+  days31To60: number;
+  days61To90: number;
+  days90Plus: number;
+  totalOutstanding: number;
+  byCustomer: CustomerAgingRow[];
+}
+
+export function getArAging(params: { asOf?: string } = {}): Promise<ArAgingReport> {
+  const query = new URLSearchParams();
+  if (params.asOf) query.set('asOf', params.asOf);
+  const queryString = query.toString();
+  return apiFetch<ArAgingReport>(
+    `/finance/receivables/aging${queryString ? `?${queryString}` : ''}`,
+  );
+}
+
+export interface SupplierAgingRow {
+  supplierId: string;
+  supplierCode: string;
+  supplierName: string;
+  current: number;
+  days1To30: number;
+  days31To60: number;
+  days61To90: number;
+  days90Plus: number;
+  totalOutstanding: number;
+}
+
+export interface ApAgingReport {
+  asOf: string;
+  current: number;
+  days1To30: number;
+  days31To60: number;
+  days61To90: number;
+  days90Plus: number;
+  totalOutstanding: number;
+  bySupplier: SupplierAgingRow[];
+  grniPendingApprovalBalance: number;
+  discrepancyInvoiceCount: number;
+}
+
+export function getApAging(params: { asOf?: string } = {}): Promise<ApAgingReport> {
+  const query = new URLSearchParams();
+  if (params.asOf) query.set('asOf', params.asOf);
+  const queryString = query.toString();
+  return apiFetch<ApAgingReport>(
+    `/finance/accounts-payable/aging${queryString ? `?${queryString}` : ''}`,
+  );
+}
+
+// --- Inventory Valuation & Reconciliation ---
+
+export interface InventoryValuationLine {
+  productId: string;
+  productCode: string;
+  productName: string;
+  productType: string;
+  unit: string;
+  locationId: string;
+  locationName: string;
+  quantityOnHand: number;
+  averageUnitCost: number;
+  inventoryValue: number;
+}
+
+export interface InventoryValuationByCategory {
+  label: string;
+  value: number;
+}
+
+export interface InventoryValuationResult {
+  lines: InventoryValuationLine[];
+  totals: {
+    grandTotal: number;
+    byLocation: InventoryValuationByCategory[];
+    byProductType: InventoryValuationByCategory[];
+  };
+}
+
+export function getInventoryValuation(
+  params: { locationId?: string; productType?: string } = {},
+): Promise<InventoryValuationResult> {
+  const query = new URLSearchParams();
+  if (params.locationId) query.set('locationId', params.locationId);
+  if (params.productType) query.set('productType', params.productType);
+  const queryString = query.toString();
+  return apiFetch<InventoryValuationResult>(
+    `/finance/reports/inventory-valuation${queryString ? `?${queryString}` : ''}`,
+  );
+}
+
+export interface InventoryReconciliationResult {
+  asOf: string;
+  inventorySubledgerValue: number;
+  glInventoryBalance: number;
+  difference: number;
+  reconciled: boolean;
+}
+
+export function getInventoryReconciliation(): Promise<InventoryReconciliationResult> {
+  return apiFetch<InventoryReconciliationResult>('/finance/reports/reconciliation');
+}
+
+// --- Revenue / COGS ---
+
+export interface RevenueByProductRow {
+  productId: string | null;
+  productName: string;
+  totalRevenue: number;
+}
+
+export interface RevenueByCustomerRow {
+  customerId: string;
+  customerName: string;
+  totalRevenue: number;
+}
+
+export interface RevenueReport {
+  from: string | null;
+  to: string;
+  totalRevenue: number;
+  byProduct: RevenueByProductRow[];
+  byCustomer: RevenueByCustomerRow[];
+}
+
+export function getRevenueReport(
+  params: { from?: string; to?: string } = {},
+): Promise<RevenueReport> {
+  const query = new URLSearchParams();
+  if (params.from) query.set('from', params.from);
+  if (params.to) query.set('to', params.to);
+  const queryString = query.toString();
+  return apiFetch<RevenueReport>(`/finance/reports/revenue${queryString ? `?${queryString}` : ''}`);
+}
+
+export interface CogsByProductRow {
+  productId: string;
+  totalCogs: number;
+}
+
+export interface CogsReport {
+  from: string | null;
+  to: string;
+  totalCogs: number;
+  byProduct: CogsByProductRow[];
+}
+
+export function getCogsReport(params: { from?: string; to?: string } = {}): Promise<CogsReport> {
+  const query = new URLSearchParams();
+  if (params.from) query.set('from', params.from);
+  if (params.to) query.set('to', params.to);
+  const queryString = query.toString();
+  return apiFetch<CogsReport>(`/finance/reports/cogs${queryString ? `?${queryString}` : ''}`);
+}
+
+// --- Management Dashboard ---
+
+export interface DashboardOperational {
+  salesOrderCount: number;
+  salesOrderTotal: number;
+  productionOrdersCompleted: number;
+}
+
+export interface DashboardResult {
+  from: string | null;
+  to: string;
+  pnl: ProfitAndLossComparison;
+  ar: ArSummary;
+  ap: ApSummary;
+  inventoryValue: number;
+  operational: DashboardOperational;
+}
+
+export function getDashboard(
+  params: { from?: string; to?: string; compare?: boolean } = {},
+): Promise<DashboardResult> {
+  const query = new URLSearchParams();
+  if (params.from) query.set('from', params.from);
+  if (params.to) query.set('to', params.to);
+  if (params.compare) query.set('compare', 'previous_period');
+  const queryString = query.toString();
+  return apiFetch<DashboardResult>(
+    `/finance/reports/dashboard${queryString ? `?${queryString}` : ''}`,
   );
 }

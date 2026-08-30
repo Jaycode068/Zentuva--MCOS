@@ -40,6 +40,16 @@ import { SupplierInvoiceService } from './supplier-invoice.service';
 import { SupplierPaymentController } from './supplier-payment.controller';
 import { SupplierPaymentRepository } from './supplier-payment.repository';
 import { SupplierPaymentService } from './supplier-payment.service';
+import { DashboardController } from './reports/dashboard.controller';
+import { DashboardService } from './reports/dashboard.service';
+import { FinancialStatementController } from './reports/financial-statement.controller';
+import { FinancialStatementService } from './reports/financial-statement.service';
+import { InventoryValuationController } from './reports/inventory-valuation.controller';
+import { InventoryValuationService } from './reports/inventory-valuation.service';
+import { ReconciliationController } from './reports/reconciliation.controller';
+import { ReconciliationService } from './reports/reconciliation.service';
+import { RevenueCogsController } from './reports/revenue-cogs.controller';
+import { RevenueCogsService } from './reports/revenue-cogs.service';
 
 /**
  * Finance HTTP surface (Sprint 6, docs/domains/finance.md) — Invoices, Payments, Credit
@@ -80,6 +90,18 @@ import { SupplierPaymentService } from './supplier-payment.service';
  * `GoodsReceiptItem` inside its own self-owned transaction for the 3-way match, the
  * exact same precedent `SupplierReturnRepository`/`CustomerReturnRepository` (Sprint 11)
  * already established — see `accounts-payable-independence.spec.ts`.
+ *
+ * Sprint 13 (docs/domains/accounting.md §16, "Financial Statements & Management
+ * Reporting") adds `reports/` — Profit & Loss, Balance Sheet, AR/AP aging (added
+ * directly to the existing AR/AP services above), Inventory Valuation, Inventory-
+ * to-Ledger Reconciliation, Revenue/COGS drill-downs, and a Management Dashboard.
+ * All read-only, deriving strictly from posted `JournalEntry`/`JournalEntryLine`
+ * rows and existing operational data — no schema change, no new Journal Entries
+ * ever posted from this code. `InventoryValuationService`/`ReconciliationService`
+ * read `InventoryStock` directly (a narrow, read-only, transaction-free exception
+ * mirroring Sprint 11/12's own "reach into another domain's table" precedent) —
+ * `FinanceModule` still never imports `InventoryModule`; see
+ * `reports-independence.spec.ts`.
  */
 @Module({
   imports: [
@@ -104,6 +126,11 @@ import { SupplierPaymentService } from './supplier-payment.service';
     SupplierPaymentController,
     SupplierCreditNoteController,
     AccountsPayableController,
+    FinancialStatementController,
+    InventoryValuationController,
+    ReconciliationController,
+    RevenueCogsController,
+    DashboardController,
   ],
   providers: [
     InvoiceRepository,
@@ -127,6 +154,11 @@ import { SupplierPaymentService } from './supplier-payment.service';
     SupplierCreditNoteRepository,
     SupplierCreditNoteService,
     AccountsPayableService,
+    FinancialStatementService,
+    InventoryValuationService,
+    ReconciliationService,
+    RevenueCogsService,
+    DashboardService,
   ],
 })
 export class FinanceModule {}

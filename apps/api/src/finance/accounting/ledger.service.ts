@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { JournalEntryStatus } from '@prisma/client';
+import { AccountType, JournalEntryStatus } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { ChartOfAccountRepository } from './chart-of-account.repository';
@@ -15,7 +15,12 @@ export interface GetLedgerParams {
 }
 
 export interface LedgerLine {
+  /** The `JournalEntryLine`'s own id — distinct from `journalEntryId` below. */
   id: string;
+  /** Added Sprint 13 — the parent `JournalEntry`'s id, needed to open its own detail
+   *  view from a ledger/account-activity row (`journalNumber` alone is a
+   *  human-readable code, not a lookup key). */
+  journalEntryId: string;
   date: Date;
   journalNumber: string;
   account: { id: string; code: string; name: string };
@@ -33,13 +38,86 @@ export interface LedgerLine {
   runningBalance: number;
 }
 
-export interface TrialBalanceRow {
+/**
+ * One account's net activity over a date range/accounting period — the shared shape
+ * both the Trial Balance (below) and `FinancialStatementService` (Sprint 13,
+ * docs/domains/accounting.md §16) are built on, via the shared `getAccountBalances`
+ * query below, so account balances are never computed two different ways.
+ */
+export interface AccountBalanceRow {
   accountId: string;
   code: string;
   name: string;
-  type: string;
+  type: AccountType;
+  systemKey: string | null;
+  /** The classic two-column Trial Balance split of `netBalance` below. */
   debit: number;
   credit: number;
+  /** `debit − credit`, the raw signed balance the two-column split is derived from.
+   *  Positive means a natural debit balance (typical for Asset/Cost-of-Sales/Expense
+   *  accounts), negative a natural credit balance (typical for
+   *  Liability/Equity/Revenue) — see `FinancialStatementService`'s own doc comment
+   *  for how this sign is turned into a per-`AccountType` statement total. */
+  netBalance: number;
+}
+
+/** Alias kept for the Trial Balance's own existing naming — identical shape. */
+export type TrialBalanceRow = AccountBalanceRow;
+
+/**
+ * Every account with at least one `POSTED` `JournalEntryLine` in `[from, to]`/the
+ * given accounting period, sorted by `code`. Since the whole ledger balances
+ * (`Σ netBalance === 0` across every account, by double-entry construction),
+ * `Σ debit column === Σ credit column` always holds for whatever subset of accounts
+ * a caller sums — this is what makes the Trial Balance (all accounts) and the
+ * Balance Sheet (Asset/Liability/Equity accounts only) both reconcile by
+ * construction, never by adjustment.
+ */
+export async function getAccountBalances(
+  prisma: PrismaService,
+  chartOfAccountRepository: ChartOfAccountRepository,
+  organisationId: string,
+  params: { from?: Date; to?: Date; accountingPeriodId?: string } = {},
+): Promise<AccountBalanceRow[]> {
+  const grouped = await prisma.journalEntryLine.groupBy({
+    by: ['accountId'],
+    where: {
+      account: { organisationId },
+      journalEntry: {
+        organisationId,
+        status: JournalEntryStatus.POSTED,
+        ...(params.from || params.to
+          ? {
+              date: {
+                ...(params.from ? { gte: params.from } : {}),
+                ...(params.to ? { lte: params.to } : {}),
+              },
+            }
+          : {}),
+        ...(params.accountingPeriodId ? { accountingPeriodId: params.accountingPeriodId } : {}),
+      },
+    },
+    _sum: { debit: true, credit: true },
+  });
+
+  const rows: AccountBalanceRow[] = [];
+  for (const group of grouped) {
+    const account = await chartOfAccountRepository.findById(organisationId, group.accountId);
+    if (!account) continue;
+    const netBalance = roundCurrency((group._sum.debit ?? 0) - (group._sum.credit ?? 0));
+    rows.push({
+      accountId: account.id,
+      code: account.code,
+      name: account.name,
+      type: account.type,
+      systemKey: account.systemKey,
+      debit: netBalance >= 0 ? netBalance : 0,
+      credit: netBalance < 0 ? -netBalance : 0,
+      netBalance,
+    });
+  }
+  rows.sort((a, b) => a.code.localeCompare(b.code));
+  return rows;
 }
 
 export interface AccountActivityResult {
@@ -120,6 +198,7 @@ export class LedgerService {
       runningBalance = roundCurrency(runningBalance + line.debit - line.credit);
       return {
         id: line.id,
+        journalEntryId: line.journalEntry.id,
         date: line.journalEntry.date,
         journalNumber: line.journalEntry.journalNumber,
         account: line.account,
@@ -135,57 +214,18 @@ export class LedgerService {
     });
   }
 
-  /** Each account's `netBalance = totalDebit − totalCredit`, split by sign into a
-   *  classic two-column Trial Balance. Since the whole ledger balances
-   *  (`Σ netBalance === 0` across every account, by double-entry construction),
-   *  `Σ debit column === Σ credit column` always holds — see plan decision #10. */
   async getTrialBalance(
     organisationId: string,
     params: { from?: Date; to?: Date; accountingPeriodId?: string } = {},
   ): Promise<{ rows: TrialBalanceRow[]; totalDebit: number; totalCredit: number }> {
-    const grouped = await this.prisma.journalEntryLine.groupBy({
-      by: ['accountId'],
-      where: {
-        account: { organisationId },
-        journalEntry: {
-          organisationId,
-          status: JournalEntryStatus.POSTED,
-          ...(params.from || params.to
-            ? {
-                date: {
-                  ...(params.from ? { gte: params.from } : {}),
-                  ...(params.to ? { lte: params.to } : {}),
-                },
-              }
-            : {}),
-          ...(params.accountingPeriodId ? { accountingPeriodId: params.accountingPeriodId } : {}),
-        },
-      },
-      _sum: { debit: true, credit: true },
-    });
-
-    const rows: TrialBalanceRow[] = [];
-    let totalDebit = 0;
-    let totalCredit = 0;
-    for (const group of grouped) {
-      const account = await this.chartOfAccountRepository.findById(organisationId, group.accountId);
-      if (!account) continue;
-      const netBalance = roundCurrency((group._sum.debit ?? 0) - (group._sum.credit ?? 0));
-      const debit = netBalance >= 0 ? netBalance : 0;
-      const credit = netBalance < 0 ? -netBalance : 0;
-      totalDebit = roundCurrency(totalDebit + debit);
-      totalCredit = roundCurrency(totalCredit + credit);
-      rows.push({
-        accountId: account.id,
-        code: account.code,
-        name: account.name,
-        type: account.type,
-        debit,
-        credit,
-      });
-    }
-    rows.sort((a, b) => a.code.localeCompare(b.code));
-
+    const rows = await getAccountBalances(
+      this.prisma,
+      this.chartOfAccountRepository,
+      organisationId,
+      params,
+    );
+    const totalDebit = roundCurrency(rows.reduce((sum, row) => sum + row.debit, 0));
+    const totalCredit = roundCurrency(rows.reduce((sum, row) => sum + row.credit, 0));
     return { rows, totalDebit, totalCredit };
   }
 
@@ -221,6 +261,35 @@ export class LedgerService {
       transactions,
       closingBalance,
     };
+  }
+
+  /** A single system account's current signed balance, normal-side-adjusted (Sprint
+   *  13) — e.g. Accounts Payable surfacing `GRNI_PENDING_APPROVAL`'s balance, or
+   *  Inventory Reconciliation summing `INVENTORY`/`FINISHED_GOODS_INVENTORY`. Returns
+   *  `0` if the organisation has no such system account configured yet — never
+   *  throws, since a missing optional system account (e.g. an org that has never
+   *  posted a Goods Receipt) is a normal, valid state for a read-only report. */
+  async getSystemAccountBalance(organisationId: string, systemKey: string): Promise<number> {
+    const account = await this.prisma.chartOfAccount.findFirst({
+      where: { organisationId, systemKey },
+      select: { id: true, type: true },
+    });
+    if (!account) {
+      return 0;
+    }
+    const result = await this.prisma.journalEntryLine.aggregate({
+      where: {
+        accountId: account.id,
+        journalEntry: { organisationId, status: JournalEntryStatus.POSTED },
+      },
+      _sum: { debit: true, credit: true },
+    });
+    const netBalance = roundCurrency((result._sum.debit ?? 0) - (result._sum.credit ?? 0));
+    const debitNormal =
+      account.type === AccountType.ASSET ||
+      account.type === AccountType.COST_OF_SALES ||
+      account.type === AccountType.EXPENSE;
+    return debitNormal ? netBalance : -netBalance;
   }
 
   /** Sum of `debit − credit` across every `POSTED` line for `accountId`, optionally

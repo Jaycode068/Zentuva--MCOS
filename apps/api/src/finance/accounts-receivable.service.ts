@@ -21,6 +21,34 @@ export interface ArSummary {
   paymentsReceivedThisPeriod: number;
 }
 
+/** One customer's outstanding balance split into standard aging buckets (Sprint 13,
+ *  docs/domains/finance.md "Accounts Receivable Aging"). Bucketed by
+ *  `asOf − dueDate` in days — `<= 0` is `current`, not yet due. */
+export interface CustomerAgingRow {
+  customerId: string;
+  customerCode: string;
+  customerName: string;
+  current: number;
+  days1To30: number;
+  days31To60: number;
+  days61To90: number;
+  days90Plus: number;
+  totalOutstanding: number;
+}
+
+export interface AgingReport {
+  asOf: Date;
+  current: number;
+  days1To30: number;
+  days31To60: number;
+  days61To90: number;
+  days90Plus: number;
+  totalOutstanding: number;
+  byCustomer: CustomerAgingRow[];
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 /**
  * Read-only Accounts Receivable reporting (Sprint 6, docs/domains/finance.md) — derives
  * every figure from `Invoice`/`Payment` rows via `groupBy`/`aggregate`, never a
@@ -106,6 +134,71 @@ export class AccountsReceivableService {
       totalOverdue,
       invoicedThisPeriod: roundCurrency(invoicedThisPeriod),
       paymentsReceivedThisPeriod: roundCurrency(paymentsReceivedThisPeriod),
+    };
+  }
+
+  /** Standard Current/1-30/31-60/61-90/90+ aging (Sprint 13, docs/domains/finance.md
+   *  "Accounts Receivable Aging") — bucketed by days past `dueDate` as of `asOf`
+   *  (defaults to now). Every figure derived from `Invoice.dueDate`/`amountPaid`/
+   *  `amountCredited` directly, never a second stored balance. */
+  async getAgingReport(organisationId: string, asOf: Date = new Date()): Promise<AgingReport> {
+    const rows = await this.invoiceRepository.getOutstandingForAging(organisationId);
+
+    let current = 0;
+    let days1To30 = 0;
+    let days31To60 = 0;
+    let days61To90 = 0;
+    let days90Plus = 0;
+    const byCustomer = new Map<string, CustomerAgingRow>();
+
+    for (const row of rows) {
+      const daysPastDue = Math.floor((asOf.getTime() - row.dueDate.getTime()) / DAY_MS);
+      let customerRow = byCustomer.get(row.customerId);
+      if (!customerRow) {
+        customerRow = {
+          customerId: row.customerId,
+          customerCode: row.customerCode,
+          customerName: row.customerName,
+          current: 0,
+          days1To30: 0,
+          days31To60: 0,
+          days61To90: 0,
+          days90Plus: 0,
+          totalOutstanding: 0,
+        };
+        byCustomer.set(row.customerId, customerRow);
+      }
+
+      if (daysPastDue <= 0) {
+        current = roundCurrency(current + row.amountOutstanding);
+        customerRow.current = roundCurrency(customerRow.current + row.amountOutstanding);
+      } else if (daysPastDue <= 30) {
+        days1To30 = roundCurrency(days1To30 + row.amountOutstanding);
+        customerRow.days1To30 = roundCurrency(customerRow.days1To30 + row.amountOutstanding);
+      } else if (daysPastDue <= 60) {
+        days31To60 = roundCurrency(days31To60 + row.amountOutstanding);
+        customerRow.days31To60 = roundCurrency(customerRow.days31To60 + row.amountOutstanding);
+      } else if (daysPastDue <= 90) {
+        days61To90 = roundCurrency(days61To90 + row.amountOutstanding);
+        customerRow.days61To90 = roundCurrency(customerRow.days61To90 + row.amountOutstanding);
+      } else {
+        days90Plus = roundCurrency(days90Plus + row.amountOutstanding);
+        customerRow.days90Plus = roundCurrency(customerRow.days90Plus + row.amountOutstanding);
+      }
+      customerRow.totalOutstanding = roundCurrency(
+        customerRow.totalOutstanding + row.amountOutstanding,
+      );
+    }
+
+    return {
+      asOf,
+      current,
+      days1To30,
+      days31To60,
+      days61To90,
+      days90Plus,
+      totalOutstanding: roundCurrency(current + days1To30 + days31To60 + days61To90 + days90Plus),
+      byCustomer: [...byCustomer.values()].sort((a, b) => b.totalOutstanding - a.totalOutstanding),
     };
   }
 }

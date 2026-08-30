@@ -1,4 +1,4 @@
-import { Controller, Get, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
 
 import { CurrentUser } from '../identity/auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../identity/auth/guards/jwt-auth.guard';
@@ -23,6 +23,14 @@ export class AccountsReceivableController {
   async byCustomer(@CurrentUser() user: TokenPayload) {
     const items = await this.accountsReceivableService.listByCustomer(user.organisationId);
     return { items };
+  }
+
+  @Get('aging')
+  async aging(@CurrentUser() user: TokenPayload, @Query('asOf') asOf?: string) {
+    return this.accountsReceivableService.getAgingReport(
+      user.organisationId,
+      asOf ? new Date(asOf) : undefined,
+    );
   }
 
   @Get('customers/:customerId')

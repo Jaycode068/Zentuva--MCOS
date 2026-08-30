@@ -7,6 +7,82 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 13 Financial Statements & Management Reporting Foundation] - 2026-08-30
+
+### Added
+
+- **`FinancialStatementService` (Finance) — Profit & Loss and Balance Sheet.**
+  Derives both purely from `ChartOfAccount.type` via normal-balance-sign summation
+  over posted `JournalEntryLine`s (Asset/Cost-of-Sales/Expense are debit-normal,
+  Liability/Equity/Revenue are credit-normal) — **zero schema changes**, contra
+  accounts (`SALES_RETURNS`) net automatically with no "contra" flag. `GET
+/api/finance/reports/profit-loss` (`?from=&to=&accountingPeriodId=&compare=
+previous_period`) returns Revenue/Cost of Sales/Gross Profit/Gross Margin
+  (null-safe, never `NaN`/`Infinity`)/Operating Expenses/Net Profit, optionally
+  alongside the immediately-preceding period of identical length (`previous: null`,
+  never a misleading zero, when that period has no posted activity at all). `GET
+/api/finance/reports/balance-sheet` (`?asOf=`) returns Assets/Liabilities/Equity
+  plus a computed, non-posted **"Retained Earnings (Undistributed)"** line (all-time
+  net profit since inception) that makes `Assets = Liabilities + Equity` hold exactly
+  by construction — no year-end-closing mechanism was built.
+- **AR/AP Ageing.** New `getAgingReport()` on the existing `AccountsReceivableService`/
+  `AccountsPayableService` — `GET /api/finance/receivables/aging` and `GET
+/api/finance/accounts-payable/aging` (`?asOf=`) bucket every outstanding invoice
+  into Current/1-30/31-60/61-90/90+ by days past due, with a per-customer/per-supplier
+  breakdown. AP's report additionally surfaces the current `GRNI_PENDING_APPROVAL`
+  balance and a count of `DISCREPANCY`-matchStatus invoices.
+- **`InventoryValuationService`/`ReconciliationService` (Finance) — new, narrow,
+  read-only exception.** `GET /api/finance/reports/inventory-valuation`
+  (`?locationId=&productType=`) computes `Σ(InventoryStock.quantityOnHand ×
+averageUnitCost)` by reading `InventoryStock` directly (read-only, no transaction,
+  no `InventoryModule` import — `finance-independence.spec.ts` needed zero changes).
+  `GET /api/finance/reports/reconciliation` compares that subledger total against the
+  GL's `INVENTORY + FINISHED_GOODS_INVENTORY` balances (`WIP` deliberately excluded —
+  no corresponding `InventoryStock` row) and **surfaces, never auto-corrects, any
+  difference** — live verification against this codebase's own accumulated Sprint
+  8-12 test data found and correctly surfaced a real ₦1,613,200.00 discrepancy.
+- **Revenue/COGS reporting.** `GET /api/finance/reports/revenue` and `/cogs` pair a
+  GL-tied headline total (always authoritative, ties to the P&L) with a supplementary
+  by-product/by-customer breakdown (`Invoice`/`InvoiceItem` for revenue, a new
+  `SalesFulfilmentRepository.getCogsBreakdownByProduct()` for COGS) — the breakdown is
+  never treated as a second source of truth for the headline figure.
+- **Management Dashboard.** `GET /api/finance/reports/dashboard`
+  (`?from=&to=&compare=previous_period`) composes — never recomputes — P&L totals,
+  AR/AP summaries, and Inventory Valuation's grand total, plus a small Operational
+  section (Sales Orders count/value, Production Runs Completed via
+  `ProductionRun.completedAt`). The existing `/settings/finance` Overview page was
+  upgraded in place into this dashboard: Financial cards, an Operational section, and
+  two `recharts` bar charts (Revenue vs COGS vs Gross Profit; AR vs AP) — the first
+  charting library in this codebase, deliberately used in exactly two places.
+- **`AccountActivityDialog` (Admin).** New reusable component completing the
+  drill-down chain `Statement → Account → Ledger Activity → Journal Entry Detail`,
+  opened from clickable account lines on the new Profit & Loss, Balance Sheet, and
+  Trial Balance pages. Required a small bug fix: `LedgerLine` gained a
+  `journalEntryId` field (the parent `JournalEntry`'s own id — previously only the
+  line's own id was exposed, with no way to open the entry it belonged to).
+- **Trial Balance `netBalance`/`systemKey` fields** — purely additive; the underlying
+  query is now the same shared `getAccountBalances` helper both Trial Balance and the
+  new Financial Statements use, so a balance is never computed two different ways.
+- **Admin `/settings/finance/profit-loss`, `/balance-sheet`, `/inventory-valuation`.**
+  Period-preset filters (`report-date-range.ts`), Print buttons (`window.print()`),
+  and (Balance Sheet) an inline Reconciliation block with a "Requires investigation"
+  warning badge when the subledger and GL disagree. Receivables/Payables pages gained
+  an Ageing section (bucket cards + breakdown table) below their existing lists.
+
+### Verified
+
+- Full backend suite: 846 tests / 90 suites (up from 782/83), including a new
+  `reports-independence.spec.ts` structural guard (no reporting file writes a
+  transactional table, calls `postSystemJournalEntry`, or imports an Inventory/Sales/
+  Procurement/Production service or controller).
+- Live end-to-end verification against the real Boby Bites dev environment: Dashboard,
+  Profit & Loss (drill-down chain confirmed working via real clicks), Balance Sheet
+  (balanced, Retained Earnings computed correctly), Inventory Valuation, AR/AP Ageing
+  (bucket totals reconciling against Dashboard/Receivables/Payables figures), Trial
+  Balance (unaffected, still balances), and mobile responsiveness at 375px.
+- Zero database migrations — confirmed and documented as a deliberate, notable result:
+  proof the accounting foundation built by Sprints 7-12 was already reporting-ready.
+
 ## [Sprint 12 Accounts Payable & Supplier Invoice Management] - 2026-08-29
 
 ### Added

@@ -314,6 +314,8 @@ credit note back to the `CustomerReturn` that issued it. See `accounting.md`
   this sprint. The `PaymentAllocation` join table already supports N invoices per
   payment; extending to multi-invoice allocation or unapplied customer credit is a
   service-layer change only, requiring no schema migration.
+  `GET /api/finance/receivables/aging` (Sprint 13, §13) now provides
+  Current/1-30/31-60/61-90/90+ buckets — this limitation is about allocation, not aging.
 - **`OVERDUE` collapses `PARTIALLY_PAID`.** See §3 — an overdue invoice's status label
   does not distinguish "nothing paid" from "partially paid"; the underlying
   `amountPaid`/`amountOutstanding` figures remain fully accurate regardless.
@@ -456,9 +458,68 @@ convention `InvoiceDialog` already uses for its own live totals.
 - **No approval workflow** for Path B postings — any Owner/Administrator can post
   against any eligible non-system Asset/Expense account, restricted by account type
   only, not by a configurable policy.
-- **No payment runs, AP ageing report, or automated payment scheduling** — a
-  Payables Overview and a flat payment ledger only, matching the brief's own
-  non-goals.
+- **No payment runs or automated payment scheduling** — a Payables Overview and a
+  flat payment ledger only, matching the brief's own non-goals.
+  (`GET /api/finance/accounts-payable/aging`, Sprint 13 §13, added the ageing report
+  itself — this limitation now covers scheduling/runs only, not ageing visibility.)
 - **No supplier portal/self-service, no payment-gateway integration, no bank
   reconciliation** — Supplier Payments are a manual record-entry foundation, same
   posture as customer-side Payments.
+
+## 13. Financial Statements & Management Reporting (Sprint 13)
+
+Sprint 13 added a read-only reporting layer over the GL/AR/AP/Inventory data §1-12
+already produce — a Profit & Loss, a Balance Sheet, AR/AP ageing, an Inventory
+Valuation tied back to the GL, and a Management Dashboard. It introduces **no new
+transactional writes anywhere in Finance** — every figure is derived from existing
+`JournalEntry`/`Invoice`/`SupplierInvoice`/`InventoryStock` rows. Full accounting
+mechanics (the normal-balance-sign formula, the computed Retained Earnings treatment,
+the Inventory read-only boundary exception, the two-path COGS/Revenue approach) are
+documented in [Accounting](accounting.md) §16 — this section covers the Finance-facing
+surface only.
+
+### New read endpoints
+
+All under `GET /api/finance/reports/*` plus two additions to the existing AR/AP
+controllers, any-authenticated-member readable (no `RolesGuard`), same convention as
+every other Finance read endpoint:
+
+| Endpoint                                       | Notes                                                                |
+| ---------------------------------------------- | -------------------------------------------------------------------- |
+| `GET /api/finance/reports/profit-loss`         | `?from=&to=&accountingPeriodId=&compare=previous_period`             |
+| `GET /api/finance/reports/balance-sheet`       | `?asOf=`                                                             |
+| `GET /api/finance/receivables/aging`           | `?asOf=` — Current/1-30/31-60/61-90/90+                              |
+| `GET /api/finance/accounts-payable/aging`      | `?asOf=` — plus GRNI-pending and discrepancy-count surfacing         |
+| `GET /api/finance/reports/inventory-valuation` | `?locationId=&productType=`                                          |
+| `GET /api/finance/reports/reconciliation`      | Inventory subledger vs GL — surfaces, never corrects, a difference   |
+| `GET /api/finance/reports/revenue` \| `/cogs`  | `?from=&to=` — GL-tied headline + a by-product/by-customer breakdown |
+| `GET /api/finance/reports/dashboard`           | `?from=&to=&compare=previous_period`                                 |
+
+### Admin Surface
+
+Three new tabs on `/settings/finance/*`: **Profit & Loss**, **Balance Sheet**,
+**Inventory Valuation** — each with a period-preset filter (`report-date-range.ts`),
+a Print button (`window.print()`), and clickable account lines opening a new,
+reusable `AccountActivityDialog` (Statement → Account → Ledger Activity → Journal
+Entry Detail — the drill-down chain now works end-to-end). The Balance Sheet page
+also renders the Inventory-to-Ledger Reconciliation result directly beneath its
+Inventory asset line. The existing `/settings/finance` Overview page was upgraded in
+place into the Management Dashboard (Financial cards, a small Operational section,
+two `recharts` bar charts — Revenue vs COGS vs Gross Profit, AR vs AP). Receivables/
+Payables pages gained an Ageing section (bucket cards + a per-customer/per-supplier
+breakdown table) below their existing list.
+
+### Known Limitations (Sprint 13)
+
+- **No Other-Income/Expense split, no Current-vs-Fixed-Asset distinction** —
+  `AccountType` alone drives P&L/Balance Sheet classification (accounting.md §16.1/
+  §16.6); every `REVENUE` account is treated as operating revenue, every `EXPENSE`
+  account as an operating expense. No account in this codebase's Chart of Accounts
+  needs the distinction today.
+- **No Revenue trend / time-series endpoint** — the Dashboard's two charts compare
+  current-vs-previous-period totals only; a monthly trend line was scoped out as
+  requiring a new backend endpoint not yet built.
+- **No CSV/Excel export** — Print (`window.print()`) only, on P&L/Balance Sheet/
+  Trial Balance. Deferred as a cheap follow-up.
+- **No budgeting, forecasting, multi-company consolidation, or configurable KPI
+  engine** — explicit non-goals of Sprint 13, unchanged.

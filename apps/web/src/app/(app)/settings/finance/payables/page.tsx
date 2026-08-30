@@ -19,6 +19,7 @@ import { ApiError } from '@/lib/api-client';
 import { formatCurrency } from '@/lib/format-currency';
 
 import {
+  getApAging,
   getApSummary,
   listSupplierInvoices,
   type SupplierInvoice,
@@ -50,6 +51,11 @@ export default function PayablesPage() {
   const { data: summary } = useQuery({
     queryKey: ['ap-summary'],
     queryFn: () => getApSummary(),
+  });
+
+  const { data: aging } = useQuery({
+    queryKey: ['ap-aging'],
+    queryFn: () => getApAging(),
   });
 
   const { data, isLoading, isError, error } = useQuery({
@@ -210,6 +216,64 @@ export default function PayablesPage() {
         </>
       )}
 
+      {aging && aging.totalOutstanding > 0 && (
+        <div className="mt-8">
+          <h2 className="mb-3 text-lg font-semibold tracking-tight">Aging</h2>
+          <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
+            <AgingBucketCard label="Current" value={aging.current} />
+            <AgingBucketCard label="1-30 Days" value={aging.days1To30} />
+            <AgingBucketCard label="31-60 Days" value={aging.days31To60} />
+            <AgingBucketCard label="61-90 Days" value={aging.days61To90} />
+            <AgingBucketCard label="90+ Days" value={aging.days90Plus} destructive />
+          </div>
+          {(aging.grniPendingApprovalBalance > 0 || aging.discrepancyInvoiceCount > 0) && (
+            <div className="mb-4 flex flex-wrap gap-3 text-sm">
+              {aging.grniPendingApprovalBalance > 0 && (
+                <Badge variant="warning">
+                  GRNI Pending Approval: {formatCurrency(aging.grniPendingApprovalBalance, 'NGN')}
+                </Badge>
+              )}
+              {aging.discrepancyInvoiceCount > 0 && (
+                <Badge variant="warning">
+                  {aging.discrepancyInvoiceCount} invoice
+                  {aging.discrepancyInvoiceCount === 1 ? '' : 's'} with a discrepancy
+                </Badge>
+              )}
+            </div>
+          )}
+          <div className="overflow-x-auto rounded-lg border border-border">
+            <table className="w-full text-sm">
+              <thead className="border-b border-border bg-muted/50 text-left">
+                <tr>
+                  <th className="px-4 py-3 font-medium">Supplier</th>
+                  <th className="px-4 py-3 font-medium">Current</th>
+                  <th className="px-4 py-3 font-medium">1-30</th>
+                  <th className="px-4 py-3 font-medium">31-60</th>
+                  <th className="px-4 py-3 font-medium">61-90</th>
+                  <th className="px-4 py-3 font-medium">90+</th>
+                  <th className="px-4 py-3 font-medium">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {aging.bySupplier.map((row) => (
+                  <tr key={row.supplierId} className="border-b border-border last:border-0">
+                    <td className="px-4 py-3">{row.supplierName}</td>
+                    <td className="px-4 py-3">{formatCurrency(row.current, 'NGN')}</td>
+                    <td className="px-4 py-3">{formatCurrency(row.days1To30, 'NGN')}</td>
+                    <td className="px-4 py-3">{formatCurrency(row.days31To60, 'NGN')}</td>
+                    <td className="px-4 py-3">{formatCurrency(row.days61To90, 'NGN')}</td>
+                    <td className="px-4 py-3">{formatCurrency(row.days90Plus, 'NGN')}</td>
+                    <td className="px-4 py-3 font-medium">
+                      {formatCurrency(row.totalOutstanding, 'NGN')}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {createOpen && (
         <SupplierInvoiceDialog onOpenChange={() => setCreateOpen(false)} onCreated={invalidate} />
       )}
@@ -242,6 +306,27 @@ function SummaryCard({
         <p className={`text-2xl font-semibold ${destructive ? 'text-destructive' : ''}`}>{value}</p>
       </CardContent>
     </Card>
+  );
+}
+
+function AgingBucketCard({
+  label,
+  value,
+  destructive,
+}: {
+  label: string;
+  value: number;
+  destructive?: boolean;
+}) {
+  return (
+    <div className="rounded-lg border border-border p-3">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p
+        className={`mt-1 text-sm font-semibold ${destructive && value > 0 ? 'text-destructive' : ''}`}
+      >
+        {formatCurrency(value, 'NGN')}
+      </p>
+    </div>
   );
 }
 

@@ -114,7 +114,9 @@ Inventory`, one journal per batch, valued at Inventory's own moving-weighted-
       Credit Note; Accounts Receivable computed on read, never independently stored)
       — see [`docs/domains/finance.md`](domains/finance.md); Sprint 12 added the
       supplier-side mirror — Accounts Payable & Supplier Invoice Management, see
-      finance.md §12
+      finance.md §12; Sprint 13 added a read-only Financial Statements & Management
+      Reporting layer — Profit & Loss, Balance Sheet, AR/AP ageing, Inventory
+      Valuation/Reconciliation, a Management Dashboard — see finance.md §13
 - [x] Accounting — foundation shipped Sprint 7 (tenant-defined Chart of Accounts,
       Accounting Periods, double-entry Journal Entries, General Ledger/Trial Balance/
       Account Activity; Finance's Invoice/Payment/Credit-Note events post
@@ -135,10 +137,16 @@ Sold / CR Finished Goods Inventory`, no new system accounts needed — `COGS` ha
       incapable of inflating it, a discrepancy is surfaced not hidden) plus a
       Path B posting for PO-less bills against an explicit, user-chosen Chart of
       Accounts entry — `SupplierPayment`/`SupplierCreditNote` mirror the customer-side
-      engine exactly, zero new system accounts needed; not a complete accounting
-      system — financial-statement closing (P&L, Balance Sheet), Cash Flow Statement,
-      Bank Reconciliation, payment runs, AP ageing, an approval workflow to
-      reclassify GRNI into AP, and labour/machine/overhead costing remain — see
+      engine exactly, zero new system accounts needed; Sprint 13 closed the
+      financial-statement gap named above — Profit & Loss and Balance Sheet are
+      derived from `ChartOfAccount.type` via normal-balance-sign summation (**zero
+      schema changes**), a computed "Retained Earnings (Undistributed)" line makes
+      the accounting equation hold without a year-end-closing mechanism, and AR/AP
+      ageing plus an Inventory-to-Ledger Reconciliation (surfaces, never
+      auto-corrects, a discrepancy) round out the reporting layer; not a complete
+      accounting system — Cash Flow Statement, Bank Reconciliation, payment runs, an
+      approval workflow to reclassify GRNI into AP, labour/machine/overhead costing,
+      budgeting/forecasting, and multi-company consolidation remain — see
       [`docs/domains/accounting.md`](domains/accounting.md)
 
 ## Phase 3 — Extended Experiences

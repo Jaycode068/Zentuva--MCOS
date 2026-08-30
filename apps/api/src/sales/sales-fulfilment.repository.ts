@@ -430,6 +430,41 @@ export class SalesFulfilmentRepository {
       },
     });
   }
+
+  /** Per-product COGS breakdown for a date range (Sprint 13, docs/domains/
+   *  accounting.md §16.4) — sums `SalesFulfilmentItem.costAmount`, the exact,
+   *  already-posted per-line contribution to each fulfilment's `DR COGS` journal
+   *  (see that field's own doc comment). Read-only, exported via `SalesModule` for
+   *  Finance's `RevenueCogsService` to call — the org-wide/date-ranged **total**
+   *  COGS figure a P&L reconciles against always comes from `JournalEntryLine`
+   *  instead (ties exactly to the GL); this by-product view is a supplementary
+   *  drill-down, never a second source of truth for that headline number. */
+  async getCogsBreakdownByProduct(
+    organisationId: string,
+    params: { from?: Date; to?: Date } = {},
+  ): Promise<{ productId: string; totalCogs: number }[]> {
+    const grouped = await this.prisma.salesFulfilmentItem.groupBy({
+      by: ['productId'],
+      where: {
+        salesFulfilment: {
+          organisationId,
+          ...(params.from || params.to
+            ? {
+                fulfilmentDate: {
+                  ...(params.from ? { gte: params.from } : {}),
+                  ...(params.to ? { lte: params.to } : {}),
+                },
+              }
+            : {}),
+        },
+      },
+      _sum: { costAmount: true },
+    });
+    return grouped.map((group) => ({
+      productId: group.productId,
+      totalCogs: roundCurrency(group._sum.costAmount ?? 0),
+    }));
+  }
 }
 
 /** Rounds to 6 decimal places purely to clear floating-point noise — same convention as

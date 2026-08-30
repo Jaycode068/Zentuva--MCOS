@@ -1,36 +1,93 @@
 'use client';
 
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Card, CardContent, CardHeader, CardTitle } from '@zentuva/ui';
+import { Card, CardContent, CardHeader, CardTitle, Select } from '@zentuva/ui';
+import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 
 import { FinanceTabs } from '@/components/app/finance-tabs';
 import { formatCurrency } from '@/lib/format-currency';
 import { ApiError } from '@/lib/api-client';
+import {
+  REPORT_PERIOD_PRESET_LABELS,
+  resolveReportDateRange,
+  toDateInputValue,
+  type ReportPeriodPreset,
+} from '@/lib/report-date-range';
 
-import { getArSummary } from './api';
+import { getDashboard } from './api';
 
 /**
- * Finance Overview (Sprint 6, docs/domains/finance.md) — deliberately lightweight: four
- * summary cards, no executive analytics. Every figure is derived server-side from
- * `Invoice`/`Payment` rows (`groupBy`/`aggregate`), never a cached balance.
+ * Management Dashboard (Sprint 13, docs/domains/accounting.md §16.5) — the Finance
+ * Overview page upgraded from Sprint 6's four AR-only cards into the reusable
+ * reporting foundation the brief asks for. Deliberately small: "what is happening in
+ * my business right now," not every metric this codebase could produce (brief §18).
+ * Every figure is *composed* from the more specific reports (`FinancialStatementService`,
+ * AR/AP summaries, Inventory Valuation) — nothing here is recomputed independently.
  */
 export default function FinanceOverviewPage() {
+  const [preset, setPreset] = useState<ReportPeriodPreset>('this_month');
+  const [compare, setCompare] = useState(true);
+  const { from, to } = resolveReportDateRange(preset);
+
   const { data, isLoading, isError, error } = useQuery({
-    queryKey: ['finance-ar-summary'],
-    queryFn: () => getArSummary(),
+    queryKey: ['finance-dashboard', from.toISOString(), to.toISOString(), compare],
+    queryFn: () =>
+      getDashboard({ from: toDateInputValue(from), to: toDateInputValue(to), compare }),
   });
+
+  const current = data?.pnl.current;
+  const previous = data?.pnl.previous;
+
+  const revenueCogsChart = current
+    ? [
+        { name: 'Revenue', value: current.revenue },
+        { name: 'COGS', value: current.costOfSales },
+        { name: 'Gross Profit', value: current.grossProfit },
+      ]
+    : [];
+  const arApChart = data
+    ? [
+        { name: 'AR', value: data.ar.totalOutstanding },
+        { name: 'AP', value: data.ap.totalOutstanding },
+      ]
+    : [];
 
   return (
     <main className="mx-auto max-w-6xl px-6 py-10">
       <div className="mb-8">
         <h1 className="text-2xl font-semibold tracking-tight">Finance</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Invoices, payments, credit notes, and accounts receivable — the financial consequence of
-          what Sales, Inventory, and Distribution have already recorded.
+          What is happening in the business right now — revenue, cost, profitability, and
+          what&apos;s owed, reconciled against the General Ledger.
         </p>
       </div>
 
       <FinanceTabs />
+
+      <div className="mb-6 flex flex-wrap items-center gap-3">
+        <Select
+          value={preset}
+          onChange={(event) => setPreset(event.target.value as ReportPeriodPreset)}
+          className="max-w-[10rem]"
+        >
+          {Object.entries(REPORT_PERIOD_PRESET_LABELS)
+            .filter(([value]) => value !== 'custom')
+            .map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+        </Select>
+        <label className="flex items-center gap-2 text-sm text-muted-foreground">
+          <input
+            type="checkbox"
+            checked={compare}
+            onChange={(event) => setCompare(event.target.checked)}
+          />
+          Compare to previous period
+        </label>
+      </div>
 
       {isLoading && (
         <p className="py-10 text-center text-sm text-muted-foreground">Loading overview…</p>
@@ -41,47 +98,122 @@ export default function FinanceOverviewPage() {
         </p>
       )}
 
-      {data && (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <SummaryCard
-            title="Total Outstanding"
-            value={formatCurrency(data.totalOutstanding, 'NGN')}
-          />
-          <SummaryCard
-            title="Overdue"
-            value={formatCurrency(data.totalOverdue, 'NGN')}
-            destructive
-          />
-          <SummaryCard
-            title="Invoiced This Period"
-            value={formatCurrency(data.invoicedThisPeriod, 'NGN')}
-          />
-          <SummaryCard
-            title="Payments Received"
-            value={formatCurrency(data.paymentsReceivedThisPeriod, 'NGN')}
-          />
-        </div>
+      {data && current && (
+        <>
+          <p className="mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Financial
+          </p>
+          <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <SummaryCard
+              title="Revenue"
+              value={formatCurrency(current.revenue, 'NGN')}
+              delta={previous ? current.revenue - previous.revenue : undefined}
+            />
+            <SummaryCard title="COGS" value={formatCurrency(current.costOfSales, 'NGN')} />
+            <SummaryCard
+              title="Gross Profit"
+              value={formatCurrency(current.grossProfit, 'NGN')}
+              delta={previous ? current.grossProfit - previous.grossProfit : undefined}
+            />
+            <SummaryCard
+              title="Gross Margin"
+              value={
+                current.grossMarginPercent === null
+                  ? '—'
+                  : `${current.grossMarginPercent.toFixed(1)}%`
+              }
+            />
+            <SummaryCard
+              title="Net Profit"
+              value={formatCurrency(current.netProfit, 'NGN')}
+              delta={previous ? current.netProfit - previous.netProfit : undefined}
+            />
+            <SummaryCard
+              title="Accounts Receivable"
+              value={formatCurrency(data.ar.totalOutstanding, 'NGN')}
+            />
+            <SummaryCard
+              title="Accounts Payable"
+              value={formatCurrency(data.ap.totalOutstanding, 'NGN')}
+            />
+            <SummaryCard
+              title="Inventory Value"
+              value={formatCurrency(data.inventoryValue, 'NGN')}
+            />
+          </div>
+
+          {compare && !previous && (
+            <p className="mb-8 text-sm text-muted-foreground">
+              No comparison data — the previous period has no posted activity.
+            </p>
+          )}
+
+          <p className="mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Operational
+          </p>
+          <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <SummaryCard title="Sales Orders" value={String(data.operational.salesOrderCount)} />
+            <SummaryCard
+              title="Sales Order Value"
+              value={formatCurrency(data.operational.salesOrderTotal, 'NGN')}
+            />
+            <SummaryCard
+              title="Production Runs Completed"
+              value={String(data.operational.productionOrdersCompleted)}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+            <ChartCard title="Revenue vs. COGS vs. Gross Profit" data={revenueCogsChart} />
+            <ChartCard title="Accounts Receivable vs. Accounts Payable" data={arApChart} />
+          </div>
+        </>
       )}
     </main>
   );
 }
 
-function SummaryCard({
-  title,
-  value,
-  destructive,
-}: {
-  title: string;
-  value: string;
-  destructive?: boolean;
-}) {
+function SummaryCard({ title, value, delta }: { title: string; value: string; delta?: number }) {
   return (
     <Card>
       <CardHeader>
         <CardTitle className="text-sm font-medium text-muted-foreground">{title}</CardTitle>
       </CardHeader>
       <CardContent>
-        <p className={`text-2xl font-semibold ${destructive ? 'text-destructive' : ''}`}>{value}</p>
+        <p className="text-2xl font-semibold">{value}</p>
+        {delta !== undefined && (
+          <p className={`mt-1 text-xs ${delta >= 0 ? 'text-success' : 'text-destructive'}`}>
+            {delta >= 0 ? '+' : ''}
+            {formatCurrency(delta, 'NGN')} vs previous period
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ChartCard({ title, data }: { title: string; data: { name: string; value: number }[] }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-sm font-medium text-muted-foreground">{title}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="h-64 w-full">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={data}>
+              <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+              <XAxis dataKey="name" tick={{ fontSize: 12 }} />
+              <YAxis
+                tick={{ fontSize: 12 }}
+                tickFormatter={(value) => formatCurrency(value, 'NGN')}
+                width={90}
+              />
+              <Tooltip formatter={(value) => formatCurrency(Number(value), 'NGN')} />
+              <Bar dataKey="value" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
       </CardContent>
     </Card>
   );

@@ -1,8 +1,44 @@
 import { Injectable } from '@nestjs/common';
 
 import { SupplierRepository } from '../suppliers/supplier/supplier.repository';
+import { SYSTEM_ACCOUNT_KEYS } from './accounting/chart-of-account-keys';
+import { LedgerService } from './accounting/ledger.service';
 import { SupplierInvoiceRepository } from './supplier-invoice.repository';
 import { SupplierPaymentRepository } from './supplier-payment.repository';
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** One supplier's outstanding balance split into standard aging buckets (Sprint 13,
+ *  docs/domains/finance.md "Accounts Payable Aging") — direct structural mirror of
+ *  AR's own `CustomerAgingRow`. Bucketed by `asOf − dueDate` in days. */
+export interface SupplierAgingRow {
+  supplierId: string;
+  supplierCode: string;
+  supplierName: string;
+  current: number;
+  days1To30: number;
+  days31To60: number;
+  days61To90: number;
+  days90Plus: number;
+  totalOutstanding: number;
+}
+
+export interface ApAgingReport {
+  asOf: Date;
+  current: number;
+  days1To30: number;
+  days31To60: number;
+  days61To90: number;
+  days90Plus: number;
+  totalOutstanding: number;
+  bySupplier: SupplierAgingRow[];
+  /** Brief §13 — the excess-over-ordered value sitting in the GRNI clearing account,
+   *  never automatically reclassified into `AP` (docs/domains/accounting.md §13.4). */
+  grniPendingApprovalBalance: number;
+  /** Count of non-VOID `DISCREPANCY`-matchStatus supplier invoices — invoices whose
+   *  billed amount exceeds what was actually recognised as payable. */
+  discrepancyInvoiceCount: number;
+}
 
 export interface SupplierApRow {
   supplierId: string;
@@ -55,6 +91,7 @@ export class AccountsPayableService {
     private readonly supplierInvoiceRepository: SupplierInvoiceRepository,
     private readonly supplierPaymentRepository: SupplierPaymentRepository,
     private readonly supplierRepository: SupplierRepository,
+    private readonly ledgerService: LedgerService,
   ) {}
 
   /** One row per supplier with at least one non-VOID supplier invoice. */
@@ -173,6 +210,80 @@ export class AccountsPayableService {
       totalCredited,
       totalOutstanding: roundCurrency(totalRecognized - totalPaid - totalCredited),
       discrepancyCount,
+    };
+  }
+
+  /** Standard Current/1-30/31-60/61-90/90+ aging (Sprint 13, docs/domains/finance.md
+   *  "Accounts Payable Aging") — direct structural mirror of `AccountsReceivableService
+   *  .getAgingReport()`, plus GRNI/discrepancy surfacing (brief §13). Basis is
+   *  `recognizedAmount`, never `total`. */
+  async getAgingReport(organisationId: string, asOf: Date = new Date()): Promise<ApAgingReport> {
+    const [rows, grniPendingApprovalBalance, discrepancyInvoiceCount] = await Promise.all([
+      this.supplierInvoiceRepository.getOutstandingForAging(organisationId),
+      this.ledgerService.getSystemAccountBalance(
+        organisationId,
+        SYSTEM_ACCOUNT_KEYS.GRNI_PENDING_APPROVAL,
+      ),
+      this.supplierInvoiceRepository.countDiscrepancies(organisationId),
+    ]);
+
+    let current = 0;
+    let days1To30 = 0;
+    let days31To60 = 0;
+    let days61To90 = 0;
+    let days90Plus = 0;
+    const bySupplier = new Map<string, SupplierAgingRow>();
+
+    for (const row of rows) {
+      const daysPastDue = Math.floor((asOf.getTime() - row.dueDate.getTime()) / DAY_MS);
+      let supplierRow = bySupplier.get(row.supplierId);
+      if (!supplierRow) {
+        supplierRow = {
+          supplierId: row.supplierId,
+          supplierCode: row.supplierCode,
+          supplierName: row.supplierName,
+          current: 0,
+          days1To30: 0,
+          days31To60: 0,
+          days61To90: 0,
+          days90Plus: 0,
+          totalOutstanding: 0,
+        };
+        bySupplier.set(row.supplierId, supplierRow);
+      }
+
+      if (daysPastDue <= 0) {
+        current = roundCurrency(current + row.amountOutstanding);
+        supplierRow.current = roundCurrency(supplierRow.current + row.amountOutstanding);
+      } else if (daysPastDue <= 30) {
+        days1To30 = roundCurrency(days1To30 + row.amountOutstanding);
+        supplierRow.days1To30 = roundCurrency(supplierRow.days1To30 + row.amountOutstanding);
+      } else if (daysPastDue <= 60) {
+        days31To60 = roundCurrency(days31To60 + row.amountOutstanding);
+        supplierRow.days31To60 = roundCurrency(supplierRow.days31To60 + row.amountOutstanding);
+      } else if (daysPastDue <= 90) {
+        days61To90 = roundCurrency(days61To90 + row.amountOutstanding);
+        supplierRow.days61To90 = roundCurrency(supplierRow.days61To90 + row.amountOutstanding);
+      } else {
+        days90Plus = roundCurrency(days90Plus + row.amountOutstanding);
+        supplierRow.days90Plus = roundCurrency(supplierRow.days90Plus + row.amountOutstanding);
+      }
+      supplierRow.totalOutstanding = roundCurrency(
+        supplierRow.totalOutstanding + row.amountOutstanding,
+      );
+    }
+
+    return {
+      asOf,
+      current,
+      days1To30,
+      days31To60,
+      days61To90,
+      days90Plus,
+      totalOutstanding: roundCurrency(current + days1To30 + days31To60 + days61To90 + days90Plus),
+      bySupplier: [...bySupplier.values()].sort((a, b) => b.totalOutstanding - a.totalOutstanding),
+      grniPendingApprovalBalance,
+      discrepancyInvoiceCount,
     };
   }
 }

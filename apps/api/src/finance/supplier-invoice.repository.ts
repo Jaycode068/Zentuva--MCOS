@@ -54,6 +54,19 @@ export const PAYABLE_SUPPLIER_INVOICE_STATUSES: SupplierInvoiceStatus[] = [
   SupplierInvoiceStatus.OVERDUE,
 ];
 
+/** One row of `getOutstandingForAging`'s result (Sprint 13, docs/domains/finance.md
+ *  "Accounts Payable Aging") — everything `AccountsPayableService.getAgingReport()`
+ *  needs to bucket by days-past-due, nothing more. */
+export interface AgingSupplierInvoiceRow {
+  id: string;
+  invoiceNumber: string;
+  supplierId: string;
+  supplierCode: string;
+  supplierName: string;
+  dueDate: Date;
+  amountOutstanding: number;
+}
+
 export interface JournalEntrySummary {
   id: string;
   journalNumber: string;
@@ -635,10 +648,53 @@ export class SupplierInvoiceRepository {
     return { aggregate, discrepancyCount };
   }
 
+  /** Every still-payable supplier invoice's `dueDate`+outstanding balance — the raw
+   *  material for `AccountsPayableService.getAgingReport()` (Sprint 13). Basis is
+   *  `recognizedAmount`, never `total` — same rule as every other AP balance
+   *  computation (an over-invoiced/discrepant amount is never "owed"). */
+  async getOutstandingForAging(organisationId: string): Promise<AgingSupplierInvoiceRow[]> {
+    await this.sweepOverdue(organisationId);
+    const invoices = await this.prisma.supplierInvoice.findMany({
+      where: { organisationId, status: { in: PAYABLE_SUPPLIER_INVOICE_STATUSES } },
+      select: {
+        id: true,
+        invoiceNumber: true,
+        dueDate: true,
+        recognizedAmount: true,
+        amountPaid: true,
+        amountCredited: true,
+        supplier: { select: SUPPLIER_SELECT },
+      },
+    });
+    return invoices.map((invoice) => ({
+      id: invoice.id,
+      invoiceNumber: invoice.invoiceNumber,
+      supplierId: invoice.supplier.id,
+      supplierCode: invoice.supplier.supplierCode,
+      supplierName: invoice.supplier.supplierName,
+      dueDate: invoice.dueDate,
+      amountOutstanding: roundCurrency(
+        invoice.recognizedAmount - invoice.amountPaid - invoice.amountCredited,
+      ),
+    }));
+  }
+
   /** Cheap counts for a supplier's recent-activity summary — no full row fetch. */
   async countBySupplier(organisationId: string, supplierId: string): Promise<number> {
     return this.prisma.supplierInvoice.count({
       where: { organisationId, supplierId, status: { not: SupplierInvoiceStatus.VOID } },
+    });
+  }
+
+  /** Org-wide count of non-`VOID` `DISCREPANCY`-matchStatus invoices, for the AP
+   *  Aging report's own discrepancy surfacing (Sprint 13, brief §13). */
+  async countDiscrepancies(organisationId: string): Promise<number> {
+    return this.prisma.supplierInvoice.count({
+      where: {
+        organisationId,
+        status: { not: SupplierInvoiceStatus.VOID },
+        matchStatus: 'DISCREPANCY',
+      },
     });
   }
 

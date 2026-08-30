@@ -9,6 +9,7 @@ describe('AccountsReceivableService', () => {
       getArByCustomer: jest.fn(),
       getArSummary: jest.fn(),
       sumInvoicedBetween: jest.fn().mockResolvedValue(0),
+      getOutstandingForAging: jest.fn().mockResolvedValue([]),
     } as unknown as jest.Mocked<InvoiceRepository>;
     const paymentRepository = {
       sumRecordedBetween: jest.fn().mockResolvedValue(0),
@@ -96,6 +97,112 @@ describe('AccountsReceivableService', () => {
           totalOutstanding: 0,
         }),
       );
+    });
+  });
+
+  describe('getAgingReport', () => {
+    const asOf = new Date('2026-08-29');
+    function daysAgo(days: number): Date {
+      return new Date(asOf.getTime() - days * 24 * 60 * 60 * 1000);
+    }
+
+    it('buckets an invoice not yet due as Current', async () => {
+      const { service, invoiceRepository } = makeService();
+      invoiceRepository.getOutstandingForAging.mockResolvedValue([
+        {
+          id: 'inv-1',
+          invoiceCode: 'INV-0001',
+          customerId: 'customer-1',
+          customerCode: 'CUS-0001',
+          customerName: 'ABC Supermarket',
+          dueDate: daysAgo(-5),
+          amountOutstanding: 100_000,
+        },
+      ] as never);
+
+      const report = await service.getAgingReport('org-1', asOf);
+
+      expect(report.current).toBe(100_000);
+      expect(report.days1To30).toBe(0);
+      expect(report.totalOutstanding).toBe(100_000);
+      expect(report.byCustomer[0]).toEqual(
+        expect.objectContaining({
+          customerId: 'customer-1',
+          current: 100_000,
+          totalOutstanding: 100_000,
+        }),
+      );
+    });
+
+    it.each([
+      [15, 'days1To30'],
+      [45, 'days31To60'],
+      [75, 'days61To90'],
+      [120, 'days90Plus'],
+    ] as const)('buckets an invoice %d days past due into %s', async (daysPastDue, bucket) => {
+      const { service, invoiceRepository } = makeService();
+      invoiceRepository.getOutstandingForAging.mockResolvedValue([
+        {
+          id: 'inv-1',
+          invoiceCode: 'INV-0001',
+          customerId: 'customer-1',
+          customerCode: 'CUS-0001',
+          customerName: 'ABC Supermarket',
+          dueDate: daysAgo(daysPastDue),
+          amountOutstanding: 100_000,
+        },
+      ] as never);
+
+      const report = await service.getAgingReport('org-1', asOf);
+
+      expect(report[bucket]).toBe(100_000);
+      expect(report.totalOutstanding).toBe(100_000);
+    });
+
+    it('aggregates multiple invoices for the same customer across buckets', async () => {
+      const { service, invoiceRepository } = makeService();
+      invoiceRepository.getOutstandingForAging.mockResolvedValue([
+        {
+          id: 'inv-1',
+          invoiceCode: 'INV-0001',
+          customerId: 'customer-1',
+          customerCode: 'CUS-0001',
+          customerName: 'ABC Supermarket',
+          dueDate: daysAgo(-5),
+          amountOutstanding: 100_000,
+        },
+        {
+          id: 'inv-2',
+          invoiceCode: 'INV-0002',
+          customerId: 'customer-1',
+          customerCode: 'CUS-0001',
+          customerName: 'ABC Supermarket',
+          dueDate: daysAgo(45),
+          amountOutstanding: 50_000,
+        },
+      ] as never);
+
+      const report = await service.getAgingReport('org-1', asOf);
+
+      expect(report.byCustomer).toHaveLength(1);
+      expect(report.byCustomer[0]).toEqual(
+        expect.objectContaining({
+          current: 100_000,
+          days31To60: 50_000,
+          totalOutstanding: 150_000,
+        }),
+      );
+      expect(report.totalOutstanding).toBe(150_000);
+    });
+
+    it('returns an all-zero report when nothing is outstanding', async () => {
+      const { service, invoiceRepository } = makeService();
+      invoiceRepository.getOutstandingForAging.mockResolvedValue([]);
+
+      const report = await service.getAgingReport('org-1', asOf);
+
+      expect(report.totalOutstanding).toBe(0);
+      expect(report.byCustomer).toEqual([]);
     });
   });
 
