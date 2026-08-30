@@ -64,6 +64,20 @@ import { CashDashboardService } from './cash/cash-dashboard.service';
 import { CashTransactionController } from './cash/cash-transaction.controller';
 import { CashTransactionRepository } from './cash/cash-transaction.repository';
 import { CashTransactionService } from './cash/cash-transaction.service';
+import { CashflowAdjustmentController } from './cashflow/cashflow-adjustment.controller';
+import { CashflowAdjustmentRepository } from './cashflow/cashflow-adjustment.repository';
+import { CashflowAdjustmentService } from './cashflow/cashflow-adjustment.service';
+import { CashflowForecastController } from './cashflow/cashflow-forecast.controller';
+import { CashflowForecastService } from './cashflow/cashflow-forecast.service';
+import { CashflowItemController } from './cashflow/cashflow-item.controller';
+import { CashflowItemRepository } from './cashflow/cashflow-item.repository';
+import { CashflowItemService } from './cashflow/cashflow-item.service';
+import { CashflowScenarioController } from './cashflow/cashflow-scenario.controller';
+import { CashflowScenarioRepository } from './cashflow/cashflow-scenario.repository';
+import { CashflowScenarioService } from './cashflow/cashflow-scenario.service';
+import { CashflowSettingsController } from './cashflow/cashflow-settings.controller';
+import { CashflowSettingsRepository } from './cashflow/cashflow-settings.repository';
+import { CashflowSettingsService } from './cashflow/cashflow-settings.service';
 
 /**
  * Finance HTTP surface (Sprint 6, docs/domains/finance.md) — Invoices, Payments, Credit
@@ -126,6 +140,16 @@ import { CashTransactionService } from './cash/cash-transaction.service';
  * shared `postSystemJournalEntry` boundary; `BankReconciliation` itself posts
  * nothing — it is a read/review layer over already-posted lines. No new module
  * imports were needed — see `cash-independence.spec.ts`.
+ *
+ * Sprint 15 (docs/domains/cashflow.md) adds `cashflow/` — a forward-looking
+ * forecast layer that is never itself stored: `CashflowForecastService` composes
+ * `InvoiceRepository`/`SupplierInvoiceRepository.getOutstandingForAging()`
+ * (reused unmodified from Sprint 13) with `CashAccountRepository`/
+ * `LedgerService` (Sprint 14/7) and the four new Sprint 15 models
+ * (`CashflowForecastItem`, `CashflowScenario`, `CashflowForecastAdjustment`,
+ * `CashflowSettings`). Never calls `postSystemJournalEntry` and never writes to
+ * any table outside its own four models — see `cashflow-independence.spec.ts`.
+ * No new module imports needed.
  */
 @Module({
   imports: [
@@ -160,6 +184,11 @@ import { CashTransactionService } from './cash/cash-transaction.service';
     BankStatementController,
     BankReconciliationController,
     CashDashboardController,
+    CashflowSettingsController,
+    CashflowItemController,
+    CashflowScenarioController,
+    CashflowAdjustmentController,
+    CashflowForecastController,
   ],
   providers: [
     InvoiceRepository,
@@ -197,6 +226,15 @@ import { CashTransactionService } from './cash/cash-transaction.service';
     BankReconciliationRepository,
     BankReconciliationService,
     CashDashboardService,
+    CashflowSettingsRepository,
+    CashflowSettingsService,
+    CashflowItemRepository,
+    CashflowItemService,
+    CashflowScenarioRepository,
+    CashflowScenarioService,
+    CashflowAdjustmentRepository,
+    CashflowAdjustmentService,
+    CashflowForecastService,
   ],
 })
 export class FinanceModule {}

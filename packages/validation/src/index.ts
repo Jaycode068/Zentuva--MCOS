@@ -1,6 +1,7 @@
 export * from './accounting';
 export * from './accounts-payable';
 export * from './cash';
+export * from './cashflow';
 export * from './catalogue';
 export * from './distribution';
 export * from './env';

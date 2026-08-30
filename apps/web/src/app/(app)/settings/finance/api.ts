@@ -1579,3 +1579,302 @@ export interface CashOverview {
 export function getCashOverview(): Promise<CashOverview> {
   return apiFetch<CashOverview>('/finance/cash/overview');
 }
+
+// === Cashflow Management (Sprint 15, docs/domains/cashflow.md) ===
+
+export type CashflowDirection = 'INFLOW' | 'OUTFLOW';
+export type CashflowRecurrence = 'ONE_TIME' | 'WEEKLY' | 'MONTHLY' | 'QUARTERLY' | 'YEARLY';
+export type CashflowItemStatus = 'ACTIVE' | 'INACTIVE';
+export type CashflowForecastSourceType =
+  'CUSTOMER_RECEIVABLE' | 'SUPPLIER_PAYABLE' | 'RECURRING_ITEM' | 'MANUAL_FORECAST' | 'OTHER';
+export type CashflowConfidence = 'CONFIRMED' | 'EXPECTED' | 'ESTIMATED';
+export type CashflowBucketBy = 'weekly' | 'monthly';
+
+/** `GET/POST /api/finance/cashflow/items` response shape — a management-entered
+ *  future cash commitment, never a substitute for an Invoice/SupplierInvoice/
+ *  Payment/SupplierPayment. `sourceType` is server-derived from `recurrence`. */
+export interface CashflowForecastItem {
+  id: string;
+  cashAccountId: string | null;
+  direction: CashflowDirection;
+  sourceType: CashflowForecastSourceType;
+  description: string;
+  amount: number;
+  currency: string;
+  expectedDate: string;
+  recurrence: CashflowRecurrence;
+  recurrenceEndDate: string | null;
+  status: CashflowItemStatus;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateCashflowForecastItemPayload {
+  cashAccountId?: string;
+  direction: CashflowDirection;
+  description: string;
+  amount: number;
+  currency: string;
+  expectedDate: string;
+  recurrence?: CashflowRecurrence;
+  recurrenceEndDate?: string;
+  notes?: string;
+  idempotencyKey?: string;
+}
+
+export interface UpdateCashflowForecastItemPayload {
+  cashAccountId?: string | null;
+  description?: string;
+  amount?: number;
+  expectedDate?: string;
+  recurrenceEndDate?: string | null;
+  notes?: string | null;
+}
+
+export function listCashflowForecastItems(
+  params: { status?: CashflowItemStatus; cashAccountId?: string } = {},
+): Promise<{ items: CashflowForecastItem[] }> {
+  const query = new URLSearchParams();
+  if (params.status) query.set('status', params.status);
+  if (params.cashAccountId) query.set('cashAccountId', params.cashAccountId);
+  const queryString = query.toString();
+  return apiFetch<{ items: CashflowForecastItem[] }>(
+    `/finance/cashflow/items${queryString ? `?${queryString}` : ''}`,
+  );
+}
+
+export function createCashflowForecastItem(
+  input: CreateCashflowForecastItemPayload,
+): Promise<CashflowForecastItem> {
+  return apiFetch<CashflowForecastItem>('/finance/cashflow/items', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateCashflowForecastItem(
+  id: string,
+  input: UpdateCashflowForecastItemPayload,
+): Promise<CashflowForecastItem> {
+  return apiFetch<CashflowForecastItem>(`/finance/cashflow/items/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+}
+
+export function deactivateCashflowForecastItem(id: string): Promise<CashflowForecastItem> {
+  return apiFetch<CashflowForecastItem>(`/finance/cashflow/items/${id}/deactivate`, {
+    method: 'POST',
+  });
+}
+
+export function activateCashflowForecastItem(id: string): Promise<CashflowForecastItem> {
+  return apiFetch<CashflowForecastItem>(`/finance/cashflow/items/${id}/activate`, {
+    method: 'POST',
+  });
+}
+
+/** `GET/POST /api/finance/cashflow/scenarios` response shape — a named set of
+ *  forecast-adjustment knobs, never a rules engine. */
+export interface CashflowScenario {
+  id: string;
+  name: string;
+  description: string | null;
+  inflowDelayDays: number;
+  inflowMultiplier: number;
+  outflowDelayDays: number;
+  outflowMultiplier: number;
+  status: CashflowItemStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateCashflowScenarioPayload {
+  name: string;
+  description?: string;
+  inflowDelayDays?: number;
+  inflowMultiplier?: number;
+  outflowDelayDays?: number;
+  outflowMultiplier?: number;
+  idempotencyKey?: string;
+}
+
+export interface UpdateCashflowScenarioPayload {
+  name?: string;
+  description?: string | null;
+  inflowDelayDays?: number;
+  inflowMultiplier?: number;
+  outflowDelayDays?: number;
+  outflowMultiplier?: number;
+}
+
+export function listCashflowScenarios(
+  params: { status?: CashflowItemStatus } = {},
+): Promise<{ items: CashflowScenario[] }> {
+  const query = new URLSearchParams();
+  if (params.status) query.set('status', params.status);
+  const queryString = query.toString();
+  return apiFetch<{ items: CashflowScenario[] }>(
+    `/finance/cashflow/scenarios${queryString ? `?${queryString}` : ''}`,
+  );
+}
+
+export function createCashflowScenario(
+  input: CreateCashflowScenarioPayload,
+): Promise<CashflowScenario> {
+  return apiFetch<CashflowScenario>('/finance/cashflow/scenarios', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateCashflowScenario(
+  id: string,
+  input: UpdateCashflowScenarioPayload,
+): Promise<CashflowScenario> {
+  return apiFetch<CashflowScenario>(`/finance/cashflow/scenarios/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+}
+
+export function deactivateCashflowScenario(id: string): Promise<CashflowScenario> {
+  return apiFetch<CashflowScenario>(`/finance/cashflow/scenarios/${id}/deactivate`, {
+    method: 'POST',
+  });
+}
+
+/** `PUT /api/finance/cashflow/adjustments` — a per-invoice forecast override
+ *  that never touches the underlying Invoice/SupplierInvoice row. */
+export interface CashflowForecastAdjustment {
+  id: string;
+  sourceType: 'CUSTOMER_RECEIVABLE' | 'SUPPLIER_PAYABLE';
+  sourceId: string;
+  adjustedExpectedDate: string | null;
+  adjustedAmount: number | null;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UpsertCashflowForecastAdjustmentPayload {
+  sourceType: 'CUSTOMER_RECEIVABLE' | 'SUPPLIER_PAYABLE';
+  sourceId: string;
+  adjustedExpectedDate?: string;
+  adjustedAmount?: number;
+  notes?: string;
+  idempotencyKey?: string;
+}
+
+export function upsertCashflowForecastAdjustment(
+  input: UpsertCashflowForecastAdjustmentPayload,
+): Promise<CashflowForecastAdjustment> {
+  return apiFetch<CashflowForecastAdjustment>('/finance/cashflow/adjustments', {
+    method: 'PUT',
+    body: JSON.stringify(input),
+  });
+}
+
+/** `GET/PUT /api/finance/cashflow/settings`. */
+export interface CashflowSettings {
+  minimumCashReserve: number;
+  defaultCollectionDelayDays: number;
+  defaultPaymentDelayDays: number;
+}
+
+export function getCashflowSettings(): Promise<CashflowSettings> {
+  return apiFetch<CashflowSettings>('/finance/cashflow/settings');
+}
+
+export function updateCashflowSettings(
+  input: Partial<CashflowSettings>,
+): Promise<CashflowSettings> {
+  return apiFetch<CashflowSettings>('/finance/cashflow/settings', {
+    method: 'PUT',
+    body: JSON.stringify(input),
+  });
+}
+
+export interface CashflowForecastLineItem {
+  sourceType: CashflowForecastSourceType;
+  sourceId: string;
+  description: string;
+  direction: CashflowDirection;
+  amount: number;
+  expectedDate: string;
+  confidence: CashflowConfidence;
+  cashAccountId: string | null;
+  adjusted: boolean;
+}
+
+export interface CashflowForecastBucket {
+  periodStart: string;
+  periodEnd: string;
+  label: string;
+  openingBalance: number;
+  inflows: number;
+  outflows: number;
+  closingBalance: number;
+  belowMinimumReserve: boolean;
+  items: CashflowForecastLineItem[];
+}
+
+export interface CashflowForecastBreakdownRow {
+  sourceType: CashflowForecastSourceType;
+  total: number;
+}
+
+/** `GET /api/finance/cashflow/forecast` response shape — never stored; computed
+ *  live on every request from AR/AP, Cash Accounts, and the models above. */
+export interface CashflowForecastResult {
+  horizonDays: number;
+  bucketBy: CashflowBucketBy;
+  scenarioId: string | null;
+  cashAccountId: string | null;
+  currentCash: number;
+  forecastClosingCash: number;
+  lowestProjectedCash: number;
+  totalExpectedInflows: number;
+  totalExpectedOutflows: number;
+  minimumCashReserve: number;
+  shortfallDetected: boolean;
+  buckets: CashflowForecastBucket[];
+  inflowBreakdown: CashflowForecastBreakdownRow[];
+  outflowBreakdown: CashflowForecastBreakdownRow[];
+}
+
+export function getCashflowForecast(
+  params: {
+    horizonDays?: number;
+    bucketBy?: CashflowBucketBy;
+    scenarioId?: string;
+    cashAccountId?: string;
+  } = {},
+): Promise<CashflowForecastResult> {
+  const query = new URLSearchParams();
+  if (params.horizonDays) query.set('horizonDays', String(params.horizonDays));
+  if (params.bucketBy) query.set('bucketBy', params.bucketBy);
+  if (params.scenarioId) query.set('scenarioId', params.scenarioId);
+  if (params.cashAccountId) query.set('cashAccountId', params.cashAccountId);
+  const queryString = query.toString();
+  return apiFetch<CashflowForecastResult>(
+    `/finance/cashflow/forecast${queryString ? `?${queryString}` : ''}`,
+  );
+}
+
+export interface CashflowCashAccountForecastRow {
+  cashAccountId: string;
+  name: string;
+  accountCode: string;
+  currentBalance: number;
+  projectedClosing: number;
+}
+
+export function getCashflowAccountBreakdown(
+  horizonDays: number = 90,
+): Promise<CashflowCashAccountForecastRow[]> {
+  return apiFetch<CashflowCashAccountForecastRow[]>(
+    `/finance/cashflow/accounts/breakdown?horizonDays=${horizonDays}`,
+  );
+}

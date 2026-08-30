@@ -5,11 +5,14 @@
   Sprint 12 added Accounts Payable / Supplier Invoice Management — see §12. Sprint 13
   added a read-only Financial Statements & Management Reporting layer — see §13.
   Sprint 14 added Cash & Bank Management / Reconciliation — see §14 and
-  [Cash & Bank Management](cash-management.md). **Not** a General Ledger / accounting
-  system itself — that layer lives in `accounting.md`, see §9.
+  [Cash & Bank Management](cash-management.md). Sprint 15 added a forward-looking
+  Cashflow Management & Forecasting layer — see §15 and [Cashflow](cashflow.md).
+  **Not** a General Ledger / accounting system itself — that layer lives in
+  `accounting.md`, see §9.
 - **Sprint:** 6 (Sprint 7 added the accounting integration described in §9; Sprint 12
   added Accounts Payable described in §12; Sprint 13 added Reporting described in
-  §13; Sprint 14 added Cash & Bank Management described in §14)
+  §13; Sprint 14 added Cash & Bank Management described in §14; Sprint 15 added
+  Cashflow Management & Forecasting described in §15)
 - **Depends on:** [Identity](identity.md) (tenant boundary, `RolesGuard`,
   `OrganisationService` for the currency snapshot), [Sales](sales.md)
   (`SalesOrderRepository`, read-only, via `SalesModule`'s existing export),
@@ -26,7 +29,9 @@
   [Sprint 12 Completion Report](../sprint-12-completion-report.md),
   [Sprint 13 Completion Report](../sprint-13-completion-report.md),
   [Sprint 14 Completion Report](../sprint-14-completion-report.md),
-  [Accounting](accounting.md), [Cash & Bank Management](cash-management.md).
+  [Sprint 15 Completion Report](../sprint-15-completion-report.md),
+  [Accounting](accounting.md), [Cash & Bank Management](cash-management.md),
+  [Cashflow](cashflow.md).
 
 ## 1. Business Purpose
 
@@ -569,7 +574,8 @@ Finance-facing surface:
   matched manually, one pair at a time. `complete()` is blocked while any bank or
   book item remains unmatched — never a silent "force the books to equal the
   bank." Once `COMPLETED`, a session is immutable; reopening one is explicit
-  deferred work (§15).
+  deferred work —
+  see [Cash & Bank Management](cash-management.md) §10.
 - **Book Balance vs Reconciled Balance vs Unreconciled Difference** — the central
   UX distinction (brief-driven): Book Balance is always live from the General
   Ledger (`LedgerService.getAccountActivity`, unchanged since Sprint 7/13);
@@ -591,7 +597,7 @@ Unreconciled) rather than being folded into a second, busier dashboard.
 
 ### API Reference (Sprint 14)
 
-See [Accounting](accounting.md) §18 for the full endpoint table (`/finance/cash/
+See [Accounting](accounting.md) §21 for the full endpoint table (`/finance/cash/
 accounts`, `/finance/cash/transactions`, `/finance/cash/bank-statements/*`,
 `/finance/cash/reconciliations/*`, `/finance/cash/overview`).
 
@@ -617,3 +623,70 @@ Liability`-style entry without further schema change).
   same-date/same-amount bulk auto-match plus fully manual matching, never a
   confidence-scored suggestion engine. `ReconciliationMatch.confidenceScore` exists
   as an unused, future-proofing column only.
+
+## 15. Cashflow Management & Forecasting (Sprint 15)
+
+Sprint 15 adds a forward-looking, forecast-only layer on top of the Finance data
+already recorded — full domain writeup in [Cashflow](cashflow.md); accounting
+mechanics (or rather, the deliberate lack of any) in [Accounting](accounting.md)
+§20. This is explicitly **not** budgeting and never posts a journal entry.
+Summary of the Finance-facing surface:
+
+- **The forecast is never stored** — `GET /finance/cashflow/forecast` recomputes
+  Opening Cash + Inflows − Outflows = Closing Cash live, every request, from
+  outstanding AR/AP (Sprint 13's own `getOutstandingForAging()` queries, reused
+  unmodified), Cash Account Book Balances (Sprint 14), and management-entered
+  `CashflowForecastItem`s.
+- **`CashflowForecastItem`** — one model for both a one-time known commitment
+  (e.g. a planned equipment purchase) and a recurring item (e.g. monthly rent),
+  distinguished by a `recurrence` enum. `sourceType` is server-derived, never a
+  user choice.
+- **Confidence classification** — server-derived, never AI/ML: an outstanding
+  customer invoice is `CONFIRMED`, an outstanding supplier invoice or a
+  recurring item is `EXPECTED`, a manual one-time item is `ESTIMATED`.
+- **`CashflowScenario`** — Base/Conservative/Optimistic-style named sets of a
+  delay-days-plus-multiplier adjustment, applied on top of the base forecast.
+  Configurable knobs only, never a predictive model.
+- **`CashflowForecastAdjustment`** — lets an authorized user override a single
+  AR/AP item's expected date/amount for forecasting purposes only. The
+  underlying `Invoice`/`SupplierInvoice` is never written to — proven both by
+  `cashflow-independence.spec.ts` and by live verification (the original
+  invoice's total was confirmed unchanged after saving an adjustment).
+- **Minimum Cash Reserve / shortfall detection** — a configurable,
+  management-defined threshold; a period projected below it is flagged, worded
+  throughout as a planning signal ("projected cash is below the
+  management-defined safety threshold"), never a claim of insolvency.
+- **Cash-account-level forecast** — a consolidated (org-wide) view and a
+  per-account view are genuinely different computations, never one query that
+  could imply money moves between accounts; AR/AP is excluded from any single
+  account's own view since neither carries a `cashAccountId` until actually
+  collected or paid.
+
+### Admin Surface
+
+Three new tabs on `/settings/finance/*`: **Cashflow** (the forecast dashboard —
+horizon/bucket/scenario selectors, a shortfall warning banner, summary cards, a
+closing-balance-vs-minimum-reserve chart, an inflows-vs-outflows chart, a
+click-to-expand per-period table with inline source-item drill-down and an
+"Adjust" action on AR/AP rows, and a cash-account breakdown), **Cashflow
+Items** (management-entered commitments + the Cashflow Settings card), and
+**Cashflow Scenarios**.
+
+### API Reference (Sprint 15)
+
+See [Accounting](accounting.md) §21 for the full endpoint table (`/finance/
+cashflow/settings`, `/finance/cashflow/items`, `/finance/cashflow/scenarios`,
+`/finance/cashflow/adjustments`, `/finance/cashflow/forecast`, `/finance/
+cashflow/accounts/breakdown`).
+
+### Known Limitations (Sprint 15)
+
+- **No caching of any kind** — the forecast is recomputed on every request, per
+  the brief's own "no premature caching" instruction; very large outstanding-
+  invoice volumes would repeat this cost on every call.
+- **Per-account forecasts exclude AR/AP** — documented, not silently guessed
+  (see [Cashflow](cashflow.md) §8).
+- **No loan/debt/investment/capital management, budgeting, budget-vs-actual,
+  AI/ML forecasting, credit scoring, expense management, payroll, bank API/
+  Open Banking/payment gateway integration, treasury management, or advanced
+  financial modelling** — explicit non-goals of Sprint 15, unchanged.

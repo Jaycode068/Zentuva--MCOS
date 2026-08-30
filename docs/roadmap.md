@@ -117,7 +117,9 @@ Inventory`, one journal per batch, valued at Inventory's own moving-weighted-
       finance.md §12; Sprint 13 added a read-only Financial Statements & Management
       Reporting layer — Profit & Loss, Balance Sheet, AR/AP ageing, Inventory
       Valuation/Reconciliation, a Management Dashboard — see finance.md §13; Sprint 14
-      gave `Payment`/`SupplierPayment` an optional `cashAccountId` — see finance.md §14
+      gave `Payment`/`SupplierPayment` an optional `cashAccountId` — see finance.md §14;
+      Sprint 15 added a forward-looking Cashflow Management & Forecasting layer,
+      never persisted, never posts — see finance.md §15
 - [x] Accounting — foundation shipped Sprint 7 (tenant-defined Chart of Accounts,
       Accounting Periods, double-entry Journal Entries, General Ledger/Trial Balance/
       Account Activity; Finance's Invoice/Payment/Credit-Note events post
@@ -147,10 +149,13 @@ Sold / CR Finished Goods Inventory`, no new system accounts needed — `COGS` ha
       auto-corrects, a discrepancy) round out the reporting layer; Sprint 14 added
       two elevated system accounts (`CASH_BANK_PARENT`, `OPENING_BALANCE_EQUITY`)
       backing Cash & Bank Management's opening-balance postings (below); not a
-      complete accounting system — Cash Flow Statement, payment runs, an approval
-      workflow to reclassify GRNI into AP, labour/machine/overhead costing,
-      budgeting/forecasting, and multi-company consolidation remain — see
-      [`docs/domains/accounting.md`](domains/accounting.md)
+      complete accounting system — a historical Cash Flow Statement (the
+      indirect/direct-method report, distinct from Sprint 15's forward-looking
+      forecast below), payment runs, an approval workflow to reclassify GRNI
+      into AP, labour/machine/overhead costing, budgeting, and multi-company
+      consolidation remain; Sprint 15 added Cashflow Management (below) with
+      **zero schema changes to any existing accounting model** and zero new
+      system accounts — see [`docs/domains/accounting.md`](domains/accounting.md)
 - [x] Cash & Bank Management — foundation shipped Sprint 14 ("Cash & Bank
       Management / Reconciliation Foundation"). A `CashAccount` master, each linked
       to its own dedicated, system-provisioned Chart of Accounts row (never the
@@ -165,9 +170,26 @@ Sold / CR Finished Goods Inventory`, no new system accounts needed — `COGS` ha
       Unreconciled Difference. Never a second accounting system: every posting goes
       through the same `postSystemJournalEntry` boundary every other domain uses,
       and `BankReconciliation` itself posts nothing at all. Explicitly a foundation
-      for future cashflow forecasting, loan/debt/investment management, and
-      capital-planning intelligence — none of which this sprint builds — see
+      for future loan/debt/investment management and capital-planning
+      intelligence — cashflow forecasting (originally scoped here as future
+      work) shipped the very next sprint, below — see
       [`docs/domains/cash-management.md`](domains/cash-management.md)
+- [x] Cashflow Management & Forecasting — foundation shipped Sprint 15
+      ("Cashflow Management & Forecasting"). Opening Cash + Inflows − Outflows =
+      Closing Cash, **never persisted** — recomputed live on every request from
+      outstanding AR/AP (reusing Sprint 13's aging queries unmodified) and Cash
+      Account Book Balances (Sprint 14); management-entered known/recurring
+      commitments kept structurally disjoint from real AR/AP so double-counting
+      is impossible by construction, not by a de-dup check; Base/Conservative/
+      Optimistic scenarios via configurable delay/multiplier knobs only, never a
+      predictive model; a per-item forecast adjustment that overrides the
+      projection without ever writing to the underlying Invoice/SupplierInvoice
+      (proven both structurally and via live verification); a configurable
+      minimum cash reserve with shortfall detection worded as a planning
+      signal, never insolvency. Explicitly **not** budgeting, and explicitly not
+      loan/debt/investment/capital management — though the source-type model is
+      deliberately extensible toward one later — see
+      [`docs/domains/cashflow.md`](domains/cashflow.md)
 
 ## Phase 3 — Extended Experiences
 

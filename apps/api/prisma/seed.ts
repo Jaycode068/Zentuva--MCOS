@@ -3932,6 +3932,247 @@ async function seedCashAndBank(organisationId: string, actorUserId: string): Pro
   }
 }
 
+// ============================================================================
+// Sprint 15 — Cashflow Management & Forecasting (docs/domains/cashflow.md)
+// ============================================================================
+
+/**
+ * Sprint 15 fixtures — a fresh, dedicated outstanding customer invoice
+ * (₦8,000,000, due in 14 days) and supplier invoice (₦5,000,000, due in 10 days,
+ * posted Path B against Raw Materials — mirrors `SupplierInvoiceRepository.post()`'s
+ * own Path B shape, docs/domains/finance.md §12), a recurring monthly rent item, a
+ * one-time manual "expected additional collection" item, a large one-time planned
+ * equipment payment (deliberately large enough to demonstrate a real projected
+ * shortfall against this environment's own accumulated cash balance, regardless of
+ * how much prior live-testing has already moved it — brief §38's "a healthy
+ * forecast" and "a projected shortfall" in one coherent scenario: near-term
+ * buckets stay healthy, the bucket the equipment payment lands in does not), three
+ * scenarios (Base/Conservative/Optimistic), and a configured minimum cash
+ * reserve. Entirely independent of `seedFinance`'s own gated fixtures — no shared
+ * idempotency key, no shared source rows. Idempotent via a single upfront "Base"
+ * scenario existence check.
+ */
+async function seedCashflowFixtures(organisationId: string, actorUserId: string): Promise<void> {
+  console.log('Seeding Cashflow Management fixtures...');
+
+  const existing = await prisma.cashflowScenario.findFirst({
+    where: { organisationId, name: 'Base' },
+  });
+  if (existing) {
+    return;
+  }
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  function daysFromNow(days: number): Date {
+    const date = new Date(today);
+    date.setDate(date.getDate() + days);
+    return date;
+  }
+
+  // --- Outstanding customer invoice (AR) — brief §41's exact worked scenario.
+  const customer = await prisma.customer.findFirstOrThrow({ where: { organisationId } });
+  const arInvoice = await prisma.invoice.create({
+    data: {
+      organisationId,
+      invoiceCode: 'CF-INV-0001',
+      customerId: customer.id,
+      invoiceDate: today,
+      dueDate: daysFromNow(14),
+      paymentTerms: 'NET_14',
+      status: 'ISSUED',
+      currency: 'NGN',
+      subtotal: 8_000_000,
+      taxAmount: 0,
+      total: 8_000_000,
+      createdById: actorUserId,
+      updatedById: actorUserId,
+      items: {
+        create: [
+          {
+            productCode: 'CF-SEED',
+            productName: 'Cashflow Seed Line Item',
+            quantity: 1,
+            unitPrice: 8_000_000,
+            lineTotal: 8_000_000,
+          },
+        ],
+      },
+    },
+  });
+  await postSeedJournalEntry(organisationId, {
+    date: arInvoice.invoiceDate,
+    description: `Invoice ${arInvoice.invoiceCode} issued`,
+    reference: arInvoice.invoiceCode,
+    sourceType: 'INVOICE',
+    sourceId: arInvoice.id,
+    actorUserId,
+    lines: [
+      { systemKey: 'AR', debit: arInvoice.total },
+      { systemKey: 'SALES_REVENUE', credit: arInvoice.total },
+    ],
+  });
+
+  // --- Outstanding supplier invoice (AP), Path B (no Goods Receipt link) —
+  // posts DR Raw Materials / CR AP, mirroring `SupplierInvoiceRepository.post()`'s
+  // own Path B shape exactly.
+  const supplier = await prisma.supplier.findFirstOrThrow({ where: { organisationId } });
+  const rawMaterialsAccount = await prisma.chartOfAccount.findFirstOrThrow({
+    where: { organisationId, code: '1310' },
+  });
+  const apInvoice = await prisma.supplierInvoice.create({
+    data: {
+      organisationId,
+      supplierId: supplier.id,
+      invoiceNumber: 'CF-SINV-0001',
+      invoiceDate: today,
+      dueDate: daysFromNow(10),
+      paymentTerms: 'NET_14',
+      status: 'POSTED',
+      currency: 'NGN',
+      subtotal: 5_000_000,
+      taxAmount: 0,
+      total: 5_000_000,
+      matchStatus: 'UNVERIFIED',
+      recognizedAmount: 5_000_000,
+      varianceAmount: 0,
+      postedAt: new Date(),
+      postedById: actorUserId,
+      createdById: actorUserId,
+      updatedById: actorUserId,
+      items: {
+        create: [
+          {
+            description: 'Raw materials — cashflow seed line item',
+            quantity: 1,
+            unitPrice: 5_000_000,
+            lineTotal: 5_000_000,
+            debitAccountId: rawMaterialsAccount.id,
+            recognizedAmount: 5_000_000,
+            varianceAmount: 0,
+          },
+        ],
+      },
+    },
+  });
+  await postSeedJournalEntry(organisationId, {
+    date: apInvoice.invoiceDate,
+    description: `Supplier invoice ${apInvoice.invoiceNumber} posted`,
+    reference: apInvoice.invoiceNumber,
+    sourceType: 'SUPPLIER_INVOICE',
+    sourceId: apInvoice.id,
+    actorUserId,
+    lines: [
+      { accountId: rawMaterialsAccount.id, debit: apInvoice.total },
+      { systemKey: 'AP', credit: apInvoice.total },
+    ],
+  });
+
+  // --- Management-entered forecast items (docs/domains/cashflow.md §5/§6).
+  await prisma.cashflowForecastItem.create({
+    data: {
+      organisationId,
+      direction: 'OUTFLOW',
+      sourceType: 'RECURRING_ITEM',
+      description: 'Factory Rent',
+      amount: 1_500_000,
+      currency: 'NGN',
+      expectedDate: daysFromNow(1),
+      recurrence: 'MONTHLY',
+      idempotencyKey: 'seed-CF-ITEM-RENT',
+      createdById: actorUserId,
+      updatedById: actorUserId,
+    },
+  });
+  await prisma.cashflowForecastItem.create({
+    data: {
+      organisationId,
+      direction: 'INFLOW',
+      sourceType: 'MANUAL_FORECAST',
+      description: 'Expected additional customer collection',
+      amount: 4_000_000,
+      currency: 'NGN',
+      expectedDate: daysFromNow(20),
+      recurrence: 'ONE_TIME',
+      idempotencyKey: 'seed-CF-ITEM-MANUAL-COLLECTION',
+      createdById: actorUserId,
+      updatedById: actorUserId,
+    },
+  });
+  await prisma.cashflowForecastItem.create({
+    data: {
+      organisationId,
+      direction: 'OUTFLOW',
+      sourceType: 'MANUAL_FORECAST',
+      description: 'Planned Equipment Payment',
+      amount: 20_000_000,
+      currency: 'NGN',
+      expectedDate: daysFromNow(45),
+      recurrence: 'ONE_TIME',
+      notes:
+        'Deliberately large — demonstrates a real projected shortfall in the live-verification scenario (docs/domains/cashflow.md).',
+      idempotencyKey: 'seed-CF-ITEM-EQUIPMENT',
+      createdById: actorUserId,
+      updatedById: actorUserId,
+    },
+  });
+
+  // --- Scenarios (docs/domains/cashflow.md §7).
+  await prisma.cashflowScenario.create({
+    data: {
+      organisationId,
+      name: 'Base',
+      description: 'Collections and payments as scheduled — no adjustment.',
+      inflowDelayDays: 0,
+      inflowMultiplier: 1,
+      outflowDelayDays: 0,
+      outflowMultiplier: 1,
+      idempotencyKey: 'seed-CF-SCENARIO-BASE',
+      createdById: actorUserId,
+      updatedById: actorUserId,
+    },
+  });
+  await prisma.cashflowScenario.create({
+    data: {
+      organisationId,
+      name: 'Conservative',
+      description: 'Customer collections delayed 30 days and reduced 20%; payments unchanged.',
+      inflowDelayDays: 30,
+      inflowMultiplier: 0.8,
+      outflowDelayDays: 0,
+      outflowMultiplier: 1,
+      idempotencyKey: 'seed-CF-SCENARIO-CONSERVATIVE',
+      createdById: actorUserId,
+      updatedById: actorUserId,
+    },
+  });
+  await prisma.cashflowScenario.create({
+    data: {
+      organisationId,
+      name: 'Optimistic',
+      description: 'Collections improve 15%.',
+      inflowDelayDays: 0,
+      inflowMultiplier: 1.15,
+      outflowDelayDays: 0,
+      outflowMultiplier: 1,
+      idempotencyKey: 'seed-CF-SCENARIO-OPTIMISTIC',
+      createdById: actorUserId,
+      updatedById: actorUserId,
+    },
+  });
+
+  // --- Minimum cash reserve (docs/domains/cashflow.md §9/§10).
+  await prisma.cashflowSettings.create({
+    data: {
+      organisationId,
+      minimumCashReserve: 5_000_000,
+      defaultCollectionDelayDays: 0,
+      defaultPaymentDelayDays: 0,
+      updatedById: actorUserId,
+    },
+  });
+}
+
 async function main(): Promise<void> {
   // Read early (rather than inside `seedUser`) because the organisation's `businessEmail`
   // needs it before any user is created.
@@ -4138,6 +4379,7 @@ async function main(): Promise<void> {
     productsByCode,
   );
   await seedCashAndBank(organisation.id, ownerUser.id);
+  await seedCashflowFixtures(organisation.id, ownerUser.id);
 
   console.log('Recording an audit log entry for this seed run...');
   await prisma.auditLog.create({

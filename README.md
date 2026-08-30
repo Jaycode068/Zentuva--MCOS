@@ -8,12 +8,15 @@ single intelligent platform.
 The first tenant is **Boby Bites**, the pilot implementation that validates the platform. Every
 feature is built configurably so it can be reused by future tenants without code changes.
 
-> This repository currently contains the **engineering foundation** plus the **Identity Domain's
-> database & domain layer and authentication layer** (schema, migrations, login/JWT/refresh
-> rotation/logout/password reset/invitation acceptance/account locking — no RBAC evaluation,
-> permission guards, user-management APIs, or frontend yet). No other business modules
-> (catalogue, procurement, inventory, production, sales, distribution, finance) have been
-> implemented. See [docs/domains/identity.md](docs/domains/identity.md) for the design and
+> This repository has grown well past the initial engineering foundation. Identity, Product
+> Catalogue, Supplier Management, Procurement, Inventory, Production, Customers, Outlets,
+> Territories, Retail Network, Sales, and Distribution all have implemented foundations, wired end
+> -to-end to a real double-entry Accounting engine (Chart of Accounts, Journal Entries, General
+> Ledger) and a Finance domain covering Invoices/Payments/Credit Notes/Accounts Receivable,
+> Accounts Payable/Supplier Invoices, read-only Financial Statements & Management Reporting, Cash
+> & Bank Management / Reconciliation, and — most recently — a forward-looking Cashflow Management
+> & Forecasting layer that is never persisted and never posts a journal entry. See
+> [docs/domains/README.md](docs/domains/README.md) for the current status of every domain and
 > [docs/roadmap.md](docs/roadmap.md) for the full build order.
 
 ## Repository Structure

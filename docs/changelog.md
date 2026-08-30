@@ -7,6 +7,97 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 15 Cashflow Management & Forecasting] - 2026-08-30
+
+### Added
+
+- **Cashflow Forecast (Finance) — never persisted, recomputed live on every
+  request.** `GET /finance/cashflow/forecast` computes Opening Cash + Inflows
+  − Outflows = Closing Cash across configurable weekly/monthly buckets and
+  30/60/90/180/365-day horizons, sourced entirely from data that already
+  exists: outstanding AR/AP (Sprint 13's own `getOutstandingForAging()`
+  queries, reused byte-for-byte, zero new AR/AP query code) and Cash Account
+  Book Balances (Sprint 14's own `LedgerService.getAccountActivity`). This is
+  explicitly **not** budgeting — a different question ("what do we plan to
+  earn/spend" vs. "when will money actually move").
+- **`CashflowForecastItem` (Finance)** — one model for both a management-
+  entered one-time known commitment (e.g. a planned equipment payment) and a
+  recurring item (e.g. monthly rent), distinguished by a `recurrence` enum
+  (`ONE_TIME|WEEKLY|MONTHLY|QUARTERLY|YEARLY`). `sourceType` is server-derived
+  from `recurrence`, never a separate user input. Because AR/AP items are
+  synthesized live and never copied into this table, a real transaction can
+  never be double-counted — a structural guarantee, not a de-dup check.
+- **Confidence classification** — server-derived, never AI/ML: an outstanding
+  customer invoice is `CONFIRMED`, an outstanding supplier invoice or a
+  recurring item is `EXPECTED`, a manual one-time item is `ESTIMATED` —
+  matching the brief's own worked examples exactly. An invoice already past
+  its due date is bucketed at `max(dueDate, today)` rather than silently
+  dropped.
+- **`CashflowScenario` (Finance)** — Base/Conservative/Optimistic-style named
+  sets of an inflow/outflow delay-days-plus-multiplier adjustment, applied on
+  top of the base forecast. Four configurable numeric knobs only, never a
+  rules engine or a predictive model; Base is the identity scenario.
+- **`CashflowForecastAdjustment` (Finance)** — lets an authorized user
+  override a single AR/AP-sourced forecast item's expected date/amount for
+  forecasting purposes only. The underlying `Invoice`/`SupplierInvoice` row is
+  never written to — proven both structurally (`cashflow-independence.spec.ts`)
+  and by live verification (the source invoice's own total was confirmed
+  unchanged after saving an adjustment, and the Trial Balance still balanced
+  exactly).
+- **`CashflowSettings` (Finance)** — a configurable minimum cash reserve and
+  default collection/payment delay days, one row per organisation. A period
+  projected below the reserve is flagged, worded throughout as a planning
+  signal ("projected cash is below the management-defined safety threshold"),
+  never a claim of insolvency.
+- **Cash-account-level forecast** — a consolidated (org-wide) view and a
+  per-account view are genuinely different computations, never one query that
+  could imply money moves between accounts; `Invoice`/`SupplierInvoice` carry
+  no `cashAccountId`, so AR/AP is deliberately excluded from any single
+  account's own bucketed view (documented, not silently guessed).
+- **Admin `/settings/finance/{cashflow, cashflow-items, cashflow-scenarios}`.**
+  Three new tabs: the Cashflow dashboard (shortfall warning banner, 5 summary
+  cards, horizon/bucket/scenario selectors, a closing-balance-vs-minimum-
+  reserve chart with shortfall buckets tinted, an inflows-vs-outflows-per-
+  period chart, a click-to-expand per-period table with an inline drill-down
+  of individual source items and an "Adjust" action on AR/AP rows, and a
+  cash-account breakdown); Cashflow Items (management-entered commitments +
+  the Cashflow Settings card); Cashflow Scenarios.
+- **`cashflow-independence.spec.ts`** — a new, stricter structural guard: zero
+  `postSystemJournalEntry` calls anywhere in the module (the forecast posts
+  nothing, ever), no forbidden-table writes across all 14 cashflow files, and
+  no Sales/Inventory/Procurement/Production import.
+
+### Verified
+
+- Full backend suite: 953 tests / 110 suites (up from 892/99), including
+  `cashflow-independence.spec.ts` and a 32-test forecast-engine spec covering
+  every horizon, both bucket modes, AR/AP integration, recurring-item
+  expansion, adjustments, scenarios, minimum-reserve shortfall detection, and
+  consolidated-vs-per-account forecasting.
+- Live end-to-end verification against the real Boby Bites dev environment,
+  reproducing the brief's own worked scenario exactly: an ₦8,000,000 customer
+  invoice due in 14 days, an ₦5,000,000 supplier invoice due in 10 days,
+  ₦1,500,000 monthly rent, and a ₦4,000,000 manual expected collection — the
+  Week 3 bucket's inflow landed at exactly ₦12,000,000.00, independently
+  confirming both amounts landed in the same weekly bucket as the brief
+  implies. A deliberately large one-time ₦20,000,000 planned equipment payment
+  demonstrated both a healthy forecast (weeks 1-6, above the ₦5,000,000
+  minimum reserve) and a real, correctly-flagged shortfall (every bucket from
+  week 7 onward) in one coherent seed scenario. A live forecast adjustment on
+  the ₦8,000,000 invoice moved it to a later bucket and reduced its amount —
+  the source invoice itself was confirmed completely unchanged immediately
+  afterward, the Trial Balance still balanced exactly, and exactly one new
+  `cashflow.forecast-adjustment.created` audit row was found. Scenario
+  switching (Optimistic, 1.15× inflow multiplier) changed Forecast Closing
+  Cash live with no Finance record touched. RBAC verified live against the
+  real API: a Member JWT got `200` on the forecast read and `403` on a write;
+  an unauthenticated request got `401`. Verified responsive at 375px — one
+  real mobile overflow bug (a bucket row's "Below Reserve" badge running off
+  -screen) was found and fixed (`flex-wrap` added) during this check.
+- Zero new database migrations beyond the additive Sprint 15 models — no
+  changes to any pre-existing model, and no new `SYSTEM_ACCOUNT_KEYS`, since
+  this domain posts nothing.
+
 ## [Sprint 14 Cash & Bank Management / Reconciliation Foundation] - 2026-08-30
 
 ### Added

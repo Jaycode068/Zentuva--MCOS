@@ -173,6 +173,11 @@ model Organisation {
   bankStatementImports             BankStatementImport[]
   bankStatementTransactions        BankStatementTransaction[]
   bankReconciliations              BankReconciliation[]
+  /// Added Sprint 15 — Cashflow Management & Forecasting (docs/domains/cashflow.md).
+  cashflowForecastItems             CashflowForecastItem[]
+  cashflowScenarios                 CashflowScenario[]
+  cashflowForecastAdjustments       CashflowForecastAdjustment[]
+  cashflowSettings                  CashflowSettings?
 
   @@map("organisations")
 }
@@ -3244,6 +3249,9 @@ model CashAccount {
   bankReconciliations        BankReconciliation[]
   payments                   Payment[]
   supplierPayments           SupplierPayment[]
+  /// Added Sprint 15 — a `CashflowForecastItem` a user has explicitly assigned to
+  /// this account (docs/domains/cashflow.md "Cash-Account-Level Forecast").
+  cashflowForecastItems      CashflowForecastItem[]
 
   @@unique([organisationId, accountCode])
   @@unique([organisationId, idempotencyKey])
@@ -3416,4 +3424,174 @@ model ReconciliationMatch {
 
   @@index([bankReconciliationId])
   @@map("reconciliation_matches")
+}
+
+// ============================================================================
+// Sprint 15 — Cashflow Management & Forecasting (docs/domains/cashflow.md)
+//
+// CORE PRINCIPLE: the forecast itself is never stored anywhere — every figure is
+// computed live from `Invoice`/`SupplierInvoice` (via the existing Sprint 13
+// `getOutstandingForAging()` queries, reused unmodified), `CashAccount`'s own Book
+// Balance (Sprint 14), and the models below. This module never calls
+// `postSystemJournalEntry` and never writes to any other domain's table — see
+// `cashflow-independence.spec.ts`.
+// ============================================================================
+
+enum CashflowDirection {
+  INFLOW
+  OUTFLOW
+}
+
+/// `ONE_TIME` is a single occurrence at `expectedDate` — the same model used for a
+/// one-off "known commitment" (e.g. a planned equipment payment) and a genuinely
+/// recurring one (e.g. monthly rent); see `CashflowForecastItem.sourceType`.
+enum CashflowRecurrence {
+  ONE_TIME
+  WEEKLY
+  MONTHLY
+  QUARTERLY
+  YEARLY
+}
+
+enum CashflowItemStatus {
+  ACTIVE
+  INACTIVE
+}
+
+/// `CUSTOMER_RECEIVABLE`/`SUPPLIER_PAYABLE` are synthesized only in forecast API
+/// responses (an `Invoice`/`SupplierInvoice` row is its own source, never copied
+/// into a `CashflowForecastItem`); `RECURRING_ITEM`/`MANUAL_FORECAST` are the only
+/// two values `CashflowForecastItem.sourceType` itself ever stores, server-derived
+/// from `recurrence` at create time (never a separate user choice). `OTHER` and the
+/// future values described in docs/domains/cashflow.md ("Future Extension
+/// Points" — `LOAN_PROCEEDS`/`LOAN_REPAYMENT`/`INVESTMENT_RETURN`/
+/// `CAPITAL_INJECTION`) are deliberately not implemented this sprint.
+enum CashflowForecastSourceType {
+  CUSTOMER_RECEIVABLE
+  SUPPLIER_PAYABLE
+  RECURRING_ITEM
+  MANUAL_FORECAST
+  OTHER
+}
+
+/// A management-entered future cash commitment the existing Payment/Supplier
+/// Payment/Invoice/SupplierInvoice flows don't already capture — never a
+/// substitute for those flows (docs/domains/cashflow.md "Never Double-Count").
+model CashflowForecastItem {
+  id             String              @id @default(cuid())
+  organisationId String
+  /// Optional — only meaningful for the per-account forecast view (docs/domains/
+  /// cashflow.md "Cash-Account-Level Forecast"); AR/AP items are never assignable
+  /// since money not yet collected/paid can't be attributed to a specific account.
+  cashAccountId  String?
+  direction      CashflowDirection
+  /// `ONE_TIME` → `MANUAL_FORECAST`, anything else → `RECURRING_ITEM` — computed
+  /// once at create time, immutable afterward (mirrors how `isSystemAccount`/
+  /// `systemKey` are immutable on `ChartOfAccount`).
+  sourceType     CashflowForecastSourceType
+  description    String
+  amount         Float
+  currency       String
+  /// The first (or only, for `ONE_TIME`) occurrence date. Later occurrences are
+  /// computed deterministically from `recurrence`, never separately stored.
+  expectedDate   DateTime
+  recurrence     CashflowRecurrence @default(ONE_TIME)
+  /// `NULL` means "repeats indefinitely" (bounded only by whatever forecast
+  /// horizon is requested at read time) — ignored when `recurrence: ONE_TIME`.
+  recurrenceEndDate DateTime?
+  status         CashflowItemStatus @default(ACTIVE)
+  notes          String?
+  idempotencyKey String?
+  createdById    String?
+  updatedById    String?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  cashAccount  CashAccount? @relation(fields: [cashAccountId], references: [id], onDelete: SetNull)
+
+  @@unique([organisationId, idempotencyKey])
+  @@index([organisationId])
+  @@index([organisationId, status])
+  @@map("cashflow_forecast_items")
+}
+
+/// A named set of forecast-adjustment knobs (docs/domains/cashflow.md
+/// "Scenarios") — deliberately four plain numbers, not a rules engine. Selecting
+/// no scenario at read time behaves identically to a `{0, 1, 0, 1}` Base scenario.
+model CashflowScenario {
+  id                String              @id @default(cuid())
+  organisationId    String
+  name              String
+  description       String?
+  /// Applied to every inflow item's `expectedDate`/`amount` at read time — never
+  /// persisted back onto the source item.
+  inflowDelayDays   Int                 @default(0)
+  inflowMultiplier  Float               @default(1)
+  outflowDelayDays  Int                 @default(0)
+  outflowMultiplier Float               @default(1)
+  status            CashflowItemStatus  @default(ACTIVE)
+  idempotencyKey    String?
+  createdById       String?
+  updatedById       String?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+
+  @@unique([organisationId, idempotencyKey])
+  @@index([organisationId])
+  @@map("cashflow_scenarios")
+}
+
+/// A per-invoice override that lets a forecast reflect management's own judgement
+/// ("we don't think INV-001 will actually collect until 30 September") without
+/// ever touching the `Invoice`/`SupplierInvoice` row itself — proven never to, by
+/// `cashflow-independence.spec.ts`. At most one per source item (upserted).
+model CashflowForecastAdjustment {
+  id                   String                      @id @default(cuid())
+  organisationId       String
+  sourceType           CashflowForecastSourceType
+  /// The `Invoice.id` or `SupplierInvoice.id` this adjustment overrides — no
+  /// Prisma relation (this table must not depend on which specific domain the
+  /// source document lives in), same "resolved by the reading consumer, not a
+  /// hard FK" convention as `JournalEntry.sourceType`/`sourceId`.
+  sourceId             String
+  /// `NULL` means "don't override the date" — only `adjustedAmount` applies (and
+  /// vice versa); at least one of the two must be set (service-enforced).
+  adjustedExpectedDate DateTime?
+  adjustedAmount       Float?
+  notes                String?
+  idempotencyKey       String?
+  createdById          String?
+  updatedById          String?
+  createdAt            DateTime                    @default(now())
+  updatedAt            DateTime                    @updatedAt
+
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+
+  @@unique([organisationId, sourceType, sourceId])
+  @@index([organisationId])
+  @@map("cashflow_forecast_adjustments")
+}
+
+/// One row per organisation (find-or-create-then-update — no `idempotencyKey`
+/// needed, a settings PUT is naturally idempotent). `minimumCashReserve` is a
+/// management-defined safety threshold, never a claim about insolvency (docs/
+/// domains/cashflow.md "Minimum Cash Reserve").
+model CashflowSettings {
+  id                         String   @id @default(cuid())
+  organisationId             String   @unique
+  minimumCashReserve         Float    @default(0)
+  /// Brief §9 — the default assumption when neither a scenario nor a per-item
+  /// adjustment is applied: `dueDate + defaultCollectionDelayDays`.
+  defaultCollectionDelayDays Int      @default(0)
+  defaultPaymentDelayDays    Int      @default(0)
+  updatedById                String?
+  createdAt                  DateTime @default(now())
+  updatedAt                  DateTime @updatedAt
+
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+
+  @@map("cashflow_settings")
 }

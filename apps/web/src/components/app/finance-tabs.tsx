@@ -27,6 +27,10 @@ const TABS = [
   { label: 'Cash Transactions', href: '/settings/finance/cash-transactions' },
   { label: 'Bank Statements', href: '/settings/finance/bank-statements' },
   { label: 'Reconciliation', href: '/settings/finance/reconciliation' },
+  // Added Sprint 15 — Cashflow Management & Forecasting.
+  { label: 'Cashflow', href: '/settings/finance/cashflow' },
+  { label: 'Cashflow Items', href: '/settings/finance/cashflow-items' },
+  { label: 'Cashflow Scenarios', href: '/settings/finance/cashflow-scenarios' },
 ];
 
 /** Shared sub-navigation for the ten `/settings/finance/*` pages (Sprint 6 Finance +

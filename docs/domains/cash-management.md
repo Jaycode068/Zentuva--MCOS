@@ -3,7 +3,10 @@
 - **Status:** Foundation implemented — Sprint 14 ("Cash & Bank Management /
   Reconciliation Foundation"). A read/write layer over the existing General
   Ledger — never a second accounting system. **Not** a treasury system, a loan/
-  investment management module, or a cashflow forecasting engine — see §10.
+  investment management module, or a cashflow forecasting engine — see §10. The
+  forecasting engine itself was built in Sprint 15, as a separate, read-only
+  consumer of this domain's own Book Balance — see
+  [Cashflow](cashflow.md).
 - **Sprint:** 14
 - **Depends on:** [Accounting](accounting.md) (`ChartOfAccountRepository`,
   `LedgerService`, `postSystemJournalEntry`/`resolveOpenPeriodId` — all consumed
@@ -15,7 +18,8 @@
   `cash-independence.spec.ts` (`apps/api/src/finance/cash/`), not just documented
   here.
 - **See also:** [Finance](finance.md) §14, [Accounting](accounting.md) §17,
-  [Sprint 14 Completion Report](../sprint-14-completion-report.md).
+  [Sprint 14 Completion Report](../sprint-14-completion-report.md),
+  [Cashflow](cashflow.md).
 
 ## 1. Business Purpose
 
@@ -284,9 +288,11 @@ foundation:
 - **Loan/Investment management** — a new domain that reuses `CashAccount`'s own
   Chart-of-Accounts link and the `accountId`-based `postSystemJournalEntry`
   extension already in place; no new posting mechanism would be needed.
-- **Cashflow forecasting** — would read from the same `CashAccount`/
-  `JournalEntryLine` data this sprint already exposes, plus (likely) a new
-  time-series endpoint alongside the existing `LedgerService` primitives.
+- **Cashflow forecasting** — **built, Sprint 15.** Reads from exactly this
+  sprint's `CashAccount`/`LedgerService.getAccountActivity` Book Balance
+  primitive, plus Sprint 13's AR/AP aging queries — see
+  [Cashflow](cashflow.md). Confirms the prediction made here: no change to
+  this domain's own schema or code was needed.
 - **A suggested-match / confidence-scored reconciliation mode** — the
   `ReconciliationMatch.confidenceScore` column already exists, unused, for exactly
   this.

@@ -350,9 +350,12 @@ Receivable / CR Sales Revenue` posting (Sprint 6/7): revenue and inventory cost 
   Valuation/Reconciliation, a Management Dashboard. Deliberately excludes Cash Flow
   Statement, payroll, fixed assets, a full tax engine, sophisticated pricing, credit
   scoring, payment-gateway integration, payment runs, an Expense Management module,
-  budgeting/forecasting, and multi-company consolidation — all future sprints. Chart
+  budgeting, and multi-company consolidation — all future sprints. Chart
   of Accounts, Journal Entries, General Ledger, Trial Balance, Profit & Loss, Balance
-  Sheet, and (Sprint 14, Epic 18 below) Bank Reconciliation are no longer excluded.
+  Sheet, (Sprint 14, Epic 18 below) Bank Reconciliation, and (Sprint 15, Epic 19
+  below) Cashflow Forecasting are no longer excluded — **budgeting/budget-vs-actual
+  remains excluded**, a deliberately separate future sprint from cashflow
+  forecasting (see Epic 19's own objective for why the two are not the same thing).
 - **Status:** Foundation implemented — Sprint 6 ("Finance Foundation"). Invoices are
   raised against a `FULFILLED` Sales Order, snapshotting commercial terms permanently;
   Payments support partial settlement via a `PaymentAllocation` join table designed for
@@ -382,7 +385,12 @@ Receivable / CR Sales Revenue` posting (Sprint 6/7): revenue and inventory cost 
   optional `cashAccountId` so a payment can identify the specific bank/cash account
   it moved through, fully backward-compatible with every payment recorded before
   this sprint — see [`docs/domains/finance.md`](domains/finance.md) §14 and Epic 18
-  below for the new Cash & Bank Management domain itself.
+  below for the new Cash & Bank Management domain itself. Sprint 15 ("Cashflow
+  Management & Forecasting") added a forward-looking, never-persisted forecast
+  layer built entirely on data Sprints 13-14 already expose (AR/AP outstanding
+  balances, Cash Account Book Balances) — zero schema changes to any existing
+  Finance model — see [`docs/domains/finance.md`](domains/finance.md) §15 and
+  Epic 19 below for the new Cashflow Management domain itself.
 
 ### Epic 17 — Accounting
 
@@ -485,9 +493,10 @@ Finished Goods Inventory / CR Cost of Goods Sold`) plus an independently-valued
 - **Objective:** connect the General Ledger to the organisation's real-world cash
   and bank accounts — what cash/bank accounts exist, what the accounting system
   says the balance should be, what the actual bank statement says, and what
-  remains unreconciled. Explicitly a foundation for future cashflow forecasting,
-  loan/debt/investment management, and capital-planning intelligence — none of
-  which this epic itself builds.
+  remains unreconciled. Explicitly a foundation for future loan/debt/investment
+  management and capital-planning intelligence — cashflow forecasting (originally
+  scoped here as future work) was built the very next sprint, as Epic 19 below,
+  reusing this epic's `CashAccount` Book Balance unmodified.
 - **Includes:** a `CashAccount` master (each linked to its own dedicated,
   system-provisioned Chart of Accounts row, never the generic `CASH`/`BANK` system
   accounts), an optional opening balance posted atomically at account creation,
@@ -498,11 +507,11 @@ Finished Goods Inventory / CR Cost of Goods Sold`) plus an independently-valued
   zero-unmatched completion rule, immutable once completed) distinguishing Book
   Balance from Reconciled Balance from Unreconciled Difference. Deliberately
   excludes loan management, debt management, investment management, capital
-  planning, cashflow forecasting, AI financial recommendations, bank API/Open
-  Banking integration, payment-gateway integration, payroll, expense management,
-  budgeting, advanced treasury management, a multi-currency treasury engine, and
-  complex bank-matching AI — all explicit future work, though the architecture
-  (the `CashAccount`/Chart-of-Accounts link, and the `accountId`-based posting
+  planning, AI financial recommendations, bank API/Open Banking integration,
+  payment-gateway integration, payroll, expense management, budgeting, advanced
+  treasury management, a multi-currency treasury engine, and complex
+  bank-matching AI — all explicit future work, though the architecture (the
+  `CashAccount`/Chart-of-Accounts link, and the `accountId`-based posting
   extension it reuses from Sprint 12) was deliberately shaped so those can be
   added later without rebuilding this foundation.
 - **Status:** Foundation implemented — Sprint 14 ("Cash & Bank Management /
@@ -523,6 +532,43 @@ Finished Goods Inventory / CR Cost of Goods Sold`) plus an independently-valued
   models and two elevated system accounts (Epic 17 above). See
   [`docs/domains/cash-management.md`](domains/cash-management.md) and
   [`docs/domains/finance.md`](domains/finance.md) §14.
+
+### Epic 19 — Cashflow Management
+
+- **Objective:** answer the forward-looking question none of Epics 16-18
+  answer — how much cash are we likely to have next month, and when might we
+  run short? Explicitly **not** budgeting: budgeting asks "what do we plan to
+  earn/spend," cashflow forecasting asks "when will money actually move,"
+  given what is already known (outstanding invoices, known commitments).
+  Explicitly not loan/debt/investment/capital management, though the
+  source-type model is deliberately extensible toward one later.
+- **Includes:** a forecast (Opening Cash + Inflows − Outflows = Closing Cash,
+  weekly/monthly buckets, configurable 30/60/90/180/365-day horizons) that is
+  **never persisted** — recomputed live on every request from outstanding
+  AR/AP (reusing Sprint 13's own aging queries unmodified) and Cash Account
+  Book Balances (Sprint 14); management-entered `CashflowForecastItem`s
+  (one-time or recurring known commitments, distinguished from AR/AP so a real
+  transaction can never be double-counted); Base/Conservative/Optimistic
+  `CashflowScenario`s (configurable delay+multiplier knobs, never a
+  predictive model); a `CashflowForecastAdjustment` letting an authorized user
+  override a single forecast item's expected date/amount without ever writing
+  to the underlying Invoice/SupplierInvoice; a configurable minimum cash
+  reserve with shortfall detection worded as a planning signal, never a claim
+  of insolvency; a per-cash-account forecast that never implies money can move
+  between accounts. Deliberately excludes budgeting, budget-vs-actual, loan/
+  debt/investment/capital management, AI/ML forecasting, credit scoring,
+  expense management, payroll, bank API/Open Banking/payment-gateway
+  integration, treasury management, and advanced financial modelling — all
+  explicit future work.
+- **Status:** Foundation implemented — Sprint 15 ("Cashflow Management &
+  Forecasting"). The forecast engine posts nothing, ever, and touches no
+  existing Finance table — proven executably by
+  `cashflow-independence.spec.ts`, not just documented here. Four new models
+  (`CashflowForecastItem`, `CashflowScenario`, `CashflowForecastAdjustment`,
+  `CashflowSettings`) hold only raw inputs, never a computed result; zero
+  schema changes to any pre-existing model; zero new `SYSTEM_ACCOUNT_KEYS`.
+  See [`docs/domains/cashflow.md`](domains/cashflow.md) and
+  [`docs/domains/finance.md`](domains/finance.md) §15.
 
 ## 5. Current Sprint Status
 
@@ -561,6 +607,7 @@ Finished Goods Inventory / CR Cost of Goods Sold`) plus an independently-valued
 - ✓ Sprint 12 — Accounts Payable & Supplier Invoice Management
 - ✓ Sprint 13 — Financial Statements & Management Reporting Foundation
 - ✓ Sprint 14 — Cash & Bank Management / Reconciliation Foundation
+- ✓ Sprint 15 — Cashflow Management & Forecasting
 
 **Current focus:** Next sprint not yet scoped.
 

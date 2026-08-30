@@ -8,6 +8,11 @@ import type {
   CashAccountStatus,
   CashAccountType,
   CashTransactionType,
+  CashflowConfidence,
+  CashflowDirection,
+  CashflowForecastSourceType,
+  CashflowItemStatus,
+  CashflowRecurrence,
   CreditNoteStatus,
   InvoiceStatus,
   JournalEntryStatus,
@@ -212,4 +217,55 @@ export const BANK_RECONCILIATION_STATUS_VARIANT: Record<
 > = {
   IN_PROGRESS: 'warning',
   COMPLETED: 'success',
+};
+
+// === Cashflow Management (Sprint 15, docs/domains/cashflow.md) ===
+
+export const CASHFLOW_DIRECTION_LABELS: Record<CashflowDirection, string> = {
+  INFLOW: 'Inflow',
+  OUTFLOW: 'Outflow',
+};
+
+export const CASHFLOW_RECURRENCE_LABELS: Record<CashflowRecurrence, string> = {
+  ONE_TIME: 'One-Time',
+  WEEKLY: 'Weekly',
+  MONTHLY: 'Monthly',
+  QUARTERLY: 'Quarterly',
+  YEARLY: 'Yearly',
+};
+
+export const CASHFLOW_ITEM_STATUS_LABELS: Record<CashflowItemStatus, string> = {
+  ACTIVE: 'Active',
+  INACTIVE: 'Inactive',
+};
+
+export const CASHFLOW_ITEM_STATUS_VARIANT: Record<
+  CashflowItemStatus,
+  NonNullable<BadgeProps['variant']>
+> = {
+  ACTIVE: 'success',
+  INACTIVE: 'default',
+};
+
+export const CASHFLOW_SOURCE_TYPE_LABELS: Record<CashflowForecastSourceType, string> = {
+  CUSTOMER_RECEIVABLE: 'Customer Receivable',
+  SUPPLIER_PAYABLE: 'Supplier Payable',
+  RECURRING_ITEM: 'Recurring Item',
+  MANUAL_FORECAST: 'Manual Forecast',
+  OTHER: 'Other',
+};
+
+export const CASHFLOW_CONFIDENCE_LABELS: Record<CashflowConfidence, string> = {
+  CONFIRMED: 'Confirmed',
+  EXPECTED: 'Expected',
+  ESTIMATED: 'Estimated',
+};
+
+export const CASHFLOW_CONFIDENCE_VARIANT: Record<
+  CashflowConfidence,
+  NonNullable<BadgeProps['variant']>
+> = {
+  CONFIRMED: 'success',
+  EXPECTED: 'default',
+  ESTIMATED: 'warning',
 };

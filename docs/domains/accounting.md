@@ -876,7 +876,7 @@ cannot distinguish "Other Income"/"Other Expense" from Operating Revenue/Expense
 Current from a Fixed Asset — every `REVENUE` account counts as operating revenue,
 every `EXPENSE` account as an operating expense in §16.1's P&L. No organisation's real
 Chart of Accounts today has an account that would need this distinction, so this is
-recorded as a known limitation (§18) rather than solved with new classification
+recorded as a known limitation (§22) rather than solved with new classification
 metadata — directly matching the brief's own "do not create a large accounting
 redesign" instruction.
 
@@ -921,7 +921,35 @@ writeup. Summary of the accounting mechanics:
   `CASH_BANK_PARENT` and `OPENING_BALANCE_EQUITY` both elevate already-seeded rows,
   the same backfill pattern Sprint 9 used for `FINISHED_GOODS_INVENTORY`.
 
-## 18. API Reference
+## 20. Cashflow Management (Sprint 15)
+
+Sprint 15 adds a forward-looking forecast layer on top of the primitives
+above — see [Cashflow](cashflow.md) for the full domain writeup. Summary of
+the accounting mechanics: **there are none.** This is the one integration
+sprint in this document that posts nothing at all.
+
+- **The forecast never calls `postSystemJournalEntry`, ever** — asserted by
+  zero occurrences in `cashflow-independence.spec.ts`, not merely undocumented.
+  Every figure the forecast shows is either a live read of `Invoice`/
+  `SupplierInvoice` outstanding balances (via Sprint 13's own
+  `getOutstandingForAging()` queries, reused unmodified), a live read of a
+  `CashAccount`'s Book Balance (via `LedgerService.getAccountActivity`,
+  unchanged since Sprint 7), or a plain read of one of four new raw-input
+  models (`CashflowForecastItem`, `CashflowScenario`,
+  `CashflowForecastAdjustment`, `CashflowSettings`) — none of which the
+  forecast ever writes a computed result back into.
+- **A `CashflowForecastAdjustment` overrides only the forecast, never the
+  ledger.** It targets an `Invoice`/`SupplierInvoice` id by `(sourceType,
+sourceId)`, but the write lands entirely inside the `CashflowForecastAdjustment`
+  table — the source `Invoice`/`SupplierInvoice` row itself is never touched.
+  Proven both structurally (the independence spec) and by live verification:
+  after saving an adjustment on `CF-INV-0001`, its own `total` and status were
+  confirmed unchanged, and the Trial Balance still balanced exactly.
+- **Zero new `SYSTEM_ACCOUNT_KEYS`, zero schema changes to any existing
+  model.** The four new models hold only raw inputs; no `AccountType`,
+  `ChartOfAccount`, or posting concept from earlier sections was touched.
+
+## 21. API Reference
 
 | Endpoint                                                       | Auth                | Notes                                                                                         |
 | -------------------------------------------------------------- | ------------------- | --------------------------------------------------------------------------------------------- |
@@ -959,8 +987,14 @@ writeup. Summary of the accounting mechanics:
 | `POST /api/finance/cash/reconciliations/:id/match`             | Owner/Administrator | Manual; idempotent on an identical repeat pair                                                |
 | `POST /api/finance/cash/reconciliations/:id/complete`          | Owner/Administrator | Rejects with unmatched counts if not fully matched                                            |
 | `GET /api/finance/cash/overview`                               | Any authenticated   | Cash Position Dashboard                                                                       |
+| `GET/PUT /api/finance/cashflow/settings`                       | Any / Owner+Admin   | Minimum reserve, default collection/payment delay days                                        |
+| `GET/POST /api/finance/cashflow/items`                         | Any / Owner+Admin   | `sourceType` server-derived from `recurrence`                                                 |
+| `GET/POST /api/finance/cashflow/scenarios`                     | Any / Owner+Admin   | Base/Conservative/Optimistic-style delay+multiplier knobs                                     |
+| `GET /api/finance/cashflow/adjustments` \| `PUT`               | Any / Owner+Admin   | Upsert by `(sourceType, sourceId)`; never writes to the source record                         |
+| `GET /api/finance/cashflow/forecast`                           | Any authenticated   | `?horizonDays=&bucketBy=&scenarioId=&cashAccountId=`; never stored, recomputed every call     |
+| `GET /api/finance/cashflow/accounts/breakdown`                 | Any authenticated   | `?horizonDays=`; per-cash-account projected closing balances                                  |
 
-## 19. Known Limitations
+## 22. Known Limitations
 
 - No re-opening a closed accounting period, and no year-end closing automation.
 - `VOID` never generates an automatic reversing entry — a correction is a new manual
@@ -1009,3 +1043,11 @@ writeup. Summary of the accounting mechanics:
   `openingBankBalance`/`closingBankBalance` disagrees with the sum of its matched
   transactions — both are user-entered facts from the physical statement, surfaced
   as a Difference figure, never silently adjusted (§17).
+- **No caching of any kind for the Cashflow forecast** (§20) — every response is
+  recomputed live from AR/AP and Cash Account data on every request, per the
+  brief's own "no premature caching" instruction; a very large volume of
+  outstanding invoices would repeat this cost on every call.
+- **A per-cash-account Cashflow forecast excludes AR/AP** (§20) — `Invoice`/
+  `SupplierInvoice` carry no `cashAccountId`, so only explicitly-assigned
+  `CashflowForecastItem`s appear in a single account's own bucketed view;
+  outstanding AR/AP appears only in the consolidated, org-wide forecast.
