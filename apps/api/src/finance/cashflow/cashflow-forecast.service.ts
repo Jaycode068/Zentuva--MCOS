@@ -3,6 +3,7 @@ import { CashAccountStatus, CashflowForecastSourceType, CashflowRecurrence } fro
 
 import { CashAccountRepository } from '../cash/cash-account.repository';
 import { LedgerService } from '../accounting/ledger.service';
+import { DebtFacilityRepository } from '../debt/debt-facility.repository';
 import { InvoiceRepository } from '../invoice.repository';
 import { SupplierInvoiceRepository } from '../supplier-invoice.repository';
 import { CashflowAdjustmentRepository } from './cashflow-adjustment.repository';
@@ -88,7 +89,13 @@ function roundCurrency(value: number): number {
  * `InvoiceRepository`/`SupplierInvoiceRepository.getOutstandingForAging()`
  * (Sprint 13) — zero new AR/AP query code. Never calls `postSystemJournalEntry`
  * and never writes to any table outside its own four models — see
- * `cashflow-independence.spec.ts`.
+ * `cashflow-independence.spec.ts`. Sprint 17 added one more read-only source:
+ * outstanding loan repayment installments for `ACTIVE`/`PARTIALLY_REPAID`
+ * `DebtFacility` rows, via `DebtFacilityRepository.
+ * findOutstandingScheduleForForecast()` — see docs/domains/debt-management.md
+ * "Cashflow Integration". A `PROPOSED`/`APPROVED` facility contributes
+ * nothing here by construction (that repository method's own status filter),
+ * not by a special case in this file.
  */
 @Injectable()
 export class CashflowForecastService {
@@ -101,6 +108,7 @@ export class CashflowForecastService {
     private readonly cashflowSettingsService: CashflowSettingsService,
     private readonly cashAccountRepository: CashAccountRepository,
     private readonly ledgerService: LedgerService,
+    private readonly debtFacilityRepository: DebtFacilityRepository,
   ) {}
 
   async getForecast(
@@ -115,17 +123,25 @@ export class CashflowForecastService {
     const today = startOfDay(new Date());
     const horizonEnd = addDays(today, params.horizonDays);
 
-    const [settings, scenario, adjustments, rawArLines, rawApLines, forecastItems] =
-      await Promise.all([
-        this.cashflowSettingsService.getEffective(organisationId),
-        params.scenarioId
-          ? this.cashflowScenarioRepository.findById(organisationId, params.scenarioId)
-          : Promise.resolve(null),
-        this.cashflowAdjustmentRepository.findManyByOrganisation(organisationId),
-        this.invoiceRepository.getOutstandingForAging(organisationId),
-        this.supplierInvoiceRepository.getOutstandingForAging(organisationId),
-        this.cashflowItemRepository.findActiveByOrganisation(organisationId),
-      ]);
+    const [
+      settings,
+      scenario,
+      adjustments,
+      rawArLines,
+      rawApLines,
+      forecastItems,
+      outstandingDebtSchedule,
+    ] = await Promise.all([
+      this.cashflowSettingsService.getEffective(organisationId),
+      params.scenarioId
+        ? this.cashflowScenarioRepository.findById(organisationId, params.scenarioId)
+        : Promise.resolve(null),
+      this.cashflowAdjustmentRepository.findManyByOrganisation(organisationId),
+      this.invoiceRepository.getOutstandingForAging(organisationId),
+      this.supplierInvoiceRepository.getOutstandingForAging(organisationId),
+      this.cashflowItemRepository.findActiveByOrganisation(organisationId),
+      this.debtFacilityRepository.findOutstandingScheduleForForecast(organisationId),
+    ]);
 
     if (params.scenarioId && !scenario) {
       throw new NotFoundException('Cashflow scenario not found');
@@ -201,6 +217,25 @@ export class CashflowForecastService {
         confidence: 'EXPECTED',
         cashAccountId: null,
         adjusted,
+      });
+    }
+
+    // --- Sprint 17 — outstanding loan repayment installments (ACTIVE/
+    // PARTIALLY_REPAID facilities only, per the repository's own filter). A
+    // scheduled repayment is a contractual obligation, not attributed to a
+    // specific cash account (mirrors AR/AP's own `cashAccountId: null`
+    // convention, decision #10 of Sprint 15).
+    for (const row of outstandingDebtSchedule) {
+      lines.push({
+        sourceType: CashflowForecastSourceType.LOAN_REPAYMENT,
+        sourceId: row.debtFacilityId,
+        description: `Loan repayment — ${row.facilityName} (${row.facilityCode})`,
+        direction: 'OUTFLOW',
+        amount: row.remainingDue,
+        expectedDate: new Date(Math.max(row.dueDate.getTime(), today.getTime())),
+        confidence: 'CONFIRMED',
+        cashAccountId: null,
+        adjusted: false,
       });
     }
 

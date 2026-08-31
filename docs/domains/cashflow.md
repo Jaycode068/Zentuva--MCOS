@@ -205,9 +205,9 @@ Enforced structurally by `cashflow-independence.spec.ts`, not just documented:
 
 ## 12. Future Extension Points
 
-- **Loan/Investment management** — would add a new `CashflowForecastSourceType`
-  value (e.g. `LOAN_PROCEEDS`) and reuse the same bucketing/confidence
-  machinery; no redesign of this layer required.
+- **Investment management** — would add a further `CashflowForecastSourceType`
+  value and reuse the same bucketing/confidence machinery; no redesign of
+  this layer required.
 - **A configurable-permission RBAC model** — the same deferred decision as
   every prior sprint.
 - **CSV/print export of a forecast** — a cheap follow-up on top of the existing
@@ -218,3 +218,12 @@ getForecast()` is now also called directly by [Budgeting](budgeting.md)'s
   `BudgetForecastService`, confirming this engine was already reusable by a
   planning layer without any change to this file's own code — see
   budgeting.md §9.
+- **Loan repayments as financing outflows — built, Sprint 17.**
+  `CashflowForecastSourceType` gained one additive value, `LOAN_REPAYMENT`;
+  `getForecast()` now also reads every outstanding `DebtRepaymentSchedule`
+  installment for `ACTIVE`/`PARTIALLY_REPAID` `DebtFacility` rows as
+  `CONFIRMED` outflows — the exact extension this section predicted, with no
+  redesign of the bucketing/confidence machinery itself. A `PROPOSED`/
+  `APPROVED` facility contributes nothing (excluded by the same status
+  filter). Future planned drawdowns are **not** modelled as inflows this
+  sprint — see [Debt Management](debt-management.md) §11.

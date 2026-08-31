@@ -39,10 +39,12 @@ function makeFakeTx(options: {
     SALES_RETURNS: 'account-sales-returns',
     AR: 'account-ar',
   };
+  // Relative to "now" (not a hardcoded calendar month) so this fixture never
+  // goes stale purely because the real clock crossed a fixed month boundary.
   const openPeriod =
     'openPeriod' in options
       ? options.openPeriod
-      : { startDate: new Date('2026-08-01'), endDate: new Date('2026-08-31') };
+      : { startDate: new Date(2000, 0, 1), endDate: new Date(2100, 0, 1) };
   let returnSeq = 0;
   let journalSeq = 0;
   let creditNoteSeq = 0;

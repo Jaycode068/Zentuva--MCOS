@@ -8,13 +8,16 @@
   [Cash & Bank Management](cash-management.md). Sprint 15 added a forward-looking
   Cashflow Management & Forecasting layer — see §15 and [Cashflow](cashflow.md).
   Sprint 16 added a Budgeting & Financial Planning layer — see §16 and
-  [Budgeting](budgeting.md). **Not** a General Ledger / accounting system itself —
-  that layer lives in `accounting.md`, see §9.
+  [Budgeting](budgeting.md). Sprint 17 added a Capital & Debt Management
+  layer — see §17 and [Debt Management](debt-management.md). **Not** a
+  General Ledger / accounting system itself — that layer lives in
+  `accounting.md`, see §9.
 - **Sprint:** 6 (Sprint 7 added the accounting integration described in §9; Sprint 12
   added Accounts Payable described in §12; Sprint 13 added Reporting described in
   §13; Sprint 14 added Cash & Bank Management described in §14; Sprint 15 added
   Cashflow Management & Forecasting described in §15; Sprint 16 added Budgeting &
-  Financial Planning described in §16)
+  Financial Planning described in §16; Sprint 17 added Capital & Debt Management
+  described in §17)
 - **Depends on:** [Identity](identity.md) (tenant boundary, `RolesGuard`,
   `OrganisationService` for the currency snapshot), [Sales](sales.md)
   (`SalesOrderRepository`, read-only, via `SalesModule`'s existing export),
@@ -33,8 +36,10 @@
   [Sprint 14 Completion Report](../sprint-14-completion-report.md),
   [Sprint 15 Completion Report](../sprint-15-completion-report.md),
   [Sprint 16 Completion Report](../sprint-16-completion-report.md),
+  [Sprint 17 Completion Report](../sprint-17-completion-report.md),
   [Accounting](accounting.md), [Cash & Bank Management](cash-management.md),
-  [Cashflow](cashflow.md), [Budgeting](budgeting.md).
+  [Cashflow](cashflow.md), [Budgeting](budgeting.md),
+  [Debt Management](debt-management.md).
 
 ## 1. Business Purpose
 
@@ -600,7 +605,7 @@ Unreconciled) rather than being folded into a second, busier dashboard.
 
 ### API Reference (Sprint 14)
 
-See [Accounting](accounting.md) §24 for the full endpoint table (`/finance/cash/
+See [Accounting](accounting.md) §27 for the full endpoint table (`/finance/cash/
 accounts`, `/finance/cash/transactions`, `/finance/cash/bank-statements/*`,
 `/finance/cash/reconciliations/*`, `/finance/cash/overview`).
 
@@ -677,7 +682,7 @@ Items** (management-entered commitments + the Cashflow Settings card), and
 
 ### API Reference (Sprint 15)
 
-See [Accounting](accounting.md) §24 for the full endpoint table (`/finance/
+See [Accounting](accounting.md) §27 for the full endpoint table (`/finance/
 cashflow/settings`, `/finance/cashflow/items`, `/finance/cashflow/scenarios`,
 `/finance/cashflow/adjustments`, `/finance/cashflow/forecast`, `/finance/
 cashflow/accounts/breakdown`).
@@ -741,7 +746,7 @@ and a Scenario Comparison table when siblings exist.
 
 ### API Reference (Sprint 16)
 
-See [Accounting](accounting.md) §24 for the full endpoint table (`/finance/
+See [Accounting](accounting.md) §27 for the full endpoint table (`/finance/
 budgets`, `/finance/budgets/:id/lines`, `/finance/budgets/:id/vs-actual`,
 `/finance/budgets/:id/vs-forecast`, `/finance/cost-centres`).
 
@@ -755,3 +760,70 @@ budgets`, `/finance/budgets/:id/lines`, `/finance/budgets/:id/vs-actual`,
 - **No loan/debt/investment/capital management, AI/ML financial planning,
   payroll, expense management, tax management, or procurement-commitment
   budgeting** — all explicit non-goals of Sprint 16, unchanged.
+
+## 17. Capital & Debt Management (Sprint 17)
+
+Sprint 17 adds the foundation for borrowing, debt obligations, capital
+requirements, and financing analysis — full domain writeup in
+[Debt Management](debt-management.md); accounting mechanics in
+[Accounting](accounting.md) §26. Summary of the Finance-facing surface:
+
+- **A loan is not revenue.** A drawdown posts `DR Cash / CR Loan Payable`; a
+  repayment posts `DR Loan Payable [+ DR Interest Expense] [+ DR Fee
+Expense] / CR Cash` — principal, interest, and fees always split, never
+  one collapsed amount.
+- **No single global loan liability account** — `DebtFacility.
+liabilityAccountId`/`.interestExpenseAccountId` are user-chosen, service-
+  validated non-system Chart of Accounts rows, the exact "Path B" pattern
+  Sprint 12/16 already established, letting one organisation run genuinely
+  different loan accounts (Short-Term, Long-Term, Director Loans, ...).
+- **`CapitalRequirement` is not yet a loan** — the structured business case
+  for financing (`DRAFT → PROPOSED → APPROVED → FUNDED → COMPLETED`),
+  optionally referencing a `Budget`/`BudgetLine` for a live, read-only
+  Budget Coverage % — never mutating the budget it references.
+- **Approved is not drawn** — a `DebtFacility` (`PROPOSED → APPROVED →
+ACTIVE → PARTIALLY_REPAID → PAID_OFF`) only becomes `ACTIVE` on its first
+  real `DebtDrawdown`; multiple partial drawdowns are supported.
+- **A `PROPOSED` facility is its own financing scenario** — it gets a full
+  generated schedule but is structurally invisible to the live Cashflow
+  Forecast/GL/debt balance until activated, letting `DebtAnalysisService.
+previewFacilityImpact()` preview "what if we activated this" by
+  overlaying that dormant schedule onto a real Cashflow Forecast call.
+- **Debt balance is always computed live** — never stored — from
+  `DebtDrawdown`/`DebtRepayment`/`DebtRepaymentSchedule` rows.
+- **Over-repayment is rejected server-side**; early full repayment
+  auto-transitions the facility to `PAID_OFF` — never a manual status flip.
+- **Cashflow integration** — outstanding schedule installments for
+  `ACTIVE`/`PARTIALLY_REPAID` facilities appear in the existing Cashflow
+  Forecast as `CONFIRMED` financing outflows (`LOAN_REPAYMENT`), which in
+  turn flow into Budget vs Forecast automatically — no Budget-side code
+  change was needed.
+
+### Admin Surface
+
+Three new tabs on `/settings/finance/*`: **Debt** (an Overview dashboard —
+Total/Outstanding Principal/Interest, Upcoming Repayments, Monthly Debt
+Service, Total Interest Scheduled, and the active facility list),
+**Capital Requirements** (list with a live Budget Coverage % per row + a
+create dialog + lifecycle actions), and **Debt Facilities** (list + create).
+Facility detail is its own page (`/settings/finance/debt-facilities/[id]`,
+not a tab) — balance summary, the full repayment schedule, Record
+Drawdown/Record Repayment forms, lifecycle actions, and — for `PROPOSED`
+facilities — a Preview Cashflow Impact panel with explicit non-verdict
+wording.
+
+### API Reference (Sprint 17)
+
+See [Accounting](accounting.md) §27 for the full endpoint table
+(`/finance/debt/lenders`, `/finance/debt/capital-requirements`,
+`/finance/debt/facilities`, `/finance/debt/facilities/:id/{drawdowns,
+repayments,schedule,preview-impact}`, `/finance/debt/overview`).
+
+### Known Limitations (Sprint 17)
+
+See [Debt Management](debt-management.md) §12 for the full list — no
+investment/equity/bond management, no fixed asset register, no loan-
+application workflow or credit scoring, no automatic loan approval or bank/
+payment-gateway integrations, no collections system or automatic penalty
+interest, no tax treatment of financing or full NPV/IRR/DCF engine, and no
+financing-allocation optimisation.

@@ -2128,3 +2128,397 @@ export interface BudgetVsForecastResult {
 export function getBudgetVsForecast(budgetId: string): Promise<BudgetVsForecastResult> {
   return apiFetch<BudgetVsForecastResult>(`/finance/budgets/${budgetId}/vs-forecast`);
 }
+
+// === Capital & Debt Management (Sprint 17, docs/domains/debt-management.md) ===
+
+export type LenderType =
+  'BANK' | 'FINANCIAL_INSTITUTION' | 'INVESTOR' | 'DIRECTOR' | 'SHAREHOLDER' | 'OTHER';
+export type LenderStatus = 'ACTIVE' | 'INACTIVE';
+export type CapitalRequirementType =
+  'CAPEX' | 'WORKING_CAPITAL' | 'EXPANSION' | 'EQUIPMENT' | 'OTHER';
+export type CapitalRequirementPriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+export type CapitalRequirementStatus =
+  'DRAFT' | 'PROPOSED' | 'APPROVED' | 'FUNDED' | 'COMPLETED' | 'CANCELLED';
+export type DebtType = 'TERM_LOAN' | 'WORKING_CAPITAL' | 'ASSET_FINANCE' | 'OVERDRAFT' | 'OTHER';
+export type InterestType = 'FIXED';
+export type RepaymentMethod = 'AMORTISING' | 'INTEREST_ONLY' | 'BULLET';
+export type RepaymentFrequency = 'MONTHLY' | 'QUARTERLY' | 'YEARLY';
+export type DebtFacilityStatus =
+  'PROPOSED' | 'APPROVED' | 'ACTIVE' | 'PARTIALLY_REPAID' | 'PAID_OFF' | 'CANCELLED' | 'DEFAULTED';
+export type DebtScheduleStatus = 'SCHEDULED' | 'PARTIALLY_PAID' | 'PAID' | 'OVERDUE';
+
+/** `GET/POST /api/finance/debt/lenders`. */
+export interface Lender {
+  id: string;
+  name: string;
+  type: LenderType;
+  contactName: string | null;
+  email: string | null;
+  phone: string | null;
+  notes: string | null;
+  status: LenderStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateLenderPayload {
+  name: string;
+  type: LenderType;
+  contactName?: string;
+  email?: string;
+  phone?: string;
+  notes?: string;
+}
+
+export function listLenders(params: { status?: LenderStatus } = {}): Promise<{ items: Lender[] }> {
+  const query = new URLSearchParams();
+  if (params.status) query.set('status', params.status);
+  const queryString = query.toString();
+  return apiFetch<{ items: Lender[] }>(
+    `/finance/debt/lenders${queryString ? `?${queryString}` : ''}`,
+  );
+}
+
+export function createLender(input: CreateLenderPayload): Promise<Lender> {
+  return apiFetch<Lender>('/finance/debt/lenders', { method: 'POST', body: JSON.stringify(input) });
+}
+
+/** `GET/POST /api/finance/debt/capital-requirements` — the business reason
+ *  for financing, distinct from any approved `DebtFacility` (docs/domains/
+ *  debt-management.md §3). */
+export interface CapitalRequirement {
+  id: string;
+  title: string;
+  description: string | null;
+  requiredAmount: number;
+  requiredDate: string;
+  type: CapitalRequirementType;
+  status: CapitalRequirementStatus;
+  priority: CapitalRequirementPriority;
+  budgetId: string | null;
+  budgetLineId: string | null;
+  costCentreId: string | null;
+  notes: string | null;
+  approvedAt: string | null;
+  fundedAt: string | null;
+  completedAt: string | null;
+  cancelledAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateCapitalRequirementPayload {
+  title: string;
+  description?: string;
+  requiredAmount: number;
+  requiredDate: string;
+  type: CapitalRequirementType;
+  priority?: CapitalRequirementPriority;
+  budgetId?: string;
+  budgetLineId?: string;
+  costCentreId?: string;
+  notes?: string;
+  idempotencyKey?: string;
+}
+
+export interface BudgetCoverage {
+  budgetedAmount: number;
+  requiredAmount: number;
+  coveragePercent: number | null;
+}
+
+export function listCapitalRequirements(
+  params: { status?: CapitalRequirementStatus } = {},
+): Promise<{ items: CapitalRequirement[] }> {
+  const query = new URLSearchParams();
+  if (params.status) query.set('status', params.status);
+  const queryString = query.toString();
+  return apiFetch<{ items: CapitalRequirement[] }>(
+    `/finance/debt/capital-requirements${queryString ? `?${queryString}` : ''}`,
+  );
+}
+
+export function getCapitalRequirement(id: string): Promise<CapitalRequirement> {
+  return apiFetch<CapitalRequirement>(`/finance/debt/capital-requirements/${id}`);
+}
+
+export function getCapitalRequirementBudgetCoverage(id: string): Promise<BudgetCoverage | null> {
+  return apiFetch<BudgetCoverage | null>(
+    `/finance/debt/capital-requirements/${id}/budget-coverage`,
+  );
+}
+
+export function createCapitalRequirement(
+  input: CreateCapitalRequirementPayload,
+): Promise<CapitalRequirement> {
+  return apiFetch<CapitalRequirement>('/finance/debt/capital-requirements', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function proposeCapitalRequirement(id: string): Promise<CapitalRequirement> {
+  return apiFetch<CapitalRequirement>(`/finance/debt/capital-requirements/${id}/propose`, {
+    method: 'POST',
+  });
+}
+
+export function approveCapitalRequirement(id: string): Promise<CapitalRequirement> {
+  return apiFetch<CapitalRequirement>(`/finance/debt/capital-requirements/${id}/approve`, {
+    method: 'POST',
+  });
+}
+
+export function fundCapitalRequirement(id: string): Promise<CapitalRequirement> {
+  return apiFetch<CapitalRequirement>(`/finance/debt/capital-requirements/${id}/fund`, {
+    method: 'POST',
+  });
+}
+
+export function completeCapitalRequirement(id: string): Promise<CapitalRequirement> {
+  return apiFetch<CapitalRequirement>(`/finance/debt/capital-requirements/${id}/complete`, {
+    method: 'POST',
+  });
+}
+
+export function cancelCapitalRequirement(id: string): Promise<CapitalRequirement> {
+  return apiFetch<CapitalRequirement>(`/finance/debt/capital-requirements/${id}/cancel`, {
+    method: 'POST',
+  });
+}
+
+/** `GET/POST /api/finance/debt/facilities` — the financing agreement itself
+ *  (docs/domains/debt-management.md §6). A `PROPOSED` facility already has a
+ *  full generated schedule but contributes nothing to the live Cashflow
+ *  Forecast/GL/debt balance until it becomes `ACTIVE` via a real drawdown. */
+export interface DebtFacility {
+  id: string;
+  facilityCode: string;
+  lenderId: string;
+  name: string;
+  debtType: DebtType;
+  principalAmount: number;
+  currency: string;
+  interestRatePercent: number;
+  interestType: InterestType;
+  repaymentMethod: RepaymentMethod;
+  repaymentFrequency: RepaymentFrequency;
+  startDate: string;
+  tenorMonths: number;
+  graceMonths: number;
+  maturityDate: string;
+  status: DebtFacilityStatus;
+  liabilityAccountId: string;
+  interestExpenseAccountId: string;
+  capitalRequirementId: string | null;
+  notes: string | null;
+  approvedAt: string | null;
+  activatedAt: string | null;
+  closedAt: string | null;
+  cancelledAt: string | null;
+  defaultedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DebtBalance {
+  totalDrawn: number;
+  outstandingPrincipal: number;
+  interestAccrued: number;
+  interestPaid: number;
+  outstandingInterest: number;
+  totalOutstanding: number;
+}
+
+export interface DebtFacilityWithBalance extends DebtFacility {
+  balance: DebtBalance;
+}
+
+export interface CreateDebtFacilityPayload {
+  lenderId: string;
+  name: string;
+  debtType: DebtType;
+  principalAmount: number;
+  currency: string;
+  interestRatePercent: number;
+  repaymentMethod: RepaymentMethod;
+  repaymentFrequency?: RepaymentFrequency;
+  startDate: string;
+  tenorMonths: number;
+  graceMonths?: number;
+  liabilityAccountId: string;
+  interestExpenseAccountId: string;
+  capitalRequirementId?: string;
+  notes?: string;
+  idempotencyKey?: string;
+}
+
+export interface DebtScheduleInstallment {
+  id: string;
+  installmentNumber: number;
+  dueDate: string;
+  openingPrincipal: number;
+  principalDue: number;
+  interestDue: number;
+  totalDue: number;
+  closingPrincipal: number;
+  amountPaid: number;
+  status: DebtScheduleStatus;
+}
+
+export interface CreateDebtDrawdownPayload {
+  cashAccountId: string;
+  amount: number;
+  drawdownDate: string;
+  reference?: string;
+  notes?: string;
+  idempotencyKey?: string;
+}
+
+export interface DebtDrawdown {
+  id: string;
+  debtFacilityId: string;
+  cashAccountId: string;
+  amount: number;
+  drawdownDate: string;
+  reference: string | null;
+  notes: string | null;
+  createdAt: string;
+}
+
+export interface CreateDebtRepaymentPayload {
+  cashAccountId: string;
+  paymentDate: string;
+  principalAmount?: number;
+  interestAmount?: number;
+  feeAmount?: number;
+  feeExpenseAccountId?: string;
+  reference?: string;
+  notes?: string;
+  idempotencyKey?: string;
+}
+
+export interface DebtRepayment {
+  id: string;
+  debtFacilityId: string;
+  cashAccountId: string;
+  paymentDate: string;
+  principalAmount: number;
+  interestAmount: number;
+  feeAmount: number;
+  totalAmount: number;
+  reference: string | null;
+  notes: string | null;
+  createdAt: string;
+  facilityStatus: DebtFacilityStatus;
+}
+
+/** `GET /api/finance/debt/facilities/:id/preview-impact` — overlays a
+ *  not-yet-active facility's own schedule onto the real Cashflow Forecast.
+ *  A planning signal only — never a recommendation or safety verdict (§23). */
+export interface FacilityImpactPeriod {
+  periodStart: string;
+  periodEnd: string;
+  label: string;
+  baseClosingBalance: number;
+  additionalDebtService: number;
+  projectedClosingBalance: number;
+  belowMinimumReserve: boolean;
+}
+
+export interface FacilityImpactResult {
+  facilityAlreadyActive: boolean;
+  minimumCashReserve: number;
+  periods: FacilityImpactPeriod[];
+  potentialCashflowPressure: boolean;
+}
+
+export function listDebtFacilities(
+  params: { status?: DebtFacilityStatus } = {},
+): Promise<{ items: DebtFacility[] }> {
+  const query = new URLSearchParams();
+  if (params.status) query.set('status', params.status);
+  const queryString = query.toString();
+  return apiFetch<{ items: DebtFacility[] }>(
+    `/finance/debt/facilities${queryString ? `?${queryString}` : ''}`,
+  );
+}
+
+export function getDebtFacility(id: string): Promise<DebtFacilityWithBalance> {
+  return apiFetch<DebtFacilityWithBalance>(`/finance/debt/facilities/${id}`);
+}
+
+export function getDebtFacilitySchedule(id: string): Promise<{ items: DebtScheduleInstallment[] }> {
+  return apiFetch<{ items: DebtScheduleInstallment[] }>(`/finance/debt/facilities/${id}/schedule`);
+}
+
+export function previewFacilityImpact(
+  id: string,
+  params: { cashflowScenarioId?: string } = {},
+): Promise<FacilityImpactResult> {
+  const query = new URLSearchParams();
+  if (params.cashflowScenarioId) query.set('cashflowScenarioId', params.cashflowScenarioId);
+  const queryString = query.toString();
+  return apiFetch<FacilityImpactResult>(
+    `/finance/debt/facilities/${id}/preview-impact${queryString ? `?${queryString}` : ''}`,
+  );
+}
+
+export function createDebtFacility(input: CreateDebtFacilityPayload): Promise<DebtFacility> {
+  return apiFetch<DebtFacility>('/finance/debt/facilities', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function approveDebtFacility(id: string): Promise<DebtFacility> {
+  return apiFetch<DebtFacility>(`/finance/debt/facilities/${id}/approve`, { method: 'POST' });
+}
+
+export function cancelDebtFacility(id: string): Promise<DebtFacility> {
+  return apiFetch<DebtFacility>(`/finance/debt/facilities/${id}/cancel`, { method: 'POST' });
+}
+
+export function markDebtFacilityDefaulted(id: string): Promise<DebtFacility> {
+  return apiFetch<DebtFacility>(`/finance/debt/facilities/${id}/mark-defaulted`, {
+    method: 'POST',
+  });
+}
+
+export function createDebtDrawdown(
+  debtFacilityId: string,
+  input: CreateDebtDrawdownPayload,
+): Promise<DebtDrawdown> {
+  return apiFetch<DebtDrawdown>(`/finance/debt/facilities/${debtFacilityId}/drawdowns`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function createDebtRepayment(
+  debtFacilityId: string,
+  input: CreateDebtRepaymentPayload,
+): Promise<DebtRepayment> {
+  return apiFetch<DebtRepayment>(`/finance/debt/facilities/${debtFacilityId}/repayments`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+/** `GET /api/finance/debt/overview` — composition-only, mirrors
+ *  `CashDashboardController`'s own shape (docs/domains/debt-management.md
+ *  §25/§26). */
+export interface DebtMetrics {
+  facilityCount: number;
+  totalOutstanding: number;
+  outstandingPrincipal: number;
+  outstandingInterest: number;
+  upcomingRepayments30Days: number;
+  monthlyDebtService: number;
+  totalInterestScheduled: number;
+  nextMaturity: string | null;
+}
+
+export function getDebtMetrics(): Promise<DebtMetrics> {
+  return apiFetch<DebtMetrics>('/finance/debt/overview');
+}

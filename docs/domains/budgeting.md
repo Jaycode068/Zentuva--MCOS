@@ -21,7 +21,9 @@
   reconciliation, or Cashflow table — the same spec asserts **zero**
   `postSystemJournalEntry` calls anywhere in this module.
 - **See also:** [Finance](finance.md) §16, [Accounting](accounting.md) §23,
-  [Cashflow](cashflow.md) §12, [Sprint 16 Completion Report](../sprint-16-completion-report.md).
+  [Cashflow](cashflow.md) §12, [Debt Management](debt-management.md) (a
+  read-only consumer of this domain, §13), [Sprint 16 Completion Report](../sprint-16-completion-report.md),
+  [Sprint 17 Completion Report](../sprint-17-completion-report.md).
 
 ## 1. Business Purpose
 
@@ -220,12 +222,9 @@ to keep duplicate figures in sync.
 - **No budgeting-specific permission tier** — RBAC remains binary
   (Owner/Administrator write, Member read), the same deferred decision as
   every other domain in this codebase.
-- **No loan management, debt management, investment management, capital
-  planning, AI/ML financial planning, or advanced financial modelling** —
-  this sprint is deliberately only the planning foundation those would build
-  on: a future capital-decision layer would read `Budget`/`BudgetLine`
-  (planned CAPEX, planned cash requirements) alongside the Cashflow Forecast
-  and Financial Statements, without needing any schema change here.
+- **No investment management, AI/ML financial planning, or advanced
+  financial modelling** — debt management itself is now built (Sprint 17,
+  §13), but the full capital-decision engine ([Debt Management](debt-management.md) §13) remains future work.
 - **No payroll, expense management, tax management, procurement-commitment
   budgeting, or purchase-requisition budgeting.**
 - **No caching of Budget vs Actual/Forecast** — both are recomputed live on
@@ -234,12 +233,24 @@ to keep duplicate figures in sync.
 
 ## 12. Future Extension Points
 
-- **Loan/Investment/Capital management** — would read `Budget.lines`
-  (planned CAPEX) and `BudgetVsForecast` (planned expenditure vs. available
-  cash) as direct inputs to a future capital-decision analysis, without any
-  schema change to this domain.
 - **A configurable-permission RBAC model** — the same deferred decision as
   every prior sprint.
 - **A Fixed Assets module** — once it exists, CAPEX lines could gain a
   required account reference and participate fully in Budget vs Actual, the
   same way Revenue/OpEx lines already do.
+- **Aggregating the Budgets Overview across multiple simultaneously-active
+  budgets.**
+
+## 13. Capital & Debt Management — Built, Sprint 17
+
+[Debt Management](debt-management.md) reads `Budget`/`BudgetLine` and
+`CapitalRequirement`/`DebtFacility` directly, exactly as §11's own "future
+extension point" predicted — and needed **zero code changes here** to do
+it. A `DebtFacility`'s repayment schedule now flows into the same live
+Cashflow Forecast `BudgetForecastService.getBudgetVsForecast()` already
+composes (§9), so an active facility's debt service automatically raises a
+budget's own `forecastExpenditure` figure — the Debt→Cashflow→Budget
+composition falls out of the pre-existing chain for free. A
+`CapitalRequirement` may also reference a `Budget`/`BudgetLine` directly
+(read-only, for a live Budget Coverage % computation) — never mutating the
+budget it references.

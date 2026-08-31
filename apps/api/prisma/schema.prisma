@@ -181,6 +181,12 @@ model Organisation {
   /// Added Sprint 16 — Budgeting & Financial Planning (docs/domains/budgeting.md).
   budgets                           Budget[]
   costCentres                       CostCentre[]
+  /// Added Sprint 17 — Capital & Debt Management (docs/domains/debt-management.md).
+  lenders                           Lender[]
+  capitalRequirements               CapitalRequirement[]
+  debtFacilities                    DebtFacility[]
+  debtDrawdowns                     DebtDrawdown[]
+  debtRepayments                    DebtRepayment[]
 
   @@map("organisations")
 }
@@ -2562,6 +2568,13 @@ model ChartOfAccount {
   /// `OPERATING_EXPENSE` lines only; `CAPEX` lines may omit an account entirely —
   /// see docs/domains/budgeting.md).
   budgetLines                BudgetLine[]
+  /// Added Sprint 17 — the user-chosen, non-system Liability/Expense account a
+  /// `DebtFacility`/`DebtRepayment` posts against (docs/domains/debt-management.md
+  /// "No New System Accounts") — the exact Sprint 12 Path B pattern, never a
+  /// single global loan account.
+  debtFacilitiesAsLiability       DebtFacility[] @relation("DebtFacilityLiabilityAccount")
+  debtFacilitiesAsInterestExpense DebtFacility[] @relation("DebtFacilityInterestExpenseAccount")
+  debtRepaymentsAsFee             DebtRepayment[]
 
   @@unique([organisationId, code])
   /// Multiple `NULL`s are allowed in a Postgres unique index — only accounts
@@ -3259,6 +3272,10 @@ model CashAccount {
   /// Added Sprint 15 — a `CashflowForecastItem` a user has explicitly assigned to
   /// this account (docs/domains/cashflow.md "Cash-Account-Level Forecast").
   cashflowForecastItems      CashflowForecastItem[]
+  /// Added Sprint 17 — the account a loan drawdown was received into / a
+  /// repayment was paid from (docs/domains/debt-management.md).
+  debtDrawdowns              DebtDrawdown[]
+  debtRepayments             DebtRepayment[]
 
   @@unique([organisationId, accountCode])
   @@unique([organisationId, idempotencyKey])
@@ -3478,6 +3495,11 @@ enum CashflowForecastSourceType {
   SUPPLIER_PAYABLE
   RECURRING_ITEM
   MANUAL_FORECAST
+  /// Added Sprint 17 — an outstanding `DebtRepaymentSchedule` installment for an
+  /// `ACTIVE`/`PARTIALLY_REPAID` `DebtFacility` (docs/domains/debt-management.md
+  /// "Cashflow Integration"). Synthesized at forecast-read time exactly like AR/AP
+  /// — never copied into a `CashflowForecastItem` row.
+  LOAN_REPAYMENT
   OTHER
 }
 
@@ -3683,6 +3705,10 @@ model Budget {
   revisions        Budget[]          @relation("BudgetRevision")
   cashflowScenario CashflowScenario? @relation(fields: [cashflowScenarioId], references: [id], onDelete: SetNull)
   lines            BudgetLine[]
+  /// Added Sprint 17 — a `CapitalRequirement` optionally references this budget
+  /// as evidence a proposed financing need is already planned for (read-only,
+  /// never mutates the budget — docs/domains/debt-management.md).
+  capitalRequirements CapitalRequirement[]
 
   @@unique([organisationId, budgetCode, scenarioName, version])
   @@unique([organisationId, idempotencyKey])
@@ -3718,6 +3744,7 @@ model BudgetLine {
   budget         Budget          @relation(fields: [budgetId], references: [id], onDelete: Cascade)
   chartOfAccount ChartOfAccount? @relation(fields: [chartOfAccountId], references: [id], onDelete: Restrict)
   costCentre     CostCentre?     @relation(fields: [costCentreId], references: [id], onDelete: SetNull)
+  capitalRequirements CapitalRequirement[]
 
   /// Postgres never collides two rows on a `NULL` column within a unique
   /// index (the same semantics `ChartOfAccount.systemKey`/
@@ -3747,8 +3774,320 @@ model CostCentre {
 
   organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
   budgetLines  BudgetLine[]
+  capitalRequirements CapitalRequirement[]
 
   @@unique([organisationId, code])
   @@index([organisationId])
   @@map("cost_centres")
+}
+
+// ============================================================================
+// Sprint 17 — Capital & Debt Management Foundation
+// (docs/domains/debt-management.md)
+// ============================================================================
+
+enum LenderType {
+  BANK
+  FINANCIAL_INSTITUTION
+  INVESTOR
+  DIRECTOR
+  SHAREHOLDER
+  OTHER
+}
+
+enum LenderStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum CapitalRequirementType {
+  CAPEX
+  WORKING_CAPITAL
+  EXPANSION
+  EQUIPMENT
+  OTHER
+}
+
+enum CapitalRequirementPriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum CapitalRequirementStatus {
+  DRAFT
+  PROPOSED
+  APPROVED
+  FUNDED
+  COMPLETED
+  CANCELLED
+}
+
+enum DebtType {
+  TERM_LOAN
+  WORKING_CAPITAL
+  ASSET_FINANCE
+  OVERDRAFT
+  OTHER
+}
+
+/// A single value today — room to extend (e.g. `VARIABLE`) without a migration
+/// touching every existing `DebtFacility` row (docs/domains/debt-management.md
+/// "Interest Model" — deliberately not a full banking-grade interest engine).
+enum InterestType {
+  FIXED
+}
+
+enum RepaymentMethod {
+  AMORTISING
+  INTEREST_ONLY
+  BULLET
+}
+
+/// Only `MONTHLY` gets full worked-example test coverage this sprint (the
+/// brief's own minimum) — `QUARTERLY`/`YEARLY` reuse the same date-stepping
+/// generalization already proven in `CashflowRecurrence`'s `stepRecurrence()`.
+enum RepaymentFrequency {
+  MONTHLY
+  QUARTERLY
+  YEARLY
+}
+
+enum DebtFacilityStatus {
+  PROPOSED
+  APPROVED
+  ACTIVE
+  PARTIALLY_REPAID
+  PAID_OFF
+  CANCELLED
+  DEFAULTED
+}
+
+/// `OVERDUE` takes precedence over `SCHEDULED`/`PARTIALLY_PAID` once
+/// `dueDate` lapses — the exact `Invoice.OVERDUE` lazy-sweep convention
+/// (`sweepOverdue`), never a scheduled job.
+enum DebtScheduleStatus {
+  SCHEDULED
+  PARTIALLY_PAID
+  PAID
+  OVERDUE
+}
+
+/// A lightweight external financing party — deliberately not a full CRM.
+/// Never linked to `Supplier`/`Customer` (a lender is neither).
+model Lender {
+  id             String       @id @default(cuid())
+  organisationId String
+  name           String
+  type           LenderType
+  contactName    String?
+  email          String?
+  phone          String?
+  notes          String?
+  status         LenderStatus @default(ACTIVE)
+  createdById    String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  organisation  Organisation   @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  debtFacilities DebtFacility[]
+
+  @@unique([organisationId, name])
+  @@index([organisationId])
+  @@map("lenders")
+}
+
+/// A structured business reason for financing — not itself an approved loan.
+/// Never mutates a `Budget`/`BudgetLine` it references (docs/domains/
+/// debt-management.md "Budget Integration" — Budget Coverage % is computed on
+/// read only).
+model CapitalRequirement {
+  id             String                     @id @default(cuid())
+  organisationId String
+  title          String
+  description    String?
+  requiredAmount Float
+  requiredDate   DateTime
+  type           CapitalRequirementType
+  status         CapitalRequirementStatus   @default(DRAFT)
+  priority       CapitalRequirementPriority @default(MEDIUM)
+  budgetId       String?
+  budgetLineId   String?
+  costCentreId   String?
+  notes          String?
+  idempotencyKey String?
+  createdById    String?
+  approvedById   String?
+  approvedAt     DateTime?
+  fundedAt       DateTime?
+  completedAt    DateTime?
+  cancelledAt    DateTime?
+  createdAt      DateTime                   @default(now())
+  updatedAt      DateTime                   @updatedAt
+
+  organisation  Organisation   @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  budget        Budget?        @relation(fields: [budgetId], references: [id], onDelete: SetNull)
+  budgetLine    BudgetLine?    @relation(fields: [budgetLineId], references: [id], onDelete: SetNull)
+  costCentre    CostCentre?    @relation(fields: [costCentreId], references: [id], onDelete: SetNull)
+  debtFacilities DebtFacility[]
+
+  @@unique([organisationId, idempotencyKey])
+  @@index([organisationId, status])
+  @@map("capital_requirements")
+}
+
+/// The actual financing agreement. Posts nothing itself — `DebtDrawdown`/
+/// `DebtRepayment` are the only events that touch the Ledger
+/// (docs/domains/debt-management.md "Accounting Integration"). Never one
+/// global loan-liability account: `liabilityAccountId`/
+/// `interestExpenseAccountId` are user-chosen, non-system, service-validated
+/// accounts — the exact Sprint 12 "Path B" pattern
+/// (`SupplierInvoiceItem.debitAccountId`), letting an organisation run
+/// Short-Term/Long-Term/Director Loans as genuinely distinct ledger accounts.
+model DebtFacility {
+  id             String   @id @default(cuid())
+  organisationId String
+  /// Auto-generated (`DEBT-000001`, ...), unique per organisation.
+  facilityCode   String
+  lenderId       String
+  name           String
+  debtType       DebtType
+  principalAmount Float
+  currency       String
+  /// Annual percentage, e.g. `20` = 20%.
+  interestRatePercent Float
+  interestType   InterestType    @default(FIXED)
+  repaymentMethod RepaymentMethod
+  repaymentFrequency RepaymentFrequency @default(MONTHLY)
+  startDate      DateTime
+  tenorMonths    Int
+  /// Interest continues to accrue and is due monthly during this window; no
+  /// principal is due — see docs/domains/debt-management.md "Grace Period".
+  graceMonths    Int      @default(0)
+  /// Computed once at creation as `startDate + tenorMonths` and stored — never
+  /// recomputed later, the same explicit-range convention `Budget.startDate`/
+  /// `.endDate` already established.
+  maturityDate   DateTime
+  status         DebtFacilityStatus @default(PROPOSED)
+  /// Non-system `LIABILITY`-type account this facility's principal posts
+  /// against — `onDelete: Restrict` (never silently orphaned).
+  liabilityAccountId String
+  /// Non-system `EXPENSE`-type account this facility's interest posts
+  /// against.
+  interestExpenseAccountId String
+  capitalRequirementId String?
+  notes          String?
+  idempotencyKey String?
+  createdById    String?
+  approvedById   String?
+  approvedAt     DateTime?
+  activatedAt    DateTime?
+  closedAt       DateTime?
+  cancelledAt    DateTime?
+  defaultedAt    DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organisation          Organisation        @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  lender                Lender              @relation(fields: [lenderId], references: [id], onDelete: Restrict)
+  liabilityAccount      ChartOfAccount      @relation("DebtFacilityLiabilityAccount", fields: [liabilityAccountId], references: [id], onDelete: Restrict)
+  interestExpenseAccount ChartOfAccount     @relation("DebtFacilityInterestExpenseAccount", fields: [interestExpenseAccountId], references: [id], onDelete: Restrict)
+  capitalRequirement    CapitalRequirement? @relation(fields: [capitalRequirementId], references: [id], onDelete: SetNull)
+  schedule              DebtRepaymentSchedule[]
+  drawdowns             DebtDrawdown[]
+  repayments            DebtRepayment[]
+
+  @@unique([organisationId, facilityCode])
+  @@unique([organisationId, idempotencyKey])
+  @@index([organisationId, status])
+  @@map("debt_facilities")
+}
+
+/// Actual cash received against a `DebtFacility` — distinct from the
+/// facility's own `principalAmount` (the approved ceiling), since a facility
+/// can be approved but not (yet, or ever fully) drawn.
+model DebtDrawdown {
+  id             String   @id @default(cuid())
+  organisationId String
+  debtFacilityId String
+  cashAccountId  String
+  amount         Float
+  drawdownDate   DateTime
+  reference      String?
+  notes          String?
+  idempotencyKey String?
+  createdById    String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  debtFacility DebtFacility @relation(fields: [debtFacilityId], references: [id], onDelete: Restrict)
+  cashAccount  CashAccount  @relation(fields: [cashAccountId], references: [id], onDelete: Restrict)
+
+  @@unique([organisationId, idempotencyKey])
+  @@index([debtFacilityId])
+  @@map("debt_drawdowns")
+}
+
+/// One installment of a `DebtFacility`'s amortization table — generated in
+/// full at facility-creation time from `principalAmount` (docs/domains/
+/// debt-management.md "Repayment Schedule Generation"), never recomputed per
+/// drawdown. `amountPaid` is the only mutable field — incremented as
+/// `DebtRepayment`s are applied oldest-installment-first.
+model DebtRepaymentSchedule {
+  id                String              @id @default(cuid())
+  debtFacilityId    String
+  installmentNumber Int
+  dueDate           DateTime
+  openingPrincipal  Float
+  principalDue      Float
+  interestDue       Float
+  totalDue          Float
+  closingPrincipal  Float
+  amountPaid        Float               @default(0)
+  status            DebtScheduleStatus  @default(SCHEDULED)
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  debtFacility DebtFacility @relation(fields: [debtFacilityId], references: [id], onDelete: Cascade)
+
+  @@unique([debtFacilityId, installmentNumber])
+  @@index([debtFacilityId, status])
+  @@map("debt_repayment_schedules")
+}
+
+/// A repayment event — principal, interest, and fees are always recorded
+/// separately (docs/domains/debt-management.md "Debt Payments"), never
+/// collapsed into one generic amount, and applied to the oldest unpaid
+/// `DebtRepaymentSchedule` installment(s) first.
+model DebtRepayment {
+  id             String    @id @default(cuid())
+  organisationId String
+  debtFacilityId String
+  cashAccountId  String
+  paymentDate    DateTime
+  principalAmount Float    @default(0)
+  interestAmount  Float    @default(0)
+  feeAmount       Float    @default(0)
+  /// Required only when `feeAmount > 0` — a non-system `EXPENSE` account
+  /// (service-validated), the same Path B pattern as the facility's own
+  /// interest-expense account.
+  feeExpenseAccountId String?
+  totalAmount    Float
+  reference      String?
+  notes          String?
+  idempotencyKey String?
+  createdById    String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organisation      Organisation    @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  debtFacility      DebtFacility    @relation(fields: [debtFacilityId], references: [id], onDelete: Restrict)
+  cashAccount       CashAccount     @relation(fields: [cashAccountId], references: [id], onDelete: Restrict)
+  feeExpenseAccount ChartOfAccount? @relation(fields: [feeExpenseAccountId], references: [id], onDelete: Restrict)
+
+  @@unique([organisationId, idempotencyKey])
+  @@index([debtFacilityId])
+  @@map("debt_repayments")
 }

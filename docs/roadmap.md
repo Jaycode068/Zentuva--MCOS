@@ -204,9 +204,28 @@ Sold / CR Finished Goods Inventory`, no new system accounts needed — `COGS` ha
       established, never duplicating a balance; Budget vs Forecast genuinely
       reuses Sprint 15's own `CashflowForecastService`, never a second engine;
       Cost Centres are a lightweight budget-line tag, never linked to the
-      Chart of Accounts. Explicitly a foundation for a future loan/debt/
-      investment/capital management epic — see
+      Chart of Accounts. Explicitly a foundation for a future capital/debt
+      management epic — shipped the very next sprint, below — see
       [`docs/domains/budgeting.md`](domains/budgeting.md)
+- [x] Capital & Debt Management — foundation shipped Sprint 17 ("Capital &
+      Debt Management Foundation"). A `CapitalRequirement` (the business case
+      for financing, not yet an approved loan) → `DebtFacility` (`PROPOSED →
+    APPROVED → ACTIVE → PARTIALLY_REPAID → PAID_OFF`) → `DebtDrawdown`/
+      `DebtRepayment` chain, posting through the same General Ledger boundary
+      every other Finance domain uses — never a global loan liability account
+      (the Sprint 12 "Path B" account pattern reused a third time); a
+      server-generated repayment schedule (Amortising/Interest-Only/Bullet,
+      explicit grace-period behaviour) computed once at facility creation; a
+      debt balance always computed live, never stored; server-side rejection
+      of over-repayment and automatic `PAID_OFF` on full early repayment; a
+      `PROPOSED` facility doubles as its own financing-scenario preview,
+      structurally invisible to the live forecast/GL until an actual
+      drawdown activates it; outstanding schedule installments feed the
+      existing Cashflow Forecast as financing outflows, which in turn flow
+      into Budget vs Forecast automatically — no Budget-side code change
+      needed. Explicitly not investment/equity/bond/fixed-asset management, a
+      loan-application workflow, credit scoring, or a full NPV/IRR/DCF
+      engine — see [`docs/domains/debt-management.md`](domains/debt-management.md)
 
 ## Phase 3 — Extended Experiences
 

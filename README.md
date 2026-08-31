@@ -15,9 +15,12 @@ feature is built configurably so it can be reused by future tenants without code
 > Ledger) and a Finance domain covering Invoices/Payments/Credit Notes/Accounts Receivable,
 > Accounts Payable/Supplier Invoices, read-only Financial Statements & Management Reporting, Cash
 > & Bank Management / Reconciliation, a forward-looking Cashflow Management & Forecasting layer
-> that is never persisted and never posts a journal entry, and — most recently — a Budgeting &
-> Financial Planning layer where a `Budget` holds only planned amounts and is compared live
-> against the Ledger and the Cashflow Forecast, never a second accounting system. See
+> that is never persisted and never posts a journal entry, a Budgeting & Financial Planning layer
+> where a `Budget` holds only planned amounts and is compared live against the Ledger and the
+> Cashflow Forecast, and — most recently — a Capital & Debt Management foundation where a
+> `CapitalRequirement` → `DebtFacility` → `DebtDrawdown`/`DebtRepayment` chain posts through the
+> same General Ledger boundary and feeds the existing Cashflow Forecast as financing outflows,
+> never a second accounting system or a duplicated forecast engine. See
 > [docs/domains/README.md](docs/domains/README.md) for the current status of every domain and
 > [docs/roadmap.md](docs/roadmap.md) for the full build order.
 

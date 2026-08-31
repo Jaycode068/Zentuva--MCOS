@@ -576,8 +576,7 @@ Finished Goods Inventory / CR Cost of Goods Sold`) plus an independently-valued
   earn/spend, and how does reality compare? Explicitly not a second accounting
   system: actuals are always read live from the General Ledger, never
   duplicated into budget tables. Explicitly a foundation for a future
-  loan/debt/investment/capital management epic, which this epic does not
-  itself build.
+  loan/debt/investment/capital management epic — built as Epic 21, below.
 - **Includes:** a `Budget` (fiscal-year-scoped, its own version _and_ its own
   scenario via `version`/`revisesBudgetId`/`scenarioName` — no separate
   `BudgetVersion`/`BudgetScenario` tables) with `BudgetLine`s distinguishing
@@ -588,13 +587,13 @@ ACTIVE → CLOSED` lifecycle (plus an automatic `SUPERSEDED` on revision-
   linked to the Chart of Accounts); Budget vs Actual (one scoped Ledger query
   per budget, the same normal-balance-sign convention Epic 16's own reporting
   layer established); Budget vs Cashflow Forecast (genuinely reuses Epic 19's
-  own forecast engine, never a duplicated one). Deliberately excludes loan
-  management, debt management, investment management, capital planning, AI/ML
-  financial planning, credit scoring, expense management, payroll, tax
-  management, procurement-commitment budgeting, and purchase-requisition
-  budgeting — all explicit future work, though the architecture (planned
-  CAPEX + Budget vs Forecast) was deliberately shaped so a future capital-
-  decision layer can read from it without any schema change.
+  own forecast engine, never a duplicated one). Deliberately excludes
+  investment management, capital planning, AI/ML financial planning, credit
+  scoring, expense management, payroll, tax management, procurement-
+  commitment budgeting, and purchase-requisition budgeting — all explicit
+  future work, though the architecture (planned CAPEX + Budget vs Forecast)
+  was deliberately shaped so a future capital-decision layer can read from it
+  without any schema change.
 - **Status:** Foundation implemented — Sprint 16 ("Budgeting & Financial
   Planning Foundation"). Zero `postSystemJournalEntry` calls anywhere in the
   module — proven executably by `budgeting-independence.spec.ts`, not just
@@ -603,6 +602,49 @@ ACTIVE → CLOSED` lifecycle (plus an automatic `SUPERSEDED` on revision-
   any pre-existing model; zero new `SYSTEM_ACCOUNT_KEYS`. See
   [`docs/domains/budgeting.md`](domains/budgeting.md) and
   [`docs/domains/finance.md`](domains/finance.md) §16.
+
+### Epic 21 — Capital & Debt Management
+
+- **Objective:** answer what none of Epics 16-20 answer — what capital do we
+  need, how should we finance it, and can we afford the repayment? Not just a
+  CRUD loan-management module: a `CapitalRequirement` → `DebtFacility` →
+  `DebtDrawdown`/`DebtRepayment` chain that posts through the same General
+  Ledger boundary every other Finance epic uses, feeds the existing Cashflow
+  Forecast as financing outflows, and prepares — without building — the data
+  architecture a future capital-decision engine will need.
+- **Includes:** `CapitalRequirement` (the business case for financing,
+  `DRAFT → PROPOSED → APPROVED → FUNDED → COMPLETED`, optionally referencing
+  a `Budget`/`BudgetLine` read-only for a live Budget Coverage %); a
+  lightweight `Lender` master; `DebtFacility` (`PROPOSED → APPROVED → ACTIVE
+→ PARTIALLY_REPAID → PAID_OFF`, plus `CANCELLED`/`DEFAULTED`) with a
+  user-chosen non-system liability/interest-expense account pair (Epic 17's
+  own "Path B" pattern, reused a third time — no single global loan
+  liability account); a server-generated `DebtRepaymentSchedule`
+  (Amortising/Interest-Only/Bullet, explicit grace-period behaviour, never
+  recomputed per drawdown); `DebtDrawdown`/`DebtRepayment` distinguishing
+  principal/interest/fees always separately, posting `DR Cash / CR Loan
+Payable` and `DR Loan Payable [+ DR Interest Expense] [+ DR Fee Expense] /
+CR Cash` respectively; a debt balance always computed live, never stored;
+  server-side rejection of over-repayment; automatic `PAID_OFF` on full early
+  repayment; a `PROPOSED` facility doubling as its own financing-scenario
+  preview (structurally invisible to the live forecast/GL until an actual
+  drawdown activates it); outstanding schedule installments feeding the
+  existing Cashflow Forecast as `CONFIRMED` financing outflows — no Budget-
+  side code change needed for debt service to appear in Budget vs Forecast.
+  Deliberately excludes investment/equity/bond/fixed-asset management, a
+  loan-application workflow, credit scoring, automatic loan approval, bank/
+  payment-gateway integrations, a collections system, automatic penalty
+  interest, tax treatment of financing, and a full NPV/IRR/DCF engine — all
+  explicit future work for the Capital Decision Analysis engine this epic's
+  own architecture prepares for but does not build.
+- **Status:** Foundation implemented — Sprint 17 ("Capital & Debt Management
+  Foundation"). Zero new `SYSTEM_ACCOUNT_KEYS`; six new models (`Lender`,
+  `CapitalRequirement`, `DebtFacility`, `DebtDrawdown`,
+  `DebtRepaymentSchedule`, `DebtRepayment`) hold planned/transactional data
+  only, debt balance itself never stored; structural independence from
+  Sales/Inventory/Procurement/Production proven by `debt-independence.spec.ts`.
+  See [`docs/domains/debt-management.md`](domains/debt-management.md) and
+  [`docs/domains/finance.md`](domains/finance.md) §17.
 
 ## 5. Current Sprint Status
 
@@ -643,6 +685,7 @@ ACTIVE → CLOSED` lifecycle (plus an automatic `SUPERSEDED` on revision-
 - ✓ Sprint 14 — Cash & Bank Management / Reconciliation Foundation
 - ✓ Sprint 15 — Cashflow Management & Forecasting
 - ✓ Sprint 16 — Budgeting & Financial Planning Foundation
+- ✓ Sprint 17 — Capital & Debt Management Foundation
 
 **Current focus:** Next sprint not yet scoped.
 

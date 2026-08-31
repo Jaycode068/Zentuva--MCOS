@@ -7,6 +7,68 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 17 Capital & Debt Management Foundation] - 2026-08-31
+
+### Added
+
+- **`CapitalRequirement` (Finance) — the business case for financing, not
+  yet an approved loan.** Lifecycle `DRAFT → PROPOSED → APPROVED → FUNDED →
+COMPLETED`, plus `CANCELLED`; optionally references a `Budget`/
+  `BudgetLine`/`CostCentre` for a live, read-only Budget Coverage %
+  computation — never mutates the budget it references.
+- **`Lender` (Finance)** — a lightweight master (bank, financial
+  institution, investor, director, shareholder, other), no full CRM.
+- **`DebtFacility` — the financing agreement itself.** Lifecycle `PROPOSED →
+APPROVED → ACTIVE → PARTIALLY_REPAID → PAID_OFF`, plus `CANCELLED`/
+  `DEFAULTED`; `ACTIVE` is set automatically on the first real
+  `DebtDrawdown`, `PARTIALLY_REPAID` on the first `DebtRepayment`,
+  `PAID_OFF` automatically once outstanding principal rounds to zero — never
+  a manual status flip. No single global loan liability account:
+  `liabilityAccountId`/`interestExpenseAccountId` are user-chosen,
+  service-validated non-system Chart of Accounts rows, the Sprint 12 "Path
+  B" pattern reused a third time.
+- **Server-generated repayment schedule** — computed once, in full, at
+  facility creation from `principalAmount` (Amortising/Interest-Only/
+  Bullet, `Monthly`/`Quarterly`/`Yearly`), with an explicit, documented
+  grace-period behaviour (interest-only, no principal due) — never silently
+  assumed.
+- **`DebtDrawdown`/`DebtRepayment` — real cash events, posted through the
+  existing General Ledger boundary.** A drawdown posts `DR <cash account's
+own Chart of Accounts row> / CR <facility's liability account>`; a
+  repayment posts `DR Loan Payable [+ DR Interest Expense] [+ DR Fee
+Expense] / CR Cash` — principal, interest, and fees always split, never
+  one collapsed amount. Over-repayment (beyond outstanding principal or
+  accrued interest) is rejected server-side; early full repayment
+  auto-transitions the facility to `PAID_OFF`.
+- **Debt balance always computed live, never stored** — derived from
+  `DebtDrawdown`/`DebtRepayment`/`DebtRepaymentSchedule` rows on every
+  request, the same "no premature caching" discipline every prior Finance
+  sprint has followed.
+- **A `PROPOSED` facility doubles as its own financing-scenario preview** —
+  it carries a full generated schedule but is structurally invisible to the
+  live Cashflow Forecast/General Ledger/debt balance until an actual
+  drawdown activates it. `DebtAnalysisService.previewFacilityImpact()`
+  overlays that dormant schedule onto a real Cashflow Forecast call
+  (optionally with a genuine Sprint 15 scenario applied) to preview "what if
+  we activated this" — never phrased as a recommendation or safety verdict.
+- **Cashflow Forecast integration** — `CashflowForecastSourceType` gains one
+  additive value, `LOAN_REPAYMENT`; outstanding schedule installments for
+  `ACTIVE`/`PARTIALLY_REPAID` facilities now appear in the existing forecast
+  as `CONFIRMED` financing outflows, which in turn flow into Sprint 16's
+  Budget vs Forecast automatically — no Budget-side code change was needed.
+- **Admin surface** — three new tabs (Debt Overview dashboard, Capital
+  Requirements, Debt Facilities); a Debt Facility detail page with a
+  balance summary, the full repayment schedule, Record Drawdown/Record
+  Repayment forms, lifecycle actions, and a Preview Cashflow Impact panel.
+
+### Notes
+
+Zero new `SYSTEM_ACCOUNT_KEYS`. Structural independence from Sales/
+Inventory/Procurement/Production proven executably by
+`debt-independence.spec.ts`. See
+[`docs/domains/debt-management.md`](domains/debt-management.md) and
+[`docs/sprint-17-completion-report.md`](sprint-17-completion-report.md).
+
 ## [Sprint 16 Budgeting & Financial Planning Foundation] - 2026-08-30
 
 ### Added

@@ -7,6 +7,8 @@ import type {
   BankTransactionMatchStatus,
   BudgetLineType,
   BudgetStatus,
+  CapitalRequirementPriority,
+  CapitalRequirementStatus,
   CashAccountStatus,
   CashAccountType,
   CashTransactionType,
@@ -17,10 +19,16 @@ import type {
   CashflowRecurrence,
   CostCentreStatus,
   CreditNoteStatus,
+  DebtFacilityStatus,
+  DebtScheduleStatus,
+  DebtType,
   InvoiceStatus,
   JournalEntryStatus,
+  LenderType,
   PaymentMethod,
   PaymentTermType,
+  RepaymentFrequency,
+  RepaymentMethod,
   SupplierInvoiceMatchStatus,
   SupplierInvoiceStatus,
 } from './api';
@@ -308,4 +316,121 @@ export const COST_CENTRE_STATUS_VARIANT: Record<
 > = {
   ACTIVE: 'success',
   INACTIVE: 'default',
+};
+
+// === Capital & Debt Management (Sprint 17, docs/domains/debt-management.md) ===
+
+export const LENDER_TYPE_LABELS: Record<LenderType, string> = {
+  BANK: 'Bank',
+  FINANCIAL_INSTITUTION: 'Financial Institution',
+  INVESTOR: 'Investor',
+  DIRECTOR: 'Director',
+  SHAREHOLDER: 'Shareholder',
+  OTHER: 'Other',
+};
+
+export const CAPITAL_REQUIREMENT_TYPE_LABELS: Record<string, string> = {
+  CAPEX: 'CAPEX',
+  WORKING_CAPITAL: 'Working Capital',
+  EXPANSION: 'Expansion',
+  EQUIPMENT: 'Equipment',
+  OTHER: 'Other',
+};
+
+export const CAPITAL_REQUIREMENT_PRIORITY_LABELS: Record<CapitalRequirementPriority, string> = {
+  LOW: 'Low',
+  MEDIUM: 'Medium',
+  HIGH: 'High',
+  CRITICAL: 'Critical',
+};
+
+export const CAPITAL_REQUIREMENT_PRIORITY_VARIANT: Record<
+  CapitalRequirementPriority,
+  NonNullable<BadgeProps['variant']>
+> = {
+  LOW: 'default',
+  MEDIUM: 'default',
+  HIGH: 'warning',
+  CRITICAL: 'destructive',
+};
+
+export const CAPITAL_REQUIREMENT_STATUS_LABELS: Record<CapitalRequirementStatus, string> = {
+  DRAFT: 'Draft',
+  PROPOSED: 'Proposed',
+  APPROVED: 'Approved',
+  FUNDED: 'Funded',
+  COMPLETED: 'Completed',
+  CANCELLED: 'Cancelled',
+};
+
+export const CAPITAL_REQUIREMENT_STATUS_VARIANT: Record<
+  CapitalRequirementStatus,
+  NonNullable<BadgeProps['variant']>
+> = {
+  DRAFT: 'default',
+  PROPOSED: 'default',
+  APPROVED: 'warning',
+  FUNDED: 'success',
+  COMPLETED: 'success',
+  CANCELLED: 'destructive',
+};
+
+export const DEBT_TYPE_LABELS: Record<DebtType, string> = {
+  TERM_LOAN: 'Term Loan',
+  WORKING_CAPITAL: 'Working Capital',
+  ASSET_FINANCE: 'Asset Finance',
+  OVERDRAFT: 'Overdraft',
+  OTHER: 'Other',
+};
+
+export const REPAYMENT_METHOD_LABELS: Record<RepaymentMethod, string> = {
+  AMORTISING: 'Amortising',
+  INTEREST_ONLY: 'Interest-Only',
+  BULLET: 'Bullet',
+};
+
+export const REPAYMENT_FREQUENCY_LABELS: Record<RepaymentFrequency, string> = {
+  MONTHLY: 'Monthly',
+  QUARTERLY: 'Quarterly',
+  YEARLY: 'Yearly',
+};
+
+export const DEBT_FACILITY_STATUS_LABELS: Record<DebtFacilityStatus, string> = {
+  PROPOSED: 'Proposed',
+  APPROVED: 'Approved',
+  ACTIVE: 'Active',
+  PARTIALLY_REPAID: 'Partially Repaid',
+  PAID_OFF: 'Paid Off',
+  CANCELLED: 'Cancelled',
+  DEFAULTED: 'Defaulted',
+};
+
+export const DEBT_FACILITY_STATUS_VARIANT: Record<
+  DebtFacilityStatus,
+  NonNullable<BadgeProps['variant']>
+> = {
+  PROPOSED: 'default',
+  APPROVED: 'warning',
+  ACTIVE: 'success',
+  PARTIALLY_REPAID: 'warning',
+  PAID_OFF: 'success',
+  CANCELLED: 'destructive',
+  DEFAULTED: 'destructive',
+};
+
+export const DEBT_SCHEDULE_STATUS_LABELS: Record<DebtScheduleStatus, string> = {
+  SCHEDULED: 'Scheduled',
+  PARTIALLY_PAID: 'Partially Paid',
+  PAID: 'Paid',
+  OVERDUE: 'Overdue',
+};
+
+export const DEBT_SCHEDULE_STATUS_VARIANT: Record<
+  DebtScheduleStatus,
+  NonNullable<BadgeProps['variant']>
+> = {
+  SCHEDULED: 'default',
+  PARTIALLY_PAID: 'warning',
+  PAID: 'success',
+  OVERDUE: 'destructive',
 };

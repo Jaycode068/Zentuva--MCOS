@@ -34,6 +34,10 @@ const TABS = [
   // Added Sprint 16 — Budgeting & Financial Planning Foundation.
   { label: 'Budgets', href: '/settings/finance/budgets' },
   { label: 'Cost Centres', href: '/settings/finance/cost-centres' },
+  // Added Sprint 17 — Capital & Debt Management Foundation.
+  { label: 'Debt', href: '/settings/finance/debt' },
+  { label: 'Capital Requirements', href: '/settings/finance/capital-requirements' },
+  { label: 'Debt Facilities', href: '/settings/finance/debt-facilities' },
 ];
 
 /** Shared sub-navigation for the ten `/settings/finance/*` pages (Sprint 6 Finance +

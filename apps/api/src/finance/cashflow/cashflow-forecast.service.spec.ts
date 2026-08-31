@@ -29,6 +29,7 @@ function makeService(overrides: {
     linkedChartOfAccountId: string;
   }[];
   balances?: Record<string, number>;
+  debtScheduleRows?: unknown[];
 }) {
   const invoiceRepository = {
     getOutstandingForAging: jest.fn().mockResolvedValue(overrides.arRows ?? []),
@@ -71,6 +72,11 @@ function makeService(overrides: {
       closingBalance: balances[accountId] ?? 0,
     })),
   };
+  const debtFacilityRepository = {
+    findOutstandingScheduleForForecast: jest
+      .fn()
+      .mockResolvedValue(overrides.debtScheduleRows ?? []),
+  };
 
   const service = new CashflowForecastService(
     invoiceRepository as never,
@@ -81,9 +87,16 @@ function makeService(overrides: {
     cashflowSettingsService as never,
     cashAccountRepository as never,
     ledgerService as never,
+    debtFacilityRepository as never,
   );
 
-  return { service, invoiceRepository, supplierInvoiceRepository, cashAccountRepository };
+  return {
+    service,
+    invoiceRepository,
+    supplierInvoiceRepository,
+    cashAccountRepository,
+    debtFacilityRepository,
+  };
 }
 
 describe('CashflowForecastService.getForecast — opening/inflows/outflows/closing', () => {
@@ -574,5 +587,41 @@ describe('CashflowForecastService — cash account consolidated vs per-account',
     // AR is never attributed to a specific account — only the assigned item shows.
     expect(forecast.totalExpectedInflows).toBe(0);
     expect(forecast.totalExpectedOutflows).toBe(100_000);
+  });
+});
+
+describe('CashflowForecastService.getForecast — Sprint 17 debt integration', () => {
+  it('surfaces an outstanding loan repayment installment as a LOAN_REPAYMENT outflow with CONFIRMED confidence', async () => {
+    const { service } = makeService({
+      debtScheduleRows: [
+        {
+          debtFacilityId: 'facility-1',
+          facilityCode: 'DEBT-000001',
+          facilityName: 'Bank Equipment Loan',
+          dueDate: daysFromNow(10),
+          remainingDue: 3_400_000,
+        },
+      ],
+    });
+    const forecast = await service.getForecast(ORG, { horizonDays: 30, bucketBy: 'weekly' });
+
+    const debtLine = forecast.buckets
+      .flatMap((b) => b.items)
+      .find((item) => item.sourceType === 'LOAN_REPAYMENT');
+    expect(debtLine).toBeDefined();
+    expect(debtLine?.amount).toBe(3_400_000);
+    expect(debtLine?.confidence).toBe('CONFIRMED');
+    expect(debtLine?.direction).toBe('OUTFLOW');
+    expect(forecast.totalExpectedOutflows).toBe(3_400_000);
+  });
+
+  it('a facility that never draws contributes nothing — findOutstandingScheduleForForecast already excludes PROPOSED/APPROVED facilities', async () => {
+    const { service, debtFacilityRepository } = makeService({ debtScheduleRows: [] });
+    const forecast = await service.getForecast(ORG, { horizonDays: 30, bucketBy: 'weekly' });
+
+    expect(debtFacilityRepository.findOutstandingScheduleForForecast).toHaveBeenCalledWith(ORG);
+    expect(
+      forecast.buckets.some((b) => b.items.some((item) => item.sourceType === 'LOAN_REPAYMENT')),
+    ).toBe(false);
   });
 });

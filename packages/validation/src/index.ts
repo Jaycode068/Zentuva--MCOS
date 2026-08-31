@@ -4,6 +4,7 @@ export * from './budgeting';
 export * from './cash';
 export * from './cashflow';
 export * from './catalogue';
+export * from './debt';
 export * from './distribution';
 export * from './env';
 export * from './finance';

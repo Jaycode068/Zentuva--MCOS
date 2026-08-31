@@ -88,6 +88,21 @@ import { BudgetService } from './budgeting/budget.service';
 import { CostCentreController } from './budgeting/cost-centre.controller';
 import { CostCentreRepository } from './budgeting/cost-centre.repository';
 import { CostCentreService } from './budgeting/cost-centre.service';
+import { CapitalRequirementController } from './debt/capital-requirement.controller';
+import { CapitalRequirementRepository } from './debt/capital-requirement.repository';
+import { CapitalRequirementService } from './debt/capital-requirement.service';
+import { DebtAnalysisService } from './debt/debt-analysis.service';
+import { DebtDashboardController } from './debt/debt-dashboard.controller';
+import { DebtDrawdownRepository } from './debt/debt-drawdown.repository';
+import { DebtDrawdownService } from './debt/debt-drawdown.service';
+import { DebtFacilityController } from './debt/debt-facility.controller';
+import { DebtFacilityRepository } from './debt/debt-facility.repository';
+import { DebtFacilityService } from './debt/debt-facility.service';
+import { DebtRepaymentRepository } from './debt/debt-repayment.repository';
+import { DebtRepaymentService } from './debt/debt-repayment.service';
+import { LenderController } from './debt/lender.controller';
+import { LenderRepository } from './debt/lender.repository';
+import { LenderService } from './debt/lender.service';
 
 /**
  * Finance HTTP surface (Sprint 6, docs/domains/finance.md) — Invoices, Payments, Credit
@@ -172,6 +187,19 @@ import { CostCentreService } from './budgeting/cost-centre.service';
  * Never calls `postSystemJournalEntry` and never writes to any table outside
  * its own three models — see `budgeting-independence.spec.ts`. No new module
  * imports needed.
+ *
+ * Sprint 17 (docs/domains/debt-management.md) adds `debt/` — `Lender`/
+ * `CapitalRequirement`/`DebtFacility`/`DebtDrawdown`/`DebtRepayment`/
+ * `DebtRepaymentSchedule`. Only `DebtDrawdown`/`DebtRepayment` ever call
+ * `postSystemJournalEntry` — `DR <cash account's own CoA> / CR <facility's
+ * own liability account>` on drawdown, a multi-line `DR liability + DR
+ * interest expense [+ DR fee] / CR cash` on repayment — reusing the exact
+ * Sprint 12 "Path B" user-chosen-account pattern rather than any new
+ * `SYSTEM_ACCOUNT_KEYS`. `cashflow-forecast.service.ts` (Sprint 15) gained
+ * one new read-only dependency on `DebtFacilityRepository` to surface
+ * outstanding loan repayments as `LOAN_REPAYMENT` forecast outflows — a
+ * `PROPOSED`/`APPROVED` facility contributes nothing until actually drawn.
+ * See `debt-independence.spec.ts`. No new module imports needed.
  */
 @Module({
   imports: [
@@ -213,6 +241,10 @@ import { CostCentreService } from './budgeting/cost-centre.service';
     CashflowForecastController,
     CostCentreController,
     BudgetController,
+    LenderController,
+    CapitalRequirementController,
+    DebtFacilityController,
+    DebtDashboardController,
   ],
   providers: [
     InvoiceRepository,
@@ -267,6 +299,17 @@ import { CostCentreService } from './budgeting/cost-centre.service';
     BudgetLineService,
     BudgetActualsService,
     BudgetForecastService,
+    LenderRepository,
+    LenderService,
+    CapitalRequirementRepository,
+    CapitalRequirementService,
+    DebtFacilityRepository,
+    DebtFacilityService,
+    DebtDrawdownRepository,
+    DebtDrawdownService,
+    DebtRepaymentRepository,
+    DebtRepaymentService,
+    DebtAnalysisService,
   ],
 })
 export class FinanceModule {}

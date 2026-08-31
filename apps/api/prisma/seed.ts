@@ -4338,6 +4338,344 @@ async function seedBudgetingFixtures(organisationId: string, actorUserId: string
   });
 }
 
+interface SeedScheduleInstallment {
+  installmentNumber: number;
+  dueDate: Date;
+  openingPrincipal: number;
+  principalDue: number;
+  interestDue: number;
+  totalDue: number;
+  closingPrincipal: number;
+}
+
+/** Mirrors the real `generateSchedule()` (apps/api/src/finance/debt/
+ *  repayment-schedule.ts) — never imported from `src/`, hand-rolled the same
+ *  way every other seed fixture in this file mirrors its real service's
+ *  shape (see `generateSeedChildAccountCode`'s own doc comment). Only the
+ *  AMORTISING/MONTHLY/no-grace path is exercised by seed data, but the full
+ *  formula is reproduced so the seeded schedule matches the real engine
+ *  exactly, not an approximation. */
+function generateSeedRepaymentSchedule(params: {
+  principalAmount: number;
+  interestRatePercent: number;
+  tenorMonths: number;
+  graceMonths: number;
+  repaymentMethod: 'AMORTISING' | 'INTEREST_ONLY' | 'BULLET';
+  startDate: Date;
+}): SeedScheduleInstallment[] {
+  const roundCurrency = (value: number) => Math.round(value * 100) / 100;
+  // UTC-anchored (matches every date literal in this file, `new Date('YYYY-MM-DD')`
+  // — using local-timezone month arithmetic here would silently shift the computed
+  // due dates by a day on any machine not in UTC, since accounting-period boundaries
+  // are themselves UTC-anchored).
+  const addMonths = (date: Date, months: number) =>
+    new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + months, date.getUTCDate()));
+
+  const periodRate = params.interestRatePercent / 100 / 12;
+  const totalPeriods = params.tenorMonths;
+  const gracePeriods = params.graceMonths;
+  const repaymentPeriods = totalPeriods - gracePeriods;
+
+  const installments: SeedScheduleInstallment[] = [];
+  let openingPrincipal = params.principalAmount;
+
+  for (let i = 1; i <= gracePeriods; i++) {
+    const interestDue = roundCurrency(openingPrincipal * periodRate);
+    installments.push({
+      installmentNumber: i,
+      dueDate: addMonths(params.startDate, i),
+      openingPrincipal: roundCurrency(openingPrincipal),
+      principalDue: 0,
+      interestDue,
+      totalDue: interestDue,
+      closingPrincipal: roundCurrency(openingPrincipal),
+    });
+  }
+
+  const annuityPayment =
+    params.repaymentMethod === 'AMORTISING' && repaymentPeriods > 0
+      ? periodRate === 0
+        ? openingPrincipal / repaymentPeriods
+        : (openingPrincipal * periodRate) / (1 - Math.pow(1 + periodRate, -repaymentPeriods))
+      : 0;
+
+  for (let i = 1; i <= repaymentPeriods; i++) {
+    const installmentNumber = gracePeriods + i;
+    const isLast = i === repaymentPeriods;
+    const interestDue = roundCurrency(openingPrincipal * periodRate);
+
+    let principalDue: number;
+    if (params.repaymentMethod === 'BULLET' || params.repaymentMethod === 'INTEREST_ONLY') {
+      principalDue = isLast ? openingPrincipal : 0;
+    } else {
+      principalDue = isLast ? openingPrincipal : roundCurrency(annuityPayment - interestDue);
+    }
+    principalDue = roundCurrency(Math.max(0, Math.min(principalDue, openingPrincipal)));
+
+    const closingPrincipal = roundCurrency(openingPrincipal - principalDue);
+    installments.push({
+      installmentNumber,
+      dueDate: addMonths(params.startDate, installmentNumber),
+      openingPrincipal: roundCurrency(openingPrincipal),
+      principalDue,
+      interestDue,
+      totalDue: roundCurrency(principalDue + interestDue),
+      closingPrincipal,
+    });
+    openingPrincipal = closingPrincipal;
+  }
+
+  return installments;
+}
+
+/** Sprint 17 — Capital & Debt Management Foundation (docs/domains/
+ *  debt-management.md). Idempotency-gated on the "Packaging Machine
+ *  Expansion" `CapitalRequirement` already existing. Reuses
+ *  `generateSeedRepaymentSchedule()` (hand-rolled mirror above) so the seeded
+ *  schedule matches what the real API's `generateSchedule()` would produce,
+ *  never a hand-typed approximation. */
+async function seedDebtManagementFixtures(
+  organisationId: string,
+  actorUserId: string,
+): Promise<void> {
+  console.log('Seeding Capital & Debt Management fixtures...');
+
+  const existing = await prisma.capitalRequirement.findFirst({
+    where: { organisationId, title: 'Packaging Machine Expansion' },
+  });
+  if (existing) {
+    return;
+  }
+
+  // --- Two ordinary, non-system Chart of Accounts rows the facility posts
+  // against — the Sprint 12 "Path B" pattern (docs/domains/debt-management.md
+  // §3) — never a new SYSTEM_ACCOUNT_KEYS entry.
+  const liabilitiesParent = await prisma.chartOfAccount.findFirstOrThrow({
+    where: { organisationId, code: '2000' },
+  });
+  let loansPayable = await prisma.chartOfAccount.findFirst({
+    where: { organisationId, code: '2200' },
+  });
+  if (!loansPayable) {
+    loansPayable = await prisma.chartOfAccount.create({
+      data: {
+        organisationId,
+        code: '2200',
+        name: 'Loans Payable — Bank',
+        type: 'LIABILITY',
+        parentId: liabilitiesParent.id,
+        createdById: actorUserId,
+        updatedById: actorUserId,
+      },
+    });
+  }
+  const expensesParent = await prisma.chartOfAccount.findFirstOrThrow({
+    where: { organisationId, code: '6000' },
+  });
+  let interestExpense = await prisma.chartOfAccount.findFirst({
+    where: { organisationId, code: '6800' },
+  });
+  if (!interestExpense) {
+    interestExpense = await prisma.chartOfAccount.create({
+      data: {
+        organisationId,
+        code: '6800',
+        name: 'Interest Expense',
+        type: 'EXPENSE',
+        parentId: expensesParent.id,
+        createdById: actorUserId,
+        updatedById: actorUserId,
+      },
+    });
+  }
+
+  // --- Lender.
+  const gtBankLender = await prisma.lender.create({
+    data: {
+      organisationId,
+      name: 'GTBank',
+      type: 'BANK',
+      contactName: 'Business Banking Desk',
+      createdById: actorUserId,
+    },
+  });
+
+  // --- Capital Requirement — the structured business reason for financing,
+  // linked to Sprint 16's own seeded CAPEX budget line ("New Packaging
+  // Machine", ₦8,000,000) so Budget Coverage is a real, demonstrable,
+  // sub-100% figure rather than a fabricated one.
+  const opsBudget = await prisma.budget.findFirst({
+    where: { organisationId, budgetCode: 'BUD-2026-OPS', scenarioName: 'Base' },
+  });
+  const packagingMachineLine = opsBudget
+    ? await prisma.budgetLine.findFirst({
+        where: { budgetId: opsBudget.id, lineType: 'CAPEX', description: 'New Packaging Machine' },
+      })
+    : null;
+
+  const capitalRequirement = await prisma.capitalRequirement.create({
+    data: {
+      organisationId,
+      title: 'Packaging Machine Expansion',
+      description: 'A new packaging line to increase finished-goods throughput.',
+      requiredAmount: 60_000_000,
+      requiredDate: new Date('2026-07-01'),
+      type: 'EQUIPMENT',
+      status: 'APPROVED',
+      priority: 'HIGH',
+      budgetId: opsBudget?.id,
+      budgetLineId: packagingMachineLine?.id,
+      approvedById: actorUserId,
+      approvedAt: new Date('2026-06-15'),
+      createdById: actorUserId,
+    },
+  });
+
+  // --- Debt Facility — ₦60,000,000, 20% annual, 24-month amortising,
+  // monthly, drawn in full on 1 July 2026. The schedule is generated the
+  // same way the real API generates it — at facility-creation time, from
+  // `principalAmount` (docs/domains/debt-management.md §6).
+  const startDate = new Date('2026-07-01');
+  const tenorMonths = 24;
+  const interestRatePercent = 20;
+  const maturityDate = new Date(
+    Date.UTC(
+      startDate.getUTCFullYear(),
+      startDate.getUTCMonth() + tenorMonths,
+      startDate.getUTCDate(),
+    ),
+  );
+
+  const debtFacility = await prisma.debtFacility.create({
+    data: {
+      organisationId,
+      facilityCode: 'DEBT-000001',
+      lenderId: gtBankLender.id,
+      name: 'Bank Equipment Loan',
+      debtType: 'TERM_LOAN',
+      principalAmount: 60_000_000,
+      currency: 'NGN',
+      interestRatePercent,
+      interestType: 'FIXED',
+      repaymentMethod: 'AMORTISING',
+      repaymentFrequency: 'MONTHLY',
+      startDate,
+      tenorMonths,
+      graceMonths: 0,
+      maturityDate,
+      status: 'APPROVED',
+      liabilityAccountId: loansPayable.id,
+      interestExpenseAccountId: interestExpense.id,
+      capitalRequirementId: capitalRequirement.id,
+      approvedById: actorUserId,
+      approvedAt: new Date('2026-06-20'),
+      createdById: actorUserId,
+    },
+  });
+
+  const installments = generateSeedRepaymentSchedule({
+    principalAmount: 60_000_000,
+    interestRatePercent,
+    tenorMonths,
+    graceMonths: 0,
+    repaymentMethod: 'AMORTISING',
+    startDate,
+  });
+  await prisma.debtRepaymentSchedule.createMany({
+    data: installments.map((installment) => ({
+      debtFacilityId: debtFacility.id,
+      installmentNumber: installment.installmentNumber,
+      dueDate: installment.dueDate,
+      openingPrincipal: installment.openingPrincipal,
+      principalDue: installment.principalDue,
+      interestDue: installment.interestDue,
+      totalDue: installment.totalDue,
+      closingPrincipal: installment.closingPrincipal,
+    })),
+  });
+
+  // --- Drawdown — the full facility, into the existing GTBank Cash Account
+  // (Sprint 14). Posts DR <GTBank's own CoA> / CR Loans Payable.
+  //
+  // Dated into August 2026 rather than the facility's own July 2026
+  // `startDate`: `seedFinance()` (run earlier in `main()`) deliberately
+  // closes the "July 2026" `AccountingPeriod` to seed a closed-period
+  // fixture, leaving "August 2026" the only OPEN period. A facility's
+  // nominal start date is independent of when funds are actually drawn
+  // (brief's own Approved-vs-Drawn distinction) — a one-month-delayed
+  // drawdown is realistic, not a workaround.
+  const gtBankCashAccount = await prisma.cashAccount.findFirstOrThrow({
+    where: { organisationId, name: 'GTBank Current Account' },
+  });
+  const drawdownDate = new Date('2026-08-01');
+  const drawdown = await prisma.debtDrawdown.create({
+    data: {
+      organisationId,
+      debtFacilityId: debtFacility.id,
+      cashAccountId: gtBankCashAccount.id,
+      amount: 60_000_000,
+      drawdownDate,
+      reference: 'GTBank Equipment Loan Disbursement',
+      createdById: actorUserId,
+    },
+  });
+  await postSeedJournalEntry(organisationId, {
+    date: drawdownDate,
+    description: `Loan drawdown — ${debtFacility.name} (${debtFacility.facilityCode})`,
+    sourceType: 'DEBT_DRAWDOWN',
+    sourceId: drawdown.id,
+    actorUserId,
+    lines: [
+      { accountId: gtBankCashAccount.linkedChartOfAccountId, debit: 60_000_000 },
+      { accountId: loansPayable.id, credit: 60_000_000 },
+    ],
+  });
+  await prisma.debtFacility.update({
+    where: { id: debtFacility.id },
+    data: { status: 'ACTIVE', activatedAt: drawdownDate },
+  });
+
+  // --- One repayment — the first installment (due 2026-08-01, also within
+  // the open August period), paid in full, leaving 23 installments and a
+  // real outstanding balance (brief §39: "remaining outstanding balance").
+  const firstInstallment = installments[0]!;
+  const repaymentDate = new Date('2026-08-20');
+  const repayment = await prisma.debtRepayment.create({
+    data: {
+      organisationId,
+      debtFacilityId: debtFacility.id,
+      cashAccountId: gtBankCashAccount.id,
+      paymentDate: repaymentDate,
+      principalAmount: firstInstallment.principalDue,
+      interestAmount: firstInstallment.interestDue,
+      feeAmount: 0,
+      totalAmount: firstInstallment.totalDue,
+      reference: 'Installment 1 of 24',
+      createdById: actorUserId,
+    },
+  });
+  await postSeedJournalEntry(organisationId, {
+    date: repaymentDate,
+    description: `Loan repayment — ${debtFacility.name} (${debtFacility.facilityCode})`,
+    sourceType: 'DEBT_REPAYMENT',
+    sourceId: repayment.id,
+    actorUserId,
+    lines: [
+      { accountId: loansPayable.id, debit: firstInstallment.principalDue },
+      { accountId: interestExpense.id, debit: firstInstallment.interestDue },
+      { accountId: gtBankCashAccount.linkedChartOfAccountId, credit: firstInstallment.totalDue },
+    ],
+  });
+  await prisma.debtRepaymentSchedule.updateMany({
+    where: { debtFacilityId: debtFacility.id, installmentNumber: 1 },
+    data: { amountPaid: firstInstallment.totalDue, status: 'PAID' },
+  });
+  await prisma.debtFacility.update({
+    where: { id: debtFacility.id },
+    data: { status: 'PARTIALLY_REPAID' },
+  });
+}
+
 async function main(): Promise<void> {
   // Read early (rather than inside `seedUser`) because the organisation's `businessEmail`
   // needs it before any user is created.
@@ -4546,6 +4884,7 @@ async function main(): Promise<void> {
   await seedCashAndBank(organisation.id, ownerUser.id);
   await seedCashflowFixtures(organisation.id, ownerUser.id);
   await seedBudgetingFixtures(organisation.id, ownerUser.id);
+  await seedDebtManagementFixtures(organisation.id, ownerUser.id);
 
   console.log('Recording an audit log entry for this seed run...');
   await prisma.auditLog.create({
