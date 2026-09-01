@@ -22,8 +22,11 @@
   `postSystemJournalEntry` calls anywhere in this module.
 - **See also:** [Finance](finance.md) §16, [Accounting](accounting.md) §23,
   [Cashflow](cashflow.md) §12, [Debt Management](debt-management.md) (a
-  read-only consumer of this domain, §13), [Sprint 16 Completion Report](../sprint-16-completion-report.md),
-  [Sprint 17 Completion Report](../sprint-17-completion-report.md).
+  read-only consumer of this domain, §13),
+  [Investment / Capital Projects](investment-projects.md) (a read-only
+  consumer of this domain, §14), [Sprint 16 Completion Report](../sprint-16-completion-report.md),
+  [Sprint 17 Completion Report](../sprint-17-completion-report.md),
+  [Sprint 18 Completion Report](../sprint-18-completion-report.md).
 
 ## 1. Business Purpose
 
@@ -222,9 +225,11 @@ to keep duplicate figures in sync.
 - **No budgeting-specific permission tier** — RBAC remains binary
   (Owner/Administrator write, Member read), the same deferred decision as
   every other domain in this codebase.
-- **No investment management, AI/ML financial planning, or advanced
-  financial modelling** — debt management itself is now built (Sprint 17,
-  §13), but the full capital-decision engine ([Debt Management](debt-management.md) §13) remains future work.
+- **No AI/ML financial planning or advanced financial modelling** — debt
+  management (Sprint 17, §13) and capital project management (Sprint 18,
+  §14) are now both built, but the full investment-decision engine
+  ([Investment / Capital Projects](investment-projects.md) §11) remains
+  future work.
 - **No payroll, expense management, tax management, procurement-commitment
   budgeting, or purchase-requisition budgeting.**
 - **No caching of Budget vs Actual/Forecast** — both are recomputed live on
@@ -254,3 +259,19 @@ composition falls out of the pre-existing chain for free. A
 `CapitalRequirement` may also reference a `Budget`/`BudgetLine` directly
 (read-only, for a live Budget Coverage % computation) — never mutating the
 budget it references.
+
+## 14. Investment / Capital Project Management — Built, Sprint 18
+
+[Investment / Capital Projects](investment-projects.md) reads `Budget`/
+`BudgetLine` the same way — `CapitalProject.budgetId`/`.budgetLineId` are
+independent, optional, read-only references (not derived from any linked
+`CapitalRequirement`, even when both are set), used only to compute a live
+Budget Allocation % (a project's own version of §13's Budget Coverage
+formula, reimplemented locally rather than shared — a ~5-line formula).
+Also needed **zero code changes here**: a project's own planned cost lines
+flow into the same live Cashflow Forecast this file's own `BudgetForecastService.
+getBudgetVsForecast()` already composes once the project is `ACTIVE`, so an
+active project's planned spend automatically raises a budget's own
+`forecastExpenditure` figure — the same Debt→Cashflow→Budget composition
+chain §13 describes, now walked a second time by a different Sprint 18
+source.

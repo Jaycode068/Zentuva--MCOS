@@ -17,10 +17,12 @@ feature is built configurably so it can be reused by future tenants without code
 > & Bank Management / Reconciliation, a forward-looking Cashflow Management & Forecasting layer
 > that is never persisted and never posts a journal entry, a Budgeting & Financial Planning layer
 > where a `Budget` holds only planned amounts and is compared live against the Ledger and the
-> Cashflow Forecast, and — most recently — a Capital & Debt Management foundation where a
-> `CapitalRequirement` → `DebtFacility` → `DebtDrawdown`/`DebtRepayment` chain posts through the
-> same General Ledger boundary and feeds the existing Cashflow Forecast as financing outflows,
-> never a second accounting system or a duplicated forecast engine. See
+> Cashflow Forecast, a Capital & Debt Management foundation where a `CapitalRequirement` →
+> `DebtFacility` → `DebtDrawdown`/`DebtRepayment` chain posts through the same General Ledger
+> boundary and feeds the existing Cashflow Forecast as financing outflows, and — most recently —
+> an Investment / Capital Project Management foundation where a `CapitalProject` tracks a
+> project's own cost plan, funding mix, and Committed/Actual spend (derived from Procurement/AP,
+> never re-entered), never a second accounting system or a duplicated forecast engine. See
 > [docs/domains/README.md](docs/domains/README.md) for the current status of every domain and
 > [docs/roadmap.md](docs/roadmap.md) for the full build order.
 

@@ -29,7 +29,10 @@
   Accounting→Cash and Debt→Budget→Cashflow Forecast.
 - **See also:** [Finance](finance.md) §17, [Accounting](accounting.md) §26,
   [Cashflow](cashflow.md) §13, [Budgeting](budgeting.md) §13,
-  [Sprint 17 Completion Report](../sprint-17-completion-report.md).
+  [Investment / Capital Projects](investment-projects.md) (a read-only
+  consumer of this domain, §14),
+  [Sprint 17 Completion Report](../sprint-17-completion-report.md),
+  [Sprint 18 Completion Report](../sprint-18-completion-report.md).
 
 ## 1. Business Purpose
 
@@ -258,8 +261,6 @@ chain.
 - **No tax treatment of financing, full financial modelling/DCF, ROI/NPV/IRR
   engine, or automated financing optimisation** — see §13 for what a future
   sprint would build on top of this foundation.
-- **No full capital project management** — a `CapitalRequirement` is a
-  single record, not a multi-milestone project.
 - **Interest cannot be prepaid ahead of its own schedule accrual** (§8) — a
   documented consequence of the live-accrual model, not a bug.
 - **Financing-allocation engine** (e.g. "70% debt / 30% internal cash")
@@ -282,3 +283,15 @@ worst-case scenario. This sprint prepares the data architecture for that —
 `DebtAnalysisService.previewFacilityImpact()`/`.getDebtMetrics()` are the
 first, deliberately narrow, non-prescriptive steps — but does not build the
 full intelligence layer.
+
+## 14. Investment / Capital Project Management — Built, Sprint 18
+
+[Investment / Capital Projects](investment-projects.md) provides the
+"multi-milestone project" layer this file's own §12 once flagged as
+missing — a `CapitalProject` (its own cost plan, funding mix, and
+timeline) that a `DebtFacility` may fund via a read-only
+`CapitalProjectFunding.debtFacilityId` reference. **The repayment schedule
+stays owned entirely by this domain** — the project only displays that
+facility's own live balance/monthly-debt-service via the existing `GET
+/finance/debt/facilities/:id` response, never a duplicated schedule.
+Needed zero code changes here.

@@ -36,9 +36,9 @@ describe('Cashflow Management independence (Sprint 15)', () => {
   ];
 
   const FORBIDDEN_WRITE_PATTERN =
-    /\.(invoice|supplierInvoice|payment|supplierPayment|journalEntry|journalEntryLine|cashTransaction|bankStatementTransaction|bankStatementImport|bankReconciliation|reconciliationMatch|cashAccount|salesOrder|purchaseOrder|productionOrder|inventoryStock|inventoryTransaction|lender|capitalRequirement|debtFacility|debtDrawdown|debtRepayment|debtRepaymentSchedule)\.(create|update|updateMany|delete|deleteMany|upsert)\(/;
+    /\.(invoice|supplierInvoice|payment|supplierPayment|journalEntry|journalEntryLine|cashTransaction|bankStatementTransaction|bankStatementImport|bankReconciliation|reconciliationMatch|cashAccount|salesOrder|purchaseOrder|productionOrder|inventoryStock|inventoryTransaction|lender|capitalRequirement|debtFacility|debtDrawdown|debtRepayment|debtRepaymentSchedule|capitalProject|capitalProjectCostLine|capitalProjectFunding)\.(create|update|updateMany|delete|deleteMany|upsert)\(/;
 
-  it('structural guard: no cashflow file writes Invoice/SupplierInvoice/Payment/SupplierPayment/JournalEntry/CashAccount/CashTransaction/BankReconciliation/any Debt table, or any Sales/Procurement/Production/Inventory table, directly', () => {
+  it('structural guard: no cashflow file writes Invoice/SupplierInvoice/Payment/SupplierPayment/JournalEntry/CashAccount/CashTransaction/BankReconciliation/any Debt table/any Capital Project table, or any Sales/Procurement/Production/Inventory table, directly', () => {
     for (const fileName of CASHFLOW_FILES) {
       const source = readSource(fileName);
       expect(source).not.toMatch(FORBIDDEN_WRITE_PATTERN);

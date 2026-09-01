@@ -103,6 +103,11 @@ import { DebtRepaymentService } from './debt/debt-repayment.service';
 import { LenderController } from './debt/lender.controller';
 import { LenderRepository } from './debt/lender.repository';
 import { LenderService } from './debt/lender.service';
+import { CapitalProjectCostLineRepository } from './investment/capital-project-cost-line.repository';
+import { CapitalProjectFundingRepository } from './investment/capital-project-funding.repository';
+import { CapitalProjectController } from './investment/capital-project.controller';
+import { CapitalProjectRepository } from './investment/capital-project.repository';
+import { CapitalProjectService } from './investment/capital-project.service';
 
 /**
  * Finance HTTP surface (Sprint 6, docs/domains/finance.md) — Invoices, Payments, Credit
@@ -200,6 +205,23 @@ import { LenderService } from './debt/lender.service';
  * outstanding loan repayments as `LOAN_REPAYMENT` forecast outflows — a
  * `PROPOSED`/`APPROVED` facility contributes nothing until actually drawn.
  * See `debt-independence.spec.ts`. No new module imports needed.
+ *
+ * Sprint 18 (docs/domains/investment-projects.md) adds `investment/` —
+ * `CapitalProject`/`CapitalProjectCostLine`/`CapitalProjectFunding`, the
+ * management layer over Sprints 13-17. **Never calls
+ * `postSystemJournalEntry`** — planning/approving/activating a project posts
+ * nothing; real capital expenditure continues through the existing
+ * Procurement→Goods Receipt→Supplier Invoice→Payment chain and its own
+ * existing postings. Committed/Actual cost are derived read-only from
+ * `PurchaseOrderRepository` (already imported via `PurchaseOrderModule`
+ * since Sprint 12) and `SupplierInvoiceRepository.getApByPurchaseOrder()`
+ * (already exported, reused unmodified). `cashflow-forecast.service.ts`
+ * (Sprint 15) gained a second read-only dependency,
+ * `CapitalProjectRepository`, surfacing `ACTIVE`-project planned cost lines
+ * with no linked Purchase Order as `CAPITAL_PROJECT` forecast outflows — a
+ * line with a real linked PO is excluded (the existing `SUPPLIER_PAYABLE`
+ * source already represents that same future outflow). See
+ * `investment-independence.spec.ts`. No new module imports needed.
  */
 @Module({
   imports: [
@@ -245,6 +267,7 @@ import { LenderService } from './debt/lender.service';
     CapitalRequirementController,
     DebtFacilityController,
     DebtDashboardController,
+    CapitalProjectController,
   ],
   providers: [
     InvoiceRepository,
@@ -310,6 +333,10 @@ import { LenderService } from './debt/lender.service';
     DebtRepaymentRepository,
     DebtRepaymentService,
     DebtAnalysisService,
+    CapitalProjectRepository,
+    CapitalProjectService,
+    CapitalProjectCostLineRepository,
+    CapitalProjectFundingRepository,
   ],
 })
 export class FinanceModule {}

@@ -7,6 +7,10 @@ import type {
   BankTransactionMatchStatus,
   BudgetLineType,
   BudgetStatus,
+  CapitalProjectCategory,
+  CapitalProjectFundingStatus,
+  CapitalProjectFundingType,
+  CapitalProjectStatus,
   CapitalRequirementPriority,
   CapitalRequirementStatus,
   CashAccountStatus,
@@ -263,6 +267,11 @@ export const CASHFLOW_SOURCE_TYPE_LABELS: Record<CashflowForecastSourceType, str
   SUPPLIER_PAYABLE: 'Supplier Payable',
   RECURRING_ITEM: 'Recurring Item',
   MANUAL_FORECAST: 'Manual Forecast',
+  // Added Sprint 17 — was missing from this map (a pre-existing gap fixed
+  // during Sprint 18 live verification, see docs/sprint-18-completion-report.md).
+  LOAN_REPAYMENT: 'Loan Repayment',
+  // Added Sprint 18.
+  CAPITAL_PROJECT: 'Capital Project',
   OTHER: 'Other',
 };
 
@@ -433,4 +442,63 @@ export const DEBT_SCHEDULE_STATUS_VARIANT: Record<
   PARTIALLY_PAID: 'warning',
   PAID: 'success',
   OVERDUE: 'destructive',
+};
+
+// === Investment / Capital Project Management (Sprint 18, docs/domains/investment-projects.md) ===
+
+export const CAPITAL_PROJECT_CATEGORY_LABELS: Record<CapitalProjectCategory, string> = {
+  PRODUCTION_EQUIPMENT: 'Production Equipment',
+  FACTORY_EXPANSION: 'Factory Expansion',
+  WAREHOUSE: 'Warehouse',
+  VEHICLE: 'Vehicle',
+  POWER_ENERGY: 'Power / Energy',
+  TECHNOLOGY: 'Technology',
+  INFRASTRUCTURE: 'Infrastructure',
+  OTHER: 'Other',
+};
+
+export const CAPITAL_PROJECT_STATUS_LABELS: Record<CapitalProjectStatus, string> = {
+  DRAFT: 'Draft',
+  PROPOSED: 'Proposed',
+  UNDER_REVIEW: 'Under Review',
+  APPROVED: 'Approved',
+  ACTIVE: 'Active',
+  ON_HOLD: 'On Hold',
+  COMPLETED: 'Completed',
+  CANCELLED: 'Cancelled',
+};
+
+export const CAPITAL_PROJECT_STATUS_VARIANT: Record<
+  CapitalProjectStatus,
+  NonNullable<BadgeProps['variant']>
+> = {
+  DRAFT: 'default',
+  PROPOSED: 'default',
+  UNDER_REVIEW: 'warning',
+  APPROVED: 'warning',
+  ACTIVE: 'success',
+  ON_HOLD: 'warning',
+  COMPLETED: 'success',
+  CANCELLED: 'destructive',
+};
+
+export const CAPITAL_PROJECT_FUNDING_TYPE_LABELS: Record<CapitalProjectFundingType, string> = {
+  CASH: 'Cash',
+  DEBT: 'Debt',
+  OTHER: 'Other',
+};
+
+export const CAPITAL_PROJECT_FUNDING_STATUS_LABELS: Record<CapitalProjectFundingStatus, string> = {
+  FULLY_FUNDED: 'Fully Funded',
+  UNDERFUNDED: 'Underfunded',
+  OVERFUNDED: 'Overfunded',
+};
+
+export const CAPITAL_PROJECT_FUNDING_STATUS_VARIANT: Record<
+  CapitalProjectFundingStatus,
+  NonNullable<BadgeProps['variant']>
+> = {
+  FULLY_FUNDED: 'success',
+  UNDERFUNDED: 'warning',
+  OVERFUNDED: 'default',
 };

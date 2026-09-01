@@ -9,7 +9,9 @@
   Cashflow Management & Forecasting layer — see §15 and [Cashflow](cashflow.md).
   Sprint 16 added a Budgeting & Financial Planning layer — see §16 and
   [Budgeting](budgeting.md). Sprint 17 added a Capital & Debt Management
-  layer — see §17 and [Debt Management](debt-management.md). **Not** a
+  layer — see §17 and [Debt Management](debt-management.md). Sprint 18
+  added an Investment / Capital Project Management layer — see §18 and
+  [Investment / Capital Projects](investment-projects.md). **Not** a
   General Ledger / accounting system itself — that layer lives in
   `accounting.md`, see §9.
 - **Sprint:** 6 (Sprint 7 added the accounting integration described in §9; Sprint 12
@@ -17,7 +19,8 @@
   §13; Sprint 14 added Cash & Bank Management described in §14; Sprint 15 added
   Cashflow Management & Forecasting described in §15; Sprint 16 added Budgeting &
   Financial Planning described in §16; Sprint 17 added Capital & Debt Management
-  described in §17)
+  described in §17; Sprint 18 added Investment / Capital Project Management
+  described in §18)
 - **Depends on:** [Identity](identity.md) (tenant boundary, `RolesGuard`,
   `OrganisationService` for the currency snapshot), [Sales](sales.md)
   (`SalesOrderRepository`, read-only, via `SalesModule`'s existing export),
@@ -37,9 +40,11 @@
   [Sprint 15 Completion Report](../sprint-15-completion-report.md),
   [Sprint 16 Completion Report](../sprint-16-completion-report.md),
   [Sprint 17 Completion Report](../sprint-17-completion-report.md),
+  [Sprint 18 Completion Report](../sprint-18-completion-report.md),
   [Accounting](accounting.md), [Cash & Bank Management](cash-management.md),
   [Cashflow](cashflow.md), [Budgeting](budgeting.md),
-  [Debt Management](debt-management.md).
+  [Debt Management](debt-management.md),
+  [Investment / Capital Projects](investment-projects.md).
 
 ## 1. Business Purpose
 
@@ -605,7 +610,7 @@ Unreconciled) rather than being folded into a second, busier dashboard.
 
 ### API Reference (Sprint 14)
 
-See [Accounting](accounting.md) §27 for the full endpoint table (`/finance/cash/
+See [Accounting](accounting.md) §30 for the full endpoint table (`/finance/cash/
 accounts`, `/finance/cash/transactions`, `/finance/cash/bank-statements/*`,
 `/finance/cash/reconciliations/*`, `/finance/cash/overview`).
 
@@ -682,7 +687,7 @@ Items** (management-entered commitments + the Cashflow Settings card), and
 
 ### API Reference (Sprint 15)
 
-See [Accounting](accounting.md) §27 for the full endpoint table (`/finance/
+See [Accounting](accounting.md) §30 for the full endpoint table (`/finance/
 cashflow/settings`, `/finance/cashflow/items`, `/finance/cashflow/scenarios`,
 `/finance/cashflow/adjustments`, `/finance/cashflow/forecast`, `/finance/
 cashflow/accounts/breakdown`).
@@ -746,7 +751,7 @@ and a Scenario Comparison table when siblings exist.
 
 ### API Reference (Sprint 16)
 
-See [Accounting](accounting.md) §27 for the full endpoint table (`/finance/
+See [Accounting](accounting.md) §30 for the full endpoint table (`/finance/
 budgets`, `/finance/budgets/:id/lines`, `/finance/budgets/:id/vs-actual`,
 `/finance/budgets/:id/vs-forecast`, `/finance/cost-centres`).
 
@@ -814,7 +819,7 @@ wording.
 
 ### API Reference (Sprint 17)
 
-See [Accounting](accounting.md) §27 for the full endpoint table
+See [Accounting](accounting.md) §30 for the full endpoint table
 (`/finance/debt/lenders`, `/finance/debt/capital-requirements`,
 `/finance/debt/facilities`, `/finance/debt/facilities/:id/{drawdowns,
 repayments,schedule,preview-impact}`, `/finance/debt/overview`).
@@ -827,3 +832,67 @@ application workflow or credit scoring, no automatic loan approval or bank/
 payment-gateway integrations, no collections system or automatic penalty
 interest, no tax treatment of financing or full NPV/IRR/DCF engine, and no
 financing-allocation optimisation.
+
+## 18. Investment / Capital Project Management (Sprint 18)
+
+Sprint 18 adds a management layer over Sprints 13-17 (and Procurement/AP)
+for planning and tracking capital projects — full domain writeup in
+[Investment / Capital Projects](investment-projects.md); accounting
+mechanics (or rather, the deliberate lack of any) in
+[Accounting](accounting.md) §29. Summary of the Finance-facing surface:
+
+- **A `CapitalProject` never becomes another accounting/budgeting/
+  cashflow/debt/procurement engine.** Planned Cost is always the
+  server-computed sum of the project's own cost lines, never a stored or
+  client-supplied total; creating/approving/activating a project never
+  posts a Journal Entry.
+- **Committed and Actual Cost derive from real transactions, never a
+  manually-entered figure.** A cost line may optionally link to an existing
+  Purchase Order (a single new nullable FK, owned entirely by this
+  domain — zero schema/module changes to Procurement); Committed Cost sums
+  that PO's own total, Actual Cost sums what has actually been recognized
+  as Accounts Payable against it, via the exact same method Sprint 12
+  already built for the Purchase Order's own "Financial Summary" block.
+- **Funding is a plain reference, never a second Cash/Debt system.** A
+  project's funding mix (Cash/Debt/Other) may reference an existing
+  `DebtFacility`/`CashAccount` directly — the repayment schedule stays
+  owned entirely by Sprint 17's own `DebtFacility`. Funding status
+  (Fully Funded/Underfunded/Overfunded) is always computed live.
+- **A project need not originate from a Capital Requirement** — the link
+  is optional in both directions (Sprint 17's `CapitalRequirement` and
+  Sprint 18's `CapitalProject` reference each other only when relevant).
+- **Cashflow integration** — an `ACTIVE` project's planned cost lines with
+  no linked Purchase Order appear in the existing Cashflow Forecast as
+  `ESTIMATED` financing outflows (`CAPITAL_PROJECT`); once a real PO is
+  linked, that line is excluded — the existing Supplier Payable source
+  already represents that same future outflow, avoiding double-counting.
+- **This is the data foundation, not the decision.** Investment
+  assumptions (expected revenue/cost impact, capacity change, useful life)
+  are captured as raw planning inputs for a future Sprint 19 decision
+  engine — no ROI/NPV/IRR/payback is calculated here.
+
+### Admin Surface
+
+One new tab on `/settings/finance/*`: **Capital Projects** (list + a create
+dialog). Project detail is its own page
+(`/settings/finance/capital-projects/[id]`, not a tab) — status-gated
+lifecycle actions, a Financial Summary (Planned/Funding/Funding Gap/
+Committed/Actual/Remaining), a Financial Plan (cost lines, `DRAFT`-editable),
+Funding (editable through `ACTIVE`), a read-only Budget Allocation section,
+a Timeline (planned vs. actual dates), and an Assumptions section.
+
+### API Reference (Sprint 18)
+
+See [Accounting](accounting.md) §30 for the full endpoint table
+(`/finance/investment/projects`, `/finance/investment/projects/:id/
+{budget-allocation,spending,cost-lines,funding}`, and the lifecycle
+transition routes).
+
+### Known Limitations (Sprint 18)
+
+See [Investment / Capital Projects](investment-projects.md) §12 for the
+full list — no investment-decision engine (Sprint 19), no financing-
+allocation optimisation, no Purchase Order picker in the cost-line create
+form yet (the backend fully supports it), costs paid outside the
+Procurement→Supplier Invoice chain show no Actual Cost until a supporting
+record exists, and no Gantt chart or project-management functionality.

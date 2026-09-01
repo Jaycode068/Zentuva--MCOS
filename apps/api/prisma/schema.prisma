@@ -187,6 +187,10 @@ model Organisation {
   debtFacilities                    DebtFacility[]
   debtDrawdowns                     DebtDrawdown[]
   debtRepayments                    DebtRepayment[]
+  /// Added Sprint 18 — Investment / Capital Project Management
+  /// (docs/domains/investment-projects.md).
+  capitalProjects                   CapitalProject[]
+  capitalProjectFundings            CapitalProjectFunding[]
 
   @@map("organisations")
 }
@@ -763,6 +767,11 @@ model PurchaseOrder {
   /// reference only, for display/grouping — 3-way matching itself happens at the
   /// `SupplierInvoiceItem` -> `GoodsReceiptItem` level, never here.
   supplierInvoices SupplierInvoice[]
+  /// Added Sprint 18 — Investment / Capital Project Management (docs/domains/
+  /// investment-projects.md). Read-only reference — the FK lives on
+  /// `CapitalProjectCostLine`, not here; Procurement's own code never
+  /// references Investment.
+  capitalProjectCostLines CapitalProjectCostLine[]
 
   @@index([organisationId])
   @@index([organisationId, status])
@@ -2575,6 +2584,10 @@ model ChartOfAccount {
   debtFacilitiesAsLiability       DebtFacility[] @relation("DebtFacilityLiabilityAccount")
   debtFacilitiesAsInterestExpense DebtFacility[] @relation("DebtFacilityInterestExpenseAccount")
   debtRepaymentsAsFee             DebtRepayment[]
+  /// Added Sprint 18 — an optional account a `CapitalProjectCostLine` may
+  /// reference (mirrors CAPEX's own optional-account convention from
+  /// Sprint 16 — no Fixed Asset account exists yet).
+  capitalProjectCostLines         CapitalProjectCostLine[]
 
   @@unique([organisationId, code])
   /// Multiple `NULL`s are allowed in a Postgres unique index — only accounts
@@ -3276,6 +3289,10 @@ model CashAccount {
   /// repayment was paid from (docs/domains/debt-management.md).
   debtDrawdowns              DebtDrawdown[]
   debtRepayments             DebtRepayment[]
+  /// Added Sprint 18 — an optional funding-source reference on a
+  /// `CapitalProjectFunding` row of type `CASH` (docs/domains/
+  /// investment-projects.md).
+  capitalProjectFundings     CapitalProjectFunding[]
 
   @@unique([organisationId, accountCode])
   @@unique([organisationId, idempotencyKey])
@@ -3500,6 +3517,12 @@ enum CashflowForecastSourceType {
   /// "Cashflow Integration"). Synthesized at forecast-read time exactly like AR/AP
   /// — never copied into a `CashflowForecastItem` row.
   LOAN_REPAYMENT
+  /// Added Sprint 18 — a planned `CapitalProjectCostLine` for an `ACTIVE`
+  /// project with no linked `PurchaseOrder` yet (docs/domains/
+  /// investment-projects.md "Cashflow Integration"). Excluded once a real PO
+  /// is linked — the existing `SUPPLIER_PAYABLE` source then represents that
+  /// same future outflow, avoiding double-counting.
+  CAPITAL_PROJECT
   OTHER
 }
 
@@ -3709,6 +3732,9 @@ model Budget {
   /// as evidence a proposed financing need is already planned for (read-only,
   /// never mutates the budget — docs/domains/debt-management.md).
   capitalRequirements CapitalRequirement[]
+  /// Added Sprint 18 — a `CapitalProject` optionally references this budget
+  /// (read-only, never mutated — docs/domains/investment-projects.md).
+  capitalProjects     CapitalProject[]
 
   @@unique([organisationId, budgetCode, scenarioName, version])
   @@unique([organisationId, idempotencyKey])
@@ -3745,6 +3771,7 @@ model BudgetLine {
   chartOfAccount ChartOfAccount? @relation(fields: [chartOfAccountId], references: [id], onDelete: Restrict)
   costCentre     CostCentre?     @relation(fields: [costCentreId], references: [id], onDelete: SetNull)
   capitalRequirements CapitalRequirement[]
+  capitalProjects     CapitalProject[]
 
   /// Postgres never collides two rows on a `NULL` column within a unique
   /// index (the same semantics `ChartOfAccount.systemKey`/
@@ -3775,6 +3802,8 @@ model CostCentre {
   organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
   budgetLines  BudgetLine[]
   capitalRequirements CapitalRequirement[]
+  capitalProjects     CapitalProject[]
+  capitalProjectCostLines CapitalProjectCostLine[]
 
   @@unique([organisationId, code])
   @@index([organisationId])
@@ -3931,6 +3960,10 @@ model CapitalRequirement {
   budgetLine    BudgetLine?    @relation(fields: [budgetLineId], references: [id], onDelete: SetNull)
   costCentre    CostCentre?    @relation(fields: [costCentreId], references: [id], onDelete: SetNull)
   debtFacilities DebtFacility[]
+  /// Added Sprint 18 — a `CapitalProject` optionally references this
+  /// requirement as the business case it fulfils (read-only — docs/domains/
+  /// investment-projects.md).
+  capitalProjects CapitalProject[]
 
   @@unique([organisationId, idempotencyKey])
   @@index([organisationId, status])
@@ -3997,6 +4030,11 @@ model DebtFacility {
   schedule              DebtRepaymentSchedule[]
   drawdowns             DebtDrawdown[]
   repayments            DebtRepayment[]
+  /// Added Sprint 18 — a `CapitalProjectFunding` row of type `DEBT`
+  /// referencing this facility as a project's funding source (read-only —
+  /// the repayment schedule stays owned entirely by this model, never
+  /// duplicated — docs/domains/investment-projects.md).
+  capitalProjectFundings CapitalProjectFunding[]
 
   @@unique([organisationId, facilityCode])
   @@unique([organisationId, idempotencyKey])
@@ -4090,4 +4128,184 @@ model DebtRepayment {
   @@unique([organisationId, idempotencyKey])
   @@index([debtFacilityId])
   @@map("debt_repayments")
+}
+
+// ============================================================================
+// Sprint 18 — Investment / Capital Project Management Foundation
+// (docs/domains/investment-projects.md)
+// ============================================================================
+
+enum CapitalProjectStatus {
+  DRAFT
+  PROPOSED
+  UNDER_REVIEW
+  APPROVED
+  ACTIVE
+  ON_HOLD
+  COMPLETED
+  CANCELLED
+}
+
+enum CapitalProjectCategory {
+  PRODUCTION_EQUIPMENT
+  FACTORY_EXPANSION
+  WAREHOUSE
+  VEHICLE
+  POWER_ENERGY
+  TECHNOLOGY
+  INFRASTRUCTURE
+  OTHER
+}
+
+enum CapitalProjectFundingType {
+  CASH
+  DEBT
+  OTHER
+}
+
+/// A significant investment decision being planned or executed — the
+/// management layer over Sprints 13-17 (docs/domains/investment-projects.md).
+/// Never a second accounting/budgeting/cashflow/debt/procurement engine:
+/// `plannedCost` is always `Σ CapitalProjectCostLine.plannedAmount`
+/// (never a stored/client-supplied total), Committed/Actual cost are derived
+/// live from Procurement's `PurchaseOrder`/Finance's `SupplierInvoice`, and
+/// creating/transitioning a project never posts a Journal Entry.
+model CapitalProject {
+  id             String                 @id @default(cuid())
+  organisationId String
+  /// Auto-generated (`CAP-000001`, ...), unique per organisation, immutable.
+  projectCode    String
+  name           String
+  description    String?
+  businessPurpose String?
+  category       CapitalProjectCategory
+  status         CapitalProjectStatus   @default(DRAFT)
+  /// Plain id, no FK relation — the `createdById`/`Product.createdById`
+  /// convention already used throughout this codebase.
+  ownerId        String?
+  costCentreId   String?
+  /// Optional — a project need not originate from a Capital Requirement
+  /// (docs/domains/investment-projects.md "Capital Requirement Integration").
+  capitalRequirementId String?
+  /// Independent of `capitalRequirementId` even when both are set — a
+  /// project may reference a more specific line than its parent requirement
+  /// did. Read-only; never mutates the budget.
+  budgetId       String?
+  budgetLineId   String?
+  plannedStartDate      DateTime
+  plannedCompletionDate DateTime
+  /// Set automatically by `activate()` — never manually entered.
+  actualStartDate       DateTime?
+  /// Set automatically by `complete()` — never manually entered.
+  actualCompletionDate  DateTime?
+  /// Planning assumptions only (docs/domains/investment-projects.md
+  /// "Investment Metrics — Foundation Only") — raw inputs for a future
+  /// Sprint 19 decision engine, never a calculated ROI/NPV/IRR here.
+  expectedAnnualRevenueImpact      Float?
+  expectedAnnualOperatingCostImpact Float?
+  expectedAnnualSavings            Float?
+  usefulLifeYears                  Int?
+  currentCapacityUnitsPerDay       Float?
+  expectedCapacityUnitsPerDay      Float?
+  expectedCommissioningDate        DateTime?
+  currency       String   @default("NGN")
+  notes          String?
+  idempotencyKey String?
+  createdById    String?
+  approvedById   String?
+  approvedAt     DateTime?
+  activatedAt    DateTime?
+  completedAt    DateTime?
+  cancelledAt    DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organisation       Organisation        @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  costCentre         CostCentre?         @relation(fields: [costCentreId], references: [id], onDelete: SetNull)
+  capitalRequirement CapitalRequirement? @relation(fields: [capitalRequirementId], references: [id], onDelete: SetNull)
+  budget             Budget?             @relation(fields: [budgetId], references: [id], onDelete: SetNull)
+  budgetLine         BudgetLine?         @relation(fields: [budgetLineId], references: [id], onDelete: SetNull)
+  costLines          CapitalProjectCostLine[]
+  funding            CapitalProjectFunding[]
+
+  @@unique([organisationId, projectCode])
+  @@unique([organisationId, idempotencyKey])
+  @@index([organisationId, status])
+  @@map("capital_projects")
+}
+
+/// One planned line of a project's cost breakdown (e.g. "Machine ₦45M").
+/// `plannedMonth` doubles as this line's own planned cash-outflow timing —
+/// no separate milestone/schedule model, the same `BudgetLine.periodMonth`
+/// precedent (docs/domains/investment-projects.md "Project Financial Plan").
+model CapitalProjectCostLine {
+  id               String   @id @default(cuid())
+  capitalProjectId String
+  description      String
+  /// Free text (e.g. "Machine," "Installation," "Contingency") — too
+  /// project-specific to close into an enum, unlike the project's own
+  /// `category`.
+  category         String?
+  plannedAmount    Float
+  /// Optional — mirrors CAPEX's own optional-account convention (Sprint 16);
+  /// no Fixed Asset account exists yet to require one against.
+  chartOfAccountId String?
+  costCentreId     String?
+  /// Always the first day of the month.
+  plannedMonth     DateTime
+  /// Read-only reference into Procurement's own `PurchaseOrder` — the one
+  /// cross-domain link this sprint introduces, owned entirely by this table
+  /// (zero schema/module changes to Procurement itself). Once set, this
+  /// line's Committed/Actual cost derive from that PO's own totals/AP
+  /// recognition, and it is excluded from the Cashflow Forecast's
+  /// `CAPITAL_PROJECT` source (the linked PO's own AP outflow already
+  /// represents that future cash movement).
+  purchaseOrderId  String?
+  notes            String?
+  createdById      String?
+  updatedById      String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  capitalProject CapitalProject  @relation(fields: [capitalProjectId], references: [id], onDelete: Cascade)
+  chartOfAccount ChartOfAccount? @relation(fields: [chartOfAccountId], references: [id], onDelete: Restrict)
+  costCentre     CostCentre?     @relation(fields: [costCentreId], references: [id], onDelete: SetNull)
+  purchaseOrder  PurchaseOrder?  @relation(fields: [purchaseOrderId], references: [id], onDelete: SetNull)
+
+  @@index([capitalProjectId])
+  @@index([purchaseOrderId])
+  @@map("capital_project_cost_lines")
+}
+
+/// A planned funding source for a project — Cash, Debt, or Other. Never a
+/// second debt/cash system: `debtFacilityId`/`cashAccountId` are read-only
+/// references to Sprint 17/14's own models (docs/domains/
+/// investment-projects.md "Funding Plan").
+model CapitalProjectFunding {
+  id               String                     @id @default(cuid())
+  organisationId   String
+  capitalProjectId String
+  fundingType      CapitalProjectFundingType
+  amount           Float
+  /// Required when `fundingType` is `DEBT` (service-validated) — the
+  /// repayment schedule stays owned entirely by `DebtFacility`, never
+  /// duplicated here.
+  debtFacilityId   String?
+  /// Optional even for `CASH` type — a project may plan cash funding
+  /// without yet pinning a specific account.
+  cashAccountId    String?
+  description      String?
+  idempotencyKey   String?
+  createdById      String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  organisation   Organisation    @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  capitalProject CapitalProject  @relation(fields: [capitalProjectId], references: [id], onDelete: Cascade)
+  debtFacility   DebtFacility?   @relation(fields: [debtFacilityId], references: [id], onDelete: Restrict)
+  cashAccount    CashAccount?    @relation(fields: [cashAccountId], references: [id], onDelete: Restrict)
+
+  @@unique([organisationId, idempotencyKey])
+  @@index([capitalProjectId])
+  @@map("capital_project_fundings")
 }

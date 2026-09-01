@@ -1586,7 +1586,13 @@ export type CashflowDirection = 'INFLOW' | 'OUTFLOW';
 export type CashflowRecurrence = 'ONE_TIME' | 'WEEKLY' | 'MONTHLY' | 'QUARTERLY' | 'YEARLY';
 export type CashflowItemStatus = 'ACTIVE' | 'INACTIVE';
 export type CashflowForecastSourceType =
-  'CUSTOMER_RECEIVABLE' | 'SUPPLIER_PAYABLE' | 'RECURRING_ITEM' | 'MANUAL_FORECAST' | 'OTHER';
+  | 'CUSTOMER_RECEIVABLE'
+  | 'SUPPLIER_PAYABLE'
+  | 'RECURRING_ITEM'
+  | 'MANUAL_FORECAST'
+  | 'LOAN_REPAYMENT'
+  | 'CAPITAL_PROJECT'
+  | 'OTHER';
 export type CashflowConfidence = 'CONFIRMED' | 'EXPECTED' | 'ESTIMATED';
 export type CashflowBucketBy = 'weekly' | 'monthly';
 
@@ -2521,4 +2527,267 @@ export interface DebtMetrics {
 
 export function getDebtMetrics(): Promise<DebtMetrics> {
   return apiFetch<DebtMetrics>('/finance/debt/overview');
+}
+
+// === Investment / Capital Project Management (Sprint 18, docs/domains/investment-projects.md) ===
+
+export type CapitalProjectCategory =
+  | 'PRODUCTION_EQUIPMENT'
+  | 'FACTORY_EXPANSION'
+  | 'WAREHOUSE'
+  | 'VEHICLE'
+  | 'POWER_ENERGY'
+  | 'TECHNOLOGY'
+  | 'INFRASTRUCTURE'
+  | 'OTHER';
+export type CapitalProjectStatus =
+  | 'DRAFT'
+  | 'PROPOSED'
+  | 'UNDER_REVIEW'
+  | 'APPROVED'
+  | 'ACTIVE'
+  | 'ON_HOLD'
+  | 'COMPLETED'
+  | 'CANCELLED';
+export type CapitalProjectFundingType = 'CASH' | 'DEBT' | 'OTHER';
+export type CapitalProjectFundingStatus = 'FULLY_FUNDED' | 'UNDERFUNDED' | 'OVERFUNDED';
+
+export interface CapitalProjectFinancials {
+  plannedCost: number;
+  totalFunding: number;
+  fundingGap: number;
+  fundingStatus: CapitalProjectFundingStatus;
+  committedCost: number;
+  actualCost: number;
+  remainingCost: number;
+}
+
+/** `GET/POST /api/finance/investment/projects` response shape — the
+ *  management layer over Sprints 13-17. `plannedCost`/funding/spending are
+ *  always server-computed, never stored on this row itself. */
+export interface CapitalProject {
+  id: string;
+  projectCode: string;
+  name: string;
+  description: string | null;
+  businessPurpose: string | null;
+  category: CapitalProjectCategory;
+  status: CapitalProjectStatus;
+  ownerId: string | null;
+  costCentreId: string | null;
+  capitalRequirementId: string | null;
+  budgetId: string | null;
+  budgetLineId: string | null;
+  plannedStartDate: string;
+  plannedCompletionDate: string;
+  actualStartDate: string | null;
+  actualCompletionDate: string | null;
+  expectedAnnualRevenueImpact: number | null;
+  expectedAnnualOperatingCostImpact: number | null;
+  expectedAnnualSavings: number | null;
+  usefulLifeYears: number | null;
+  currentCapacityUnitsPerDay: number | null;
+  expectedCapacityUnitsPerDay: number | null;
+  expectedCommissioningDate: string | null;
+  currency: string;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CapitalProjectWithFinancials extends CapitalProject {
+  financials: CapitalProjectFinancials;
+}
+
+export interface CreateCapitalProjectPayload {
+  name: string;
+  description?: string;
+  businessPurpose?: string;
+  category: CapitalProjectCategory;
+  ownerId?: string;
+  costCentreId?: string;
+  capitalRequirementId?: string;
+  budgetId?: string;
+  budgetLineId?: string;
+  plannedStartDate: string;
+  plannedCompletionDate: string;
+  expectedAnnualRevenueImpact?: number;
+  expectedAnnualOperatingCostImpact?: number;
+  expectedAnnualSavings?: number;
+  usefulLifeYears?: number;
+  currentCapacityUnitsPerDay?: number;
+  expectedCapacityUnitsPerDay?: number;
+  expectedCommissioningDate?: string;
+  currency?: string;
+  notes?: string;
+  idempotencyKey?: string;
+}
+
+export interface CapitalProjectCostLine {
+  id: string;
+  capitalProjectId: string;
+  description: string;
+  category: string | null;
+  plannedAmount: number;
+  chartOfAccountId: string | null;
+  costCentreId: string | null;
+  plannedMonth: string;
+  purchaseOrderId: string | null;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateCapitalProjectCostLinePayload {
+  description: string;
+  category?: string;
+  plannedAmount: number;
+  chartOfAccountId?: string;
+  costCentreId?: string;
+  plannedMonth: string;
+  purchaseOrderId?: string;
+  notes?: string;
+}
+
+export interface CapitalProjectFunding {
+  id: string;
+  capitalProjectId: string;
+  fundingType: CapitalProjectFundingType;
+  amount: number;
+  debtFacilityId: string | null;
+  cashAccountId: string | null;
+  description: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateCapitalProjectFundingPayload {
+  fundingType: CapitalProjectFundingType;
+  amount: number;
+  debtFacilityId?: string;
+  cashAccountId?: string;
+  description?: string;
+  idempotencyKey?: string;
+}
+
+export interface BudgetAllocation {
+  budgetedAmount: number;
+  plannedCost: number;
+  allocationPercent: number | null;
+}
+
+export function listCapitalProjects(
+  params: { status?: CapitalProjectStatus } = {},
+): Promise<{ items: CapitalProject[] }> {
+  const query = new URLSearchParams();
+  if (params.status) query.set('status', params.status);
+  const queryString = query.toString();
+  return apiFetch<{ items: CapitalProject[] }>(
+    `/finance/investment/projects${queryString ? `?${queryString}` : ''}`,
+  );
+}
+
+export function getCapitalProject(id: string): Promise<CapitalProjectWithFinancials> {
+  return apiFetch<CapitalProjectWithFinancials>(`/finance/investment/projects/${id}`);
+}
+
+export function getCapitalProjectBudgetAllocation(id: string): Promise<BudgetAllocation | null> {
+  return apiFetch<BudgetAllocation | null>(`/finance/investment/projects/${id}/budget-allocation`);
+}
+
+export function getCapitalProjectSpending(id: string): Promise<CapitalProjectFinancials> {
+  return apiFetch<CapitalProjectFinancials>(`/finance/investment/projects/${id}/spending`);
+}
+
+export function createCapitalProject(input: CreateCapitalProjectPayload): Promise<CapitalProject> {
+  return apiFetch<CapitalProject>('/finance/investment/projects', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateCapitalProject(
+  id: string,
+  input: Partial<CreateCapitalProjectPayload>,
+): Promise<CapitalProject> {
+  return apiFetch<CapitalProject>(`/finance/investment/projects/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+}
+
+export type CapitalProjectTransition =
+  | 'submit'
+  | 'start-review'
+  | 'approve'
+  | 'reject'
+  | 'activate'
+  | 'hold'
+  | 'resume'
+  | 'complete'
+  | 'cancel';
+
+export function transitionCapitalProject(
+  id: string,
+  transition: CapitalProjectTransition,
+): Promise<CapitalProject> {
+  return apiFetch<CapitalProject>(`/finance/investment/projects/${id}/${transition}`, {
+    method: 'POST',
+  });
+}
+
+export function listCapitalProjectCostLines(
+  capitalProjectId: string,
+): Promise<{ items: CapitalProjectCostLine[] }> {
+  return apiFetch<{ items: CapitalProjectCostLine[] }>(
+    `/finance/investment/projects/${capitalProjectId}/cost-lines`,
+  );
+}
+
+export function listCapitalProjectFunding(
+  capitalProjectId: string,
+): Promise<{ items: CapitalProjectFunding[] }> {
+  return apiFetch<{ items: CapitalProjectFunding[] }>(
+    `/finance/investment/projects/${capitalProjectId}/funding`,
+  );
+}
+
+export function addCapitalProjectCostLine(
+  capitalProjectId: string,
+  input: CreateCapitalProjectCostLinePayload,
+): Promise<CapitalProjectCostLine> {
+  return apiFetch<CapitalProjectCostLine>(
+    `/finance/investment/projects/${capitalProjectId}/cost-lines`,
+    { method: 'POST', body: JSON.stringify(input) },
+  );
+}
+
+export function removeCapitalProjectCostLine(
+  capitalProjectId: string,
+  costLineId: string,
+): Promise<{ success: boolean }> {
+  return apiFetch<{ success: boolean }>(
+    `/finance/investment/projects/${capitalProjectId}/cost-lines/${costLineId}`,
+    { method: 'DELETE' },
+  );
+}
+
+export function addCapitalProjectFunding(
+  capitalProjectId: string,
+  input: CreateCapitalProjectFundingPayload,
+): Promise<CapitalProjectFunding> {
+  return apiFetch<CapitalProjectFunding>(
+    `/finance/investment/projects/${capitalProjectId}/funding`,
+    { method: 'POST', body: JSON.stringify(input) },
+  );
+}
+
+export function removeCapitalProjectFunding(
+  capitalProjectId: string,
+  fundingId: string,
+): Promise<{ success: boolean }> {
+  return apiFetch<{ success: boolean }>(
+    `/finance/investment/projects/${capitalProjectId}/funding/${fundingId}`,
+    { method: 'DELETE' },
+  );
 }

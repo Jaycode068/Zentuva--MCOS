@@ -4,6 +4,7 @@ import { CashAccountStatus, CashflowForecastSourceType, CashflowRecurrence } fro
 import { CashAccountRepository } from '../cash/cash-account.repository';
 import { LedgerService } from '../accounting/ledger.service';
 import { DebtFacilityRepository } from '../debt/debt-facility.repository';
+import { CapitalProjectRepository } from '../investment/capital-project.repository';
 import { InvoiceRepository } from '../invoice.repository';
 import { SupplierInvoiceRepository } from '../supplier-invoice.repository';
 import { CashflowAdjustmentRepository } from './cashflow-adjustment.repository';
@@ -95,7 +96,13 @@ function roundCurrency(value: number): number {
  * findOutstandingScheduleForForecast()` — see docs/domains/debt-management.md
  * "Cashflow Integration". A `PROPOSED`/`APPROVED` facility contributes
  * nothing here by construction (that repository method's own status filter),
- * not by a special case in this file.
+ * not by a special case in this file. Sprint 18 added a second read-only
+ * source: planned cost lines for `ACTIVE` `CapitalProject` rows with no
+ * linked Purchase Order, via `CapitalProjectRepository.
+ * findPlannedCostLinesForForecast()` — see docs/domains/
+ * investment-projects.md "Cashflow Integration". Once a cost line gains a
+ * real linked PO, it is excluded here (the existing `SUPPLIER_PAYABLE`
+ * source then represents that same future outflow).
  */
 @Injectable()
 export class CashflowForecastService {
@@ -109,6 +116,7 @@ export class CashflowForecastService {
     private readonly cashAccountRepository: CashAccountRepository,
     private readonly ledgerService: LedgerService,
     private readonly debtFacilityRepository: DebtFacilityRepository,
+    private readonly capitalProjectRepository: CapitalProjectRepository,
   ) {}
 
   async getForecast(
@@ -131,6 +139,7 @@ export class CashflowForecastService {
       rawApLines,
       forecastItems,
       outstandingDebtSchedule,
+      plannedProjectCostLines,
     ] = await Promise.all([
       this.cashflowSettingsService.getEffective(organisationId),
       params.scenarioId
@@ -141,6 +150,7 @@ export class CashflowForecastService {
       this.supplierInvoiceRepository.getOutstandingForAging(organisationId),
       this.cashflowItemRepository.findActiveByOrganisation(organisationId),
       this.debtFacilityRepository.findOutstandingScheduleForForecast(organisationId),
+      this.capitalProjectRepository.findPlannedCostLinesForForecast(organisationId),
     ]);
 
     if (params.scenarioId && !scenario) {
@@ -234,6 +244,24 @@ export class CashflowForecastService {
         amount: row.remainingDue,
         expectedDate: new Date(Math.max(row.dueDate.getTime(), today.getTime())),
         confidence: 'CONFIRMED',
+        cashAccountId: null,
+        adjusted: false,
+      });
+    }
+
+    // --- Sprint 18 — planned capital project cost lines (ACTIVE projects,
+    // no linked Purchase Order only — see this file's own doc comment). A
+    // planning assumption, not a confirmed obligation, so `ESTIMATED`
+    // confidence — never attributed to a specific cash account.
+    for (const row of plannedProjectCostLines) {
+      lines.push({
+        sourceType: CashflowForecastSourceType.CAPITAL_PROJECT,
+        sourceId: row.capitalProjectId,
+        description: `${row.description} — ${row.projectName} (${row.projectCode})`,
+        direction: 'OUTFLOW',
+        amount: row.amount,
+        expectedDate: new Date(Math.max(row.plannedMonth.getTime(), today.getTime())),
+        confidence: 'ESTIMATED',
         cashAccountId: null,
         adjusted: false,
       });

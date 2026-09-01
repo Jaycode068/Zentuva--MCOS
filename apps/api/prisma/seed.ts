@@ -4676,6 +4676,168 @@ async function seedDebtManagementFixtures(
   });
 }
 
+/** Sprint 18 — Investment / Capital Project Management Foundation (docs/
+ *  domains/investment-projects.md). Idempotency-gated on the "Plantain Chips
+ *  Production Line Expansion" `CapitalProject` already existing. Links to
+ *  the already-seeded Sprint 17 "Packaging Machine Expansion"
+ *  `CapitalRequirement`, the Sprint 16 "New Packaging Machine" `BudgetLine`,
+ *  the Sprint 17 "Bank Equipment Loan" `DebtFacility`, and the Sprint 14
+ *  "GTBank Current Account" `CashAccount` — zero new Lender/DebtFacility/
+ *  Budget rows needed. Seeded directly at `APPROVED` (bypassing the full
+ *  lifecycle walk through the service layer, the same seed-simplicity
+ *  convention every prior sprint's own seed function has used), with a full
+ *  cost plan (₦60,000,000 across 5 lines, matching the brief's own §8
+ *  worked breakdown) and fully-funded financing (₦40M debt + ₦20M cash).
+ *  Posts zero Journal Entries — this domain never accounts for anything
+ *  itself. */
+async function seedInvestmentProjectFixtures(
+  organisationId: string,
+  actorUserId: string,
+): Promise<void> {
+  console.log('Seeding Investment / Capital Project Management fixtures...');
+
+  const existing = await prisma.capitalProject.findFirst({
+    where: { organisationId, name: 'Plantain Chips Production Line Expansion' },
+  });
+  if (existing) {
+    return;
+  }
+
+  const productionCostCentre = await prisma.costCentre.findFirstOrThrow({
+    where: { organisationId, code: 'PROD' },
+  });
+  const capitalRequirement = await prisma.capitalRequirement.findFirstOrThrow({
+    where: { organisationId, title: 'Packaging Machine Expansion' },
+  });
+  const opsBudget = await prisma.budget.findFirstOrThrow({
+    where: { organisationId, budgetCode: 'BUD-2026-OPS', scenarioName: 'Base' },
+  });
+  const packagingMachineLine = await prisma.budgetLine.findFirstOrThrow({
+    where: { budgetId: opsBudget.id, lineType: 'CAPEX', description: 'New Packaging Machine' },
+  });
+  const bankEquipmentLoan = await prisma.debtFacility.findFirstOrThrow({
+    where: { organisationId, facilityCode: 'DEBT-000001' },
+  });
+  const gtBankCashAccount = await prisma.cashAccount.findFirstOrThrow({
+    where: { organisationId, name: 'GTBank Current Account' },
+  });
+
+  const plannedStartDate = new Date('2026-10-01');
+  const plannedCompletionDate = new Date('2027-01-31');
+
+  const project = await prisma.capitalProject.create({
+    data: {
+      organisationId,
+      projectCode: 'CAP-000001',
+      name: 'Plantain Chips Production Line Expansion',
+      description: 'A new production line to expand plantain chips output.',
+      businessPurpose: 'Increase production capacity to meet growing demand.',
+      category: 'PRODUCTION_EQUIPMENT',
+      status: 'APPROVED',
+      ownerId: actorUserId,
+      costCentreId: productionCostCentre.id,
+      capitalRequirementId: capitalRequirement.id,
+      budgetId: opsBudget.id,
+      budgetLineId: packagingMachineLine.id,
+      plannedStartDate,
+      plannedCompletionDate,
+      // ₦15,000,000/month additional revenue, ₦6,000,000/month additional
+      // operating cost (brief §33) — annualized here since these are annual
+      // impact fields; a 10-year useful life is a reasonable assumption for
+      // production machinery, not given explicitly in the brief.
+      expectedAnnualRevenueImpact: 15_000_000 * 12,
+      expectedAnnualOperatingCostImpact: 6_000_000 * 12,
+      expectedAnnualSavings: null,
+      usefulLifeYears: 10,
+      currentCapacityUnitsPerDay: 10_000,
+      expectedCapacityUnitsPerDay: 16_000,
+      expectedCommissioningDate: plannedCompletionDate,
+      currency: 'NGN',
+      approvedById: actorUserId,
+      approvedAt: new Date('2026-09-15'),
+      createdById: actorUserId,
+    },
+  });
+
+  await prisma.capitalProjectCostLine.createMany({
+    data: [
+      {
+        capitalProjectId: project.id,
+        description: 'Machine',
+        category: 'Equipment',
+        plannedAmount: 45_000_000,
+        costCentreId: productionCostCentre.id,
+        plannedMonth: new Date('2026-10-01'),
+        createdById: actorUserId,
+        updatedById: actorUserId,
+      },
+      {
+        capitalProjectId: project.id,
+        description: 'Installation',
+        category: 'Installation',
+        plannedAmount: 5_000_000,
+        costCentreId: productionCostCentre.id,
+        plannedMonth: new Date('2026-12-01'),
+        createdById: actorUserId,
+        updatedById: actorUserId,
+      },
+      {
+        capitalProjectId: project.id,
+        description: 'Electrical Works',
+        category: 'Electrical',
+        plannedAmount: 4_000_000,
+        costCentreId: productionCostCentre.id,
+        plannedMonth: new Date('2026-12-01'),
+        createdById: actorUserId,
+        updatedById: actorUserId,
+      },
+      {
+        capitalProjectId: project.id,
+        description: 'Training',
+        category: 'Training',
+        plannedAmount: 1_000_000,
+        costCentreId: productionCostCentre.id,
+        plannedMonth: new Date('2027-01-01'),
+        createdById: actorUserId,
+        updatedById: actorUserId,
+      },
+      {
+        capitalProjectId: project.id,
+        description: 'Contingency',
+        category: 'Contingency',
+        plannedAmount: 5_000_000,
+        costCentreId: productionCostCentre.id,
+        plannedMonth: new Date('2027-01-01'),
+        createdById: actorUserId,
+        updatedById: actorUserId,
+      },
+    ],
+  });
+
+  await prisma.capitalProjectFunding.createMany({
+    data: [
+      {
+        organisationId,
+        capitalProjectId: project.id,
+        fundingType: 'DEBT',
+        amount: 40_000_000,
+        debtFacilityId: bankEquipmentLoan.id,
+        description: 'Bank Equipment Loan proceeds earmarked for this project.',
+        createdById: actorUserId,
+      },
+      {
+        organisationId,
+        capitalProjectId: project.id,
+        fundingType: 'CASH',
+        amount: 20_000_000,
+        cashAccountId: gtBankCashAccount.id,
+        description: 'Internal cash reserves.',
+        createdById: actorUserId,
+      },
+    ],
+  });
+}
+
 async function main(): Promise<void> {
   // Read early (rather than inside `seedUser`) because the organisation's `businessEmail`
   // needs it before any user is created.
@@ -4885,6 +5047,7 @@ async function main(): Promise<void> {
   await seedCashflowFixtures(organisation.id, ownerUser.id);
   await seedBudgetingFixtures(organisation.id, ownerUser.id);
   await seedDebtManagementFixtures(organisation.id, ownerUser.id);
+  await seedInvestmentProjectFixtures(organisation.id, ownerUser.id);
 
   console.log('Recording an audit log entry for this seed run...');
   await prisma.auditLog.create({

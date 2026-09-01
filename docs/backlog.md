@@ -646,6 +646,47 @@ CR Cash` respectively; a debt balance always computed live, never stored;
   See [`docs/domains/debt-management.md`](domains/debt-management.md) and
   [`docs/domains/finance.md`](domains/finance.md) §17.
 
+### Epic 22 — Investment / Capital Project Management
+
+- **Objective:** give management a structured way to define, plan, approve,
+  fund, track, and evaluate capital projects and investments — a management
+  layer over Epics 16-21 and Procurement/AP, never a second accounting,
+  budgeting, cashflow, debt, or procurement engine. Explicitly not the
+  financial-decision engine — no NPV/IRR/ROI/payback/scenario comparison,
+  which is a future epic's job — this epic captures clean planning
+  assumptions and derives real financial performance from already-existing
+  transactions.
+- **Includes:** a `CapitalProject` (`DRAFT → PROPOSED → UNDER_REVIEW →
+APPROVED → ACTIVE → COMPLETED`, plus `ON_HOLD`/`CANCELLED`) whose Planned
+  Cost is always the server-computed sum of its own `CapitalProjectCostLine`
+  rows, never a stored or client-supplied total; Committed/Actual Cost
+  derived live from an optionally-linked Purchase Order (one new nullable
+  FK on this epic's own table — zero schema/module changes to Procurement)
+  and the existing Accounts Payable recognition already built for the
+  Purchase Order's own Financial Summary block; `CapitalProjectFunding`
+  (Cash/Debt/Other) referencing an existing `DebtFacility`/`CashAccount`
+  directly — the repayment schedule stays owned entirely by Epic 21, never
+  duplicated — with Fully/Under/Overfunded status always computed live; an
+  optional, bidirectionally-independent link to a `CapitalRequirement`
+  and/or `Budget`/`BudgetLine` (read-only Budget Allocation %, never
+  mutating the budget); an `ACTIVE` project's planned cost lines (with no
+  linked PO) feeding the existing Cashflow Forecast as `ESTIMATED`
+  outflows, excluded once a real PO is linked to avoid double-counting with
+  the existing Supplier Payable source; investment assumptions (expected
+  revenue/cost impact, capacity change, useful life) captured as raw
+  planning inputs for a future decision-engine epic. Deliberately excludes
+  NPV/IRR/ROI/payback/scenario-comparison calculations, financing-
+  allocation optimisation, and any Gantt/task-management functionality —
+  all explicit future work.
+- **Status:** Foundation implemented — Sprint 18 ("Investment / Capital
+  Project Management Foundation"). Zero new `SYSTEM_ACCOUNT_KEYS`; three new
+  models (`CapitalProject`, `CapitalProjectCostLine`,
+  `CapitalProjectFunding`) hold planning/funding data only; zero
+  `postSystemJournalEntry` calls anywhere in the module — proven
+  executably by `investment-independence.spec.ts`. See
+  [`docs/domains/investment-projects.md`](domains/investment-projects.md)
+  and [`docs/domains/finance.md`](domains/finance.md) §18.
+
 ## 5. Current Sprint Status
 
 **Completed:**
@@ -686,6 +727,7 @@ CR Cash` respectively; a debt balance always computed live, never stored;
 - ✓ Sprint 15 — Cashflow Management & Forecasting
 - ✓ Sprint 16 — Budgeting & Financial Planning Foundation
 - ✓ Sprint 17 — Capital & Debt Management Foundation
+- ✓ Sprint 18 — Investment / Capital Project Management Foundation
 
 **Current focus:** Next sprint not yet scoped.
 

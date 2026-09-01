@@ -7,6 +7,70 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 18 Investment / Capital Project Management Foundation] - 2026-09-01
+
+### Added
+
+- **`CapitalProject` (Finance) — the management layer over Budgeting/Debt/
+  Cashflow/Procurement for planning and tracking capital investments.**
+  Lifecycle `DRAFT → PROPOSED → UNDER_REVIEW → APPROVED → ACTIVE →
+COMPLETED`, plus `ON_HOLD`/`CANCELLED`; `cancel()` never reachable
+  directly from `ACTIVE` (an active project must be placed `ON_HOLD`
+  first); `actualStartDate`/`actualCompletionDate` set automatically by
+  `activate()`/`complete()`, never manually entered. Auto-generated
+  `projectCode` (`CAP-000001`, ...).
+- **`CapitalProjectCostLine` — a project's planned cost breakdown.**
+  Planned Cost is always the server-computed sum of these lines, never a
+  stored or client-supplied total. Optionally links to an existing
+  Purchase Order (one new nullable FK, owned entirely by this domain — zero
+  schema or module changes to Procurement itself); Committed Cost sums that
+  PO's own total, Actual Cost sums what has actually been recognized as
+  Accounts Payable against it, via the exact method Sprint 12 already built
+  for the Purchase Order's own Financial Summary block.
+- **`CapitalProjectFunding` — a project's funding mix (Cash/Debt/Other).**
+  References an existing `DebtFacility`/`CashAccount` directly — the
+  repayment schedule stays owned entirely by Sprint 17's own
+  `DebtFacility`, never duplicated. Funding status
+  (Fully Funded/Underfunded/Overfunded) is always computed live; an
+  underfunded project is explicitly allowed to exist.
+- **Budget/Capital Requirement integration** — `budgetId`/`budgetLineId`/
+  `capitalRequirementId` are all independent, optional, read-only
+  references; a project need not originate from a Capital Requirement. A
+  live Budget Allocation % is computed on read, never mutating the budget.
+- **Cashflow Forecast integration** — `CashflowForecastSourceType` gains
+  one additive value, `CAPITAL_PROJECT`; an `ACTIVE` project's planned cost
+  lines with no linked Purchase Order now appear in the existing forecast
+  as `ESTIMATED` outflows. Once a real Purchase Order is linked, that line
+  is excluded — the existing Supplier Payable source already represents
+  that same future outflow, avoiding double-counting.
+- **Investment assumptions as planning data, not a decision.** A project
+  may carry expected annual revenue/operating-cost impact, expected annual
+  savings, useful life, current/expected capacity, and an expected
+  commissioning date — raw inputs for a future investment-decision engine,
+  never a calculated ROI/NPV/IRR here.
+- **Admin surface** — one new tab (Capital Projects); a project detail page
+  with a Financial Summary, Financial Plan (cost lines), Funding, Budget,
+  Timeline, and Assumptions sections, each gated by the project's own
+  status.
+
+### Fixed
+
+- **`CashflowForecastSourceType`/`CASHFLOW_SOURCE_TYPE_LABELS` (web) were
+  missing `LOAN_REPAYMENT`** — a pre-existing Sprint 17 gap where the
+  frontend's own type/label map was never updated when `LOAN_REPAYMENT` was
+  added to the backend enum, causing that outflow category to render with a
+  blank label on the Cashflow page. Found live while verifying this
+  sprint's own new `CAPITAL_PROJECT` source; fixed alongside it.
+
+### Notes
+
+Zero new `SYSTEM_ACCOUNT_KEYS`; zero `postSystemJournalEntry` calls
+anywhere in this module — planning or approving a capital project never
+posts a Journal Entry. Structural independence from Sales/Inventory/
+Production proven executably by `investment-independence.spec.ts`. See
+[`docs/domains/investment-projects.md`](domains/investment-projects.md) and
+[`docs/sprint-18-completion-report.md`](sprint-18-completion-report.md).
+
 ## [Sprint 17 Capital & Debt Management Foundation] - 2026-08-31
 
 ### Added

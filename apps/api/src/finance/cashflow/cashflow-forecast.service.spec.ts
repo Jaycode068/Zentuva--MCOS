@@ -30,6 +30,7 @@ function makeService(overrides: {
   }[];
   balances?: Record<string, number>;
   debtScheduleRows?: unknown[];
+  plannedProjectCostLines?: unknown[];
 }) {
   const invoiceRepository = {
     getOutstandingForAging: jest.fn().mockResolvedValue(overrides.arRows ?? []),
@@ -77,6 +78,11 @@ function makeService(overrides: {
       .fn()
       .mockResolvedValue(overrides.debtScheduleRows ?? []),
   };
+  const capitalProjectRepository = {
+    findPlannedCostLinesForForecast: jest
+      .fn()
+      .mockResolvedValue(overrides.plannedProjectCostLines ?? []),
+  };
 
   const service = new CashflowForecastService(
     invoiceRepository as never,
@@ -88,6 +94,7 @@ function makeService(overrides: {
     cashAccountRepository as never,
     ledgerService as never,
     debtFacilityRepository as never,
+    capitalProjectRepository as never,
   );
 
   return {
@@ -96,6 +103,7 @@ function makeService(overrides: {
     supplierInvoiceRepository,
     cashAccountRepository,
     debtFacilityRepository,
+    capitalProjectRepository,
   };
 }
 
@@ -622,6 +630,42 @@ describe('CashflowForecastService.getForecast — Sprint 17 debt integration', (
     expect(debtFacilityRepository.findOutstandingScheduleForForecast).toHaveBeenCalledWith(ORG);
     expect(
       forecast.buckets.some((b) => b.items.some((item) => item.sourceType === 'LOAN_REPAYMENT')),
+    ).toBe(false);
+  });
+});
+
+describe('CashflowForecastService.getForecast — Sprint 18 capital project integration', () => {
+  it('surfaces a planned capital project cost line as a CAPITAL_PROJECT outflow with ESTIMATED confidence', async () => {
+    const { service } = makeService({
+      plannedProjectCostLines: [
+        {
+          capitalProjectId: 'project-1',
+          projectCode: 'CAP-000001',
+          projectName: 'Plantain Chips Production Line Expansion',
+          description: 'Machine',
+          plannedMonth: daysFromNow(20),
+          amount: 45_000_000,
+        },
+      ],
+    });
+    const forecast = await service.getForecast(ORG, { horizonDays: 60, bucketBy: 'monthly' });
+
+    const projectLine = forecast.buckets
+      .flatMap((b) => b.items)
+      .find((item) => item.sourceType === 'CAPITAL_PROJECT');
+    expect(projectLine).toBeDefined();
+    expect(projectLine?.amount).toBe(45_000_000);
+    expect(projectLine?.confidence).toBe('ESTIMATED');
+    expect(projectLine?.direction).toBe('OUTFLOW');
+  });
+
+  it('a project with no planned cost lines contributes nothing — findPlannedCostLinesForForecast already excludes non-ACTIVE projects and PO-linked lines', async () => {
+    const { service, capitalProjectRepository } = makeService({ plannedProjectCostLines: [] });
+    const forecast = await service.getForecast(ORG, { horizonDays: 30, bucketBy: 'weekly' });
+
+    expect(capitalProjectRepository.findPlannedCostLinesForForecast).toHaveBeenCalledWith(ORG);
+    expect(
+      forecast.buckets.some((b) => b.items.some((item) => item.sourceType === 'CAPITAL_PROJECT')),
     ).toBe(false);
   });
 });

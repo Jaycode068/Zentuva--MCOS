@@ -21,6 +21,9 @@ getOutstandingForAging()`, `SupplierInvoiceRepository.getOutstandingForAging()` 
   module, because the forecast posts nothing, ever.
 - **See also:** [Finance](finance.md) §15, [Accounting](accounting.md) §20,
   [Cash & Bank Management](cash-management.md) §11,
+  [Debt Management](debt-management.md) §11 (a read-only consumer of this
+  domain, §13), [Investment / Capital Projects](investment-projects.md) §9
+  (a read-only consumer of this domain),
   [Sprint 15 Completion Report](../sprint-15-completion-report.md).
 
 ## 1. Business Purpose
@@ -227,3 +230,12 @@ getForecast()` is now also called directly by [Budgeting](budgeting.md)'s
   `APPROVED` facility contributes nothing (excluded by the same status
   filter). Future planned drawdowns are **not** modelled as inflows this
   sprint — see [Debt Management](debt-management.md) §11.
+- **Planned capital project outflows — built, Sprint 18.**
+  `CashflowForecastSourceType` gained a second additive value,
+  `CAPITAL_PROJECT`; `getForecast()` reads planned cost lines for `ACTIVE`
+  `CapitalProject` rows with no linked Purchase Order as `ESTIMATED`
+  outflows — again the exact extension this section predicted, no redesign.
+  Once a cost line gains a real linked Purchase Order, it is excluded — the
+  existing `SUPPLIER_PAYABLE` source already represents that same future
+  outflow — see [Investment / Capital Projects](investment-projects.md)
+  §9.

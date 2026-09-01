@@ -210,7 +210,7 @@ Sold / CR Finished Goods Inventory`, no new system accounts needed — `COGS` ha
 - [x] Capital & Debt Management — foundation shipped Sprint 17 ("Capital &
       Debt Management Foundation"). A `CapitalRequirement` (the business case
       for financing, not yet an approved loan) → `DebtFacility` (`PROPOSED →
-    APPROVED → ACTIVE → PARTIALLY_REPAID → PAID_OFF`) → `DebtDrawdown`/
+  APPROVED → ACTIVE → PARTIALLY_REPAID → PAID_OFF`) → `DebtDrawdown`/
       `DebtRepayment` chain, posting through the same General Ledger boundary
       every other Finance domain uses — never a global loan liability account
       (the Sprint 12 "Path B" account pattern reused a third time); a
@@ -226,6 +226,25 @@ Sold / CR Finished Goods Inventory`, no new system accounts needed — `COGS` ha
       needed. Explicitly not investment/equity/bond/fixed-asset management, a
       loan-application workflow, credit scoring, or a full NPV/IRR/DCF
       engine — see [`docs/domains/debt-management.md`](domains/debt-management.md)
+- [x] Investment / Capital Project Management — foundation shipped Sprint 18
+      ("Investment / Capital Project Management Foundation"). A
+      `CapitalProject` (`DRAFT → PROPOSED → UNDER_REVIEW → APPROVED → ACTIVE
+    → COMPLETED`, plus `ON_HOLD`/`CANCELLED`) whose Planned Cost is always
+      the server-computed sum of its own cost lines, never a stored total;
+      Committed/Actual Cost derived live from an optionally-linked Purchase
+      Order (one new nullable FK, zero changes to Procurement itself) and
+      the existing Accounts Payable recognition Sprint 12 already built;
+      `CapitalProjectFunding` (Cash/Debt/Other) referencing an existing
+      `DebtFacility`/`CashAccount` directly — the repayment schedule stays
+      owned entirely by Sprint 17, never duplicated — with Fully/Under/
+      Overfunded status always computed live; an optional, independent link
+      to a Capital Requirement and/or Budget (read-only Budget Allocation
+      %, never mutating the budget); an `ACTIVE` project's planned cost
+      lines feed the existing Cashflow Forecast as outflows, excluded once
+      a real Purchase Order is linked to avoid double-counting. Explicitly
+      not the investment-decision engine — no NPV/IRR/ROI/payback/scenario
+      comparison, prepared for but not built — see
+      [`docs/domains/investment-projects.md`](domains/investment-projects.md)
 
 ## Phase 3 — Extended Experiences
 
