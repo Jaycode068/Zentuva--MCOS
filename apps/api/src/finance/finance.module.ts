@@ -108,6 +108,11 @@ import { CapitalProjectFundingRepository } from './investment/capital-project-fu
 import { CapitalProjectController } from './investment/capital-project.controller';
 import { CapitalProjectRepository } from './investment/capital-project.repository';
 import { CapitalProjectService } from './investment/capital-project.service';
+import { DecisionAnalysisController } from './decision/decision-analysis.controller';
+import { DecisionAnalysisRepository } from './decision/decision-analysis.repository';
+import { DecisionAnalysisService } from './decision/decision-analysis.service';
+import { DecisionScenarioRepository } from './decision/decision-scenario.repository';
+import { DecisionScenarioService } from './decision/decision-scenario.service';
 
 /**
  * Finance HTTP surface (Sprint 6, docs/domains/finance.md) — Invoices, Payments, Credit
@@ -222,6 +227,17 @@ import { CapitalProjectService } from './investment/capital-project.service';
  * line with a real linked PO is excluded (the existing `SUPPLIER_PAYABLE`
  * source already represents that same future outflow). See
  * `investment-independence.spec.ts`. No new module imports needed.
+ *
+ * Sprint 19 (docs/domains/financial-decision-analysis.md) adds `decision/` —
+ * `DecisionAnalysis`/`DecisionScenario`, the MVP-closing management-decision
+ * layer that composes `FinancialStatementService`/`AccountsReceivableService`/
+ * `AccountsPayableService`/`CashflowForecastService`/`CashflowSettingsService`/
+ * `BudgetActualsService`/`DebtFacilityRepository`/`CapitalProjectService` — all
+ * already providers of this same module — into ROI/NPV/IRR/payback/
+ * sensitivity/funding comparison. **Never calls `postSystemJournalEntry`**
+ * and never writes to any table outside its own two models; every headline
+ * figure is computed live from stored assumptions, never persisted. See
+ * `decision-independence.spec.ts`. No new module imports needed.
  */
 @Module({
   imports: [
@@ -268,6 +284,7 @@ import { CapitalProjectService } from './investment/capital-project.service';
     DebtFacilityController,
     DebtDashboardController,
     CapitalProjectController,
+    DecisionAnalysisController,
   ],
   providers: [
     InvoiceRepository,
@@ -337,6 +354,10 @@ import { CapitalProjectService } from './investment/capital-project.service';
     CapitalProjectService,
     CapitalProjectCostLineRepository,
     CapitalProjectFundingRepository,
+    DecisionAnalysisRepository,
+    DecisionAnalysisService,
+    DecisionScenarioRepository,
+    DecisionScenarioService,
   ],
 })
 export class FinanceModule {}

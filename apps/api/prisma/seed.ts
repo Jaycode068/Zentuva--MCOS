@@ -4838,6 +4838,101 @@ async function seedInvestmentProjectFixtures(
   });
 }
 
+/** Sprint 19 — Financial Decision & Scenario Analysis (docs/domains/
+ *  financial-decision-analysis.md), the MVP-closing management-decision
+ *  layer. Idempotency-gated on the `DecisionAnalysis` name already
+ *  existing. Links to the already-seeded Sprint 18 "Plantain Chips
+ *  Production Line Expansion" `CapitalProject` (inherits its ₦60,000,000
+ *  live `plannedCost` as `initialInvestment` on every scenario — never
+ *  duplicated here) and the Sprint 17 "Bank Equipment Loan" `DebtFacility`
+ *  (its own real 20%/24-month amortising terms drive every scenario's debt
+ *  service, via the existing `generateSchedule()` — zero new amortisation
+ *  logic). Three scenarios matching the brief's own worked figures exactly
+ *  (Base ₦15M revenue/₦6M cost, Optimistic ₦18M/₦6M, Pessimistic ₦10M/₦7M),
+ *  each ₦40M debt + ₦20M cash funded. Seeded at `UNDER_REVIEW` (scenarios
+ *  already built, awaiting the Owner/Administrator's approve/reject
+ *  decision) — a deliberately live demo state, the same seed-simplicity
+ *  convention every prior sprint's own seed function has used. Posts zero
+ *  Journal Entries and creates zero real cashflow/debt/budget records —
+ *  this domain only ever composes and calculates, live, on read. */
+async function seedDecisionAnalysisFixtures(
+  organisationId: string,
+  actorUserId: string,
+): Promise<void> {
+  console.log('Seeding Financial Decision & Scenario Analysis fixtures...');
+
+  const existing = await prisma.decisionAnalysis.findFirst({
+    where: { organisationId, name: 'Plantain Chips Line — Investment Decision' },
+  });
+  if (existing) {
+    return;
+  }
+
+  const capitalProject = await prisma.capitalProject.findFirstOrThrow({
+    where: { organisationId, name: 'Plantain Chips Production Line Expansion' },
+  });
+  const bankEquipmentLoan = await prisma.debtFacility.findFirstOrThrow({
+    where: { organisationId, facilityCode: 'DEBT-000001' },
+  });
+
+  const analysis = await prisma.decisionAnalysis.create({
+    data: {
+      organisationId,
+      name: 'Plantain Chips Line — Investment Decision',
+      description:
+        'Should Boby Bites invest ₦60,000,000 in the new plantain chips production line, and how should it be financed?',
+      decisionType: 'NEW_INVESTMENT',
+      status: 'UNDER_REVIEW',
+      analysisPeriodMonths: 36,
+      discountRatePercent: 15,
+      maxAcceptablePaybackYears: 3,
+      capitalProjectId: capitalProject.id,
+      debtFacilityId: bankEquipmentLoan.id,
+      currency: 'NGN',
+      createdById: actorUserId,
+      submittedAt: new Date('2026-09-20'),
+    },
+  });
+
+  await prisma.decisionScenario.createMany({
+    data: [
+      {
+        decisionAnalysisId: analysis.id,
+        name: 'Base',
+        scenarioType: 'BASE',
+        additionalMonthlyRevenue: 15_000_000,
+        additionalMonthlyOperatingCost: 6_000_000,
+        cashFundingAmount: 20_000_000,
+        debtFundingAmount: 40_000_000,
+        debtRepaymentMethod: 'AMORTISING',
+        createdById: actorUserId,
+      },
+      {
+        decisionAnalysisId: analysis.id,
+        name: 'Optimistic',
+        scenarioType: 'OPTIMISTIC',
+        additionalMonthlyRevenue: 18_000_000,
+        additionalMonthlyOperatingCost: 6_000_000,
+        cashFundingAmount: 20_000_000,
+        debtFundingAmount: 40_000_000,
+        debtRepaymentMethod: 'AMORTISING',
+        createdById: actorUserId,
+      },
+      {
+        decisionAnalysisId: analysis.id,
+        name: 'Pessimistic',
+        scenarioType: 'PESSIMISTIC',
+        additionalMonthlyRevenue: 10_000_000,
+        additionalMonthlyOperatingCost: 7_000_000,
+        cashFundingAmount: 20_000_000,
+        debtFundingAmount: 40_000_000,
+        debtRepaymentMethod: 'AMORTISING',
+        createdById: actorUserId,
+      },
+    ],
+  });
+}
+
 async function main(): Promise<void> {
   // Read early (rather than inside `seedUser`) because the organisation's `businessEmail`
   // needs it before any user is created.
@@ -5048,6 +5143,7 @@ async function main(): Promise<void> {
   await seedBudgetingFixtures(organisation.id, ownerUser.id);
   await seedDebtManagementFixtures(organisation.id, ownerUser.id);
   await seedInvestmentProjectFixtures(organisation.id, ownerUser.id);
+  await seedDecisionAnalysisFixtures(organisation.id, ownerUser.id);
 
   console.log('Recording an audit log entry for this seed run...');
   await prisma.auditLog.create({

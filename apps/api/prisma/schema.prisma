@@ -191,6 +191,9 @@ model Organisation {
   /// (docs/domains/investment-projects.md).
   capitalProjects                   CapitalProject[]
   capitalProjectFundings            CapitalProjectFunding[]
+  /// Added Sprint 19 — Financial Decision & Scenario Analysis
+  /// (docs/domains/financial-decision-analysis.md).
+  decisionAnalyses                  DecisionAnalysis[]
 
   @@map("organisations")
 }
@@ -4035,6 +4038,11 @@ model DebtFacility {
   /// the repayment schedule stays owned entirely by this model, never
   /// duplicated — docs/domains/investment-projects.md).
   capitalProjectFundings CapitalProjectFunding[]
+  /// Added Sprint 19 — a `DecisionAnalysis` may reference this facility
+  /// read-only for its own real interest rate/term/repayment schedule
+  /// (docs/domains/financial-decision-analysis.md); the schedule stays
+  /// owned entirely by this model, never duplicated.
+  decisionAnalyses      DecisionAnalysis[]
 
   @@unique([organisationId, facilityCode])
   @@unique([organisationId, idempotencyKey])
@@ -4227,6 +4235,10 @@ model CapitalProject {
   budgetLine         BudgetLine?         @relation(fields: [budgetLineId], references: [id], onDelete: SetNull)
   costLines          CapitalProjectCostLine[]
   funding            CapitalProjectFunding[]
+  /// Added Sprint 19 — a `DecisionAnalysis` may reference this project
+  /// read-only, inheriting its live plannedCost/budget allocation rather
+  /// than duplicating them (docs/domains/financial-decision-analysis.md).
+  decisionAnalyses   DecisionAnalysis[]
 
   @@unique([organisationId, projectCode])
   @@unique([organisationId, idempotencyKey])
@@ -4308,4 +4320,129 @@ model CapitalProjectFunding {
   @@unique([organisationId, idempotencyKey])
   @@index([capitalProjectId])
   @@map("capital_project_fundings")
+}
+
+/// Sprint 19 — Financial Decision & Scenario Analysis
+/// (docs/domains/financial-decision-analysis.md). The MVP-closing
+/// management-decision layer over Sprints 13-18: composes Financial
+/// Statements/AR/AP/Cashflow Forecast/Budget/Debt/Capital Project data into
+/// ROI/NPV/IRR/payback/sensitivity/funding-comparison — never a second
+/// accounting/forecast/amortisation engine. Every headline figure (ROI,
+/// NPV, IRR, payback, break-even, sensitivity, recommendation) is computed
+/// live from the raw assumptions stored below; nothing derived is ever
+/// persisted. Scenario analysis is 100% side-effect-free: creating,
+/// editing, or approving a `DecisionAnalysis`/`DecisionScenario` never
+/// posts a Journal Entry and never mutates any real Cash/Debt/Budget/
+/// Capital Project record (proven by `decision-independence.spec.ts`).
+enum DecisionAnalysisStatus {
+  DRAFT
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+}
+
+enum DecisionType {
+  NEW_INVESTMENT
+  EXPANSION
+  EQUIPMENT_UPGRADE
+  COST_REDUCTION
+  OTHER
+}
+
+enum DecisionScenarioType {
+  BASE
+  OPTIMISTIC
+  PESSIMISTIC
+  CUSTOM
+}
+
+/// A single investment decision being evaluated. Optionally references an
+/// existing Sprint 18 `CapitalProject` (inherits its live plannedCost/
+/// budget allocation, read-only) and/or an existing Sprint 17
+/// `DebtFacility` (inherits its real interest rate/term/repayment
+/// schedule, read-only) — never a duplicate of either. Approving a
+/// decision is a paper sign-off only: it never creates a Capital Project,
+/// never draws down a facility, never posts anything.
+model DecisionAnalysis {
+  id                        String                  @id @default(cuid())
+  organisationId            String
+  name                      String
+  description               String?
+  decisionType              DecisionType
+  status                    DecisionAnalysisStatus  @default(DRAFT)
+  /// Planning horizon in months over which cashflows are projected.
+  analysisPeriodMonths      Int                     @default(60)
+  /// Annual discount rate used for NPV — user-set, never a hidden default.
+  discountRatePercent       Float                   @default(15)
+  /// Recommendation threshold (docs/domains/financial-decision-analysis.md
+  /// "Recommendation Rules") — configurable per analysis, never a hidden
+  /// constant.
+  maxAcceptablePaybackYears Float                   @default(3)
+  capitalProjectId          String?
+  debtFacilityId            String?
+  currency                  String                  @default("NGN")
+  notes                     String?
+  idempotencyKey            String?
+  createdById               String?
+  submittedAt               DateTime?
+  approvedById              String?
+  approvedAt                DateTime?
+  rejectedById              String?
+  rejectedAt                DateTime?
+  rejectionReason           String?
+  createdAt                 DateTime                @default(now())
+  updatedAt                 DateTime                @updatedAt
+
+  organisation   Organisation    @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  capitalProject CapitalProject? @relation(fields: [capitalProjectId], references: [id], onDelete: SetNull)
+  debtFacility   DebtFacility?   @relation(fields: [debtFacilityId], references: [id], onDelete: SetNull)
+  scenarios      DecisionScenario[]
+
+  @@unique([organisationId, idempotencyKey])
+  @@index([organisationId, status])
+  @@map("decision_analyses")
+}
+
+/// One named set of planning assumptions (Base/Optimistic/Pessimistic/
+/// Custom) under a `DecisionAnalysis`. Every field here is a raw
+/// assumption input, never a calculated result — ROI/NPV/IRR/payback/
+/// break-even/sensitivity are always recomputed live from these fields by
+/// `decision-calculations.ts`, never stored.
+model DecisionScenario {
+  id                                 String                @id @default(cuid())
+  decisionAnalysisId                 String
+  name                               String
+  scenarioType                       DecisionScenarioType  @default(CUSTOM)
+  /// Null = inherit the linked Capital Project's live plannedCost at read
+  /// time; a scenario may still override it explicitly.
+  initialInvestment                  Float?
+  additionalCapex                    Float                 @default(0)
+  additionalMonthlyRevenue           Float                 @default(0)
+  annualRevenueGrowthPercent         Float                 @default(0)
+  rampUpMonths                       Int                   @default(0)
+  additionalMonthlyOperatingCost     Float                 @default(0)
+  additionalMonthlyMaintenanceCost   Float                 @default(0)
+  additionalMonthlyLabourCost        Float                 @default(0)
+  additionalMonthlyUtilitiesCost     Float                 @default(0)
+  additionalMonthlyLogisticsCost     Float                 @default(0)
+  cashFundingAmount                  Float                 @default(0)
+  debtFundingAmount                  Float                 @default(0)
+  /// Hypothetical financing terms — used only when the parent
+  /// `DecisionAnalysis` has no `debtFacilityId` linked; when one is
+  /// linked, the facility's own real terms are used instead (never both).
+  debtInterestRatePercent            Float?
+  debtTermMonths                     Int?
+  debtRepaymentMethod                RepaymentMethod?      @default(AMORTISING)
+  workingCapitalImpact               Float                 @default(0)
+  notes                              String?
+  idempotencyKey                     String?
+  createdById                        String?
+  createdAt                          DateTime              @default(now())
+  updatedAt                          DateTime              @updatedAt
+
+  decisionAnalysis DecisionAnalysis @relation(fields: [decisionAnalysisId], references: [id], onDelete: Cascade)
+
+  @@unique([decisionAnalysisId, name])
+  @@unique([decisionAnalysisId, idempotencyKey])
+  @@map("decision_scenarios")
 }

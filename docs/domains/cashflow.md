@@ -4,7 +4,10 @@
   Forecasting"). A forward-looking analytical layer over Finance/Accounting —
   never a second accounting system, and never budgeting (see §8). The forecast
   itself is **never persisted anywhere**; every figure is recomputed live, on
-  every request.
+  every request. Sprint 19's Decision Analysis reads `getForecast()`
+  read-only for its own scenario Cashflow Impact overlay (never a second
+  forecast source, never persisted) — see
+  [Financial Decision & Scenario Analysis](financial-decision-analysis.md).
 - **Sprint:** 15
 - **Depends on:** [Finance](finance.md) (`InvoiceRepository.
 getOutstandingForAging()`, `SupplierInvoiceRepository.getOutstandingForAging()` —

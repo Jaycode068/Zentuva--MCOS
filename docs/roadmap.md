@@ -210,7 +210,7 @@ Sold / CR Finished Goods Inventory`, no new system accounts needed — `COGS` ha
 - [x] Capital & Debt Management — foundation shipped Sprint 17 ("Capital &
       Debt Management Foundation"). A `CapitalRequirement` (the business case
       for financing, not yet an approved loan) → `DebtFacility` (`PROPOSED →
-  APPROVED → ACTIVE → PARTIALLY_REPAID → PAID_OFF`) → `DebtDrawdown`/
+APPROVED → ACTIVE → PARTIALLY_REPAID → PAID_OFF`) → `DebtDrawdown`/
       `DebtRepayment` chain, posting through the same General Ledger boundary
       every other Finance domain uses — never a global loan liability account
       (the Sprint 12 "Path B" account pattern reused a third time); a
@@ -229,7 +229,7 @@ Sold / CR Finished Goods Inventory`, no new system accounts needed — `COGS` ha
 - [x] Investment / Capital Project Management — foundation shipped Sprint 18
       ("Investment / Capital Project Management Foundation"). A
       `CapitalProject` (`DRAFT → PROPOSED → UNDER_REVIEW → APPROVED → ACTIVE
-    → COMPLETED`, plus `ON_HOLD`/`CANCELLED`) whose Planned Cost is always
+  → COMPLETED`, plus `ON_HOLD`/`CANCELLED`) whose Planned Cost is always
       the server-computed sum of its own cost lines, never a stored total;
       Committed/Actual Cost derived live from an optionally-linked Purchase
       Order (one new nullable FK, zero changes to Procurement itself) and
@@ -245,6 +245,28 @@ Sold / CR Finished Goods Inventory`, no new system accounts needed — `COGS` ha
       not the investment-decision engine — no NPV/IRR/ROI/payback/scenario
       comparison, prepared for but not built — see
       [`docs/domains/investment-projects.md`](domains/investment-projects.md)
+- [x] Financial Decision & Scenario Analysis — foundation shipped Sprint 19
+      ("Financial Decision, Scenario Analysis & Management Financial
+      Cockpit"), **the capstone, closing sprint of the Finance MVP**. A
+      `DecisionAnalysis` (`DRAFT → UNDER_REVIEW → {APPROVED | REJECTED}`)
+      optionally links an existing Capital Project/Debt Facility, read-only;
+      `DecisionScenario`s (Base/Optimistic/Pessimistic/Custom) hold raw
+      assumptions only — ROI/NPV/IRR/Payback/Break-Even/Sensitivity/
+      Recommendation are all computed live, never stored; an FCFE-style
+      cashflow construction (financing effects included directly in the
+      discounted stream — the only convention under which funding structure
+      changes NPV); a robust bisection-based IRR returning "unavailable"
+      rather than a misleading value; a rule-based, transparent,
+      configurable recommendation (never an AI judgement); a Cashflow
+      Impact preview that overlays the real Cashflow Forecast in memory
+      only, never persisting a forecast row; a Budget Impact reusing the
+      existing Budget Allocation formula unmodified; two small new
+      cross-link sections on the existing Finance Overview page.
+      **Scenario analysis is 100% side-effect-free** — zero Journal
+      Entries, zero mutation of any real Cash/Debt/Budget/Capital Project
+      record. The Finance MVP, as scoped, is now considered functionally
+      complete — see
+      [`docs/domains/financial-decision-analysis.md`](domains/financial-decision-analysis.md)
 
 ## Phase 3 — Extended Experiences
 

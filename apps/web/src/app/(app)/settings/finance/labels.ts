@@ -26,6 +26,10 @@ import type {
   DebtFacilityStatus,
   DebtScheduleStatus,
   DebtType,
+  DecisionAnalysisStatus,
+  DecisionRecommendation,
+  DecisionScenarioType,
+  DecisionType,
   InvoiceStatus,
   JournalEntryStatus,
   LenderType,
@@ -501,4 +505,53 @@ export const CAPITAL_PROJECT_FUNDING_STATUS_VARIANT: Record<
   FULLY_FUNDED: 'success',
   UNDERFUNDED: 'warning',
   OVERFUNDED: 'default',
+};
+
+// === Financial Decision & Scenario Analysis (Sprint 19, docs/domains/financial-decision-analysis.md) ===
+
+export const DECISION_TYPE_LABELS: Record<DecisionType, string> = {
+  NEW_INVESTMENT: 'New Investment',
+  EXPANSION: 'Expansion',
+  EQUIPMENT_UPGRADE: 'Equipment Upgrade',
+  COST_REDUCTION: 'Cost Reduction',
+  OTHER: 'Other',
+};
+
+export const DECISION_ANALYSIS_STATUS_LABELS: Record<DecisionAnalysisStatus, string> = {
+  DRAFT: 'Draft',
+  UNDER_REVIEW: 'Under Review',
+  APPROVED: 'Approved',
+  REJECTED: 'Rejected',
+};
+
+export const DECISION_ANALYSIS_STATUS_VARIANT: Record<
+  DecisionAnalysisStatus,
+  NonNullable<BadgeProps['variant']>
+> = {
+  DRAFT: 'default',
+  UNDER_REVIEW: 'warning',
+  APPROVED: 'success',
+  REJECTED: 'destructive',
+};
+
+export const DECISION_SCENARIO_TYPE_LABELS: Record<DecisionScenarioType, string> = {
+  BASE: 'Base',
+  OPTIMISTIC: 'Optimistic',
+  PESSIMISTIC: 'Pessimistic',
+  CUSTOM: 'Custom',
+};
+
+export const DECISION_RECOMMENDATION_LABELS: Record<DecisionRecommendation, string> = {
+  ATTRACTIVE: 'Attractive',
+  CAUTION: 'Caution',
+  UNATTRACTIVE: 'Unattractive',
+};
+
+export const DECISION_RECOMMENDATION_VARIANT: Record<
+  DecisionRecommendation,
+  NonNullable<BadgeProps['variant']>
+> = {
+  ATTRACTIVE: 'success',
+  CAUTION: 'warning',
+  UNATTRACTIVE: 'destructive',
 };

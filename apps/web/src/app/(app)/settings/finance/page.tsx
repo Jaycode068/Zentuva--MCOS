@@ -16,7 +16,18 @@ import {
   type ReportPeriodPreset,
 } from '@/lib/report-date-range';
 
-import { getCashOverview, getDashboard } from './api';
+import {
+  getCashOverview,
+  getCashflowForecast,
+  getDashboard,
+  getDebtMetrics,
+  listDecisionAnalyses,
+} from './api';
+import {
+  DECISION_ANALYSIS_STATUS_LABELS,
+  DECISION_ANALYSIS_STATUS_VARIANT,
+  DECISION_TYPE_LABELS,
+} from './labels';
 
 /**
  * Management Dashboard (Sprint 13, docs/domains/accounting.md §16.5) — the Finance
@@ -44,6 +55,27 @@ export default function FinanceOverviewPage() {
     queryKey: ['cash-overview'],
     queryFn: () => getCashOverview(),
   });
+
+  // Added Sprint 19 — "Where Are We Going?" and "Active Decisions" cross-
+  // link sections (docs/domains/financial-decision-analysis.md), the same
+  // couple-of-cross-link-cards restraint Sprint 14 established: every
+  // figure below is sourced from an *existing* endpoint (Cashflow Forecast,
+  // Debt Metrics, Decision Analyses list) — no new backend calculation.
+  const { data: forecast } = useQuery({
+    queryKey: ['finance-overview-forecast'],
+    queryFn: () => getCashflowForecast({ horizonDays: 90, bucketBy: 'monthly' }),
+  });
+  const { data: debtMetrics } = useQuery({
+    queryKey: ['finance-overview-debt-metrics'],
+    queryFn: () => getDebtMetrics(),
+  });
+  const { data: decisionsData } = useQuery({
+    queryKey: ['finance-overview-decisions'],
+    queryFn: () => listDecisionAnalyses(),
+  });
+  const activeDecisions = (decisionsData?.items ?? [])
+    .filter((analysis) => analysis.status === 'UNDER_REVIEW' || analysis.status === 'APPROVED')
+    .slice(0, 3);
 
   const current = data?.pnl.current;
   const previous = data?.pnl.previous;
@@ -215,6 +247,92 @@ export default function FinanceOverviewPage() {
                     </CardContent>
                   </Card>
                 </Link>
+              </div>
+            </>
+          )}
+
+          {(forecast || debtMetrics) && (
+            <>
+              <p className="mb-3 mt-8 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Where Are We Going?
+              </p>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                {forecast && (
+                  <Link href="/settings/finance/cashflow">
+                    <Card className="h-full transition-colors hover:border-primary/50">
+                      <CardHeader>
+                        <CardTitle className="text-sm font-medium text-muted-foreground">
+                          Forecast Closing Cash (90d)
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <p className="text-2xl font-semibold">
+                          {formatCurrency(forecast.forecastClosingCash, 'NGN')}
+                        </p>
+                        {forecast.shortfallDetected && (
+                          <p className="mt-1 text-xs text-destructive">
+                            Projected cash dips below the minimum reserve
+                          </p>
+                        )}
+                      </CardContent>
+                    </Card>
+                  </Link>
+                )}
+                {debtMetrics && (
+                  <Link href="/settings/finance/debt">
+                    <Card className="h-full transition-colors hover:border-primary/50">
+                      <CardHeader>
+                        <CardTitle className="text-sm font-medium text-muted-foreground">
+                          Monthly Debt Service
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <p className="text-2xl font-semibold">
+                          {formatCurrency(debtMetrics.monthlyDebtService, 'NGN')}
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {formatCurrency(debtMetrics.outstandingPrincipal, 'NGN')} outstanding
+                          principal
+                        </p>
+                      </CardContent>
+                    </Card>
+                  </Link>
+                )}
+              </div>
+            </>
+          )}
+
+          {activeDecisions.length > 0 && (
+            <>
+              <p className="mb-3 mt-8 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                What Decisions Are Being Considered?
+              </p>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                {activeDecisions.map((analysis) => (
+                  <Link key={analysis.id} href={`/settings/finance/decisions/${analysis.id}`}>
+                    <Card className="h-full transition-colors hover:border-primary/50">
+                      <CardHeader>
+                        <CardTitle className="text-sm font-medium text-muted-foreground">
+                          {analysis.name}
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <p className="text-xs text-muted-foreground">
+                          {DECISION_TYPE_LABELS[analysis.decisionType]}
+                        </p>
+                        <span
+                          className={`mt-2 inline-block rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                            DECISION_ANALYSIS_STATUS_VARIANT[analysis.status] === 'success'
+                              ? 'bg-success/10 text-success'
+                              : 'bg-warning/10 text-warning'
+                          }`}
+                        >
+                          {DECISION_ANALYSIS_STATUS_LABELS[analysis.status]}
+                        </span>
+                      </CardContent>
+                    </Card>
+                  </Link>
+                ))}
               </div>
             </>
           )}

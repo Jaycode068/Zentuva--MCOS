@@ -5,8 +5,11 @@
   Sprints 13-17 (Accounting, Cash, Cashflow, Budgeting, Debt) and
   Procurement/AP — never a second accounting, budgeting, cashflow, debt,
   procurement, or inventory engine. **Not** the financial-decision engine
-  (no NPV/IRR/ROI/payback/scenario comparison) — that is Sprint 19's job,
-  see §11.
+  (no NPV/IRR/ROI/payback/scenario comparison) — that was §11's own
+  handoff to Sprint 19, now built; see
+  [Financial Decision & Scenario Analysis](financial-decision-analysis.md).
+  A `DecisionAnalysis` may optionally link to a `CapitalProject` here,
+  read-only, inheriting its live Planned Cost/Budget Allocation.
 - **Sprint:** 18
 - **Depends on:** [Accounting](accounting.md) (read-only, via Procurement's
   own `PurchaseOrderRepository` and Finance's own

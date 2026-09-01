@@ -7,6 +7,73 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 19 Financial Decision, Scenario Analysis & Management Financial Cockpit] - 2026-09-01
+
+**The capstone, closing sprint of the Finance MVP.**
+
+### Added
+
+- **`DecisionAnalysis`/`DecisionScenario` (Finance) — the management-
+  decision layer over Financial Statements/Cash/Cashflow/Budget/Debt/
+  Capital Projects.** Lifecycle `DRAFT → UNDER_REVIEW → {APPROVED |
+REJECTED}`; header and scenarios freely editable while `DRAFT` or
+  `UNDER_REVIEW`, frozen once `APPROVED`/`REJECTED`. Optionally links an
+  existing `CapitalProject` (inherits its live Planned Cost) and/or an
+  existing `DebtFacility` (inherits its real interest rate/term/repayment
+  schedule), read-only.
+- **Server-authoritative ROI/NPV/IRR/Payback/Break-Even, computed live,
+  never stored.** FCFE-style cashflow construction (financing effects
+  included directly in the discounted stream — Year 0 = net cash required
+  after any debt drawdown); a robust bisection-based IRR that pre-scans
+  for sign changes and returns "unavailable" (never a guessed root) when
+  zero or multiple brackets exist; payback interpolated from the actual
+  cumulative cashflow series.
+- **Sensitivity Analysis** — one variable at a time
+  (`revenueGrowth`/`interestRate`/`operatingCost`/`initialInvestment`) ×
+  five deltas (`-20%/-10%/Base/+10%/+20%`), never a multi-variable matrix.
+- **Cashflow Impact preview** — reads the real Cashflow Forecast
+  (`CashflowForecastService.getForecast()`) and overlays a scenario's own
+  incremental delta in memory only, mirroring `DebtAnalysisService.
+previewFacilityImpact()`'s exact template; never persists a forecast
+  row.
+- **Budget Impact** — reuses `CapitalProjectService.getBudgetAllocation()`
+  unmodified; flags Within/Over Budget; never mutates the Budget.
+- **Debt Impact** — reuses the existing `generateSchedule()` for both a
+  linked real `DebtFacility`'s own terms and a scenario's hypothetical
+  financing; never a second amortisation engine.
+- **Rule-based, transparent recommendation** — ATTRACTIVE/CAUTION/
+  UNATTRACTIVE from a configurable payback threshold plus a
+  Pessimistic-sibling downside-shortfall check; the response always
+  carries the specific reasons — never an AI judgement.
+- **Funding Comparison** — a side-by-side table across scenarios (e.g.
+  100%-cash vs. debt+cash funding of the same project), showing genuinely
+  different NPVs per the FCFE convention above.
+- **Scenario analysis is 100% side-effect-free** — zero
+  `postSystemJournalEntry` calls anywhere in the domain, zero mutation of
+  any real Cash Account/Debt Facility/Budget/Capital Project record,
+  proven executably by `decision-independence.spec.ts`.
+- **Finance Overview page extended** — two small new cross-link sections,
+  "Where Are We Going?" (Forecast Closing Cash, Monthly Debt Service, both
+  from existing endpoints) and "What Decisions Are Being Considered?" (a
+  strip of active Decision Analysis cards), following the exact
+  cross-link precedent Sprint 14's own Cash & Bank strip established.
+- **Admin surface** — one new "Decisions" tab; a list page (supports
+  pre-filling from an existing Capital Project); a detail page with the
+  full 12-section drill-down (Overview, Investment, Funding, Revenue
+  Assumptions, Cost Assumptions, Cashflow, Budget Impact, Debt Impact,
+  Scenario Comparison, Sensitivity Analysis, Recommendation, Audit
+  History); a "Create Decision Analysis" action on the Capital Project
+  detail page.
+
+### Finance MVP Complete
+
+Sprint 19 closes the Finance MVP foundation — Transaction Recording →
+Real Cash → Forward-Looking Cashflow → Planning → Financing → Investment
+Planning → Financial Decision Analysis. See
+[`docs/domains/financial-decision-analysis.md`](domains/financial-decision-analysis.md)
+§17 and [`docs/sprint-19-completion-report.md`](sprint-19-completion-report.md)
+§15 for the full statement.
+
 ## [Sprint 18 Investment / Capital Project Management Foundation] - 2026-09-01
 
 ### Added

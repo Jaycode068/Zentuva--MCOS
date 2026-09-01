@@ -1053,7 +1053,31 @@ recognizedAmount` via the already-exported `getApByPurchaseOrder()`).
   itself) and the additive `CAPITAL_PROJECT` enum value on Sprint 15's own
   `CashflowForecastSourceType`.
 
-## 30. API Reference
+## 30. Financial Decision & Scenario Analysis (Sprint 19) — Finance MVP Capstone
+
+Sprint 19 is the capstone, closing sprint of the Finance MVP — see
+[Financial Decision & Scenario Analysis](financial-decision-analysis.md)
+for the full domain writeup. Summary of the accounting mechanics: **there
+are none**, the same posture every prior post-Sprint-13 layer (Cashflow,
+Budgeting, Debt's financing-scenario preview, Investment) already
+established.
+
+- **`DecisionAnalysis`/`DecisionScenario` never call
+  `postSystemJournalEntry`, ever** — asserted by zero occurrences in
+  `decision-independence.spec.ts`. Approving a decision is a paper sign-off
+  only; it creates no Capital Project, draws down no Debt Facility, posts
+  nothing.
+- **Composes existing services directly, never a duplicated engine** —
+  `CashflowForecastService.getForecast()` (Sprint 15), the existing
+  `generateSchedule()` (Sprint 17), and `CapitalProjectService.
+getBudgetAllocation()` (Sprint 18) are all reused unmodified.
+- **Zero new `SYSTEM_ACCOUNT_KEYS`, zero schema changes to any existing
+  model** — the two new models (`DecisionAnalysis`, `DecisionScenario`) are
+  wholly new tables with only new back-relations added elsewhere; no
+  existing enum needed a new value (the Cashflow Impact overlay is never
+  persisted, so `CashflowForecastSourceType` needed nothing new this time).
+
+## 31. API Reference
 
 | Endpoint                                                                                                              | Auth                | Notes                                                                                         |
 | --------------------------------------------------------------------------------------------------------------------- | ------------------- | --------------------------------------------------------------------------------------------- |
@@ -1126,7 +1150,7 @@ recognizedAmount` via the already-exported `getApByPurchaseOrder()`).
 | `DELETE /api/finance/investment/projects/:id/funding/:fundingId`                                                      | Owner/Administrator | Allowed through `ACTIVE`                                                                      |
 | `POST /api/finance/investment/projects/:id/{submit,start-review,approve,reject,activate,hold,resume,complete,cancel}` | Owner/Administrator | Status-guarded, soft-idempotent lifecycle transitions                                         |
 
-## 31. Known Limitations
+## 32. Known Limitations
 
 - No re-opening a closed accounting period, and no year-end closing automation.
 - `VOID` never generates an automatic reversing entry — a correction is a new manual

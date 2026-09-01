@@ -4,6 +4,9 @@
   Planning Foundation"). A planning layer over Finance/Accounting/Cashflow —
   never a second accounting system. **Not** budget-vs-actual accounting, loan/
   debt/investment/capital management, or AI financial planning — see §11.
+  Sprint 19's Decision Analysis reads a linked Capital Project's own Budget
+  Allocation read-only for its own scenario Budget Impact — see
+  [Financial Decision & Scenario Analysis](financial-decision-analysis.md).
 - **Sprint:** 16
 - **Depends on:** [Accounting](accounting.md) (`getAccountBalances`, the
   normal-balance-sign-per-`AccountType` convention `FinancialStatementService`

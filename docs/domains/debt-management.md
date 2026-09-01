@@ -8,7 +8,12 @@
   data architecture a future capital-decision engine will need. **Not**
   investment/portfolio management, credit scoring, AI loan recommendations,
   automatic loan approval, bank API integrations, a collections system, or a
-  full financial-modelling/NPV/IRR engine — see §12.
+  full financial-modelling/NPV/IRR engine — see §12. That capital-decision
+  engine was built in Sprint 19 — see
+  [Financial Decision & Scenario Analysis](financial-decision-analysis.md);
+  it reads a `DebtFacility`'s own real rate/term/repayment schedule
+  read-only via `generateSchedule()`, never a duplicated amortisation
+  engine.
 - **Sprint:** 17
 - **Depends on:** [Accounting](accounting.md) (`postSystemJournalEntry`, the
   Sprint 12 "Path B" user-chosen non-system account pattern, reused a third

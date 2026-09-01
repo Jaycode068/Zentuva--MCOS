@@ -40,6 +40,8 @@ const TABS = [
   { label: 'Debt Facilities', href: '/settings/finance/debt-facilities' },
   // Added Sprint 18 — Investment / Capital Project Management Foundation.
   { label: 'Capital Projects', href: '/settings/finance/capital-projects' },
+  // Added Sprint 19 — Financial Decision & Scenario Analysis.
+  { label: 'Decisions', href: '/settings/finance/decisions' },
 ];
 
 /** Shared sub-navigation for the ten `/settings/finance/*` pages (Sprint 6 Finance +

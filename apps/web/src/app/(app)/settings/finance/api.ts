@@ -2791,3 +2791,364 @@ export function removeCapitalProjectFunding(
     { method: 'DELETE' },
   );
 }
+
+// === Financial Decision & Scenario Analysis (Sprint 19, docs/domains/financial-decision-analysis.md) ===
+
+export type DecisionType =
+  'NEW_INVESTMENT' | 'EXPANSION' | 'EQUIPMENT_UPGRADE' | 'COST_REDUCTION' | 'OTHER';
+export type DecisionAnalysisStatus = 'DRAFT' | 'UNDER_REVIEW' | 'APPROVED' | 'REJECTED';
+export type DecisionScenarioType = 'BASE' | 'OPTIMISTIC' | 'PESSIMISTIC' | 'CUSTOM';
+
+/** `GET/POST /api/finance/decisions` response shape — the MVP-closing
+ *  management-decision layer over Sprints 13-18. Never stores ROI/NPV/IRR/
+ *  payback/recommendation — every headline figure is computed live from a
+ *  scenario's own raw assumptions on every read. */
+export interface DecisionAnalysis {
+  id: string;
+  name: string;
+  description: string | null;
+  decisionType: DecisionType;
+  status: DecisionAnalysisStatus;
+  analysisPeriodMonths: number;
+  discountRatePercent: number;
+  maxAcceptablePaybackYears: number;
+  capitalProjectId: string | null;
+  debtFacilityId: string | null;
+  currency: string;
+  notes: string | null;
+  submittedAt: string | null;
+  approvedAt: string | null;
+  rejectedAt: string | null;
+  rejectionReason: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateDecisionAnalysisPayload {
+  name: string;
+  description?: string;
+  decisionType: DecisionType;
+  analysisPeriodMonths?: number;
+  discountRatePercent?: number;
+  maxAcceptablePaybackYears?: number;
+  capitalProjectId?: string;
+  debtFacilityId?: string;
+  currency?: string;
+  notes?: string;
+  idempotencyKey?: string;
+}
+
+export interface DecisionScenario {
+  id: string;
+  decisionAnalysisId: string;
+  name: string;
+  scenarioType: DecisionScenarioType;
+  initialInvestment: number | null;
+  additionalCapex: number;
+  additionalMonthlyRevenue: number;
+  annualRevenueGrowthPercent: number;
+  rampUpMonths: number;
+  additionalMonthlyOperatingCost: number;
+  additionalMonthlyMaintenanceCost: number;
+  additionalMonthlyLabourCost: number;
+  additionalMonthlyUtilitiesCost: number;
+  additionalMonthlyLogisticsCost: number;
+  cashFundingAmount: number;
+  debtFundingAmount: number;
+  debtInterestRatePercent: number | null;
+  debtTermMonths: number | null;
+  debtRepaymentMethod: RepaymentMethod | null;
+  workingCapitalImpact: number;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateDecisionScenarioPayload {
+  name: string;
+  scenarioType?: DecisionScenarioType;
+  initialInvestment?: number;
+  additionalCapex?: number;
+  additionalMonthlyRevenue?: number;
+  annualRevenueGrowthPercent?: number;
+  rampUpMonths?: number;
+  additionalMonthlyOperatingCost?: number;
+  additionalMonthlyMaintenanceCost?: number;
+  additionalMonthlyLabourCost?: number;
+  additionalMonthlyUtilitiesCost?: number;
+  additionalMonthlyLogisticsCost?: number;
+  cashFundingAmount?: number;
+  debtFundingAmount?: number;
+  debtInterestRatePercent?: number;
+  debtTermMonths?: number;
+  debtRepaymentMethod?: RepaymentMethod;
+  workingCapitalImpact?: number;
+  notes?: string;
+  idempotencyKey?: string;
+}
+
+export interface DecisionPaybackResult {
+  years: number | null;
+  status: 'RECOVERED' | 'NOT_RECOVERED';
+}
+
+export interface DecisionBreakEvenResult {
+  requiredAdditionalMonthlyRevenue: number;
+  requiredUtilisationPercent: number | null;
+  utilisationReason?: string;
+}
+
+export interface DecisionScenarioResults {
+  scenarioId: string;
+  initialInvestment: number;
+  discountRatePercent: number;
+  npv: number;
+  irr: number | null;
+  roi: number | null;
+  netBenefit: number;
+  payback: DecisionPaybackResult;
+  breakEven: DecisionBreakEvenResult;
+  series: number[];
+}
+
+export type DecisionSensitivityVariable =
+  'revenueGrowth' | 'interestRate' | 'operatingCost' | 'initialInvestment';
+
+export interface DecisionSensitivityRow {
+  variable: DecisionSensitivityVariable;
+  deltaPercent: number;
+  npv: number;
+  roi: number | null;
+  paybackYears: number | null;
+}
+
+export interface DecisionDebtImpactResult {
+  applicable: boolean;
+  reason?: string;
+  initialCashRequirement: number;
+  monthlyDebtService: number;
+  totalInterest: number;
+  totalDebtService: number;
+  source: 'FACILITY' | 'HYPOTHETICAL' | 'NONE';
+}
+
+export interface DecisionBudgetImpactResult {
+  applicable: boolean;
+  reason?: string;
+  budgetedAmount?: number;
+  plannedCost?: number;
+  scenarioImpact?: number;
+  projectedTotal?: number;
+  withinBudget?: boolean;
+}
+
+export interface DecisionCashflowImpactPeriod {
+  periodStart: string;
+  periodEnd: string;
+  label: string;
+  baseClosingBalance: number;
+  scenarioImpact: number;
+  scenarioClosingBalance: number;
+  belowMinimumReserve: boolean;
+}
+
+export interface DecisionCashflowImpactResult {
+  minimumCashReserve: number;
+  periods: DecisionCashflowImpactPeriod[];
+  minCashPosition: number;
+  shortfallMonths: number;
+  recoveryMonth: number | null;
+}
+
+export type DecisionRecommendation = 'ATTRACTIVE' | 'CAUTION' | 'UNATTRACTIVE';
+
+export interface DecisionRecommendationResult {
+  recommendation: DecisionRecommendation;
+  npvPositive: boolean;
+  paybackRecovered: boolean;
+  paybackYears: number | null;
+  paybackWithinThreshold: boolean;
+  maxAcceptablePaybackYears: number;
+  downsideChecked: boolean;
+  downsideOk: boolean;
+}
+
+export interface DecisionFundingComparisonRow {
+  scenarioId: string;
+  name: string;
+  initialInvestment: number;
+  cashFundingAmount: number;
+  debtFundingAmount: number;
+  monthlyDebtService: number;
+  totalInterest: number;
+  npv: number;
+  irr: number | null;
+  paybackYears: number | null;
+  paybackStatus: DecisionPaybackResult['status'];
+  minCashPosition: number;
+  recommendation: DecisionRecommendation;
+}
+
+export function listDecisionAnalyses(
+  params: { status?: DecisionAnalysisStatus } = {},
+): Promise<{ items: DecisionAnalysis[] }> {
+  const query = new URLSearchParams();
+  if (params.status) query.set('status', params.status);
+  const queryString = query.toString();
+  return apiFetch<{ items: DecisionAnalysis[] }>(
+    `/finance/decisions${queryString ? `?${queryString}` : ''}`,
+  );
+}
+
+export function getDecisionAnalysis(id: string): Promise<DecisionAnalysis> {
+  return apiFetch<DecisionAnalysis>(`/finance/decisions/${id}`);
+}
+
+export function createDecisionAnalysis(
+  input: CreateDecisionAnalysisPayload,
+): Promise<DecisionAnalysis> {
+  return apiFetch<DecisionAnalysis>('/finance/decisions', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateDecisionAnalysis(
+  id: string,
+  input: Partial<CreateDecisionAnalysisPayload>,
+): Promise<DecisionAnalysis> {
+  return apiFetch<DecisionAnalysis>(`/finance/decisions/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+}
+
+export function submitDecisionAnalysis(id: string): Promise<DecisionAnalysis> {
+  return apiFetch<DecisionAnalysis>(`/finance/decisions/${id}/submit`, { method: 'POST' });
+}
+
+export function approveDecisionAnalysis(id: string): Promise<DecisionAnalysis> {
+  return apiFetch<DecisionAnalysis>(`/finance/decisions/${id}/approve`, { method: 'POST' });
+}
+
+export function rejectDecisionAnalysis(
+  id: string,
+  rejectionReason?: string,
+): Promise<DecisionAnalysis> {
+  return apiFetch<DecisionAnalysis>(`/finance/decisions/${id}/reject`, {
+    method: 'POST',
+    body: JSON.stringify({ rejectionReason }),
+  });
+}
+
+export function listDecisionScenarios(analysisId: string): Promise<{ items: DecisionScenario[] }> {
+  return apiFetch<{ items: DecisionScenario[] }>(`/finance/decisions/${analysisId}/scenarios`);
+}
+
+export function createDecisionScenario(
+  analysisId: string,
+  input: CreateDecisionScenarioPayload,
+): Promise<DecisionScenario> {
+  return apiFetch<DecisionScenario>(`/finance/decisions/${analysisId}/scenarios`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateDecisionScenario(
+  analysisId: string,
+  scenarioId: string,
+  input: Partial<CreateDecisionScenarioPayload>,
+): Promise<DecisionScenario> {
+  return apiFetch<DecisionScenario>(`/finance/decisions/${analysisId}/scenarios/${scenarioId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+}
+
+export function removeDecisionScenario(
+  analysisId: string,
+  scenarioId: string,
+): Promise<{ success: boolean }> {
+  return apiFetch<{ success: boolean }>(
+    `/finance/decisions/${analysisId}/scenarios/${scenarioId}`,
+    { method: 'DELETE' },
+  );
+}
+
+export function getDecisionScenarioResults(
+  analysisId: string,
+  scenarioId: string,
+): Promise<DecisionScenarioResults> {
+  return apiFetch<DecisionScenarioResults>(
+    `/finance/decisions/${analysisId}/scenarios/${scenarioId}/results`,
+  );
+}
+
+export function getDecisionScenarioSensitivity(
+  analysisId: string,
+  scenarioId: string,
+): Promise<DecisionSensitivityRow[]> {
+  return apiFetch<DecisionSensitivityRow[]>(
+    `/finance/decisions/${analysisId}/scenarios/${scenarioId}/sensitivity`,
+  );
+}
+
+export function getDecisionScenarioCashflowImpact(
+  analysisId: string,
+  scenarioId: string,
+): Promise<DecisionCashflowImpactResult> {
+  return apiFetch<DecisionCashflowImpactResult>(
+    `/finance/decisions/${analysisId}/scenarios/${scenarioId}/cashflow-impact`,
+  );
+}
+
+export function getDecisionScenarioBudgetImpact(
+  analysisId: string,
+  scenarioId: string,
+): Promise<DecisionBudgetImpactResult> {
+  return apiFetch<DecisionBudgetImpactResult>(
+    `/finance/decisions/${analysisId}/scenarios/${scenarioId}/budget-impact`,
+  );
+}
+
+export function getDecisionScenarioDebtImpact(
+  analysisId: string,
+  scenarioId: string,
+): Promise<DecisionDebtImpactResult> {
+  return apiFetch<DecisionDebtImpactResult>(
+    `/finance/decisions/${analysisId}/scenarios/${scenarioId}/debt-impact`,
+  );
+}
+
+export function getDecisionScenarioRecommendation(
+  analysisId: string,
+  scenarioId: string,
+): Promise<DecisionRecommendationResult> {
+  return apiFetch<DecisionRecommendationResult>(
+    `/finance/decisions/${analysisId}/scenarios/${scenarioId}/recommendation`,
+  );
+}
+
+export interface DecisionAuditEvent {
+  id: string;
+  action: string;
+  entityType: string;
+  entityId: string | null;
+  actorUserId: string | null;
+  metadata: Record<string, unknown> | null;
+  createdAt: string;
+}
+
+export function getDecisionAuditHistory(id: string): Promise<{ items: DecisionAuditEvent[] }> {
+  return apiFetch<{ items: DecisionAuditEvent[] }>(`/finance/decisions/${id}/audit`);
+}
+
+export function getDecisionFundingComparison(
+  analysisId: string,
+  scenarioIds: string[],
+): Promise<DecisionFundingComparisonRow[]> {
+  return apiFetch<DecisionFundingComparisonRow[]>(
+    `/finance/decisions/${analysisId}/funding-comparison?scenarioIds=${scenarioIds.join(',')}`,
+  );
+}

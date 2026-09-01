@@ -22,7 +22,12 @@ feature is built configurably so it can be reused by future tenants without code
 > boundary and feeds the existing Cashflow Forecast as financing outflows, and — most recently —
 > an Investment / Capital Project Management foundation where a `CapitalProject` tracks a
 > project's own cost plan, funding mix, and Committed/Actual spend (derived from Procurement/AP,
-> never re-entered), never a second accounting system or a duplicated forecast engine. See
+> never re-entered), never a second accounting system or a duplicated forecast engine, and — the
+> capstone, closing sprint of the Finance MVP — a Financial Decision & Scenario Analysis layer
+> that composes all of the above into ROI/NPV/IRR/Payback/Sensitivity/Funding Comparison and a
+> Management Financial Decision Cockpit, computed live from stored assumptions and never a second
+> accounting/forecast/amortisation engine; scenario analysis is 100% side-effect-free. The Finance
+> MVP, as scoped, is now considered functionally complete. See
 > [docs/domains/README.md](docs/domains/README.md) for the current status of every domain and
 > [docs/roadmap.md](docs/roadmap.md) for the full build order.
 

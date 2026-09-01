@@ -687,6 +687,41 @@ APPROVED → ACTIVE → COMPLETED`, plus `ON_HOLD`/`CANCELLED`) whose Planned
   [`docs/domains/investment-projects.md`](domains/investment-projects.md)
   and [`docs/domains/finance.md`](domains/finance.md) §18.
 
+### Epic 23 — Financial Decision & Scenario Analysis (Finance MVP Capstone)
+
+- **Objective:** the capstone, closing epic of the Finance MVP — a
+  management-decision layer answering "given what we know, should we do
+  this?" by composing Epics 16-22 (Financial Statements, Cash, Cashflow,
+  Budgeting, Debt, Capital Projects) into ROI/NPV/IRR/Payback/Sensitivity/
+  Funding Comparison and a Management Financial Decision Cockpit — never a
+  second accounting, forecast, or amortisation engine.
+- **Includes:** a `DecisionAnalysis` (`DRAFT → UNDER_REVIEW → {APPROVED |
+REJECTED}`) optionally linking an existing `CapitalProject`/
+  `DebtFacility`, read-only; `DecisionScenario`s (Base/Optimistic/
+  Pessimistic/Custom) holding raw planning assumptions only — every
+  ROI/NPV/IRR/Payback/Break-Even/Sensitivity/Recommendation figure computed
+  live, never stored; an FCFE-style cashflow construction (financing
+  effects included directly in the discounted stream, the only convention
+  under which funding structure changes NPV); a robust bisection-based IRR
+  returning "unavailable" rather than a misleading value; a rule-based,
+  transparent, configurable recommendation (never an AI judgement); a
+  Cashflow Impact preview that reads the real Cashflow Forecast and
+  overlays a hypothetical delta in memory only, never persisting a
+  forecast row; a Budget Impact that reuses the existing Budget Allocation
+  formula unmodified; two small new cross-link sections on the existing
+  Finance Overview page. **Scenario analysis is 100% side-effect-free** —
+  zero Journal Entries, zero mutation of any real Cash/Debt/Budget/Capital
+  Project record.
+- **Status:** Foundation implemented — Sprint 19 ("Financial Decision,
+  Scenario Analysis & Management Financial Cockpit"), the Finance MVP
+  capstone. Zero new `SYSTEM_ACCOUNT_KEYS`; two new models
+  (`DecisionAnalysis`, `DecisionScenario`) hold raw assumptions only; zero
+  `postSystemJournalEntry` calls anywhere in the module — proven
+  executably by `decision-independence.spec.ts`. **The Finance MVP, as
+  scoped across Epics 6-23, is now considered functionally complete** — see
+  [`docs/domains/financial-decision-analysis.md`](domains/financial-decision-analysis.md)
+  and [`docs/domains/finance.md`](domains/finance.md) §19/§20.
+
 ## 5. Current Sprint Status
 
 **Completed:**
@@ -728,8 +763,11 @@ APPROVED → ACTIVE → COMPLETED`, plus `ON_HOLD`/`CANCELLED`) whose Planned
 - ✓ Sprint 16 — Budgeting & Financial Planning Foundation
 - ✓ Sprint 17 — Capital & Debt Management Foundation
 - ✓ Sprint 18 — Investment / Capital Project Management Foundation
+- ✓ Sprint 19 — Financial Decision, Scenario Analysis & Management
+  Financial Cockpit (Finance MVP capstone)
 
-**Current focus:** Next sprint not yet scoped.
+**Current focus:** The Finance MVP (Sprints 6-19) is considered
+functionally complete. Next sprint not yet scoped.
 
 ## 6. Future Ideas (Not Prioritised Yet)
 

@@ -11,8 +11,11 @@
   [Budgeting](budgeting.md). Sprint 17 added a Capital & Debt Management
   layer — see §17 and [Debt Management](debt-management.md). Sprint 18
   added an Investment / Capital Project Management layer — see §18 and
-  [Investment / Capital Projects](investment-projects.md). **Not** a
-  General Ledger / accounting system itself — that layer lives in
+  [Investment / Capital Projects](investment-projects.md). Sprint 19 added
+  a Financial Decision & Scenario Analysis layer — the capstone, closing
+  sprint of the Finance MVP — see §19/§20 and
+  [Financial Decision & Scenario Analysis](financial-decision-analysis.md).
+  **Not** a General Ledger / accounting system itself — that layer lives in
   `accounting.md`, see §9.
 - **Sprint:** 6 (Sprint 7 added the accounting integration described in §9; Sprint 12
   added Accounts Payable described in §12; Sprint 13 added Reporting described in
@@ -20,7 +23,8 @@
   Cashflow Management & Forecasting described in §15; Sprint 16 added Budgeting &
   Financial Planning described in §16; Sprint 17 added Capital & Debt Management
   described in §17; Sprint 18 added Investment / Capital Project Management
-  described in §18)
+  described in §18; Sprint 19 added Financial Decision & Scenario Analysis,
+  the Finance MVP capstone, described in §19/§20)
 - **Depends on:** [Identity](identity.md) (tenant boundary, `RolesGuard`,
   `OrganisationService` for the currency snapshot), [Sales](sales.md)
   (`SalesOrderRepository`, read-only, via `SalesModule`'s existing export),
@@ -41,10 +45,12 @@
   [Sprint 16 Completion Report](../sprint-16-completion-report.md),
   [Sprint 17 Completion Report](../sprint-17-completion-report.md),
   [Sprint 18 Completion Report](../sprint-18-completion-report.md),
+  [Sprint 19 Completion Report](../sprint-19-completion-report.md),
   [Accounting](accounting.md), [Cash & Bank Management](cash-management.md),
   [Cashflow](cashflow.md), [Budgeting](budgeting.md),
   [Debt Management](debt-management.md),
-  [Investment / Capital Projects](investment-projects.md).
+  [Investment / Capital Projects](investment-projects.md),
+  [Financial Decision & Scenario Analysis](financial-decision-analysis.md).
 
 ## 1. Business Purpose
 
@@ -610,7 +616,7 @@ Unreconciled) rather than being folded into a second, busier dashboard.
 
 ### API Reference (Sprint 14)
 
-See [Accounting](accounting.md) §30 for the full endpoint table (`/finance/cash/
+See [Accounting](accounting.md) §31 for the full endpoint table (`/finance/cash/
 accounts`, `/finance/cash/transactions`, `/finance/cash/bank-statements/*`,
 `/finance/cash/reconciliations/*`, `/finance/cash/overview`).
 
@@ -687,7 +693,7 @@ Items** (management-entered commitments + the Cashflow Settings card), and
 
 ### API Reference (Sprint 15)
 
-See [Accounting](accounting.md) §30 for the full endpoint table (`/finance/
+See [Accounting](accounting.md) §31 for the full endpoint table (`/finance/
 cashflow/settings`, `/finance/cashflow/items`, `/finance/cashflow/scenarios`,
 `/finance/cashflow/adjustments`, `/finance/cashflow/forecast`, `/finance/
 cashflow/accounts/breakdown`).
@@ -751,7 +757,7 @@ and a Scenario Comparison table when siblings exist.
 
 ### API Reference (Sprint 16)
 
-See [Accounting](accounting.md) §30 for the full endpoint table (`/finance/
+See [Accounting](accounting.md) §31 for the full endpoint table (`/finance/
 budgets`, `/finance/budgets/:id/lines`, `/finance/budgets/:id/vs-actual`,
 `/finance/budgets/:id/vs-forecast`, `/finance/cost-centres`).
 
@@ -819,7 +825,7 @@ wording.
 
 ### API Reference (Sprint 17)
 
-See [Accounting](accounting.md) §30 for the full endpoint table
+See [Accounting](accounting.md) §31 for the full endpoint table
 (`/finance/debt/lenders`, `/finance/debt/capital-requirements`,
 `/finance/debt/facilities`, `/finance/debt/facilities/:id/{drawdowns,
 repayments,schedule,preview-impact}`, `/finance/debt/overview`).
@@ -883,7 +889,7 @@ a Timeline (planned vs. actual dates), and an Assumptions section.
 
 ### API Reference (Sprint 18)
 
-See [Accounting](accounting.md) §30 for the full endpoint table
+See [Accounting](accounting.md) §31 for the full endpoint table
 (`/finance/investment/projects`, `/finance/investment/projects/:id/
 {budget-allocation,spending,cost-lines,funding}`, and the lifecycle
 transition routes).
@@ -896,3 +902,77 @@ allocation optimisation, no Purchase Order picker in the cost-line create
 form yet (the backend fully supports it), costs paid outside the
 Procurement→Supplier Invoice chain show no Actual Cost until a supporting
 record exists, and no Gantt chart or project-management functionality.
+
+## 19. Financial Decision & Scenario Analysis (Sprint 19) — Finance MVP Capstone
+
+Sprint 19 is the **capstone, closing sprint of the Finance MVP** — full
+domain writeup in
+[Financial Decision & Scenario Analysis](financial-decision-analysis.md);
+accounting mechanics (or rather, the deliberate lack of any) in
+[Accounting](accounting.md) §30. Summary of the Finance-facing surface:
+
+- **Composes Sprints 13-18, never a second engine.** A `DecisionAnalysis`
+  optionally links an existing `CapitalProject` (inherits its live Planned
+  Cost) and/or an existing `DebtFacility` (inherits its real interest
+  rate/term/repayment schedule via the existing `generateSchedule()`) —
+  never duplicates either.
+- **Two models, zero persisted results.** `DecisionAnalysis` (header +
+  lifecycle) and `DecisionScenario` (raw assumptions) are the only tables;
+  ROI/NPV/IRR/Payback/Break-Even/Sensitivity/Recommendation are computed
+  live on every read, never stored.
+- **Scenario analysis is 100% side-effect-free.** Creating, editing,
+  comparing, or approving a decision never posts a Journal Entry and never
+  mutates any real Cash/Debt/Budget/Capital Project record — proven by
+  `decision-independence.spec.ts`. The Cashflow Impact preview reads the
+  real Cashflow Forecast and overlays a hypothetical delta in memory only.
+- **NPV/IRR are server-authoritative, never a misleading value.** IRR
+  returns `null` ("unavailable") rather than guessing when a cashflow
+  series has zero or multiple sign-change brackets.
+- **The recommendation is rule-based and transparent.** A configurable
+  payback threshold plus a downside (Pessimistic-sibling) shortfall check
+  — never an AI judgement, and the response always carries the specific
+  reasons.
+- **The Finance Overview page gains two small cross-link sections**
+  ("Where Are We Going?", "What Decisions Are Being Considered?"), the
+  same restrained pattern Sprint 14's own Cash & Bank strip established —
+  no new competing "cockpit" route.
+
+### Admin Surface
+
+One new tab on `/settings/finance/*`: **Decisions** (list + a create
+dialog, supports pre-filling from an existing Capital Project). Decision
+detail is its own page (`/settings/finance/decisions/[id]`, not a tab) —
+the 12-section drill-down: Overview, Investment, Funding, Revenue
+Assumptions, Cost Assumptions, Cashflow, Budget Impact, Debt Impact,
+Scenario Comparison, Sensitivity Analysis, Recommendation, Audit History.
+
+### API Reference (Sprint 19)
+
+See [Accounting](accounting.md) §31 for the full endpoint table
+(`/finance/decisions`, `/finance/decisions/:id/scenarios`, the per-scenario
+calculation routes, `/finance/decisions/:id/funding-comparison`, and
+`/finance/decisions/:id/audit`).
+
+### Known Limitations (Sprint 19)
+
+See [Financial Decision & Scenario Analysis](financial-decision-analysis.md)
+§18 for the full list — no AI adviser, no automated loan applications/bank
+integrations, no tax/payroll/fixed-asset engine, no multi-currency/IFRS/
+consolidation, no portfolio/market trading, no universal financial-
+modelling language, sensitivity is one-variable-at-a-time only. **This is
+the closing sprint of the Finance MVP** — see §20 for the completion
+statement.
+
+## 20. Finance MVP Completion Statement (Sprint 19)
+
+The chain from Transaction Recording ([Accounting](accounting.md)) through
+Real Cash ([Cash Management](cash-management.md)), Forward-Looking
+Cashflow ([Cashflow](cashflow.md)), Planning ([Budgeting](budgeting.md)),
+Financing ([Debt Management](debt-management.md)), Investment Planning
+([Investment / Capital Projects](investment-projects.md)), and now
+Financial Decision Analysis is complete — see
+[Sprint 19 Completion Report](../sprint-19-completion-report.md) §15 for
+the full statement. Zentuva Finance should not expand further (payroll,
+tax filing, advanced treasury, multi-currency, IFRS, consolidation,
+fixed-asset depreciation, portfolio trading) without a new, deliberate
+roadmap decision.

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Badge,
@@ -75,6 +76,7 @@ const CANCELLABLE_STATUSES = new Set(['DRAFT', 'PROPOSED', 'UNDER_REVIEW', 'APPR
  */
 export default function CapitalProjectDetailPage({ params }: { params: { id: string } }) {
   const { id } = params;
+  const router = useRouter();
   const queryClient = useQueryClient();
 
   const { data: project } = useQuery({
@@ -125,6 +127,14 @@ export default function CapitalProjectDetailPage({ params }: { params: { id: str
           <Badge variant={CAPITAL_PROJECT_STATUS_VARIANT[project.status]}>
             {CAPITAL_PROJECT_STATUS_LABELS[project.status]}
           </Badge>
+          <Button
+            variant="outline"
+            onClick={() =>
+              router.push(`/settings/finance/decisions?capitalProjectId=${project.id}`)
+            }
+          >
+            Create Decision Analysis
+          </Button>
           {transitions.map((action) => (
             <Button
               key={action.transition}
