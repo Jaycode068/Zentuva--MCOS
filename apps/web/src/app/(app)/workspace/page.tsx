@@ -49,7 +49,7 @@ const MODULE_DESCRIPTIONS: Record<string, string> = {
   '/settings/suppliers': 'The master record of every vendor you buy from.',
   '/settings/inventory': 'Live stock levels and the goods receipts that built them.',
   '/settings/production': 'Bills of materials, production orders, and material issues.',
-  '/assets': 'Manage factory equipment, vehicles and long-term business assets.',
+  '/settings/assets': 'Manage factory equipment, vehicles and long-term business assets.',
   '/maintenance': 'Schedule preventive maintenance and manage equipment servicing.',
   '/settings/sales': 'Sales orders recording customer demand — direct sales, always.',
   '/settings/distribution': 'Dispatch and delivery of already-fulfilled sales orders.',

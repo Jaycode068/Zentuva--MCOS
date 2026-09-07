@@ -57,9 +57,8 @@ export const WORKSPACE_NAV_GROUPS: WorkspaceNavGroup[] = [
       { label: 'Production', href: '/settings/production', icon: FactoryIcon },
       {
         label: 'Asset Register',
-        href: '/assets',
+        href: '/settings/assets',
         icon: AssetIcon,
-        comingSoon: true,
       },
       {
         label: 'Maintenance',
