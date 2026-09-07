@@ -317,10 +317,25 @@ Receivable / CR Sales Revenue` posting (Sprint 6/7): revenue and inventory cost 
   manufacturing operation depends on, and keep them running.
 - **Includes:** Asset Register (equipment, vehicles, and other long-term assets),
   Preventive Maintenance Scheduling, Equipment Servicing History.
-- **Status:** Not started. Placeholder "Coming Soon" navigation entries (Asset Register,
-  Maintenance) were added to the Workspace sidebar and dashboard in Sprint 3.5.1 so the
-  navigation reflects this Epic ahead of its design — no domain design work has happened
-  yet.
+- **Status:** **Asset Register half implemented — Sprint 20 ("Asset Register
+  & Asset Management Foundation")**. A genuinely new top-level domain — not
+  a Product, not an `InventoryStock` row, not a Purchase Order — for the
+  durable physical resources the business owns: tenant-scoped hierarchical
+  Asset Categories; a central `Asset` entity with a server-generated
+  `assetCode` kept separate from an optional user-defined `assetTag`;
+  lifecycle kept strictly separate from physical condition; a
+  self-referencing, cycle-guarded asset hierarchy; a new, purpose-built
+  `AssetLocation` (Inventory's own `InventoryLocation` confirmed
+  unsuitable for reuse); custody via the established plain-id convention;
+  immutable movement history; optional read-only links to Supplier/
+  Purchase Order/Capital Project; a meter/reading foundation; warranty
+  classification; documents/photos via both established file-attachment
+  patterns — and, by construction, zero accounting integration. See
+  [`docs/domains/assets.md`](domains/assets.md). **Preventive Maintenance
+  Scheduling and Equipment Servicing History remain not started** — Sprint
+  20 deliberately leaves only clean, documented integration points for a
+  future Maintenance Management sprint (see assets.md §11), never
+  implementing any maintenance feature itself.
 
 ### Epic 15 — Supplier Management
 
@@ -765,9 +780,13 @@ REJECTED}`) optionally linking an existing `CapitalProject`/
 - ✓ Sprint 18 — Investment / Capital Project Management Foundation
 - ✓ Sprint 19 — Financial Decision, Scenario Analysis & Management
   Financial Cockpit (Finance MVP capstone)
+- ✓ Sprint 20 — Asset Register & Asset Management Foundation
 
 **Current focus:** The Finance MVP (Sprints 6-19) is considered
-functionally complete. Next sprint not yet scoped.
+functionally complete. Sprint 20 opened a new Epic (Asset & Maintenance
+Management, Epic 14) with its Asset Register foundation. Next sprint not
+yet scoped — a natural candidate is the Maintenance Management half of
+Epic 14, building on Sprint 20's documented integration points.
 
 ## 6. Future Ideas (Not Prioritised Yet)
 

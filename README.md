@@ -27,7 +27,14 @@ feature is built configurably so it can be reused by future tenants without code
 > that composes all of the above into ROI/NPV/IRR/Payback/Sensitivity/Funding Comparison and a
 > Management Financial Decision Cockpit, computed live from stored assumptions and never a second
 > accounting/forecast/amortisation engine; scenario analysis is 100% side-effect-free. The Finance
-> MVP, as scoped, is now considered functionally complete. See
+> MVP, as scoped, is now considered functionally complete. Most recently, an Asset Register &
+> Asset Management foundation opened a new top-level domain — not a Product, not an
+> `InventoryStock` row, not a Purchase Order — for the durable physical resources the business
+> owns: tenant-scoped hierarchical Asset Categories, a central `Asset` entity with lifecycle kept
+> strictly separate from physical condition, a self-referencing asset hierarchy, a purpose-built
+> Asset Location, immutable movement history, and optional read-only links to Supplier/Purchase
+> Order/Capital Project — zero accounting integration, by construction, and explicitly the
+> foundation a future Maintenance Management domain will build on. See
 > [docs/domains/README.md](docs/domains/README.md) for the current status of every domain and
 > [docs/roadmap.md](docs/roadmap.md) for the full build order.
 

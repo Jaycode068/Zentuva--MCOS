@@ -229,7 +229,7 @@ APPROVED → ACTIVE → PARTIALLY_REPAID → PAID_OFF`) → `DebtDrawdown`/
 - [x] Investment / Capital Project Management — foundation shipped Sprint 18
       ("Investment / Capital Project Management Foundation"). A
       `CapitalProject` (`DRAFT → PROPOSED → UNDER_REVIEW → APPROVED → ACTIVE
-  → COMPLETED`, plus `ON_HOLD`/`CANCELLED`) whose Planned Cost is always
+→ COMPLETED`, plus `ON_HOLD`/`CANCELLED`) whose Planned Cost is always
       the server-computed sum of its own cost lines, never a stored total;
       Committed/Actual Cost derived live from an optionally-linked Purchase
       Order (one new nullable FK, zero changes to Procurement itself) and
@@ -267,6 +267,28 @@ APPROVED → ACTIVE → PARTIALLY_REPAID → PAID_OFF`) → `DebtDrawdown`/
       record. The Finance MVP, as scoped, is now considered functionally
       complete — see
       [`docs/domains/financial-decision-analysis.md`](domains/financial-decision-analysis.md)
+- [x] Asset Register — foundation shipped Sprint 20 ("Asset Register &
+      Asset Management Foundation"), opening Epic 14 (Asset & Maintenance
+      Management). A genuinely new top-level domain — not a Product, not
+      an `InventoryStock` row, not a Purchase Order — for the durable
+      physical resources the business owns: tenant-scoped hierarchical
+      Asset Categories; a central `Asset` entity (server-generated
+      `assetCode`, separate optional user-defined `assetTag`); lifecycle
+      kept strictly separate from physical condition; a self-referencing,
+      cycle-guarded asset hierarchy; a new, purpose-built `AssetLocation`
+      (Inventory's own `InventoryLocation` confirmed unsuitable for
+      reuse); custody via the established plain-id convention, no new HR
+      model; immutable movement history; optional read-only links to
+      Supplier/Purchase Order/Capital Project; a meter/reading foundation
+      (manual entry, no IoT); warranty Active/Expired/None classification,
+      no claims workflow; documents/photos via both established
+      file-attachment patterns. **Zero accounting integration, by
+      construction** — proven by `asset-independence.spec.ts`. Explicitly
+      the foundation a future Maintenance Management sprint will build on
+      — no preventive/corrective maintenance, work orders, downtime,
+      spare-parts consumption, or maintenance costing was implemented, only
+      documented integration points — see
+      [`docs/domains/assets.md`](domains/assets.md)
 
 ## Phase 3 — Extended Experiences
 

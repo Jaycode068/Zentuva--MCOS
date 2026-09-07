@@ -221,6 +221,12 @@ rather than an arbitrary-precision `Decimal` type.
   `GET /finance/accounts-payable/purchase-orders/:id`) sits alongside, not merged
   into, this domain's own Receiving Summary — two domains' read models shown together,
   neither reading the other's tables.
+- **Asset Register** ([assets.md](assets.md), Sprint 20) — an `Asset` may
+  optionally reference the `PurchaseOrder` it was acquired against
+  (`Asset.purchaseOrderId`), read-only via the exported
+  `PurchaseOrderRepository` (the same ADR-002 shape as every integration
+  above) — Procurement gains no write path from this, and no new field or
+  table was added to Procurement itself.
 
 ## 7. API Reference
 

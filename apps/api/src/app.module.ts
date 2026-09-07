@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 
+import { AssetsModule } from './assets/assets.module';
 import { ProductModule } from './catalogue/product/product.module';
 import { ProductFamilyModule } from './catalogue/product-family/product-family.module';
 import { ProductVariantModule } from './catalogue/product-variant/product-variant.module';
@@ -55,6 +56,7 @@ import { SupplierModule } from './suppliers/supplier/supplier.module';
     SalesModule,
     DistributionModule,
     FinanceModule,
+    AssetsModule,
   ],
 })
 export class AppModule {}

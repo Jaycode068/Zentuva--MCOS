@@ -1077,6 +1077,40 @@ getBudgetAllocation()` (Sprint 18) are all reused unmodified.
   existing enum needed a new value (the Cashflow Impact overlay is never
   persisted, so `CashflowForecastSourceType` needed nothing new this time).
 
+## 30a. Asset Register & Asset Management (Sprint 20) — a Future Fixed-Asset Boundary, Not Yet Crossed
+
+Sprint 20 introduces `Asset` as a new top-level domain — see
+[Asset Register & Asset Management](assets.md) for the full domain
+writeup. As with every layer above: **there are no accounting mechanics
+here at all**.
+
+- **Registering, updating, transitioning, or transferring an `Asset` never
+  calls `postSystemJournalEntry`, ever** — asserted structurally by
+  `asset-independence.spec.ts`. The actual purchase already flows through
+  the existing Procurement → Goods Receipt → Supplier Invoice → Payment
+  chain (or the existing Investment/Capital Project chain); Asset only
+  optionally references those chains' own records, read-only.
+- **`acquisitionCost` is a plain recorded fact, not a ledger figure** — the
+  Asset Overview dashboard's "Total Acquisition Value" is explicitly a sum
+  of recorded costs, never labeled or reconciled as an accounting balance.
+- **No Fixed Asset / PP&E account exists in the seeded Chart of Accounts**,
+  and none was added this sprint — `usefulLifeMonths`/`salvageValue` are
+  captured as raw inputs only; **no depreciation schedule is computed,
+  stored, or displayed anywhere**.
+- **This is a deliberately-documented future integration boundary, not an
+  oversight**: a future Fixed-Asset accounting module (asset
+  capitalisation journal entries, depreciation posting, disposal
+  gain/loss recognition) would be a new, separate, deliberate integration
+  decision — Sprint 20 exists specifically so that decision has a clean,
+  already-tenant-scoped `Asset` registry to build against, without forcing
+  premature accounting complexity onto a foundation sprint.
+- **Zero new `SYSTEM_ACCOUNT_KEYS`, zero schema changes to any existing
+  model** — the seven new models (`AssetCategory`, `AssetLocation`,
+  `Asset`, `AssetDocument`, `AssetMovement`, `AssetMeter`,
+  `AssetMeterReading`) are wholly new tables with only new back-relations
+  added elsewhere (`Organisation`, `CapitalProject`, `PurchaseOrder`,
+  `Supplier`).
+
 ## 31. API Reference
 
 | Endpoint                                                                                                              | Auth                | Notes                                                                                         |

@@ -227,6 +227,18 @@ NPV, IRR, payback period, break-even, scenario comparison, sensitivity
 analysis, and financing-alternative comparison — none of which Sprint 18
 calculates.
 
+## 11a. Asset Register Integration (Sprint 20)
+
+Sprint 20 added a new, read-only consumer of `CapitalProject`: an `Asset`
+may optionally carry `capitalProjectId`, referencing the project it was
+acquired through (e.g. a machine purchased as part of "Plantain Chips
+Production Line Expansion"). This is a genuine Prisma `@relation`, but
+resolved via a narrow, documented direct-Prisma reach inside
+`AssetRepository` rather than a `FinanceModule` import (`FinanceModule`
+exports nothing at all) — see [Asset Register & Asset Management
+](assets.md) §3. Investment gains no write path from this, and no field or
+behaviour of `CapitalProject` itself changed.
+
 ## 12. Known Limitations / Non-Goals
 
 - **No investment-decision engine** — no NPV, IRR, ROI, payback, sensitivity

@@ -7,6 +7,89 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 20 Asset Register & Asset Management Foundation] - 2026-09-07
+
+**A genuinely new top-level domain, opening Epic 14 (Asset & Maintenance
+Management).**
+
+### Added
+
+- **`Asset` (new domain, `apps/api/src/assets/`) — the register of every
+  physical resource the business owns, leases, or controls.** Not a
+  Product, not an `InventoryStock` row, not a Purchase Order — a durable
+  resource with its own lifecycle, even when acquired through
+  Procurement/Capital Project.
+- **Tenant-scoped, hierarchical Asset Categories** — user-creatable, never
+  hard-coded; self-referencing `parentCategoryId`, cycle-guarded.
+- **A server-generated `assetCode` (`AST-000001`, ...), unique and
+  immutable per organisation, kept separate from an optional user-defined
+  `assetTag`** — the exact `CapitalProjectRepository` code-generation
+  template reused.
+- **Lifecycle (`DRAFT/ACTIVE/IN_SERVICE/UNDER_MAINTENANCE/OUT_OF_SERVICE/
+DISPOSED/RETIRED`) kept strictly separate from physical condition
+  (`NEW/GOOD/FAIR/POOR/CRITICAL`)** — two independent fields, never one
+  conflated column. `DISPOSED`/`RETIRED` are hard-terminal, a deliberate
+  deviation from this codebase's usual soft-idempotent-transition
+  convention.
+- **A self-referencing, cycle-guarded asset hierarchy** (`parentAssetId`)
+  for composite/component structures (e.g. a production line and its own
+  machines), sharing one `assertNoHierarchyCycle` helper with Category and
+  Location.
+- **A new, purpose-built `AssetLocation`** (Site → Area hierarchy) — not a
+  reuse of Inventory's own `InventoryLocation`, confirmed via direct
+  inspection to be narrowly stock-holding-specific and unsuitable.
+- **Custody via the established plain-id "no relation" convention**
+  (`custodianId`, matching `CapitalProject.ownerId`) — no new Employee/HR
+  model. A new `GET /assets/custodians` endpoint wraps the existing
+  `UserService.listByOrganisation()` for a genuine name-based picker.
+- **Immutable `AssetMovement` history** — one `POST /assets/:id/transfer`
+  endpoint atomically updates current location/custodian and inserts one
+  append-only movement row capturing both previous and new state.
+- **Optional, read-only acquisition references to Supplier/Purchase
+  Order/Capital Project** — never duplicating those entities' own data.
+  The Capital Project reference is resolved via a narrow, documented
+  direct-Prisma reach (`AssetRepository.findCapitalProjectRef()`), never a
+  `FinanceModule` import.
+- **A meter/reading foundation** (`AssetMeter`/`AssetMeterReading`) —
+  cumulative, manually-entered readings; a new reading below the current
+  value is rejected.
+- **Warranty Active/Expired/No-Warranty classification** — a simple date
+  comparison, no claims management.
+- **Documents & photos via both established file-attachment patterns,
+  unchanged** — a single cover-photo scalar pair (`Product.imageUrl`
+  template) and a dedicated multi-file `AssetDocument` table (the
+  `OutletPhoto` shape).
+- **Zero accounting integration, by construction** — registering,
+  updating, transitioning, or transferring an Asset never calls
+  `postSystemJournalEntry` and never writes to any Finance/Inventory/
+  Sales/Production/Distribution table, proven executably by
+  `asset-independence.spec.ts`.
+- **Admin surface** — a new "Asset Register" workspace at
+  `/settings/assets` with four lean tabs (Overview, Assets, Categories,
+  Locations); a 9-section asset detail page (Overview, Identification,
+  Acquisition, Warranty, Hierarchy, Meter, Movement History, Documents,
+  Audit History); a lightweight Overview dashboard (status/condition/
+  category/location breakdowns, warranties nearing expiry, total recorded
+  acquisition value — explicitly never labeled an accounting balance).
+- **Realistic Boby Bites seed data** — 11 categories, 7 locations (Ibadan
+  Factory + 6 areas), 17 assets including a Production Line A hierarchy
+  (3 children), an Industrial Air Compressor (linked Supplier + Purchase
+  Order + warranty + meter readings), and an Industrial Plantain Slicer
+  (linked to the existing Capital Project) — fully idempotent.
+- **46 new tests** (`hierarchy-guard.spec.ts`, `asset.repository.spec.ts`,
+  `asset-meter.repository.spec.ts`, `asset.service.spec.ts`,
+  `asset-category.service.spec.ts`, `asset-location.service.spec.ts`,
+  `asset-independence.spec.ts`) — full backend suite now **143 suites /
+  1197 tests, all passing** (up from 136/1151).
+
+See [`docs/domains/assets.md`](domains/assets.md) and
+[`docs/sprint-20-completion-report.md`](sprint-20-completion-report.md)
+for the full record. This sprint deliberately implements no maintenance
+feature of any kind (preventive/corrective maintenance, work orders,
+downtime, spare-parts consumption, technician management, maintenance
+costing) — only documented integration points for a future Maintenance
+Management sprint.
+
 ## [Sprint 19 Financial Decision, Scenario Analysis & Management Financial Cockpit] - 2026-09-01
 
 **The capstone, closing sprint of the Finance MVP.**

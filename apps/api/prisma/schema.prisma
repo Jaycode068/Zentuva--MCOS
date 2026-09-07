@@ -194,6 +194,15 @@ model Organisation {
   /// Added Sprint 19 — Financial Decision & Scenario Analysis
   /// (docs/domains/financial-decision-analysis.md).
   decisionAnalyses                  DecisionAnalysis[]
+  /// Added Sprint 20 — Asset Register & Asset Management Foundation
+  /// (docs/domains/assets.md).
+  assetCategories                   AssetCategory[]
+  assetLocations                    AssetLocation[]
+  assets                            Asset[]
+  assetDocuments                    AssetDocument[]
+  assetMovements                    AssetMovement[]
+  assetMeters                       AssetMeter[]
+  assetMeterReadings                AssetMeterReading[]
 
   @@map("organisations")
 }
@@ -695,6 +704,9 @@ model Supplier {
   supplierInvoices SupplierInvoice[]
   supplierPayments SupplierPayment[]
   supplierCreditNotes SupplierCreditNote[]
+  /// Added Sprint 20 — Asset Register (docs/domains/assets.md). Read-only
+  /// reference — an Asset may record which Supplier it was acquired from.
+  assets Asset[]
 
   @@index([organisationId])
   @@index([organisationId, status])
@@ -775,6 +787,10 @@ model PurchaseOrder {
   /// `CapitalProjectCostLine`, not here; Procurement's own code never
   /// references Investment.
   capitalProjectCostLines CapitalProjectCostLine[]
+  /// Added Sprint 20 — Asset Register (docs/domains/assets.md). Read-only
+  /// reference — an Asset may record which Purchase Order it was acquired
+  /// through; Procurement's own code never references Assets.
+  assets Asset[]
 
   @@index([organisationId])
   @@index([organisationId, status])
@@ -4239,6 +4255,11 @@ model CapitalProject {
   /// read-only, inheriting its live plannedCost/budget allocation rather
   /// than duplicating them (docs/domains/financial-decision-analysis.md).
   decisionAnalyses   DecisionAnalysis[]
+  /// Added Sprint 20 — an `Asset` acquired via this project may reference
+  /// it read-only (docs/domains/assets.md). A pure DB-level FK — the
+  /// Asset domain never imports FinanceModule to read it (see
+  /// asset-independence.spec.ts).
+  assets             Asset[]
 
   @@unique([organisationId, projectCode])
   @@unique([organisationId, idempotencyKey])
@@ -4445,4 +4466,298 @@ model DecisionScenario {
   @@unique([decisionAnalysisId, name])
   @@unique([decisionAnalysisId, idempotencyKey])
   @@map("decision_scenarios")
+}
+
+/// Sprint 20 — Asset Register & Asset Management Foundation (docs/domains/
+/// assets.md). A tenant-scoped system of record for durable physical
+/// resources (machinery, vehicles, equipment) — never a Product, never
+/// InventoryStock, never a second accounting system. Explicitly the
+/// foundation Sprint 21 (Maintenance Management) builds on; this domain
+/// never posts a Journal Entry (proven by asset-independence.spec.ts) and
+/// never implements maintenance/depreciation itself.
+enum AssetCategoryStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum AssetLocationStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum AssetStatus {
+  DRAFT
+  ACTIVE
+  IN_SERVICE
+  UNDER_MAINTENANCE
+  OUT_OF_SERVICE
+  DISPOSED
+  RETIRED
+}
+
+/// Physical condition — deliberately a separate field from `AssetStatus`
+/// (lifecycle). Freely settable at any time, never part of the transition
+/// graph.
+enum AssetCondition {
+  NEW
+  GOOD
+  FAIR
+  POOR
+  CRITICAL
+}
+
+enum AssetAcquisitionType {
+  PURCHASE
+  CAPITAL_PROJECT
+  TRANSFER
+  DONATION
+  LEASE
+  OTHER
+}
+
+enum AssetDocumentType {
+  PHOTO
+  INVOICE
+  WARRANTY_DOCUMENT
+  MANUAL
+  CERTIFICATE
+  REGISTRATION
+  OTHER
+}
+
+enum AssetMeterType {
+  HOURS
+  KILOMETERS
+  CYCLES
+  UNITS
+  OTHER
+}
+
+/// A tenant-defined taxonomy for assets (e.g. "Production Machinery,"
+/// "Vehicles") — never hard-coded into application logic. Supports an
+/// optional parent for a simple two/three-level hierarchy, the same
+/// self-referencing shape `Asset.parentAssetId` itself uses.
+model AssetCategory {
+  id               String              @id @default(cuid())
+  organisationId   String
+  code             String
+  name             String
+  description      String?
+  parentCategoryId String?
+  status           AssetCategoryStatus @default(ACTIVE)
+  createdById      String?
+  updatedById      String?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  organisation   Organisation    @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  parentCategory AssetCategory?  @relation("AssetCategoryHierarchy", fields: [parentCategoryId], references: [id], onDelete: SetNull)
+  childCategories AssetCategory[] @relation("AssetCategoryHierarchy")
+  assets         Asset[]
+
+  @@unique([organisationId, code])
+  @@index([organisationId, status])
+  @@map("asset_categories")
+}
+
+/// A physical place an asset can be found — deliberately a new, purpose-
+/// built model rather than reusing `InventoryLocation` (which is narrowly
+/// stock-holding-specific — see docs/domains/assets.md "Why Not
+/// InventoryLocation"). Supports a Site → Area hierarchy (e.g. "Ibadan
+/// Factory" → "Production Hall").
+model AssetLocation {
+  id               String              @id @default(cuid())
+  organisationId   String
+  name             String
+  parentLocationId String?
+  status           AssetLocationStatus @default(ACTIVE)
+  createdById      String?
+  updatedById      String?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  organisation   Organisation    @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  parentLocation AssetLocation?  @relation("AssetLocationHierarchy", fields: [parentLocationId], references: [id], onDelete: SetNull)
+  childLocations AssetLocation[] @relation("AssetLocationHierarchy")
+  assets         Asset[]
+
+  @@unique([organisationId, name])
+  @@index([organisationId, status])
+  @@map("asset_locations")
+}
+
+/// The central Asset register row. `assetCode` is server-generated
+/// (`AST-000001`, immutable); `assetTag` is a separate, optional,
+/// user-defined field for physical labelling. `status` (lifecycle) and
+/// `condition` (physical state) are deliberately separate fields — see
+/// docs/domains/assets.md "Lifecycle vs. Condition". `custodianId` is a
+/// plain id with no FK relation — the `CapitalProject.ownerId` convention
+/// (docs/domains/investment-projects.md). `supplierId`/`purchaseOrderId`/
+/// `capitalProjectId` are all optional, read-only references — this
+/// domain never mutates any of them.
+model Asset {
+  id                    String                @id @default(cuid())
+  organisationId        String
+  assetCode             String
+  assetTag              String?
+  name                  String
+  description           String?
+  categoryId            String
+  parentAssetId         String?
+  status                AssetStatus           @default(DRAFT)
+  condition             AssetCondition        @default(NEW)
+  serialNumber          String?
+  manufacturer          String?
+  model                 String?
+  yearOfManufacture     Int?
+  locationId            String?
+  /// Plain id, no FK relation — same convention as `CapitalProject.ownerId`.
+  custodianId           String?
+  acquisitionType       AssetAcquisitionType  @default(PURCHASE)
+  acquisitionDate       DateTime?
+  inServiceDate         DateTime?
+  acquisitionCost       Float?
+  currency              String                @default("NGN")
+  supplierId            String?
+  purchaseOrderId       String?
+  capitalProjectId      String?
+  warrantyStartDate     DateTime?
+  warrantyEndDate       DateTime?
+  warrantyProvider      String?
+  warrantyReference     String?
+  warrantyNotes         String?
+  /// Foundation only — no depreciation is calculated from these fields
+  /// this sprint (docs/domains/assets.md "Acquisition Cost / Valuation").
+  usefulLifeMonths      Int?
+  salvageValue          Float?
+  notes                 String?
+  imageUrl              String?
+  imageKey              String?
+  idempotencyKey        String?
+  createdById           String?
+  updatedById           String?
+  activatedAt           DateTime?
+  commissionedAt        DateTime?
+  disposedAt            DateTime?
+  retiredAt             DateTime?
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+
+  organisation   Organisation    @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  category       AssetCategory   @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  parentAsset    Asset?          @relation("AssetHierarchy", fields: [parentAssetId], references: [id], onDelete: SetNull)
+  childAssets    Asset[]         @relation("AssetHierarchy")
+  location       AssetLocation?  @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  supplier       Supplier?       @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  purchaseOrder  PurchaseOrder?  @relation(fields: [purchaseOrderId], references: [id], onDelete: SetNull)
+  capitalProject CapitalProject? @relation(fields: [capitalProjectId], references: [id], onDelete: SetNull)
+  documents      AssetDocument[]
+  movements      AssetMovement[]
+  meters         AssetMeter[]
+
+  @@unique([organisationId, assetCode])
+  @@unique([organisationId, assetTag])
+  @@unique([organisationId, idempotencyKey])
+  @@index([organisationId, status])
+  @@index([organisationId, categoryId])
+  @@index([organisationId, locationId])
+  @@map("assets")
+}
+
+/// A file attached to an asset — invoice, warranty document, manual,
+/// certificate, additional photos. Mirrors `OutletPhoto`'s exact shape
+/// (Sprint 4.8), the established "one row per file" pattern for entities
+/// needing more than one attached file. The `Asset.imageUrl`/`imageKey`
+/// pair above covers the single primary cover photo separately.
+model AssetDocument {
+  id             String            @id @default(cuid())
+  organisationId String
+  assetId        String
+  documentType   AssetDocumentType
+  url            String
+  key            String
+  fileName       String?
+  caption        String?
+  createdById    String?
+  createdAt      DateTime          @default(now())
+
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  asset        Asset        @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@index([organisationId])
+  @@index([assetId])
+  @@map("asset_documents")
+}
+
+/// Immutable log of every location/custodian change — never updated or
+/// deleted. The current `Asset.locationId`/`custodianId` represent the
+/// current state; this table represents what happened, over time.
+model AssetMovement {
+  id                  String    @id @default(cuid())
+  organisationId      String
+  assetId             String
+  previousLocationId  String?
+  newLocationId       String?
+  previousCustodianId String?
+  newCustodianId      String?
+  reason              String?
+  notes               String?
+  effectiveAt         DateTime  @default(now())
+  performedById       String?
+  idempotencyKey      String?
+  createdAt           DateTime  @default(now())
+
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  asset        Asset        @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@unique([organisationId, idempotencyKey])
+  @@index([assetId])
+  @@map("asset_movements")
+}
+
+/// A meter definition on an asset (e.g. "Operating Hours," "Odometer") —
+/// `currentReading`/`lastReadingDate` are a same-transaction-maintained
+/// mirror of the latest `AssetMeterReading`, never independently writable.
+/// An asset may have more than one *different* meter type, never two of
+/// the same type.
+model AssetMeter {
+  id              String         @id @default(cuid())
+  organisationId  String
+  assetId         String
+  meterType       AssetMeterType
+  unit            String
+  currentReading  Float          @default(0)
+  lastReadingDate DateTime?
+  createdById     String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  organisation Organisation        @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  asset        Asset               @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  readings     AssetMeterReading[]
+
+  @@unique([assetId, meterType])
+  @@map("asset_meters")
+}
+
+/// Immutable meter-reading log — a reading below the meter's own current
+/// reading is rejected at the service layer (meters are cumulative), never
+/// silently accepted.
+model AssetMeterReading {
+  id             String    @id @default(cuid())
+  organisationId String
+  meterId        String
+  reading        Float
+  readingDate    DateTime  @default(now())
+  recordedById   String?
+  notes          String?
+  idempotencyKey String?
+  createdAt      DateTime  @default(now())
+
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  meter        AssetMeter   @relation(fields: [meterId], references: [id], onDelete: Cascade)
+
+  @@unique([organisationId, idempotencyKey])
+  @@index([meterId])
+  @@map("asset_meter_readings")
 }

@@ -4933,6 +4933,342 @@ async function seedDecisionAnalysisFixtures(
   });
 }
 
+/** Sprint 20 — Asset Register & Asset Management Foundation (docs/domains/
+ *  assets.md). Idempotency-gated on the "Production Line A" `Asset`
+ *  already existing. A new, purpose-built `AssetLocation` hierarchy
+ *  (never `InventoryLocation`), a tenant-defined `AssetCategory`
+ *  taxonomy, and a realistic Boby Bites asset register: a parent/child
+ *  production line, a compressor with a real Supplier/Purchase Order
+ *  link and an Operating-Hours meter with reading history, an asset
+ *  acquired via the existing Sprint 18 Capital Project, and a delivery
+ *  van with an Odometer meter. Posts zero Journal Entries — this domain
+ *  never accounts for anything itself. */
+async function seedAssetFixtures(organisationId: string, actorUserId: string): Promise<void> {
+  console.log('Seeding Asset Register & Asset Management fixtures...');
+
+  const existing = await prisma.asset.findFirst({
+    where: { organisationId, name: 'Production Line A' },
+  });
+  if (existing) {
+    return;
+  }
+
+  const capitalProject = await prisma.capitalProject.findFirstOrThrow({
+    where: { organisationId, name: 'Plantain Chips Production Line Expansion' },
+  });
+  const equipmentSupplier = await prisma.supplier.findFirstOrThrow({
+    where: { organisationId, supplierCode: 'SUP-000003' },
+  });
+  const equipmentPurchaseOrder = await prisma.purchaseOrder.findFirstOrThrow({
+    where: { organisationId, purchaseOrderNumber: 'PO-000003' },
+  });
+
+  const categoryDefs = [
+    { code: 'PROD-MACH', name: 'Production Machinery' },
+    { code: 'PACK-EQUIP', name: 'Packaging Equipment' },
+    { code: 'UTIL-EQUIP', name: 'Utility Equipment' },
+    { code: 'VEHICLES', name: 'Vehicles' },
+    { code: 'IT-EQUIP', name: 'IT Equipment' },
+    { code: 'OFFICE-EQUIP', name: 'Office Equipment' },
+    { code: 'WARE-EQUIP', name: 'Warehouse Equipment' },
+    { code: 'FURNITURE', name: 'Furniture & Fixtures' },
+    { code: 'POWER-EQUIP', name: 'Power Equipment' },
+    { code: 'WATER-EQUIP', name: 'Water Treatment Equipment' },
+    { code: 'OTHER', name: 'Other' },
+  ] as const;
+  const categoriesByCode: Record<string, { id: string }> = {};
+  for (const def of categoryDefs) {
+    categoriesByCode[def.code] = await prisma.assetCategory.create({
+      data: { organisationId, code: def.code, name: def.name, createdById: actorUserId },
+    });
+  }
+
+  const ibadanFactory = await prisma.assetLocation.create({
+    data: { organisationId, name: 'Ibadan Factory', createdById: actorUserId },
+  });
+  const locationDefs = [
+    'Production Hall',
+    'Utility Area',
+    'Warehouse',
+    'Maintenance Area',
+    'Office',
+    'Vehicle Yard',
+  ] as const;
+  const locationsByName: Record<string, { id: string }> = {};
+  for (const name of locationDefs) {
+    locationsByName[name] = await prisma.assetLocation.create({
+      data: { organisationId, name, parentLocationId: ibadanFactory.id, createdById: actorUserId },
+    });
+  }
+
+  let assetSequence = 1;
+  const nextAssetCode = () => `AST-${String(assetSequence++).padStart(6, '0')}`;
+
+  const productionLineA = await prisma.asset.create({
+    data: {
+      organisationId,
+      assetCode: nextAssetCode(),
+      name: 'Production Line A',
+      description:
+        'The plantain chips production line — frying, conveying, and packaging as one system.',
+      categoryId: categoriesByCode['PROD-MACH']!.id,
+      status: 'IN_SERVICE',
+      condition: 'GOOD',
+      locationId: locationsByName['Production Hall']!.id,
+      acquisitionType: 'OTHER',
+      currency: 'NGN',
+      createdById: actorUserId,
+      activatedAt: new Date('2024-01-15'),
+      commissionedAt: new Date('2024-02-01'),
+    },
+  });
+
+  const childAssetDefs = [
+    { name: 'Frying Machine', manufacturer: 'Fry-Tech Industries', model: 'FT-500' },
+    { name: 'Conveyor', manufacturer: 'BeltLine Systems', model: 'BL-200' },
+    { name: 'Packaging Machine', manufacturer: 'PackRight Machines', model: 'PR-100' },
+  ] as const;
+  for (const def of childAssetDefs) {
+    await prisma.asset.create({
+      data: {
+        organisationId,
+        assetCode: nextAssetCode(),
+        name: def.name,
+        manufacturer: def.manufacturer,
+        model: def.model,
+        categoryId: categoriesByCode['PROD-MACH']!.id,
+        parentAssetId: productionLineA.id,
+        status: 'IN_SERVICE',
+        condition: 'GOOD',
+        locationId: locationsByName['Production Hall']!.id,
+        acquisitionType: 'OTHER',
+        currency: 'NGN',
+        createdById: actorUserId,
+        activatedAt: new Date('2024-01-15'),
+        commissionedAt: new Date('2024-02-01'),
+      },
+    });
+  }
+
+  const standaloneAssetDefs = [
+    {
+      name: 'Potato Chips Fryer',
+      categoryCode: 'PROD-MACH',
+      locationName: 'Production Hall',
+      manufacturer: 'Fry-Tech Industries',
+    },
+    {
+      name: 'Groundnut Roasting Machine',
+      categoryCode: 'PROD-MACH',
+      locationName: 'Production Hall',
+      manufacturer: 'Roast Masters Ltd',
+    },
+    {
+      name: 'Kuli-Kuli Production Machine',
+      categoryCode: 'PROD-MACH',
+      locationName: 'Production Hall',
+      manufacturer: 'Roast Masters Ltd',
+    },
+    {
+      name: 'Generator',
+      categoryCode: 'POWER-EQUIP',
+      locationName: 'Utility Area',
+      manufacturer: 'PowerGen Nigeria',
+    },
+    {
+      name: 'Water Treatment System',
+      categoryCode: 'WATER-EQUIP',
+      locationName: 'Utility Area',
+      manufacturer: 'AquaPure Systems',
+    },
+    {
+      name: 'Water Pump',
+      categoryCode: 'WATER-EQUIP',
+      locationName: 'Utility Area',
+      manufacturer: 'AquaPure Systems',
+    },
+    {
+      name: 'Forklift',
+      categoryCode: 'WARE-EQUIP',
+      locationName: 'Warehouse',
+      manufacturer: 'LiftMaster',
+    },
+    {
+      name: 'Pallet Truck',
+      categoryCode: 'WARE-EQUIP',
+      locationName: 'Warehouse',
+      manufacturer: 'LiftMaster',
+    },
+    {
+      name: 'Production Office Laptop',
+      categoryCode: 'IT-EQUIP',
+      locationName: 'Office',
+      manufacturer: 'Dell',
+    },
+    {
+      name: 'Office Printer',
+      categoryCode: 'OFFICE-EQUIP',
+      locationName: 'Office',
+      manufacturer: 'HP',
+    },
+  ] as const;
+  for (const def of standaloneAssetDefs) {
+    await prisma.asset.create({
+      data: {
+        organisationId,
+        assetCode: nextAssetCode(),
+        name: def.name,
+        manufacturer: def.manufacturer,
+        categoryId: categoriesByCode[def.categoryCode]!.id,
+        locationId: locationsByName[def.locationName]!.id,
+        status: 'IN_SERVICE',
+        condition: 'GOOD',
+        acquisitionType: 'PURCHASE',
+        currency: 'NGN',
+        createdById: actorUserId,
+        activatedAt: new Date('2024-03-01'),
+        commissionedAt: new Date('2024-03-05'),
+      },
+    });
+  }
+
+  // Industrial Air Compressor — real Supplier + Purchase Order link,
+  // warranty, and an Operating Hours meter with reading history.
+  const compressor = await prisma.asset.create({
+    data: {
+      organisationId,
+      assetCode: nextAssetCode(),
+      assetTag: 'BB-UTIL-001',
+      name: 'Industrial Air Compressor',
+      description: 'Supplies compressed air for pneumatic packaging equipment.',
+      categoryId: categoriesByCode['UTIL-EQUIP']!.id,
+      status: 'IN_SERVICE',
+      condition: 'GOOD',
+      manufacturer: 'AirFlow Industrial',
+      model: 'AF-750',
+      yearOfManufacture: 2023,
+      locationId: locationsByName['Utility Area']!.id,
+      acquisitionType: 'PURCHASE',
+      acquisitionDate: new Date('2024-01-10'),
+      inServiceDate: new Date('2024-01-20'),
+      acquisitionCost: 3_500_000,
+      currency: 'NGN',
+      supplierId: equipmentSupplier.id,
+      purchaseOrderId: equipmentPurchaseOrder.id,
+      warrantyStartDate: new Date('2024-01-20'),
+      warrantyEndDate: new Date('2027-01-20'),
+      warrantyProvider: 'AirFlow Industrial',
+      warrantyReference: 'WAR-AF750-2024-018',
+      usefulLifeMonths: 96,
+      salvageValue: 350_000,
+      createdById: actorUserId,
+      activatedAt: new Date('2024-01-10'),
+      commissionedAt: new Date('2024-01-20'),
+    },
+  });
+
+  const compressorMeter = await prisma.assetMeter.create({
+    data: {
+      organisationId,
+      assetId: compressor.id,
+      meterType: 'HOURS',
+      unit: 'hours',
+      currentReading: 4_320,
+      lastReadingDate: new Date('2026-08-15'),
+      createdById: actorUserId,
+    },
+  });
+  await prisma.assetMeterReading.create({
+    data: {
+      organisationId,
+      meterId: compressorMeter.id,
+      reading: 4_000,
+      readingDate: new Date('2026-06-15'),
+      recordedById: actorUserId,
+    },
+  });
+  await prisma.assetMeterReading.create({
+    data: {
+      organisationId,
+      meterId: compressorMeter.id,
+      reading: 4_320,
+      readingDate: new Date('2026-08-15'),
+      recordedById: actorUserId,
+    },
+  });
+
+  // Industrial Plantain Slicer — acquired via the existing Sprint 18
+  // Capital Project, brief's own worked example (docs/domains/assets.md
+  // §9 "Acquisition Information").
+  await prisma.asset.create({
+    data: {
+      organisationId,
+      assetCode: nextAssetCode(),
+      name: 'Industrial Plantain Slicer',
+      description: 'High-throughput slicer feeding the expanded production line.',
+      categoryId: categoriesByCode['PROD-MACH']!.id,
+      status: 'ACTIVE',
+      condition: 'NEW',
+      manufacturer: 'SliceTech Africa',
+      model: 'ST-900',
+      yearOfManufacture: 2026,
+      locationId: locationsByName['Production Hall']!.id,
+      acquisitionType: 'CAPITAL_PROJECT',
+      acquisitionDate: new Date('2026-11-01'),
+      acquisitionCost: 12_000_000,
+      currency: 'NGN',
+      capitalProjectId: capitalProject.id,
+      usefulLifeMonths: 120,
+      createdById: actorUserId,
+      activatedAt: new Date('2026-11-01'),
+    },
+  });
+
+  // Delivery Van — its own Odometer meter.
+  const deliveryVan = await prisma.asset.create({
+    data: {
+      organisationId,
+      assetCode: nextAssetCode(),
+      assetTag: 'BB-VEH-001',
+      name: 'Delivery Van',
+      manufacturer: 'Toyota',
+      model: 'Hiace',
+      yearOfManufacture: 2022,
+      categoryId: categoriesByCode['VEHICLES']!.id,
+      status: 'IN_SERVICE',
+      condition: 'GOOD',
+      locationId: locationsByName['Vehicle Yard']!.id,
+      acquisitionType: 'PURCHASE',
+      acquisitionDate: new Date('2022-06-01'),
+      acquisitionCost: 18_000_000,
+      currency: 'NGN',
+      createdById: actorUserId,
+      activatedAt: new Date('2022-06-01'),
+      commissionedAt: new Date('2022-06-10'),
+    },
+  });
+  const vanMeter = await prisma.assetMeter.create({
+    data: {
+      organisationId,
+      assetId: deliveryVan.id,
+      meterType: 'KILOMETERS',
+      unit: 'km',
+      currentReading: 128_500,
+      lastReadingDate: new Date('2026-08-20'),
+      createdById: actorUserId,
+    },
+  });
+  await prisma.assetMeterReading.create({
+    data: {
+      organisationId,
+      meterId: vanMeter.id,
+      reading: 128_500,
+      readingDate: new Date('2026-08-20'),
+      recordedById: actorUserId,
+    },
+  });
+}
+
 async function main(): Promise<void> {
   // Read early (rather than inside `seedUser`) because the organisation's `businessEmail`
   // needs it before any user is created.
@@ -5144,6 +5480,7 @@ async function main(): Promise<void> {
   await seedDebtManagementFixtures(organisation.id, ownerUser.id);
   await seedInvestmentProjectFixtures(organisation.id, ownerUser.id);
   await seedDecisionAnalysisFixtures(organisation.id, ownerUser.id);
+  await seedAssetFixtures(organisation.id, ownerUser.id);
 
   console.log('Recording an audit log entry for this seed run...');
   await prisma.auditLog.create({
