@@ -7,6 +7,105 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 21 Maintenance Management Foundation] - 2026-09-08
+
+**A dedicated Maintenance domain built on top of Sprint 20's Asset
+Register, completing Epic 14's foundation scope.**
+
+### Added
+
+- **`MaintenanceType` (new domain, `apps/api/src/maintenance/`) —
+  tenant-scoped maintenance classification** (Preventive, Corrective,
+  Breakdown, Inspection, Calibration, ...), user-creatable master data,
+  never hard-coded.
+- **`MaintenancePlan`/`MaintenancePlanTask` — reusable templates.** Must
+  target exactly one of a specific Asset or an Asset Category (never
+  neither, never both); a category-level plan is a shared template, never
+  an automatic fan-out. Inline checklist template copied onto a fresh set
+  of tasks every time a work order is generated.
+- **`MaintenanceSchedule` — date-/meter-based preventive triggers,
+  idempotent by construction.** `generate()` creates exactly one work
+  order when due and immediately advances the due marker to the next
+  occurrence in the same transaction — a repeat call structurally finds
+  nothing due, proven live (two consecutive calls in a row, one work
+  order). Meter-based schedules read Sprint 20's own `AssetMeter.
+currentReading` directly — never a second meter system.
+- **`MaintenanceRequest` — the entry point for reporting a problem.**
+  `OPEN → UNDER_REVIEW/APPROVED/REJECTED → CONVERTED_TO_WORK_ORDER`/
+  `CANCELLED`; not itself a work order — `convert()` produces one, and is
+  naturally idempotent (an already-converted request returns its existing
+  work order rather than creating a second one).
+- **`WorkOrder`/`WorkOrderTask` — the core execution record.** Lifecycle
+  `OPEN → ASSIGNED → IN_PROGRESS ⇄ ON_HOLD → COMPLETED`/`CANCELLED`, both
+  terminal states hard-terminal (a deliberate deviation from this
+  codebase's usual soft-idempotent convention, matching `Asset.
+DISPOSED`/`RETIRED`). Completion is one atomic transaction: validates
+  every mandatory task is complete (rejecting with the specific list of
+  incomplete task titles otherwise), writes resolution/root-cause/
+  corrective-action facts, auto-closes any still-open downtime window,
+  and — if supplied — records a meter reading via a transaction-joinable
+  function extracted from Sprint 20's own `AssetMeterRepository`. Every
+  `IN_SERVICE ⇄ UNDER_MAINTENANCE` transition is driven through Asset's
+  own `AssetService` lifecycle methods — never a raw update — and only
+  resumes an asset to `IN_SERVICE` once no other work order on it remains
+  open.
+- **A mobile-first technician workflow** — a single large primary action
+  per status (Assign → Start Work → Complete), a checklist-style task
+  list with large touch targets, camera-capture photo upload
+  (before/after), and minimal typing.
+- **`AssetDowntime` — a dedicated downtime-window table**, one row per
+  period (an asset can have more than one per work order); duration is
+  never stored, always derived from `startedAt`/`endedAt` at read time;
+  negative durations are rejected.
+- **`MaintenancePartUsage` — operational parts-usage capture only.**
+  References the existing `Product` directly; `inventoryTransactionId`
+  stays null this sprint by design — recording a part never deducts
+  `InventoryStock` or creates an `InventoryTransaction`.
+- **`MaintenanceCost` — operational cost capture only.** `totalCost` is
+  always server-computed (`quantity × unitCost`), never trusting a
+  client-supplied total; never creates a `JournalEntry`, `SupplierInvoice`,
+  or `Payment`.
+- **`MaintenanceDocument` — before/after photos and supporting files**,
+  attachable to a Request or a Work Order, the same polymorphic
+  `entityType`/`entityId` shape Sprint 11's `CreditNote.sourceType`
+  already established.
+- **Zero accounting or inventory-mutation side effects, by construction**
+  — proven executably by `maintenance-independence.spec.ts`, and
+  confirmed live with byte-identical before/after `JournalEntry`/
+  `JournalEntryLine`/`CashAccount`/`CashTransaction`/`InventoryStock`/
+  `InventoryTransaction` row counts across extensive live testing.
+- **Admin surface** — a new "Maintenance" workspace at
+  `/settings/maintenance` with five lean tabs (Overview, Work Orders,
+  Requests, Plans, Schedules); a lightweight operational dashboard (open
+  requests/work orders, overdue/due-soon preventive, critical work
+  orders, assets under maintenance, unplanned breakdowns, downtime and
+  cost this month); a new "Maintenance" section on the existing Asset
+  detail page (open work, last maintenance, upcoming preventive, total
+  recorded cost, linking out to the full work order list). The sidebar/
+  dashboard "Maintenance" nav entry (a Sprint 3.5.1 placeholder) is now a
+  real, working link.
+- **Realistic Boby Bites seed data** — 5 maintenance types, 4 plans
+  (Compressor Monthly Service, Packaging Machine Preventive Service,
+  Generator Monthly Inspection, Water Treatment Pump Inspection), 2
+  schedules, a completed preventive work order with full tasks/downtime/
+  parts/cost (the brief's own required full-chain example: Asset → Plan →
+  Schedule → Work Order → Tasks → Downtime → Parts → Cost), an active
+  corrective work order (converted from a reported request), a critical
+  unassigned breakdown work order — fully idempotent.
+- **65 new tests** (`maintenance-independence.spec.ts`,
+  `work-order.repository.spec.ts`, `maintenance-schedule.repository.spec.ts`,
+  `work-order.service.spec.ts`, `maintenance-request.service.spec.ts`,
+  `maintenance-plan.service.spec.ts`, `asset-downtime.repository.spec.ts`,
+  `maintenance-cost.repository.spec.ts`) — full backend suite now **151
+  suites / 1262 tests, all passing** (up from 143/1197).
+
+See [`docs/domains/maintenance.md`](domains/maintenance.md) and
+[`docs/sprint-21-completion-report.md`](sprint-21-completion-report.md)
+for the full record. This sprint deliberately implements no predictive
+maintenance, AI/ML, IoT/telemetry, spare-parts inventory deduction,
+automatic procurement/supplier invoicing, or accounting posting — only
+the correct source data for a future Maintenance Intelligence layer.
+
 ## [Sprint 20 Asset Register & Asset Management Foundation] - 2026-09-07
 
 **A genuinely new top-level domain, opening Epic 14 (Asset & Maintenance

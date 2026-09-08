@@ -33,8 +33,13 @@ feature is built configurably so it can be reused by future tenants without code
 > owns: tenant-scoped hierarchical Asset Categories, a central `Asset` entity with lifecycle kept
 > strictly separate from physical condition, a self-referencing asset hierarchy, a purpose-built
 > Asset Location, immutable movement history, and optional read-only links to Supplier/Purchase
-> Order/Capital Project — zero accounting integration, by construction, and explicitly the
-> foundation a future Maintenance Management domain will build on. See
+> Order/Capital Project — zero accounting integration, by construction. Most recently, a
+> Maintenance Management foundation was built on top of that Asset Register — requests, reusable
+> plans, date-/meter-based preventive schedules (idempotent by construction — repeat generation
+> never creates a duplicate work order), work orders with a mobile-first technician workflow,
+> tasks, downtime, parts usage, and operational cost capture — every asset-status interaction
+> (`IN_SERVICE ⇄ UNDER_MAINTENANCE`) driven through the Asset domain's own lifecycle service, and,
+> again, zero accounting or inventory-mutation side effects, by construction. See
 > [docs/domains/README.md](docs/domains/README.md) for the current status of every domain and
 > [docs/roadmap.md](docs/roadmap.md) for the full build order.
 

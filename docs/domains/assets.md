@@ -5,10 +5,17 @@
   **not** a Product, **not** an `InventoryStock` row, **not** a Purchase
   Order — representing the durable physical resources the business owns,
   leases, or controls (machines, vehicles, equipment, tools). Explicitly the
-  **foundation** the future Maintenance Management domain will build on: no
-  preventive/corrective maintenance, work orders, downtime, spare-parts
-  consumption, technician management, or maintenance costing is implemented
-  here — only clean, documented integration points (§11).
+  **foundation** the future Maintenance Management domain would build on:
+  Sprint 20 itself implemented no preventive/corrective maintenance, work
+  orders, downtime, spare-parts consumption, technician management, or
+  maintenance costing — only clean, documented integration points (§11).
+  **That domain has since been built** — see
+  [Maintenance Management](maintenance.md) (Sprint 21). Every
+  `IN_SERVICE ⇄ UNDER_MAINTENANCE` transition Maintenance needs is driven
+  through this domain's own `AssetService` lifecycle methods, never a raw
+  update; meter-based preventive triggers and work-order-completion meter
+  readings both reuse `AssetMeter`/`AssetMeterReading` (§13) directly,
+  never a second meter system.
 - **Sprint:** 20
 - **Depends on:** [Identity](identity.md) (tenant boundary, `RolesGuard`,
   `AuditService`, `UserService.listByOrganisation()` for the custodian
@@ -26,6 +33,7 @@
   here.
 - **See also:** [Procurement](procurement.md), [Accounting](accounting.md),
   [Investment / Capital Projects](investment-projects.md),
+  [Maintenance Management](maintenance.md),
   [Sprint 20 Completion Report](../sprint-20-completion-report.md).
 
 ## 1. Business Purpose
@@ -211,10 +219,11 @@ changed, simpler than modeling two separate movement "types." Rejected for
 inside the same transaction, the Sprint 9/10 lesson applied here as
 everywhere else in this codebase.
 
-## 11. Integration Points for the Future Maintenance Domain
+## 11. Integration Points for the Maintenance Domain
 
-Sprint 20 deliberately implements **none** of the following, but leaves
-each one a clean, obvious extension point on top of what already exists:
+Sprint 20 deliberately implemented **none** of the following, but left
+each one a clean, obvious extension point on top of what already existed
+— **all now realized by Sprint 21, see [Maintenance Management](maintenance.md):**
 
 - **Preventive/corrective maintenance scheduling** — `AssetStatus` already
   has `UNDER_MAINTENANCE`; a future Maintenance domain would drive that

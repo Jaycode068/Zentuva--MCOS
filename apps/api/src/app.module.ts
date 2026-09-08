@@ -15,6 +15,7 @@ import { OrganisationModule } from './identity/organisation/organisation.module'
 import { SettingsModule } from './identity/settings/settings.module';
 import { UserModule } from './identity/user/user.module';
 import { InventoryModule } from './inventory/inventory.module';
+import { MaintenanceModule } from './maintenance/maintenance.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { DistributionModule } from './distribution/distribution.module';
 import { FinanceModule } from './finance/finance.module';
@@ -57,6 +58,7 @@ import { SupplierModule } from './suppliers/supplier/supplier.module';
     DistributionModule,
     FinanceModule,
     AssetsModule,
+    MaintenanceModule,
   ],
 })
 export class AppModule {}

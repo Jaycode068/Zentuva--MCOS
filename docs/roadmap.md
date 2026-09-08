@@ -289,6 +289,37 @@ APPROVED → ACTIVE → PARTIALLY_REPAID → PAID_OFF`) → `DebtDrawdown`/
       spare-parts consumption, or maintenance costing was implemented, only
       documented integration points — see
       [`docs/domains/assets.md`](domains/assets.md)
+- [x] Maintenance Management — foundation shipped Sprint 21 ("Maintenance
+      Management Foundation"), completing Epic 14's foundation scope on
+      top of Sprint 20's Asset Register. Reusable Maintenance Plans
+      (targeting a specific asset or an asset category, never both) with
+      an inline checklist template; date-/meter-based Schedules whose
+      `generate()` is idempotent by construction — it advances its own
+      due marker to the next occurrence inside the same transaction that
+      creates a work order, so a repeat call structurally finds nothing
+      due, proven live (two consecutive calls, one work order); meter
+      readings reuse Sprint 20's own `AssetMeter` infrastructure directly,
+      never a second meter system; Maintenance Requests (report → approve/
+      reject → convert to a Work Order); the Work Order lifecycle (`OPEN →
+ASSIGNED → IN_PROGRESS ⇄ ON_HOLD → COMPLETED`/`CANCELLED`, both
+      hard-terminal) with a mobile-first technician workflow (checklist
+      tasks, camera-capture photos, one large primary action per status);
+      completion is one atomic transaction validating every mandatory
+      task, auto-closing open downtime, and recording a meter reading via
+      a transaction-joinable function extracted from Sprint 20's own
+      meter repository; a dedicated `AssetDowntime` table with duration
+      always derived from timestamps, never stored; operational parts-
+      usage and cost records referencing the existing Product/Supplier
+      masters, with `totalCost` always server-computed. **Zero accounting
+      or inventory-mutation side effects, by construction** — proven by
+      `maintenance-independence.spec.ts` and confirmed live with
+      byte-identical before/after `JournalEntry`/`InventoryStock` row
+      counts. Every `IN_SERVICE ⇄ UNDER_MAINTENANCE` transition is driven
+      through Asset's own lifecycle service, never a raw update. No
+      predictive maintenance, IoT, spare-parts inventory deduction, or
+      accounting posting was implemented — only the correct source data
+      for a future Maintenance Intelligence layer — see
+      [`docs/domains/maintenance.md`](domains/maintenance.md)
 
 ## Phase 3 — Extended Experiences
 

@@ -203,6 +203,15 @@ model Organisation {
   assetMovements                    AssetMovement[]
   assetMeters                       AssetMeter[]
   assetMeterReadings                AssetMeterReading[]
+  maintenanceTypes                  MaintenanceType[]
+  maintenancePlans                  MaintenancePlan[]
+  maintenanceSchedules              MaintenanceSchedule[]
+  maintenanceRequests               MaintenanceRequest[]
+  workOrders                        WorkOrder[]
+  assetDowntimes                    AssetDowntime[]
+  maintenancePartUsages             MaintenancePartUsage[]
+  maintenanceCosts                  MaintenanceCost[]
+  maintenanceDocuments              MaintenanceDocument[]
 
   @@map("organisations")
 }
@@ -555,6 +564,10 @@ model Product {
   supplierReturnItems          SupplierReturnItem[]
   /// Added Sprint 12 — Accounts Payable (docs/domains/finance.md).
   supplierInvoiceItems         SupplierInvoiceItem[]
+  /// Added Sprint 21 — Maintenance Management (docs/domains/maintenance.md).
+  /// Read-only reference — recording a maintenance part usage never
+  /// deducts InventoryStock/InventoryTransaction (foundation only).
+  maintenancePartUsages        MaintenancePartUsage[]
 
   @@unique([organisationId, slug])
   @@index([organisationId])
@@ -707,6 +720,12 @@ model Supplier {
   /// Added Sprint 20 — Asset Register (docs/domains/assets.md). Read-only
   /// reference — an Asset may record which Supplier it was acquired from.
   assets Asset[]
+  /// Added Sprint 21 — Maintenance Management (docs/domains/maintenance.md).
+  /// Read-only references — a work order may record an external service
+  /// provider, and a maintenance cost line may record which supplier it
+  /// was billed by.
+  maintenanceWorkOrders WorkOrder[]        @relation("MaintenanceWorkOrderExternalSupplier")
+  maintenanceCosts      MaintenanceCost[]  @relation("MaintenanceCostSupplier")
 
   @@index([organisationId])
   @@index([organisationId, status])
@@ -4554,6 +4573,8 @@ model AssetCategory {
   parentCategory AssetCategory?  @relation("AssetCategoryHierarchy", fields: [parentCategoryId], references: [id], onDelete: SetNull)
   childCategories AssetCategory[] @relation("AssetCategoryHierarchy")
   assets         Asset[]
+  /// Added Sprint 21 — Maintenance Management (docs/domains/maintenance.md).
+  maintenancePlans MaintenancePlan[]
 
   @@unique([organisationId, code])
   @@index([organisationId, status])
@@ -4654,6 +4675,12 @@ model Asset {
   documents      AssetDocument[]
   movements      AssetMovement[]
   meters         AssetMeter[]
+  /// Added Sprint 21 — Maintenance Management (docs/domains/maintenance.md).
+  maintenancePlans     MaintenancePlan[]
+  maintenanceSchedules MaintenanceSchedule[]
+  maintenanceRequests  MaintenanceRequest[]
+  workOrders           WorkOrder[]
+  downtimes            AssetDowntime[]
 
   @@unique([organisationId, assetCode])
   @@unique([organisationId, assetTag])
@@ -4760,4 +4787,518 @@ model AssetMeterReading {
   @@unique([organisationId, idempotencyKey])
   @@index([meterId])
   @@map("asset_meter_readings")
+}
+
+// ============================================================================
+// Maintenance Management (Sprint 21, docs/domains/maintenance.md) — a
+// dedicated domain built on top of Sprint 20's Asset Register. Owns
+// requests, plans, schedules, work orders, tasks, downtime, and
+// operational cost/parts-usage records; never owns Asset/User/Supplier/
+// Product/Inventory itself, and never posts a Journal Entry or mutates
+// InventoryStock/InventoryTransaction (see maintenance-independence.spec.ts).
+// ============================================================================
+
+enum MaintenanceTypeStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum MaintenancePlanStatus {
+  ACTIVE
+  INACTIVE
+}
+
+/// A schedule is either date-based (frequencyValue/frequencyUnit,
+/// nextDueDate) or meter-based (meterType/meterInterval,
+/// nextDueMeterReading) — never both on the same row, keeping "when is
+/// this due" a single, unambiguous question per schedule.
+enum MaintenanceScheduleType {
+  DATE_BASED
+  METER_BASED
+}
+
+enum MaintenanceFrequencyUnit {
+  DAYS
+  WEEKS
+  MONTHS
+  YEARS
+}
+
+enum MaintenanceScheduleStatus {
+  ACTIVE
+  INACTIVE
+}
+
+/// Shared across `MaintenanceRequest` and `WorkOrder` — a single priority
+/// vocabulary for the whole domain, persisted and filterable, never a
+/// UI-only decoration.
+enum MaintenancePriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+/// A lightweight classification of *what kind of problem* was reported —
+/// deliberately separate from `MaintenanceType` (which classifies *what
+/// kind of work* a work order represents).
+enum MaintenanceIssueType {
+  BREAKDOWN
+  PERFORMANCE
+  SAFETY
+  NOISE
+  LEAK
+  ELECTRICAL
+  MECHANICAL
+  OTHER
+}
+
+enum MaintenanceRequestStatus {
+  OPEN
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+  CONVERTED_TO_WORK_ORDER
+  CANCELLED
+}
+
+/// No separate `DRAFT` state (a created work order is immediately `OPEN`
+/// or `ASSIGNED` — the brief's own suggested API surface has no publish
+/// step) and no separate `CLOSED` state distinct from `COMPLETED` (this
+/// codebase's established "don't introduce a state with no second
+/// approver/reason to separate it" discipline, Sprint 16 §5). Both
+/// `COMPLETED` and `CANCELLED` are hard-terminal — the `Asset.
+/// DISPOSED`/`RETIRED` precedent (docs/domains/assets.md "Lifecycle vs.
+/// Condition"), not soft-idempotent like every non-terminal transition.
+enum WorkOrderStatus {
+  OPEN
+  ASSIGNED
+  IN_PROGRESS
+  ON_HOLD
+  COMPLETED
+  CANCELLED
+}
+
+enum WorkOrderTaskStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  SKIPPED
+}
+
+enum MaintenanceCostCategory {
+  LABOUR
+  PARTS
+  SERVICE
+  TRANSPORT
+  OTHER
+}
+
+enum MaintenancePartUsageType {
+  CONSUMED
+  RETURNED
+}
+
+/// Polymorphic owner discriminator for `MaintenanceDocument` — the exact
+/// `CreditNote.sourceType`/`sourceId` precedent (Sprint 11), one table
+/// serving two owner types rather than two near-identical child tables.
+enum MaintenanceDocumentEntityType {
+  REQUEST
+  WORK_ORDER
+}
+
+enum MaintenanceDocumentType {
+  BEFORE_PHOTO
+  AFTER_PHOTO
+  INVOICE
+  REPORT
+  OTHER
+}
+
+/// Tenant-scoped maintenance classification (Preventive/Corrective/
+/// Breakdown/Inspection/...) — real, user-creatable master data, never a
+/// hard-coded enum, the exact `AssetCategory` precedent (Sprint 20).
+model MaintenanceType {
+  id             String                @id @default(cuid())
+  organisationId String
+  code           String
+  name           String
+  description    String?
+  status         MaintenanceTypeStatus @default(ACTIVE)
+  createdById    String?
+  updatedById    String?
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+
+  organisation     Organisation      @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  maintenancePlans MaintenancePlan[]
+  workOrders       WorkOrder[]
+
+  @@unique([organisationId, code])
+  @@index([organisationId, status])
+  @@map("maintenance_types")
+}
+
+/// A reusable maintenance template — "Air Compressor Monthly Preventive
+/// Maintenance." Must target either a specific `Asset` OR an
+/// `AssetCategory` (never neither; service-enforced, the same either/or
+/// discipline Sprint 12's `SupplierInvoiceItem` Path A/B lines already
+/// established). A category-level plan is a shared template; each
+/// concrete asset that should follow it gets its own `MaintenanceSchedule`
+/// row — the plan itself never fans out automatically into many work
+/// orders.
+model MaintenancePlan {
+  id                       String                @id @default(cuid())
+  organisationId           String
+  name                     String
+  description              String?
+  maintenanceTypeId        String
+  assetId                  String?
+  assetCategoryId          String?
+  status                   MaintenancePlanStatus @default(ACTIVE)
+  priority                 MaintenancePriority   @default(MEDIUM)
+  estimatedDurationMinutes Int?
+  instructions             String?
+  safetyNotes              String?
+  idempotencyKey           String?
+  createdById              String?
+  updatedById              String?
+  createdAt                DateTime              @default(now())
+  updatedAt                DateTime              @updatedAt
+
+  organisation    Organisation          @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  maintenanceType MaintenanceType       @relation(fields: [maintenanceTypeId], references: [id], onDelete: Restrict)
+  asset           Asset?                @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  assetCategory   AssetCategory?        @relation(fields: [assetCategoryId], references: [id], onDelete: SetNull)
+  tasks           MaintenancePlanTask[]
+  schedules       MaintenanceSchedule[]
+  workOrders      WorkOrder[]
+
+  @@unique([organisationId, idempotencyKey])
+  @@index([organisationId, status])
+  @@index([organisationId, assetId])
+  @@index([organisationId, assetCategoryId])
+  @@map("maintenance_plans")
+}
+
+/// The reusable checklist template attached to a `MaintenancePlan` —
+/// copied onto a fresh set of `WorkOrderTask` rows every time a work
+/// order is generated from this plan. A pure child of its plan (no own
+/// `organisationId` — tenant isolation flows through `maintenancePlanId`,
+/// the same shape as `CapitalProjectCostLine`, Sprint 18).
+model MaintenancePlanTask {
+  id                       String   @id @default(cuid())
+  maintenancePlanId        String
+  sequence                 Int
+  title                    String
+  description              String?
+  mandatory                Boolean  @default(true)
+  estimatedDurationMinutes Int?
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  maintenancePlan MaintenancePlan @relation(fields: [maintenancePlanId], references: [id], onDelete: Cascade)
+
+  @@unique([maintenancePlanId, sequence])
+  @@map("maintenance_plan_tasks")
+}
+
+/// A concrete, per-asset recurrence of a `MaintenancePlan` — date-based
+/// (`nextDueDate` + frequency) or meter-based (`nextDueMeterReading` +
+/// interval, reading Sprint 20's own `AssetMeter.currentReading` — never a
+/// second meter system). `generate()` is idempotent by construction: when
+/// due, it creates exactly one `WorkOrder` and immediately advances the
+/// due marker to the *next* occurrence in the same transaction, so an
+/// immediate repeat call finds nothing due — no separate duplicate-check
+/// bookkeeping needed (docs/domains/maintenance.md "Preventive Scheduling
+/// Idempotency").
+model MaintenanceSchedule {
+  id                       String                     @id @default(cuid())
+  organisationId           String
+  maintenancePlanId        String
+  assetId                  String
+  scheduleType             MaintenanceScheduleType
+  frequencyValue           Int?
+  frequencyUnit            MaintenanceFrequencyUnit?
+  nextDueDate              DateTime?
+  meterType                AssetMeterType?
+  meterInterval            Float?
+  nextDueMeterReading      Float?
+  lastGeneratedAt          DateTime?
+  lastGeneratedWorkOrderId String?
+  status                   MaintenanceScheduleStatus @default(ACTIVE)
+  idempotencyKey           String?
+  createdById              String?
+  updatedById              String?
+  createdAt                DateTime                   @default(now())
+  updatedAt                DateTime                   @updatedAt
+
+  organisation    Organisation    @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  maintenancePlan MaintenancePlan @relation(fields: [maintenancePlanId], references: [id], onDelete: Cascade)
+  asset           Asset           @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@unique([maintenancePlanId, assetId])
+  @@unique([organisationId, idempotencyKey])
+  @@index([organisationId, status])
+  @@map("maintenance_schedules")
+}
+
+/// The entry point for reporting a problem — "Compressor pressure is
+/// unstable." Not itself a work order; `convert()` produces one and is
+/// service-enforced idempotent (a request already
+/// `CONVERTED_TO_WORK_ORDER` returns its existing `WorkOrder` rather than
+/// creating a second one).
+model MaintenanceRequest {
+  id               String                   @id @default(cuid())
+  organisationId   String
+  requestCode      String
+  assetId          String
+  reportedById     String?
+  reportedAt       DateTime                 @default(now())
+  title            String
+  description      String?
+  priority         MaintenancePriority      @default(MEDIUM)
+  issueType        MaintenanceIssueType?
+  status           MaintenanceRequestStatus @default(OPEN)
+  requestedDueDate DateTime?
+  notes            String?
+  reviewedById     String?
+  reviewedAt       DateTime?
+  rejectionReason  String?
+  idempotencyKey   String?
+  createdById      String?
+  createdAt        DateTime                 @default(now())
+  updatedAt        DateTime                 @updatedAt
+
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  asset        Asset        @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  workOrders   WorkOrder[]
+
+  @@unique([organisationId, requestCode])
+  @@unique([organisationId, idempotencyKey])
+  @@index([organisationId, status])
+  @@index([organisationId, assetId])
+  @@map("maintenance_requests")
+}
+
+/// The core maintenance execution record. `workOrderCode` is server-
+/// generated (`WO-000001`, immutable). `maintenancePlanId` set means this
+/// work order is preventive (generated from a plan/schedule);
+/// `maintenanceRequestId` set (and no plan) means it originated from a
+/// reported problem; neither set means it was created directly as ad-hoc
+/// corrective/breakdown work — a real structural distinction, never a
+/// redundant stored "kind" flag.
+model WorkOrder {
+  id                   String              @id @default(cuid())
+  organisationId       String
+  workOrderCode        String
+  assetId              String
+  maintenanceTypeId    String
+  maintenancePlanId    String?
+  maintenanceRequestId String?
+  title                String
+  description          String?
+  priority             MaintenancePriority @default(MEDIUM)
+  status               WorkOrderStatus     @default(OPEN)
+  /// Plain id, no FK relation — the established `custodianId`/`ownerId`
+  /// convention (docs/domains/assets.md). The assigned technician.
+  assignedToId         String?
+  plannedStartAt       DateTime?
+  plannedEndAt         DateTime?
+  actualStartAt        DateTime?
+  actualEndAt          DateTime?
+  completedAt          DateTime?
+  failureReason        String?
+  rootCause            String?
+  correctiveAction     String?
+  resolution           String?
+  notes                String?
+  isExternalService    Boolean             @default(false)
+  externalSupplierId   String?
+  externalProviderName String?
+  externalReference    String?
+  externalSentAt       DateTime?
+  externalReturnedAt   DateTime?
+  /// Set only when a meter reading was recorded as part of this work
+  /// order's completion — a genuine reference to the `AssetMeterReading`
+  /// row created via Sprint 20's own `AssetMeterService`, never a
+  /// duplicated value.
+  meterReadingId       String?
+  idempotencyKey       String?
+  createdById          String?
+  updatedById          String?
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+
+  organisation       Organisation           @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  asset              Asset                  @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  maintenanceType    MaintenanceType        @relation(fields: [maintenanceTypeId], references: [id], onDelete: Restrict)
+  maintenancePlan    MaintenancePlan?       @relation(fields: [maintenancePlanId], references: [id], onDelete: SetNull)
+  maintenanceRequest MaintenanceRequest?    @relation(fields: [maintenanceRequestId], references: [id], onDelete: SetNull)
+  externalSupplier   Supplier?              @relation("MaintenanceWorkOrderExternalSupplier", fields: [externalSupplierId], references: [id], onDelete: SetNull)
+  tasks              WorkOrderTask[]
+  downtimes          AssetDowntime[]
+  partUsages         MaintenancePartUsage[]
+  costs              MaintenanceCost[]
+
+  @@unique([organisationId, workOrderCode])
+  @@unique([organisationId, idempotencyKey])
+  @@index([organisationId, status])
+  @@index([organisationId, assetId])
+  @@index([organisationId, priority])
+  @@map("work_orders")
+}
+
+/// One checklist step within a `WorkOrder` — copied from the parent
+/// `MaintenancePlan`'s own `MaintenancePlanTask` template when generated
+/// preventively, or added directly for ad-hoc/corrective work. A work
+/// order cannot be completed while any `mandatory` task is not
+/// `COMPLETED` (service-enforced). A pure child of its work order (no own
+/// `organisationId`, the `MaintenancePlanTask` precedent above).
+model WorkOrderTask {
+  id                       String              @id @default(cuid())
+  workOrderId              String
+  sequence                 Int
+  title                    String
+  description              String?
+  status                   WorkOrderTaskStatus @default(PENDING)
+  mandatory                Boolean             @default(true)
+  assignedToId             String?
+  estimatedDurationMinutes Int?
+  actualDurationMinutes    Int?
+  completedAt              DateTime?
+  completedById            String?
+  notes                    String?
+  createdAt                DateTime            @default(now())
+  updatedAt                DateTime            @updatedAt
+
+  workOrder WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+
+  @@unique([workOrderId, sequence])
+  @@map("work_order_tasks")
+}
+
+/// A single downtime period an asset experienced — modelled as its own
+/// table (not a single start/end pair on `WorkOrder`) because an asset
+/// can have more than one downtime window per work order, and future
+/// reliability analytics (MTBF/MTTR) need the full history. Duration is
+/// deliberately never stored — always `endedAt − startedAt`, computed at
+/// read time.
+model AssetDowntime {
+  id             String    @id @default(cuid())
+  organisationId String
+  assetId        String
+  workOrderId    String
+  startedAt      DateTime
+  endedAt        DateTime?
+  reason         String?
+  planned        Boolean   @default(false)
+  recordedById   String?
+  idempotencyKey String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  asset        Asset        @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  workOrder    WorkOrder    @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+
+  @@unique([organisationId, idempotencyKey])
+  @@index([organisationId, assetId])
+  @@index([workOrderId])
+  @@map("asset_downtimes")
+}
+
+/// Records intended/actual maintenance parts consumption against an
+/// existing `Product` (the sole transactional SKU entity, Sprint 4.1/4.7)
+/// — never a duplicate inventory system. `inventoryTransactionId` stays
+/// null in Sprint 21 by design: recording a part here never deducts
+/// `InventoryStock`/creates an `InventoryTransaction` — an explicit,
+/// deferred future integration boundary.
+model MaintenancePartUsage {
+  id                     String                   @id @default(cuid())
+  organisationId         String
+  workOrderId            String
+  productId              String
+  quantity               Float
+  /// Snapshotted from `Product.unit` at write time — an immutable
+  /// historical fact, not re-derived if the product's own unit changes
+  /// later.
+  unitOfMeasure          String?
+  usageType              MaintenancePartUsageType @default(CONSUMED)
+  notes                  String?
+  /// Always null in Sprint 21 — reserved for a future explicit,
+  /// transactional Inventory integration (never populated by this
+  /// sprint's own code).
+  inventoryTransactionId String?
+  recordedById           String?
+  idempotencyKey         String?
+  createdAt              DateTime                 @default(now())
+
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  workOrder    WorkOrder    @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  product      Product      @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@unique([organisationId, idempotencyKey])
+  @@index([workOrderId])
+  @@index([organisationId, productId])
+  @@map("maintenance_part_usages")
+}
+
+/// Operational cost capture only — never creates a `JournalEntry`,
+/// `SupplierInvoice`, or `Payment`. `totalCost` is server-computed
+/// (`quantity × unitCost`, client-supplied totals always ignored) and
+/// persisted as an immutable point-in-time cost fact — unlike a work
+/// order's own aggregate total, which is always derived live as
+/// `Σ MaintenanceCost.totalCost`, never stored on `WorkOrder` itself.
+model MaintenanceCost {
+  id             String                  @id @default(cuid())
+  organisationId String
+  workOrderId    String
+  category       MaintenanceCostCategory
+  description    String?
+  quantity       Float                   @default(1)
+  unitCost       Float
+  totalCost      Float
+  currency       String                  @default("NGN")
+  supplierId     String?
+  referenceType  String?
+  referenceId    String?
+  recordedById   String?
+  idempotencyKey String?
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  workOrder    WorkOrder    @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  supplier     Supplier?    @relation("MaintenanceCostSupplier", fields: [supplierId], references: [id], onDelete: SetNull)
+
+  @@unique([organisationId, idempotencyKey])
+  @@index([workOrderId])
+  @@index([organisationId, category])
+  @@map("maintenance_costs")
+}
+
+/// A file attached to a `MaintenanceRequest` or `WorkOrder` — before/after
+/// photos, supporting reports/invoices. Polymorphic via `entityType`/
+/// `entityId`, the exact `CreditNote.sourceType`/`sourceId` precedent
+/// (Sprint 11) — one table serving two owner types rather than two
+/// near-identical child tables.
+model MaintenanceDocument {
+  id             String                        @id @default(cuid())
+  organisationId String
+  entityType     MaintenanceDocumentEntityType
+  entityId       String
+  documentType   MaintenanceDocumentType
+  url            String
+  key            String
+  fileName       String?
+  caption        String?
+  createdById    String?
+  createdAt      DateTime                      @default(now())
+
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+
+  @@index([organisationId])
+  @@index([entityType, entityId])
+  @@map("maintenance_documents")
 }

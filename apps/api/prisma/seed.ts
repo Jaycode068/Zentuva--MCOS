@@ -5269,6 +5269,404 @@ async function seedAssetFixtures(organisationId: string, actorUserId: string): P
   });
 }
 
+async function seedMaintenanceFixtures(
+  organisationId: string,
+  actorUserId: string,
+  technicianUserId: string,
+): Promise<void> {
+  console.log('Seeding Maintenance Management fixtures...');
+
+  const existing = await prisma.maintenanceType.findFirst({
+    where: { organisationId, code: 'PREVENTIVE' },
+  });
+  if (existing) {
+    return;
+  }
+
+  const typeDefs = [
+    { code: 'PREVENTIVE', name: 'Preventive' },
+    { code: 'CORRECTIVE', name: 'Corrective' },
+    { code: 'BREAKDOWN', name: 'Breakdown' },
+    { code: 'INSPECTION', name: 'Inspection' },
+    { code: 'CALIBRATION', name: 'Calibration' },
+  ] as const;
+  const typesByCode: Record<string, { id: string }> = {};
+  for (const def of typeDefs) {
+    typesByCode[def.code] = await prisma.maintenanceType.create({
+      data: { organisationId, code: def.code, name: def.name, createdById: actorUserId },
+    });
+  }
+
+  const compressor = await prisma.asset.findFirstOrThrow({
+    where: { organisationId, name: 'Industrial Air Compressor' },
+  });
+  const compressorMeter = await prisma.assetMeter.findFirstOrThrow({
+    where: { organisationId, assetId: compressor.id, meterType: 'HOURS' },
+  });
+  const packagingMachine = await prisma.asset.findFirstOrThrow({
+    where: { organisationId, name: 'Packaging Machine' },
+  });
+  const generator = await prisma.asset.findFirstOrThrow({
+    where: { organisationId, name: 'Generator' },
+  });
+  const waterPump = await prisma.asset.findFirstOrThrow({
+    where: { organisationId, name: 'Water Pump' },
+  });
+
+  // === Plan 1: Compressor Monthly Service — asset-specific, meter-based
+  // schedule, chained all the way through to a completed work order with
+  // tasks/downtime/parts/cost — the brief's own required "full chain"
+  // example (Asset → Plan → Schedule → Work Order → Tasks → Downtime →
+  // Parts → Cost). ===
+  const compressorPlan = await prisma.maintenancePlan.create({
+    data: {
+      organisationId,
+      name: 'Compressor Monthly Service',
+      description: 'Routine monthly preventive service for the industrial air compressor.',
+      maintenanceTypeId: typesByCode['PREVENTIVE']!.id,
+      assetId: compressor.id,
+      priority: 'MEDIUM',
+      estimatedDurationMinutes: 90,
+      instructions: 'Follow AirFlow Industrial AF-750 service manual, section 4.',
+      safetyNotes: 'Lock out compressed air supply and depressurise before opening any panel.',
+      createdById: actorUserId,
+      tasks: {
+        create: [
+          { sequence: 1, title: 'Inspect oil level', mandatory: true },
+          { sequence: 2, title: 'Inspect belts', mandatory: true },
+          { sequence: 3, title: 'Inspect pressure switch', mandatory: true },
+          { sequence: 4, title: 'Clean air filter', mandatory: true },
+          { sequence: 5, title: 'Check electrical connections', mandatory: true },
+          { sequence: 6, title: 'Record operating hours', mandatory: true },
+          { sequence: 7, title: 'Test compressor', mandatory: true },
+        ],
+      },
+    },
+  });
+
+  const compressorSchedule = await prisma.maintenanceSchedule.create({
+    data: {
+      organisationId,
+      maintenancePlanId: compressorPlan.id,
+      assetId: compressor.id,
+      scheduleType: 'METER_BASED',
+      meterType: 'HOURS',
+      meterInterval: 500,
+      nextDueMeterReading: compressorMeter.currentReading + 500,
+      status: 'ACTIVE',
+      createdById: actorUserId,
+    },
+  });
+
+  // The completed preventive work order — as if generated from the
+  // schedule above at its previous due occurrence, then fully executed.
+  const completedWorkOrder = await prisma.workOrder.create({
+    data: {
+      organisationId,
+      workOrderCode: 'WO-000001',
+      assetId: compressor.id,
+      maintenanceTypeId: typesByCode['PREVENTIVE']!.id,
+      maintenancePlanId: compressorPlan.id,
+      title: `${compressorPlan.name} — ${compressor.name}`,
+      description: compressorPlan.description,
+      priority: 'MEDIUM',
+      status: 'COMPLETED',
+      assignedToId: technicianUserId,
+      plannedStartAt: new Date('2026-08-15T08:00:00Z'),
+      plannedEndAt: new Date('2026-08-15T10:00:00Z'),
+      actualStartAt: new Date('2026-08-15T08:10:00Z'),
+      actualEndAt: new Date('2026-08-15T09:40:00Z'),
+      completedAt: new Date('2026-08-15T09:40:00Z'),
+      resolution: 'Serviced per schedule — oil topped up, filter replaced, belts within spec.',
+      notes: 'No abnormalities found.',
+      createdById: actorUserId,
+    },
+  });
+  await prisma.workOrderTask.createMany({
+    data: [
+      {
+        workOrderId: completedWorkOrder.id,
+        sequence: 1,
+        title: 'Inspect oil level',
+        status: 'COMPLETED',
+        completedAt: new Date('2026-08-15T08:20:00Z'),
+        completedById: technicianUserId,
+      },
+      {
+        workOrderId: completedWorkOrder.id,
+        sequence: 2,
+        title: 'Inspect belts',
+        status: 'COMPLETED',
+        completedAt: new Date('2026-08-15T08:30:00Z'),
+        completedById: technicianUserId,
+      },
+      {
+        workOrderId: completedWorkOrder.id,
+        sequence: 3,
+        title: 'Inspect pressure switch',
+        status: 'COMPLETED',
+        completedAt: new Date('2026-08-15T08:40:00Z'),
+        completedById: technicianUserId,
+      },
+      {
+        workOrderId: completedWorkOrder.id,
+        sequence: 4,
+        title: 'Clean air filter',
+        status: 'COMPLETED',
+        completedAt: new Date('2026-08-15T08:55:00Z'),
+        completedById: technicianUserId,
+      },
+      {
+        workOrderId: completedWorkOrder.id,
+        sequence: 5,
+        title: 'Check electrical connections',
+        status: 'COMPLETED',
+        completedAt: new Date('2026-08-15T09:10:00Z'),
+        completedById: technicianUserId,
+      },
+      {
+        workOrderId: completedWorkOrder.id,
+        sequence: 6,
+        title: 'Record operating hours',
+        status: 'COMPLETED',
+        completedAt: new Date('2026-08-15T09:20:00Z'),
+        completedById: technicianUserId,
+      },
+      {
+        workOrderId: completedWorkOrder.id,
+        sequence: 7,
+        title: 'Test compressor',
+        status: 'COMPLETED',
+        completedAt: new Date('2026-08-15T09:35:00Z'),
+        completedById: technicianUserId,
+      },
+    ],
+  });
+  await prisma.assetDowntime.create({
+    data: {
+      organisationId,
+      assetId: compressor.id,
+      workOrderId: completedWorkOrder.id,
+      startedAt: new Date('2026-08-15T08:10:00Z'),
+      endedAt: new Date('2026-08-15T09:40:00Z'),
+      reason: 'Scheduled preventive maintenance',
+      planned: true,
+      recordedById: technicianUserId,
+    },
+  });
+  // No CONSUMABLE-type product is seeded elsewhere in this dataset —
+  // "Vegetable Oil" (a real seeded RAW_MATERIAL) stands in as a realistic
+  // lubricant/service-fluid consumed during a compressor service. This is
+  // Sprint 21's own deliberate "reference an existing Product, never
+  // invent a duplicate one" discipline in action (docs/domains/
+  // maintenance.md "Parts / Material Usage Boundary").
+  const serviceFluidProduct =
+    (await prisma.product.findFirst({ where: { organisationId, name: 'Vegetable Oil' } })) ??
+    (await prisma.product.findFirst({ where: { organisationId } }));
+  if (serviceFluidProduct) {
+    await prisma.maintenancePartUsage.create({
+      data: {
+        organisationId,
+        workOrderId: completedWorkOrder.id,
+        productId: serviceFluidProduct.id,
+        quantity: 1,
+        unitOfMeasure: serviceFluidProduct.unit,
+        usageType: 'CONSUMED',
+        notes: 'Lubricant top-up during service',
+        recordedById: technicianUserId,
+      },
+    });
+  }
+  await prisma.maintenanceCost.create({
+    data: {
+      organisationId,
+      workOrderId: completedWorkOrder.id,
+      category: 'LABOUR',
+      description: 'Technician labour — 90 minutes',
+      quantity: 1.5,
+      unitCost: 8_000,
+      totalCost: 12_000,
+      currency: 'NGN',
+      recordedById: technicianUserId,
+    },
+  });
+  await prisma.maintenanceCost.create({
+    data: {
+      organisationId,
+      workOrderId: completedWorkOrder.id,
+      category: 'PARTS',
+      description: 'Oil filter + lubricant',
+      quantity: 1,
+      unitCost: 15_000,
+      totalCost: 15_000,
+      currency: 'NGN',
+      recordedById: technicianUserId,
+    },
+  });
+
+  // === Plan 2: Packaging Machine Preventive Service ===
+  await prisma.maintenancePlan.create({
+    data: {
+      organisationId,
+      name: 'Packaging Machine Preventive Service',
+      description: 'Bi-monthly preventive service for packaging equipment.',
+      maintenanceTypeId: typesByCode['PREVENTIVE']!.id,
+      assetId: packagingMachine.id,
+      priority: 'MEDIUM',
+      estimatedDurationMinutes: 60,
+      instructions: 'Follow PackRight PR-100 service manual.',
+      createdById: actorUserId,
+      tasks: {
+        create: [
+          { sequence: 1, title: 'Inspect sealing mechanism', mandatory: true },
+          { sequence: 2, title: 'Lubricate moving parts', mandatory: true },
+          { sequence: 3, title: 'Calibrate weight sensor', mandatory: false },
+        ],
+      },
+    },
+  });
+
+  // === Plan 3: Generator Monthly Inspection ===
+  const generatorPlan = await prisma.maintenancePlan.create({
+    data: {
+      organisationId,
+      name: 'Generator Monthly Inspection',
+      description: 'Monthly inspection of the standby generator.',
+      maintenanceTypeId: typesByCode['INSPECTION']!.id,
+      assetId: generator.id,
+      priority: 'HIGH',
+      estimatedDurationMinutes: 45,
+      createdById: actorUserId,
+      tasks: {
+        create: [
+          { sequence: 1, title: 'Check fuel level', mandatory: true },
+          { sequence: 2, title: 'Test start-up', mandatory: true },
+          { sequence: 3, title: 'Inspect battery terminals', mandatory: true },
+        ],
+      },
+    },
+  });
+  await prisma.maintenanceSchedule.create({
+    data: {
+      organisationId,
+      maintenancePlanId: generatorPlan.id,
+      assetId: generator.id,
+      scheduleType: 'DATE_BASED',
+      frequencyValue: 1,
+      frequencyUnit: 'MONTHS',
+      nextDueDate: new Date('2026-10-01T00:00:00Z'),
+      status: 'ACTIVE',
+      createdById: actorUserId,
+    },
+  });
+
+  // === Plan 4: Water Treatment Pump Inspection ===
+  await prisma.maintenancePlan.create({
+    data: {
+      organisationId,
+      name: 'Water Treatment Pump Inspection',
+      description: 'Quarterly inspection of the water treatment pump.',
+      maintenanceTypeId: typesByCode['INSPECTION']!.id,
+      assetId: waterPump.id,
+      priority: 'LOW',
+      estimatedDurationMinutes: 30,
+      createdById: actorUserId,
+      tasks: {
+        create: [
+          { sequence: 1, title: 'Check for leaks', mandatory: true },
+          { sequence: 2, title: 'Inspect pump seals', mandatory: true },
+        ],
+      },
+    },
+  });
+
+  // === An active corrective work order — reported via a Maintenance
+  // Request, approved, converted, then started. ===
+  const packagingRequest = await prisma.maintenanceRequest.create({
+    data: {
+      organisationId,
+      requestCode: 'MR-000001',
+      assetId: packagingMachine.id,
+      title: 'Packaging machine making abnormal noise',
+      description: 'Operator reports a grinding noise from the sealing mechanism.',
+      priority: 'HIGH',
+      issueType: 'NOISE',
+      status: 'APPROVED',
+      reportedById: technicianUserId,
+      reviewedById: actorUserId,
+      reviewedAt: new Date('2026-09-01T09:00:00Z'),
+      createdById: technicianUserId,
+    },
+  });
+  const correctiveWorkOrder = await prisma.workOrder.create({
+    data: {
+      organisationId,
+      workOrderCode: 'WO-000002',
+      assetId: packagingMachine.id,
+      maintenanceTypeId: typesByCode['CORRECTIVE']!.id,
+      maintenanceRequestId: packagingRequest.id,
+      title: packagingRequest.title,
+      description: packagingRequest.description,
+      priority: 'HIGH',
+      status: 'IN_PROGRESS',
+      assignedToId: technicianUserId,
+      failureReason: 'Grinding noise from sealing mechanism, suspected worn bearing.',
+      actualStartAt: new Date('2026-09-02T08:00:00Z'),
+      createdById: actorUserId,
+    },
+  });
+  await prisma.maintenanceRequest.update({
+    where: { id: packagingRequest.id },
+    data: { status: 'CONVERTED_TO_WORK_ORDER' },
+  });
+  await prisma.workOrderTask.createMany({
+    data: [
+      {
+        workOrderId: correctiveWorkOrder.id,
+        sequence: 1,
+        title: 'Diagnose noise source',
+        status: 'COMPLETED',
+        completedAt: new Date('2026-09-02T08:30:00Z'),
+        completedById: technicianUserId,
+      },
+      {
+        workOrderId: correctiveWorkOrder.id,
+        sequence: 2,
+        title: 'Replace worn bearing',
+        status: 'IN_PROGRESS',
+      },
+    ],
+  });
+  await prisma.assetDowntime.create({
+    data: {
+      organisationId,
+      assetId: packagingMachine.id,
+      workOrderId: correctiveWorkOrder.id,
+      startedAt: new Date('2026-09-02T08:00:00Z'),
+      reason: 'Sealing mechanism repair — bearing replacement in progress',
+      planned: false,
+      recordedById: technicianUserId,
+    },
+  });
+
+  // === A critical breakdown work order — the generator refuses to start,
+  // unassigned, awaiting a technician. ===
+  await prisma.workOrder.create({
+    data: {
+      organisationId,
+      workOrderCode: 'WO-000003',
+      assetId: generator.id,
+      maintenanceTypeId: typesByCode['BREAKDOWN']!.id,
+      title: 'Generator refuses to start',
+      description: 'Generator failed to start during the scheduled weekly test run.',
+      priority: 'CRITICAL',
+      status: 'OPEN',
+      failureReason: 'No ignition — suspected fuel delivery or starter motor fault.',
+      createdById: actorUserId,
+    },
+  });
+}
+
 async function main(): Promise<void> {
   // Read early (rather than inside `seedUser`) because the organisation's `businessEmail`
   // needs it before any user is created.
@@ -5481,6 +5879,7 @@ async function main(): Promise<void> {
   await seedInvestmentProjectFixtures(organisation.id, ownerUser.id);
   await seedDecisionAnalysisFixtures(organisation.id, ownerUser.id);
   await seedAssetFixtures(organisation.id, ownerUser.id);
+  await seedMaintenanceFixtures(organisation.id, ownerUser.id, administratorUser.id);
 
   console.log('Recording an audit log entry for this seed run...');
   await prisma.auditLog.create({

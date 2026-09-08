@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { AssetMeter, AssetMeterReading, AssetMeterType } from '@prisma/client';
+import { AssetMeter, AssetMeterReading, AssetMeterType, Prisma } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -71,52 +71,67 @@ export class AssetMeterRepository {
    *  one (meters are cumulative), inserts the immutable log row, and
    *  updates the meter's own `currentReading`/`lastReadingDate` mirror —
    *  all inside one transaction. Idempotency-check-first. */
-  async recordReading(data: RecordMeterReadingData): Promise<RecordMeterReadingResult> {
-    return this.prisma.$transaction(async (tx) => {
-      if (data.idempotencyKey) {
-        const existing = await tx.assetMeterReading.findUnique({
-          where: {
-            organisationId_idempotencyKey: {
-              organisationId: data.organisationId,
-              idempotencyKey: data.idempotencyKey,
-            },
-          },
-        });
-        if (existing) {
-          const meter = await tx.assetMeter.findUniqueOrThrow({ where: { id: data.meterId } });
-          return { reading: existing, meter, wasCreated: false };
-        }
-      }
+  recordReading(data: RecordMeterReadingData): Promise<RecordMeterReadingResult> {
+    return this.prisma.$transaction((tx) => recordMeterReadingWithinTransaction(tx, data));
+  }
+}
 
-      const meter = await tx.assetMeter.findFirstOrThrow({
-        where: { id: data.meterId, organisationId: data.organisationId },
-      });
-
-      if (data.reading < meter.currentReading) {
-        throw new InvalidMeterReadingError(meter.currentReading, data.reading);
-      }
-
-      const readingDate = data.readingDate ?? new Date();
-      const reading = await tx.assetMeterReading.create({
-        data: {
+/**
+ * The body of `recordReading()`'s transaction, extracted so a caller that
+ * already owns its own `$transaction` (Sprint 21's `WorkOrderRepository.
+ * complete()`, which records a meter reading as part of one atomic
+ * work-order-completion transaction) can join it directly, rather than
+ * nesting a second, incompatible `$transaction` call — the exact
+ * `issueCreditNoteWithinTransaction` extraction Sprint 11 already
+ * established for this identical problem. Behaviour-preserving:
+ * `recordReading()` above is now a one-line wrapper around this function.
+ */
+export async function recordMeterReadingWithinTransaction(
+  tx: Prisma.TransactionClient,
+  data: RecordMeterReadingData,
+): Promise<RecordMeterReadingResult> {
+  if (data.idempotencyKey) {
+    const existing = await tx.assetMeterReading.findUnique({
+      where: {
+        organisationId_idempotencyKey: {
           organisationId: data.organisationId,
-          meterId: data.meterId,
-          reading: data.reading,
-          readingDate,
-          recordedById: data.recordedById,
-          notes: data.notes,
           idempotencyKey: data.idempotencyKey,
         },
-      });
-
-      const updatedMeter = await tx.assetMeter.update({
-        where: { id: data.meterId },
-        data: { currentReading: data.reading, lastReadingDate: readingDate },
-      });
-
-      return { reading, meter: updatedMeter, wasCreated: true };
+      },
     });
+    if (existing) {
+      const meter = await tx.assetMeter.findUniqueOrThrow({ where: { id: data.meterId } });
+      return { reading: existing, meter, wasCreated: false };
+    }
   }
+
+  const meter = await tx.assetMeter.findFirstOrThrow({
+    where: { id: data.meterId, organisationId: data.organisationId },
+  });
+
+  if (data.reading < meter.currentReading) {
+    throw new InvalidMeterReadingError(meter.currentReading, data.reading);
+  }
+
+  const readingDate = data.readingDate ?? new Date();
+  const reading = await tx.assetMeterReading.create({
+    data: {
+      organisationId: data.organisationId,
+      meterId: data.meterId,
+      reading: data.reading,
+      readingDate,
+      recordedById: data.recordedById,
+      notes: data.notes,
+      idempotencyKey: data.idempotencyKey,
+    },
+  });
+
+  const updatedMeter = await tx.assetMeter.update({
+    where: { id: data.meterId },
+    data: { currentReading: data.reading, lastReadingDate: readingDate },
+  });
+
+  return { reading, meter: updatedMeter, wasCreated: true };
 }
 
 export class InvalidMeterReadingError extends Error {

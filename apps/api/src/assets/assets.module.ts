@@ -41,6 +41,14 @@ import { AssetService } from './asset.service';
  * — see docs/domains/assets.md "Why Not InventoryLocation"), so Asset
  * never touches Inventory at all. Proven executably by
  * `asset-independence.spec.ts`, not just documented here.
+ *
+ * **Exports** (added Sprint 21, docs/domains/maintenance.md): `AssetRepository`/
+ * `AssetService`/`AssetMeterRepository`/`AssetMeterService`/`AssetCategoryRepository`
+ * — read primarily, plus the one legitimate write `MaintenanceModule` needs
+ * (the `IN_SERVICE ⇄ UNDER_MAINTENANCE` transition, via `AssetService`'s own
+ * lifecycle methods, never a raw Prisma update). The same "small module
+ * exports what a sibling domain legitimately needs" shape `PurchaseOrderModule`/
+ * `SupplierModule` already establish for `AssetsModule` itself.
  */
 @Module({
   imports: [IdentityModule, AuthModule, FileStorageModule, PurchaseOrderModule, SupplierModule],
@@ -54,6 +62,13 @@ import { AssetService } from './asset.service';
     AssetService,
     AssetDocumentRepository,
     AssetDocumentService,
+    AssetMeterRepository,
+    AssetMeterService,
+  ],
+  exports: [
+    AssetRepository,
+    AssetService,
+    AssetCategoryRepository,
     AssetMeterRepository,
     AssetMeterService,
   ],

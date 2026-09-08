@@ -50,7 +50,7 @@ const MODULE_DESCRIPTIONS: Record<string, string> = {
   '/settings/inventory': 'Live stock levels and the goods receipts that built them.',
   '/settings/production': 'Bills of materials, production orders, and material issues.',
   '/settings/assets': 'Manage factory equipment, vehicles and long-term business assets.',
-  '/maintenance': 'Schedule preventive maintenance and manage equipment servicing.',
+  '/settings/maintenance': 'Schedule preventive maintenance and manage equipment servicing.',
   '/settings/sales': 'Sales orders recording customer demand — direct sales, always.',
   '/settings/distribution': 'Dispatch and delivery of already-fulfilled sales orders.',
   '/settings/retail': 'Customers, outlets, territories, and the distribution network.',

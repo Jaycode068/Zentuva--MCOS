@@ -317,8 +317,9 @@ Receivable / CR Sales Revenue` posting (Sprint 6/7): revenue and inventory cost 
   manufacturing operation depends on, and keep them running.
 - **Includes:** Asset Register (equipment, vehicles, and other long-term assets),
   Preventive Maintenance Scheduling, Equipment Servicing History.
-- **Status:** **Asset Register half implemented — Sprint 20 ("Asset Register
-  & Asset Management Foundation")**. A genuinely new top-level domain — not
+- **Status:** **Both halves now implemented — Sprint 20 ("Asset Register &
+  Asset Management Foundation") and Sprint 21 ("Maintenance Management
+  Foundation")**. Sprint 20: a genuinely new top-level domain — not
   a Product, not an `InventoryStock` row, not a Purchase Order — for the
   durable physical resources the business owns: tenant-scoped hierarchical
   Asset Categories; a central `Asset` entity with a server-generated
@@ -331,11 +332,23 @@ Receivable / CR Sales Revenue` posting (Sprint 6/7): revenue and inventory cost 
   Purchase Order/Capital Project; a meter/reading foundation; warranty
   classification; documents/photos via both established file-attachment
   patterns — and, by construction, zero accounting integration. See
-  [`docs/domains/assets.md`](domains/assets.md). **Preventive Maintenance
-  Scheduling and Equipment Servicing History remain not started** — Sprint
-  20 deliberately leaves only clean, documented integration points for a
-  future Maintenance Management sprint (see assets.md §11), never
-  implementing any maintenance feature itself.
+  [`docs/domains/assets.md`](domains/assets.md). Sprint 21: a dedicated
+  Maintenance domain built on top — reusable Maintenance Plans (targeting
+  a specific asset or an asset category, never both), date-/meter-based
+  Schedules whose `generate()` is idempotent by construction (advancing
+  its own due marker in the same transaction that creates a work order,
+  so a repeat call never duplicates), Maintenance Requests
+  (report → approve/reject → convert to a Work Order), the Work Order
+  lifecycle (`OPEN → ASSIGNED → IN_PROGRESS ⇄ ON_HOLD →
+COMPLETED`/`CANCELLED`, both terminal) with a mobile-first technician
+  workflow (checklist tasks, camera photo capture, a single large primary
+  action per status), a dedicated `AssetDowntime` table (duration always
+  derived, never stored), operational parts-usage and cost records (zero
+  `InventoryStock`/`InventoryTransaction` mutation, zero accounting
+  posting, by construction), and every `IN_SERVICE ⇄
+UNDER_MAINTENANCE` transition driven through Asset's own lifecycle
+  service — never a raw update. See
+  [`docs/domains/maintenance.md`](domains/maintenance.md).
 
 ### Epic 15 — Supplier Management
 
@@ -781,12 +794,15 @@ REJECTED}`) optionally linking an existing `CapitalProject`/
 - ✓ Sprint 19 — Financial Decision, Scenario Analysis & Management
   Financial Cockpit (Finance MVP capstone)
 - ✓ Sprint 20 — Asset Register & Asset Management Foundation
+- ✓ Sprint 21 — Maintenance Management Foundation
 
 **Current focus:** The Finance MVP (Sprints 6-19) is considered
-functionally complete. Sprint 20 opened a new Epic (Asset & Maintenance
-Management, Epic 14) with its Asset Register foundation. Next sprint not
-yet scoped — a natural candidate is the Maintenance Management half of
-Epic 14, building on Sprint 20's documented integration points.
+functionally complete. Epic 14 (Asset & Maintenance Management) is now
+fully built through its foundation scope — Sprint 20 (Asset Register) and
+Sprint 21 (Maintenance Management). Next sprint not yet scoped — natural
+candidates include Maintenance Intelligence (MTBF/MTTR, preventive
+compliance, cost trends — see maintenance.md §12) or an explicit
+Inventory/Accounting integration for maintenance parts/costs.
 
 ## 6. Future Ideas (Not Prioritised Yet)
 

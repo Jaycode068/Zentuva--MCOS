@@ -18,6 +18,13 @@ import { ImageUploadCard } from '@/components/app/image-upload-card';
 import { ApiError } from '@/lib/api-client';
 import { formatCurrency } from '@/lib/format-currency';
 import { listCapitalProjects } from '@/app/(app)/settings/finance/api';
+import { getAssetMaintenanceHistory } from '@/app/(app)/settings/maintenance/api';
+import {
+  MAINTENANCE_PRIORITY_LABELS,
+  MAINTENANCE_PRIORITY_VARIANT,
+  WORK_ORDER_STATUS_LABELS,
+  WORK_ORDER_STATUS_VARIANT,
+} from '@/app/(app)/settings/maintenance/labels';
 import { listPurchaseOrders } from '@/app/(app)/settings/procurement/api';
 import { listSuppliers } from '@/app/(app)/settings/suppliers/api';
 
@@ -192,6 +199,7 @@ export default function AssetDetailPage({ params }: { params: { id: string } }) 
       <WarrantySection asset={asset} />
       <HierarchySection asset={asset} />
       <MeterSection assetId={id} />
+      <MaintenanceSection assetId={id} />
       <MovementSection asset={asset} onSaved={invalidateAll} />
       <DocumentsSection assetId={id} />
       <AuditHistorySection assetId={id} />
@@ -874,6 +882,86 @@ function AuditHistorySection({ assetId }: { assetId: string }) {
               </li>
             ))}
           </ul>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Composes Sprint 21's own Maintenance domain, read-only — never
+ *  duplicates the full Work Order table, always links out to
+ *  `/settings/maintenance/work-orders/*` for the full picture
+ *  (docs/domains/maintenance.md "Asset Detail Integration"). */
+function MaintenanceSection({ assetId }: { assetId: string }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ['asset-maintenance-history', assetId],
+    queryFn: () => getAssetMaintenanceHistory(assetId),
+  });
+
+  const openWorkOrders = (data?.workOrders ?? []).filter((wo) =>
+    ['OPEN', 'ASSIGNED', 'IN_PROGRESS', 'ON_HOLD'].includes(wo.status),
+  );
+
+  return (
+    <Card className="mb-8">
+      <CardHeader>
+        <CardTitle className="text-sm font-medium text-muted-foreground">Maintenance</CardTitle>
+      </CardHeader>
+      <CardContent>
+        {isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
+        {!isLoading && data && (
+          <>
+            <div className="mb-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
+              <Field label="Open Work" value={String(openWorkOrders.length)} />
+              <Field
+                label="Last Maintenance"
+                value={
+                  data.lastMaintenance?.completedAt
+                    ? new Date(data.lastMaintenance.completedAt).toLocaleDateString()
+                    : '—'
+                }
+              />
+              <Field label="Upcoming Preventive" value={String(data.upcomingSchedules.length)} />
+              <Field label="Total Recorded Cost" value={formatCurrency(data.totalCost, 'NGN')} />
+            </div>
+
+            {openWorkOrders.length > 0 && (
+              <div className="mb-4">
+                <p className="mb-2 text-xs font-medium text-muted-foreground">Open Work Orders</p>
+                <ul className="space-y-2">
+                  {openWorkOrders.map((wo) => (
+                    <li key={wo.id} className="flex items-center justify-between text-sm">
+                      <a
+                        href={`/settings/maintenance/work-orders/${wo.id}`}
+                        className="text-primary hover:underline"
+                      >
+                        {wo.workOrderCode} — {wo.title}
+                      </a>
+                      <div className="flex items-center gap-2">
+                        <Badge variant={MAINTENANCE_PRIORITY_VARIANT[wo.priority]}>
+                          {MAINTENANCE_PRIORITY_LABELS[wo.priority]}
+                        </Badge>
+                        <Badge variant={WORK_ORDER_STATUS_VARIANT[wo.status]}>
+                          {WORK_ORDER_STATUS_LABELS[wo.status]}
+                        </Badge>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {data.workOrders.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No maintenance history yet.</p>
+            ) : (
+              <a
+                href={`/settings/maintenance/work-orders?assetId=${assetId}`}
+                className="text-sm text-primary hover:underline"
+              >
+                View all {data.workOrders.length} maintenance record(s) →
+              </a>
+            )}
+          </>
         )}
       </CardContent>
     </Card>

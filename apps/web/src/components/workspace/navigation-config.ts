@@ -62,9 +62,8 @@ export const WORKSPACE_NAV_GROUPS: WorkspaceNavGroup[] = [
       },
       {
         label: 'Maintenance',
-        href: '/maintenance',
+        href: '/settings/maintenance',
         icon: WrenchIcon,
-        comingSoon: true,
       },
       { label: 'Sales', href: '/settings/sales', icon: TrendingUpIcon },
       { label: 'Distribution', href: '/settings/distribution', icon: SendIcon },

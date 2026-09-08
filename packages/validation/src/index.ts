@@ -13,6 +13,7 @@ export * from './finance';
 export * from './identity';
 export * from './inventory';
 export * from './investment';
+export * from './maintenance';
 export * from './pagination';
 export * from './procurement';
 export * from './production';
