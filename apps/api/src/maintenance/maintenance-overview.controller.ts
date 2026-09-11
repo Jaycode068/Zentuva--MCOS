@@ -25,6 +25,15 @@ export class MaintenanceOverviewController {
     return this.maintenanceOverviewService.getOverview(user.organisationId);
   }
 
+  /** Sprint 22 — docs/domains/maintenance-integration.md "Production
+   *  Integration". Read-only, ready for a future Production consumer;
+   *  Production has no Asset/equipment concept yet to key off, so
+   *  nothing on the Production side calls this today. */
+  @Get('downtime/active')
+  getActiveDowntime(@CurrentUser() user: TokenPayload) {
+    return this.maintenanceOverviewService.getActiveDowntime(user.organisationId);
+  }
+
   /** Technician picker — the exact `AssetController.listCustodians()`
    *  precedent (Sprint 20): no separate "Technician" role/table exists,
    *  any organisation member can be assigned. */

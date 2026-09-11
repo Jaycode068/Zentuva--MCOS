@@ -22,6 +22,8 @@ import { getAssetMaintenanceHistory } from '@/app/(app)/settings/maintenance/api
 import {
   MAINTENANCE_PRIORITY_LABELS,
   MAINTENANCE_PRIORITY_VARIANT,
+  PART_USAGE_STATUS_LABELS,
+  PART_USAGE_STATUS_VARIANT,
   WORK_ORDER_STATUS_LABELS,
   WORK_ORDER_STATUS_VARIANT,
 } from '@/app/(app)/settings/maintenance/labels';
@@ -888,18 +890,41 @@ function AuditHistorySection({ assetId }: { assetId: string }) {
   );
 }
 
-/** Composes Sprint 21's own Maintenance domain, read-only — never
- *  duplicates the full Work Order table, always links out to
- *  `/settings/maintenance/work-orders/*` for the full picture
- *  (docs/domains/maintenance.md "Asset Detail Integration"). */
+function formatDowntimeMinutes(minutes: number): string {
+  const h = Math.floor(minutes / 60);
+  const m = Math.round(minutes % 60);
+  return `${h}h ${m}m`;
+}
+
+/** Composes Sprint 21/22's own Maintenance domain, read-only — never
+ *  duplicates the full Work Order table, the parts/inventory ledger, or
+ *  the schedule engine; always links out to `/settings/maintenance/*` for
+ *  the full picture (docs/domains/maintenance-integration.md "Asset
+ *  Integration"). Every figure here is either read directly off
+ *  `getAssetMaintenanceHistory()`'s own server-computed fields or a plain
+ *  client-side filter/count over an array that endpoint already returned
+ *  in full — the same "light display aggregation only" discipline the
+ *  page's own pre-existing `openWorkOrders` line already followed. */
 function MaintenanceSection({ assetId }: { assetId: string }) {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['asset-maintenance-history', assetId],
     queryFn: () => getAssetMaintenanceHistory(assetId),
   });
 
+  const now = new Date();
   const openWorkOrders = (data?.workOrders ?? []).filter((wo) =>
     ['OPEN', 'ASSIGNED', 'IN_PROGRESS', 'ON_HOLD'].includes(wo.status),
+  );
+  const inProgressWorkOrders = (data?.workOrders ?? []).filter((wo) => wo.status === 'IN_PROGRESS');
+  const overdueWorkOrders = openWorkOrders.filter(
+    (wo) => wo.plannedEndAt && new Date(wo.plannedEndAt) < now,
+  );
+  const overdueSchedules = (data?.upcomingSchedules ?? []).filter(
+    (s) => s.nextDueDate && new Date(s.nextDueDate) < now,
+  );
+  const totalDowntimeMinutes = (data?.downtimes ?? []).reduce(
+    (sum, d) => sum + (d.durationMinutes ?? 0),
+    0,
   );
 
   return (
@@ -908,58 +933,258 @@ function MaintenanceSection({ assetId }: { assetId: string }) {
         <CardTitle className="text-sm font-medium text-muted-foreground">Maintenance</CardTitle>
       </CardHeader>
       <CardContent>
-        {isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
-        {!isLoading && data && (
+        {isLoading && <p className="py-6 text-center text-sm text-muted-foreground">Loading…</p>}
+        {isError && (
+          <div className="flex flex-col items-center gap-3 py-6 text-center">
+            <p className="text-sm text-destructive">
+              {error instanceof ApiError ? error.message : 'Failed to load maintenance data.'}
+            </p>
+            <Button variant="outline" size="sm" onClick={() => refetch()}>
+              Retry
+            </Button>
+          </div>
+        )}
+        {!isLoading && !isError && data && (
           <>
-            <div className="mb-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
-              <Field label="Open Work" value={String(openWorkOrders.length)} />
-              <Field
-                label="Last Maintenance"
-                value={
-                  data.lastMaintenance?.completedAt
-                    ? new Date(data.lastMaintenance.completedAt).toLocaleDateString()
-                    : '—'
-                }
-              />
-              <Field label="Upcoming Preventive" value={String(data.upcomingSchedules.length)} />
-              <Field label="Total Recorded Cost" value={formatCurrency(data.totalCost, 'NGN')} />
-            </div>
-
-            {openWorkOrders.length > 0 && (
-              <div className="mb-4">
-                <p className="mb-2 text-xs font-medium text-muted-foreground">Open Work Orders</p>
-                <ul className="space-y-2">
-                  {openWorkOrders.map((wo) => (
-                    <li key={wo.id} className="flex items-center justify-between text-sm">
-                      <a
-                        href={`/settings/maintenance/work-orders/${wo.id}`}
-                        className="text-primary hover:underline"
-                      >
-                        {wo.workOrderCode} — {wo.title}
-                      </a>
-                      <div className="flex items-center gap-2">
-                        <Badge variant={MAINTENANCE_PRIORITY_VARIANT[wo.priority]}>
-                          {MAINTENANCE_PRIORITY_LABELS[wo.priority]}
-                        </Badge>
-                        <Badge variant={WORK_ORDER_STATUS_VARIANT[wo.status]}>
-                          {WORK_ORDER_STATUS_LABELS[wo.status]}
-                        </Badge>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            {data.workOrders.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No maintenance history yet.</p>
+            {data.workOrders.length === 0 &&
+            data.downtimes.length === 0 &&
+            data.upcomingSchedules.length === 0 ? (
+              <p className="py-6 text-center text-sm text-muted-foreground">
+                No maintenance activity recorded for this asset yet.
+              </p>
             ) : (
-              <a
-                href={`/settings/maintenance/work-orders?assetId=${assetId}`}
-                className="text-sm text-primary hover:underline"
-              >
-                View all {data.workOrders.length} maintenance record(s) →
-              </a>
+              <>
+                {/* Summary */}
+                <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
+                  <Field label="Open Work Orders" value={String(openWorkOrders.length)} />
+                  <Field label="In Progress" value={String(inProgressWorkOrders.length)} />
+                  <Field
+                    label="Overdue"
+                    value={String(overdueWorkOrders.length + overdueSchedules.length)}
+                  />
+                  <Field
+                    label="Last Completed"
+                    value={
+                      data.lastMaintenance?.completedAt
+                        ? new Date(data.lastMaintenance.completedAt).toLocaleDateString()
+                        : '—'
+                    }
+                  />
+                  <Field
+                    label="Next Scheduled"
+                    value={
+                      data.nextScheduledMaintenance?.nextDueDate
+                        ? new Date(data.nextScheduledMaintenance.nextDueDate).toLocaleDateString()
+                        : '—'
+                    }
+                  />
+                  <Field label="Total Cost" value={formatCurrency(data.totalCost, 'NGN')} />
+                  <Field
+                    label="Total Downtime"
+                    value={
+                      totalDowntimeMinutes > 0
+                        ? formatDowntimeMinutes(totalDowntimeMinutes)
+                        : '0h 0m'
+                    }
+                  />
+                  <Field label="Total Work Orders" value={String(data.workOrders.length)} />
+                </div>
+
+                {data.capitalProject && (
+                  <p className="mb-4 text-xs text-muted-foreground">
+                    Originating capital project:{' '}
+                    <a
+                      href={`/settings/finance/capital-projects/${data.capitalProject.id}`}
+                      className="text-primary hover:underline"
+                    >
+                      {data.capitalProject.projectCode} — {data.capitalProject.name}
+                    </a>
+                  </p>
+                )}
+
+                {/* Maintenance History */}
+                {data.workOrders.length > 0 && (
+                  <div className="mb-6">
+                    <p className="mb-2 text-xs font-medium text-muted-foreground">
+                      Recent Maintenance History
+                    </p>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead className="text-left text-muted-foreground">
+                          <tr>
+                            <th className="py-1.5 pr-3 font-medium">Work Order</th>
+                            <th className="py-1.5 pr-3 font-medium">Status</th>
+                            <th className="py-1.5 pr-3 font-medium">Priority</th>
+                            <th className="py-1.5 text-right font-medium">Completed</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {data.workOrders.slice(0, 8).map((wo) => (
+                            <tr key={wo.id} className="border-t border-border">
+                              <td className="py-1.5 pr-3">
+                                <a
+                                  href={`/settings/maintenance/work-orders/${wo.id}`}
+                                  className="text-primary hover:underline"
+                                >
+                                  {wo.workOrderCode} — {wo.title}
+                                </a>
+                              </td>
+                              <td className="py-1.5 pr-3">
+                                <Badge variant={WORK_ORDER_STATUS_VARIANT[wo.status]}>
+                                  {WORK_ORDER_STATUS_LABELS[wo.status]}
+                                </Badge>
+                              </td>
+                              <td className="py-1.5 pr-3">
+                                <Badge variant={MAINTENANCE_PRIORITY_VARIANT[wo.priority]}>
+                                  {MAINTENANCE_PRIORITY_LABELS[wo.priority]}
+                                </Badge>
+                              </td>
+                              <td className="py-1.5 text-right text-muted-foreground">
+                                {wo.completedAt
+                                  ? new Date(wo.completedAt).toLocaleDateString()
+                                  : '—'}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <a
+                      href={`/settings/maintenance/work-orders?assetId=${assetId}`}
+                      className="mt-2 inline-block text-xs text-primary hover:underline"
+                    >
+                      View all {data.workOrders.length} work order(s) →
+                    </a>
+                  </div>
+                )}
+
+                {/* Parts Used */}
+                {data.partsUsed.length > 0 && (
+                  <div className="mb-6">
+                    <p className="mb-2 text-xs font-medium text-muted-foreground">
+                      Parts Used ({data.partsIssuedCount} issued,{' '}
+                      {formatCurrency(data.partsCost, 'NGN')})
+                    </p>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead className="text-left text-muted-foreground">
+                          <tr>
+                            <th className="py-1.5 pr-3 font-medium">Part</th>
+                            <th className="py-1.5 pr-3 font-medium">Qty</th>
+                            <th className="py-1.5 pr-3 font-medium">Status</th>
+                            <th className="py-1.5 pr-3 font-medium">Work Order</th>
+                            <th className="py-1.5 text-right font-medium">Cost</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {data.partsUsed.slice(0, 8).map((p) => (
+                            <tr key={p.id} className="border-t border-border">
+                              <td className="py-1.5 pr-3">{p.product.name}</td>
+                              <td className="py-1.5 pr-3">
+                                {p.quantity} {p.unitOfMeasure ?? ''}
+                              </td>
+                              <td className="py-1.5 pr-3">
+                                <Badge variant={PART_USAGE_STATUS_VARIANT[p.status]}>
+                                  {PART_USAGE_STATUS_LABELS[p.status]}
+                                </Badge>
+                              </td>
+                              <td className="py-1.5 pr-3">
+                                <a
+                                  href={`/settings/maintenance/work-orders/${p.workOrderId}`}
+                                  className="text-primary hover:underline"
+                                >
+                                  View
+                                </a>
+                              </td>
+                              <td className="py-1.5 text-right text-muted-foreground">
+                                {p.totalCost !== null ? formatCurrency(p.totalCost, 'NGN') : '—'}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {/* Downtime */}
+                {data.downtimes.length > 0 && (
+                  <div className="mb-6">
+                    <p className="mb-2 text-xs font-medium text-muted-foreground">Downtime</p>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead className="text-left text-muted-foreground">
+                          <tr>
+                            <th className="py-1.5 pr-3 font-medium">Started</th>
+                            <th className="py-1.5 pr-3 font-medium">Ended</th>
+                            <th className="py-1.5 pr-3 font-medium">Duration</th>
+                            <th className="py-1.5 text-right font-medium">Reason</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {data.downtimes.slice(0, 5).map((d) => (
+                            <tr key={d.id} className="border-t border-border">
+                              <td className="py-1.5 pr-3">
+                                {new Date(d.startedAt).toLocaleString()}
+                              </td>
+                              <td className="py-1.5 pr-3">
+                                {d.endedAt ? new Date(d.endedAt).toLocaleString() : 'Ongoing'}
+                              </td>
+                              <td className="py-1.5 pr-3">
+                                {d.durationMinutes !== null
+                                  ? formatDowntimeMinutes(d.durationMinutes)
+                                  : '—'}
+                              </td>
+                              <td className="py-1.5 text-right text-muted-foreground">
+                                {d.reason ?? '—'}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {/* Preventive Maintenance */}
+                {data.upcomingSchedules.length > 0 && (
+                  <div>
+                    <p className="mb-2 text-xs font-medium text-muted-foreground">
+                      Preventive Maintenance Schedules
+                    </p>
+                    <ul className="space-y-1.5">
+                      {data.upcomingSchedules.map((s) => {
+                        const overdue = s.nextDueDate && new Date(s.nextDueDate) < now;
+                        return (
+                          <li key={s.id} className="flex items-center justify-between text-sm">
+                            <span>
+                              {s.scheduleType === 'METER_BASED'
+                                ? `Every ${s.meterInterval} ${s.meterType ?? ''}`.trim()
+                                : `Every ${s.frequencyValue ?? '—'} ${s.frequencyUnit?.toLowerCase() ?? ''}`}
+                            </span>
+                            <span
+                              className={overdue ? 'text-destructive' : 'text-muted-foreground'}
+                            >
+                              {s.nextDueDate
+                                ? `Due ${new Date(s.nextDueDate).toLocaleDateString()}`
+                                : s.nextDueMeterReading
+                                  ? `Due at ${s.nextDueMeterReading}`
+                                  : '—'}
+                              {overdue ? ' (overdue)' : ''}
+                            </span>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                    <a
+                      href="/settings/maintenance/schedules"
+                      className="mt-2 inline-block text-xs text-primary hover:underline"
+                    >
+                      Manage schedules →
+                    </a>
+                  </div>
+                )}
+              </>
             )}
           </>
         )}

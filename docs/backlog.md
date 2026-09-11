@@ -317,9 +317,10 @@ Receivable / CR Sales Revenue` posting (Sprint 6/7): revenue and inventory cost 
   manufacturing operation depends on, and keep them running.
 - **Includes:** Asset Register (equipment, vehicles, and other long-term assets),
   Preventive Maintenance Scheduling, Equipment Servicing History.
-- **Status:** **Both halves now implemented — Sprint 20 ("Asset Register &
-  Asset Management Foundation") and Sprint 21 ("Maintenance Management
-  Foundation")**. Sprint 20: a genuinely new top-level domain — not
+- **Status:** **Fully implemented — Sprint 20 ("Asset Register & Asset
+  Management Foundation"), Sprint 21 ("Maintenance Management
+  Foundation"), and Sprint 22 ("Maintenance Ecosystem Integration")**.
+  Sprint 20: a genuinely new top-level domain — not
   a Product, not an `InventoryStock` row, not a Purchase Order — for the
   durable physical resources the business owns: tenant-scoped hierarchical
   Asset Categories; a central `Asset` entity with a server-generated
@@ -348,7 +349,21 @@ COMPLETED`/`CANCELLED`, both terminal) with a mobile-first technician
   posting, by construction), and every `IN_SERVICE ⇄
 UNDER_MAINTENANCE` transition driven through Asset's own lifecycle
   service — never a raw update. See
-  [`docs/domains/maintenance.md`](domains/maintenance.md).
+  [`docs/domains/maintenance.md`](domains/maintenance.md). Sprint 22
+  connects that zero-integration foundation to the rest of the ecosystem
+  through narrow, documented boundaries: real Inventory part-issuing
+  (`MaintenancePartUsageRepository.issue()` is the domain's one deliberate
+  exception to its own no-cross-domain-writes rule), a Procurement linking
+  boundary (`MaintenanceProcurementRequirement`, never a parallel
+  requisition system), Budget cost-vs-budget comparison, a read-side
+  Production downtime feed, and a Maintenance Analytics service/page
+  (`/settings/maintenance/analytics`) — plus the Asset Register detail
+  page's extended Maintenance section and a new mobile-first Field
+  Technician surface (`/field/maintenance`), built on the `assignedToId`
+  convention with no new RBAC role. Zero accounting postings, structurally
+  proven inventory-write boundary, and full live cross-surface
+  verification — see
+  [`docs/domains/maintenance-integration.md`](domains/maintenance-integration.md).
 
 ### Epic 15 — Supplier Management
 
@@ -795,14 +810,18 @@ REJECTED}`) optionally linking an existing `CapitalProject`/
   Financial Cockpit (Finance MVP capstone)
 - ✓ Sprint 20 — Asset Register & Asset Management Foundation
 - ✓ Sprint 21 — Maintenance Management Foundation
+- ✓ Sprint 22 — Maintenance Ecosystem Integration
 
 **Current focus:** The Finance MVP (Sprints 6-19) is considered
 functionally complete. Epic 14 (Asset & Maintenance Management) is now
-fully built through its foundation scope — Sprint 20 (Asset Register) and
-Sprint 21 (Maintenance Management). Next sprint not yet scoped — natural
-candidates include Maintenance Intelligence (MTBF/MTTR, preventive
-compliance, cost trends — see maintenance.md §12) or an explicit
-Inventory/Accounting integration for maintenance parts/costs.
+fully built end-to-end — Sprint 20 (Asset Register), Sprint 21
+(Maintenance Management foundation), and Sprint 22 (Maintenance Ecosystem
+Integration: Inventory/Procurement/Budget/Production integration,
+Analytics, Asset Register maintenance visibility, and the Field
+Technician surface). Deliberately not started as part of this scope:
+predictive maintenance, IoT/sensor integration, fleet management, and a
+dedicated Technician RBAC role. Next sprint: Sprint 23 (HR Employee
+Lifecycle Foundation) — not yet started.
 
 ## 6. Future Ideas (Not Prioritised Yet)
 

@@ -36,4 +36,13 @@ export const MAINTENANCE_AUDIT_ACTIONS = {
   PART_USAGE_RECORDED: 'maintenance.part.recorded',
   DOCUMENT_ADDED: 'maintenance.document.added',
   DOCUMENT_REMOVED: 'maintenance.document.removed',
+  // Sprint 22 — Maintenance Ecosystem Integration
+  // (docs/domains/maintenance-integration.md). See maintenance-events.ts
+  // for the cross-referenced business-event catalog these actions stand
+  // in for until a real dispatcher exists.
+  PART_USAGE_ISSUED: 'maintenance.part.issued',
+  PART_USAGE_CANCELLED: 'maintenance.part.cancelled',
+  PROCUREMENT_REQUIREMENT_IDENTIFIED: 'maintenance.procurement.identified',
+  PROCUREMENT_REQUIREMENT_LINKED: 'maintenance.procurement.linked',
+  PROCUREMENT_REQUIREMENT_CANCELLED: 'maintenance.procurement.cancelled',
 } as const;

@@ -1,5 +1,12 @@
-import { Body, Controller, Get, Post, Query, Req, UseGuards } from '@nestjs/common';
-import { RecordPartUsageInput, recordPartUsageSchema } from '@zentuva/validation';
+import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
+import {
+  CancelPartUsageInput,
+  IssuePartUsageInput,
+  RecordPartUsageInput,
+  cancelPartUsageSchema,
+  issuePartUsageSchema,
+  recordPartUsageSchema,
+} from '@zentuva/validation';
 import { Request } from 'express';
 
 import { AuditService } from '../identity/audit/audit.service';
@@ -57,6 +64,75 @@ export class MaintenancePartUsageController {
         userAgent: req.headers['user-agent'],
       });
     }
+    return partUsage;
+  }
+
+  /** The only place a maintenance part usage ever actually deducts real
+   *  stock — see `MaintenancePartUsageRepository.issue()`'s own doc
+   *  comment (docs/domains/maintenance-integration.md "Inventory
+   *  Integration"). */
+  @Post(':id/issue')
+  @UseGuards(RolesGuard)
+  @Roles('Owner', 'Administrator')
+  async issue(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(issuePartUsageSchema)) body: IssuePartUsageInput,
+    @CurrentUser() user: TokenPayload,
+    @Req() req: Request,
+  ) {
+    const { partUsage, wasIssued } = await this.maintenancePartUsageService.issue(
+      user.organisationId,
+      id,
+      body,
+      user.sub,
+    );
+    if (wasIssued) {
+      await this.auditService.record({
+        action: MAINTENANCE_AUDIT_ACTIONS.PART_USAGE_ISSUED,
+        entityType: 'WorkOrder',
+        entityId: partUsage.workOrderId,
+        organisationId: user.organisationId,
+        actorUserId: user.sub,
+        metadata: {
+          partUsageId: partUsage.id,
+          productId: partUsage.productId,
+          quantity: partUsage.quantity,
+          locationId: partUsage.locationId,
+          totalCost: partUsage.totalCost,
+          inventoryTransactionId: partUsage.inventoryTransactionId,
+        },
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      });
+    }
+    return partUsage;
+  }
+
+  @Post(':id/cancel')
+  @UseGuards(RolesGuard)
+  @Roles('Owner', 'Administrator')
+  async cancel(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(cancelPartUsageSchema)) body: CancelPartUsageInput,
+    @CurrentUser() user: TokenPayload,
+    @Req() req: Request,
+  ) {
+    const { partUsage } = await this.maintenancePartUsageService.cancel(
+      user.organisationId,
+      id,
+      body,
+      user.sub,
+    );
+    await this.auditService.record({
+      action: MAINTENANCE_AUDIT_ACTIONS.PART_USAGE_CANCELLED,
+      entityType: 'WorkOrder',
+      entityId: partUsage.workOrderId,
+      organisationId: user.organisationId,
+      actorUserId: user.sub,
+      metadata: { partUsageId: partUsage.id },
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+    });
     return partUsage;
   }
 }

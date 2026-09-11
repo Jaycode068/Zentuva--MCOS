@@ -5,10 +5,14 @@ import { ProductModule } from '../catalogue/product/product.module';
 import { AuthModule } from '../identity/auth/auth.module';
 import { IdentityModule } from '../identity/identity.module';
 import { FileStorageModule } from '../identity/organisation/infrastructure/file-storage.module';
+import { InventoryModule } from '../inventory/inventory.module';
+import { PurchaseOrderModule } from '../procurement/purchase-order/purchase-order.module';
 import { SupplierModule } from '../suppliers/supplier/supplier.module';
 import { AssetDowntimeController } from './asset-downtime.controller';
 import { AssetDowntimeRepository } from './asset-downtime.repository';
 import { AssetDowntimeService } from './asset-downtime.service';
+import { MaintenanceAnalyticsController } from './maintenance-analytics.controller';
+import { MaintenanceAnalyticsService } from './maintenance-analytics.service';
 import { MaintenanceCostController } from './maintenance-cost.controller';
 import { MaintenanceCostRepository } from './maintenance-cost.repository';
 import { MaintenanceCostService } from './maintenance-cost.service';
@@ -22,6 +26,9 @@ import { MaintenancePartUsageService } from './maintenance-part-usage.service';
 import { MaintenancePlanController } from './maintenance-plan.controller';
 import { MaintenancePlanRepository } from './maintenance-plan.repository';
 import { MaintenancePlanService } from './maintenance-plan.service';
+import { MaintenanceProcurementController } from './maintenance-procurement.controller';
+import { MaintenanceProcurementRepository } from './maintenance-procurement.repository';
+import { MaintenanceProcurementService } from './maintenance-procurement.service';
 import { MaintenanceRequestController } from './maintenance-request.controller';
 import { MaintenanceRequestRepository } from './maintenance-request.repository';
 import { MaintenanceRequestService } from './maintenance-request.service';
@@ -53,10 +60,27 @@ import { WorkOrderService } from './work-order.service';
  * `IdentityModule`/`AuthModule` for `AuditService`/`UserService`/guards
  * (universal); `FileStorageModule` for request/work-order photo uploads.
  *
- * **Deliberately never imports `FinanceModule` or `InventoryModule`.**
- * Recording a maintenance cost never posts a Journal Entry; recording a
- * part usage never deducts `InventoryStock`/creates an
- * `InventoryTransaction` — proven executably by
+ * **Sprint 22** (docs/domains/maintenance-integration.md) adds exactly two
+ * more imports: `InventoryModule` (already exports
+ * `InventoryStockRepository`/`InventoryTransactionRepository`/
+ * `InventoryLocationRepository`, already precedented as importable by
+ * Production/Sales/Distribution — used read-only for availability checks,
+ * while `MaintenancePartUsageRepository.issue()` writes
+ * `inventoryStock`/`inventoryTransaction` directly inside its own
+ * transaction, the same narrow ADR-002 exception Sales/Production's own
+ * stock-issuing writers already establish) and `PurchaseOrderModule`
+ * (already exports `PurchaseOrderRepository`, already precedented via
+ * `AssetsModule` — used strictly read-only, to validate a
+ * `MaintenanceProcurementRequirement`'s linked Purchase Order id; this
+ * module never calls `.create()`/`.update()`/`.delete()` on a Purchase
+ * Order). **`FinanceModule`/`ProductionModule` are still never
+ * imported** — Finance exports nothing to import anyway, and Production
+ * exports nothing either.
+ *
+ * Recording a maintenance cost never posts a Journal Entry; only
+ * `maintenance-part-usage.repository.ts` is permitted to write
+ * `inventoryStock`/`inventoryTransaction` — every other file in this
+ * module stays independent of both — proven executably by
  * `maintenance-independence.spec.ts`, not just documented here.
  */
 @Module({
@@ -67,6 +91,8 @@ import { WorkOrderService } from './work-order.service';
     AssetsModule,
     ProductModule,
     SupplierModule,
+    InventoryModule,
+    PurchaseOrderModule,
   ],
   controllers: [
     MaintenanceTypeController,
@@ -78,6 +104,8 @@ import { WorkOrderService } from './work-order.service';
     MaintenancePartUsageController,
     MaintenanceCostController,
     MaintenanceOverviewController,
+    MaintenanceProcurementController,
+    MaintenanceAnalyticsController,
   ],
   providers: [
     MaintenanceTypeRepository,
@@ -99,6 +127,9 @@ import { WorkOrderService } from './work-order.service';
     MaintenanceDocumentRepository,
     MaintenanceDocumentService,
     MaintenanceOverviewService,
+    MaintenanceProcurementRepository,
+    MaintenanceProcurementService,
+    MaintenanceAnalyticsService,
   ],
 })
 export class MaintenanceModule {}

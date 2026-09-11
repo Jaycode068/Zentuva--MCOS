@@ -5667,6 +5667,165 @@ async function seedMaintenanceFixtures(
   });
 }
 
+/**
+ * Sprint 22 — Maintenance Ecosystem Integration fixtures (docs/domains/
+ * maintenance-integration.md). Extends the Sprint 21 fixtures above with
+ * one real part issued through `MaintenancePartUsageRepository.issue()`'s
+ * exact logic (stock decremented, a real `InventoryTransaction` created —
+ * replicated here with raw Prisma calls, the same convention every other
+ * inventory-touching fixture in this file already follows), one
+ * `MaintenanceProcurementRequirement` linked to an existing seeded
+ * Purchase Order, and one `MaintenanceCost.costCentreId` tagged against an
+ * existing seeded `CostCentre`. Idempotent — each section checks for its
+ * own prior existence before writing.
+ */
+async function seedMaintenanceEcosystemFixtures(
+  organisationId: string,
+  actorUserId: string,
+  technicianUserId: string,
+): Promise<void> {
+  console.log('Seeding Sprint 22 Maintenance Ecosystem Integration fixtures...');
+
+  const completedWorkOrder = await prisma.workOrder.findFirst({
+    where: { organisationId, workOrderCode: 'WO-000001' },
+  });
+  if (!completedWorkOrder) {
+    console.log('  Skipping — Sprint 21 maintenance fixtures not found.');
+    return;
+  }
+
+  // === Issue the requested part through the real issue() logic ===
+  const alreadyIssued = await prisma.maintenancePartUsage.findFirst({
+    where: { organisationId, workOrderId: completedWorkOrder.id, status: 'ISSUED' },
+  });
+  if (!alreadyIssued) {
+    const requestedPart = await prisma.maintenancePartUsage.findFirst({
+      where: { organisationId, workOrderId: completedWorkOrder.id, status: 'REQUESTED' },
+    });
+    if (requestedPart) {
+      const mainWarehouse = await prisma.inventoryLocation.findFirstOrThrow({
+        where: { organisationId, name: 'Main Warehouse' },
+      });
+      const stockKey = {
+        organisationId_productId_locationId: {
+          organisationId,
+          productId: requestedPart.productId,
+          locationId: mainWarehouse.id,
+        },
+      };
+      const existingStock = await prisma.inventoryStock.findUnique({ where: stockKey });
+      // Top up stock first if needed so this fixture can always issue
+      // successfully, regardless of what earlier seed sections already
+      // receipted for this product — the same "ensure the demo works"
+      // posture other fixtures in this file already take.
+      if (!existingStock || existingStock.quantityOnHand < requestedPart.quantity) {
+        await prisma.inventoryStock.upsert({
+          where: stockKey,
+          create: {
+            organisationId,
+            productId: requestedPart.productId,
+            locationId: mainWarehouse.id,
+            quantityOnHand: requestedPart.quantity,
+            averageUnitCost: existingStock?.averageUnitCost ?? 2_500,
+          },
+          update: { quantityOnHand: requestedPart.quantity },
+        });
+      }
+      const stock = await prisma.inventoryStock.findUniqueOrThrow({ where: stockKey });
+      const unitCost = stock.averageUnitCost;
+      const totalCost = Math.round(requestedPart.quantity * unitCost * 100) / 100;
+
+      await prisma.$transaction(async (tx) => {
+        await tx.inventoryStock.update({
+          where: stockKey,
+          data: { quantityOnHand: { decrement: requestedPart.quantity } },
+        });
+        const transaction = await tx.inventoryTransaction.create({
+          data: {
+            organisationId,
+            productId: requestedPart.productId,
+            locationId: mainWarehouse.id,
+            transactionType: 'ISSUE',
+            quantity: requestedPart.quantity,
+            referenceType: 'MaintenancePartUsage',
+            referenceId: requestedPart.id,
+          },
+        });
+        await tx.maintenancePartUsage.update({
+          where: { id: requestedPart.id },
+          data: {
+            status: 'ISSUED',
+            locationId: mainWarehouse.id,
+            inventoryTransactionId: transaction.id,
+            unitCost,
+            totalCost,
+            issuedAt: new Date('2026-08-15T09:00:00Z'),
+            issuedById: technicianUserId,
+          },
+        });
+      });
+    }
+  }
+
+  // === A procurement requirement, linked to an existing seeded Purchase
+  // Order — never a Purchase Order this fixture creates itself. ===
+  const existingRequirement = await prisma.maintenanceProcurementRequirement.findFirst({
+    where: { organisationId },
+  });
+  if (!existingRequirement) {
+    const correctiveWorkOrder = await prisma.workOrder.findFirst({
+      where: { organisationId, workOrderCode: 'WO-000002' },
+    });
+    const existingPurchaseOrder = await prisma.purchaseOrder.findFirst({
+      where: { organisationId },
+    });
+    if (correctiveWorkOrder && existingPurchaseOrder) {
+      const requirement = await prisma.maintenanceProcurementRequirement.create({
+        data: {
+          organisationId,
+          workOrderId: correctiveWorkOrder.id,
+          description: 'Replacement bearing kit for packaging machine sealing mechanism',
+          estimatedCost: 45_000,
+          createdById: actorUserId,
+        },
+      });
+      await prisma.maintenanceProcurementRequirement.update({
+        where: { id: requirement.id },
+        data: {
+          status: 'LINKED',
+          purchaseOrderId: existingPurchaseOrder.id,
+          linkedAt: new Date('2026-09-02T09:00:00Z'),
+        },
+      });
+    }
+  }
+
+  // === A MaintenanceCost tagged against an existing seeded CostCentre —
+  // enables a real, non-empty Cost vs. Budget comparison. ===
+  const existingCostCentre = await prisma.costCentre.findFirst({ where: { organisationId } });
+  if (existingCostCentre) {
+    const alreadyTagged = await prisma.maintenanceCost.findFirst({
+      where: { organisationId, costCentreId: existingCostCentre.id },
+    });
+    if (!alreadyTagged) {
+      await prisma.maintenanceCost.create({
+        data: {
+          organisationId,
+          workOrderId: completedWorkOrder.id,
+          category: 'SERVICE',
+          description: 'External calibration service',
+          quantity: 1,
+          unitCost: 25_000,
+          totalCost: 25_000,
+          currency: 'NGN',
+          costCentreId: existingCostCentre.id,
+          recordedById: technicianUserId,
+        },
+      });
+    }
+  }
+}
+
 async function main(): Promise<void> {
   // Read early (rather than inside `seedUser`) because the organisation's `businessEmail`
   // needs it before any user is created.
@@ -5880,6 +6039,7 @@ async function main(): Promise<void> {
   await seedDecisionAnalysisFixtures(organisation.id, ownerUser.id);
   await seedAssetFixtures(organisation.id, ownerUser.id);
   await seedMaintenanceFixtures(organisation.id, ownerUser.id, administratorUser.id);
+  await seedMaintenanceEcosystemFixtures(organisation.id, ownerUser.id, administratorUser.id);
 
   console.log('Recording an audit log entry for this seed run...');
   await prisma.auditLog.create({

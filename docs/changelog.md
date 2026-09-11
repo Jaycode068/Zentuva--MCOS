@@ -7,6 +7,62 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 22 Maintenance Ecosystem Integration] - 2026-09-11
+
+**Connects Sprint 21's zero-integration Maintenance domain to the rest of
+the ecosystem through narrow, documented boundaries, and adds the frontend
+surfaces needed to actually use it day-to-day.**
+
+### Added
+
+- **Real Inventory integration** — `MaintenancePartUsage` gained a genuine
+  `REQUESTED → ISSUED`/`CANCELLED` lifecycle. `issue()` is the one
+  deliberate, structurally-proven exception to the domain's own
+  no-cross-domain-writes rule: it deducts real stock, creates an
+  `InventoryTransaction`, and snapshots cost, inside one transaction.
+- **Procurement linking boundary** — a new, minimal
+  `MaintenanceProcurementRequirement` model (`IDENTIFIED → LINKED`/
+  `CANCELLED`) that links to a real Purchase Order created through
+  Procurement's own UI, plus a read-only AP summary — never a parallel
+  requisition system.
+- **Budget integration** — `MaintenanceCost.costCentreId` and a new
+  `GET /maintenance/analytics/cost-vs-budget` endpoint comparing actual
+  tagged maintenance cost against the existing Budgeting domain's own
+  `BudgetLine`s.
+- **Maintenance Analytics** — a new read-only analytics service/controller
+  (cost breakdown, operational metrics, cost-vs-budget, deterministic risk
+  signals) and a dedicated frontend page,
+  `/settings/maintenance/analytics` — Maintenance-owned operational
+  analytics, explicitly not the future cross-domain Zentuva Reporting
+  platform.
+- **Asset Register maintenance visibility** — the existing Asset Register
+  detail page's Maintenance section now shows summary KPIs, maintenance
+  history, parts used, downtime, and upcoming preventive schedules, all
+  from data the backend already computed.
+- **Field Technician Maintenance surface** — a new mobile-first
+  `/field/maintenance` (home list + work order detail) on the existing
+  Field shell, giving technicians a real day-to-day workflow: start/
+  complete work orders, checklist tasks, part request/issue, meter
+  reading, downtime, and photos — all through existing services, with no
+  new backend endpoint and no new RBAC role (reuses the existing
+  `assignedToId` convention).
+- A read-side-only `/maintenance/downtime/active` endpoint, shaped for
+  eventual Production consumption once Production gains its own Asset
+  concept (not yet consumed anywhere).
+- A plain, unwired Maintenance business-event catalog (`maintenance-events.ts`)
+  cross-referenced to the existing audit log — no emitter, no new
+  dependency.
+
+### Notes
+
+- Zero accounting postings and a structurally-enforced inventory-write
+  boundary (`maintenance-independence.spec.ts`), confirmed by both unit
+  tests and live before/after database checks.
+- No dedicated Technician RBAC role was introduced, by design; predictive
+  maintenance, IoT/sensor integration, and fleet management remain out of
+  scope. See
+  [`docs/domains/maintenance-integration.md`](domains/maintenance-integration.md).
+
 ## [Sprint 21 Maintenance Management Foundation] - 2026-09-08
 
 **A dedicated Maintenance domain built on top of Sprint 20's Asset

@@ -320,9 +320,23 @@ ASSIGNED → IN_PROGRESS ⇄ ON_HOLD → COMPLETED`/`CANCELLED`, both
       accounting posting was implemented — only the correct source data
       for a future Maintenance Intelligence layer — see
       [`docs/domains/maintenance.md`](domains/maintenance.md)
+- [x] Maintenance Ecosystem Integration — shipped Sprint 22, connecting
+      Sprint 21's zero-integration Maintenance domain to the rest of the
+      ecosystem through narrow, documented boundaries: real Inventory
+      part-issuing (one deliberate, structurally-proven exception to the
+      domain's own no-cross-domain-writes rule), a Procurement linking
+      boundary, Budget cost-vs-budget comparison, a read-side Production
+      downtime feed, and a Maintenance Analytics service/page. Frontend:
+      the Analytics page, the Asset Register detail page's extended
+      Maintenance section, and a new mobile-first Field Technician surface
+      (`/field/maintenance`) built on the existing `assignedToId`
+      convention — no new RBAC role. Zero accounting postings; full live
+      cross-surface verification (Work Order ⇄ Asset ⇄ Analytics). See
+      [`docs/domains/maintenance-integration.md`](domains/maintenance-integration.md)
 
 ## Phase 3 — Extended Experiences
 
+- [ ] HR Employee Lifecycle Foundation (Sprint 23 — next, not yet started)
 - [ ] Retail Portal (mobile)
 - [ ] Sales Rep mobile workflows
 - [ ] Business Intelligence dashboards

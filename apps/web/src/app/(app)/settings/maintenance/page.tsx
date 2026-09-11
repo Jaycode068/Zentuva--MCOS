@@ -53,6 +53,11 @@ export default function MaintenanceOverviewPage() {
               destructive={data.criticalWorkOrders > 0}
             />
             <SummaryCard
+              title="Overdue Work Orders"
+              value={String(data.overdueWorkOrders)}
+              destructive={data.overdueWorkOrders > 0}
+            />
+            <SummaryCard
               title="Overdue Preventive"
               value={String(data.overduePreventive)}
               destructive={data.overduePreventive > 0}
@@ -76,6 +81,17 @@ export default function MaintenanceOverviewPage() {
             <SummaryCard
               title="Maintenance Cost This Month"
               value={formatCurrency(data.maintenanceCostThisMonth, 'NGN')}
+            />
+          </div>
+
+          <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <SummaryCard
+              title="Parts Cost This Month"
+              value={formatCurrency(data.partsCostThisMonth, 'NGN')}
+            />
+            <SummaryCard
+              title="Parts Issued This Month"
+              value={String(data.partsIssuedCountThisMonth)}
             />
           </div>
 

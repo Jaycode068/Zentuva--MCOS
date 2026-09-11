@@ -3,7 +3,9 @@ import type { BadgeProps } from '@zentuva/ui';
 import type {
   MaintenanceCostCategory,
   MaintenanceIssueType,
+  MaintenancePartUsageStatus,
   MaintenancePriority,
+  MaintenanceProcurementStatus,
   MaintenanceRequestStatus,
   WorkOrderStatus,
   WorkOrderTaskStatus,
@@ -92,4 +94,36 @@ export const MAINTENANCE_COST_CATEGORY_LABELS: Record<MaintenanceCostCategory, s
   SERVICE: 'Service',
   TRANSPORT: 'Transport',
   OTHER: 'Other',
+};
+
+// === Sprint 22 ===
+
+export const PART_USAGE_STATUS_LABELS: Record<MaintenancePartUsageStatus, string> = {
+  REQUESTED: 'Requested',
+  ISSUED: 'Issued',
+  CANCELLED: 'Cancelled',
+};
+
+export const PART_USAGE_STATUS_VARIANT: Record<
+  MaintenancePartUsageStatus,
+  NonNullable<BadgeProps['variant']>
+> = {
+  REQUESTED: 'warning',
+  ISSUED: 'success',
+  CANCELLED: 'default',
+};
+
+export const PROCUREMENT_STATUS_LABELS: Record<MaintenanceProcurementStatus, string> = {
+  IDENTIFIED: 'Identified',
+  LINKED: 'Linked to PO',
+  CANCELLED: 'Cancelled',
+};
+
+export const PROCUREMENT_STATUS_VARIANT: Record<
+  MaintenanceProcurementStatus,
+  NonNullable<BadgeProps['variant']>
+> = {
+  IDENTIFIED: 'warning',
+  LINKED: 'success',
+  CANCELLED: 'default',
 };

@@ -12,6 +12,7 @@ export interface RecordMaintenanceCostData {
   unitCost: number;
   currency: string;
   supplierId?: string;
+  costCentreId?: string;
   referenceType?: string;
   referenceId?: string;
   idempotencyKey?: string;
@@ -71,6 +72,7 @@ export class MaintenanceCostRepository {
           totalCost,
           currency: data.currency,
           supplierId: data.supplierId,
+          costCentreId: data.costCentreId,
           referenceType: data.referenceType,
           referenceId: data.referenceId,
           idempotencyKey: data.idempotencyKey,

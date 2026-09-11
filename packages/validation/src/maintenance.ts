@@ -298,6 +298,7 @@ export const recordMaintenanceCostSchema = z.object({
   unitCost: z.coerce.number().nonnegative(),
   currency: z.string().trim().min(3).max(3).default('NGN'),
   supplierId: z.string().trim().min(1).optional(),
+  costCentreId: z.string().trim().min(1).optional(),
   referenceType: z.string().trim().max(60).optional(),
   referenceId: z.string().trim().max(120).optional(),
   idempotencyKey: z.string().trim().min(1).optional(),
@@ -319,3 +320,32 @@ export const maintenanceDocumentTypeSchema = z.enum([
   'OTHER',
 ]);
 export type MaintenanceDocumentTypeInput = z.infer<typeof maintenanceDocumentTypeSchema>;
+
+// === Sprint 22 — Maintenance Ecosystem Integration ===
+// (docs/domains/maintenance-integration.md)
+
+// === Parts / Material Usage — Inventory Integration ===
+
+export const issuePartUsageSchema = z.object({
+  locationId: z.string().trim().min(1),
+  issueIdempotencyKey: z.string().trim().min(1).optional(),
+});
+export type IssuePartUsageInput = z.infer<typeof issuePartUsageSchema>;
+
+export const cancelPartUsageSchema = z.object({});
+export type CancelPartUsageInput = z.infer<typeof cancelPartUsageSchema>;
+
+// === Procurement Requirements ===
+
+export const createProcurementRequirementSchema = z.object({
+  description: z.string().trim().min(1).max(1000),
+  estimatedCost: z.coerce.number().nonnegative().optional(),
+  supplierId: z.string().trim().min(1).optional(),
+  idempotencyKey: z.string().trim().min(1).optional(),
+});
+export type CreateProcurementRequirementInput = z.infer<typeof createProcurementRequirementSchema>;
+
+export const linkProcurementRequirementSchema = z.object({
+  purchaseOrderId: z.string().trim().min(1),
+});
+export type LinkProcurementRequirementInput = z.infer<typeof linkProcurementRequirementSchema>;

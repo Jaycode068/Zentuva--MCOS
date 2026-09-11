@@ -18,23 +18,34 @@ import {
 } from '@zentuva/ui';
 
 import { getAsset } from '@/app/(app)/settings/assets/api';
+import { listInventoryLocations } from '@/app/(app)/settings/inventory/api';
 import { listProducts } from '@/app/(app)/settings/products/api';
+import { listPurchaseOrders } from '@/app/(app)/settings/procurement/api';
 import { ApiError } from '@/lib/api-client';
 import { formatCurrency } from '@/lib/format-currency';
 
 import {
   type MaintenanceCostCategory,
+  type MaintenancePartUsage,
+  type MaintenanceProcurementRequirement,
   addWorkOrderDocument,
   assignWorkOrder,
+  cancelPartUsage,
+  cancelProcurementRequirement,
   cancelWorkOrder,
   completeWorkOrder,
+  createProcurementRequirement,
   endDowntime,
+  getProcurementApSummary,
   getWorkOrder,
   getWorkOrderAuditHistory,
   holdWorkOrder,
+  issuePartUsage,
+  linkProcurementRequirement,
   listCosts,
   listDowntime,
   listPartUsage,
+  listProcurementRequirements,
   listTechnicians,
   listWorkOrderDocuments,
   recordCost,
@@ -48,6 +59,10 @@ import {
   MAINTENANCE_COST_CATEGORY_LABELS,
   MAINTENANCE_PRIORITY_LABELS,
   MAINTENANCE_PRIORITY_VARIANT,
+  PART_USAGE_STATUS_LABELS,
+  PART_USAGE_STATUS_VARIANT,
+  PROCUREMENT_STATUS_LABELS,
+  PROCUREMENT_STATUS_VARIANT,
   WORK_ORDER_STATUS_LABELS,
   WORK_ORDER_STATUS_VARIANT,
 } from '../../labels';
@@ -92,6 +107,10 @@ export default function WorkOrderDetailPage() {
     queryKey: ['costs', id],
     queryFn: () => listCosts(id),
   });
+  const { data: procurementData } = useQuery({
+    queryKey: ['procurement', id],
+    queryFn: () => listProcurementRequirements(id),
+  });
   const { data: documentsData } = useQuery({
     queryKey: ['wo-documents', id],
     queryFn: () => listWorkOrderDocuments(id),
@@ -103,6 +122,22 @@ export default function WorkOrderDetailPage() {
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['work-order', id] });
+  };
+
+  // Issuing/cancelling a part or recording a cost changes figures the
+  // Maintenance Overview and Analytics pages already show (Sprint 22,
+  // docs/domains/maintenance-integration.md) — the global QueryClient's
+  // 60s staleTime (apps/web/src/providers/query-provider.tsx) would
+  // otherwise let a stale cached value linger on those pages for up to a
+  // minute after navigating back. Invalidating by query-key prefix here
+  // (matching every `from`/`to` variant already cached) keeps them
+  // server-authoritative without changing the global cache config.
+  const invalidateAnalytics = () => {
+    queryClient.invalidateQueries({ queryKey: ['maintenance-overview'] });
+    queryClient.invalidateQueries({ queryKey: ['maintenance-analytics-operational-metrics'] });
+    queryClient.invalidateQueries({ queryKey: ['maintenance-analytics-cost-breakdown'] });
+    queryClient.invalidateQueries({ queryKey: ['maintenance-analytics-cost-vs-budget'] });
+    queryClient.invalidateQueries({ queryKey: ['maintenance-analytics-risk-signals'] });
   };
 
   const assignMutation = useMutation({
@@ -141,7 +176,14 @@ export default function WorkOrderDetailPage() {
     );
   }
 
-  const totalCost = (costsData?.items ?? []).reduce((sum, c) => sum + c.totalCost, 0);
+  // Decision #6 (docs/domains/maintenance-integration.md): parts cost is
+  // always derived from issued part usages, never hand-entered a second
+  // time under MaintenanceCost's own PARTS category.
+  const issuedPartsCost = (partsData?.items ?? [])
+    .filter((p) => p.status === 'ISSUED' && p.usageType === 'CONSUMED')
+    .reduce((sum, p) => sum + (p.totalCost ?? 0), 0);
+  const totalCost =
+    (costsData?.items ?? []).reduce((sum, c) => sum + c.totalCost, 0) + issuedPartsCost;
 
   return (
     <main className="mx-auto max-w-3xl space-y-6 px-4 py-6 sm:px-6 sm:py-10">
@@ -233,7 +275,10 @@ export default function WorkOrderDetailPage() {
       <PartsSection
         workOrderId={id}
         parts={partsData?.items ?? []}
-        onChanged={() => queryClient.invalidateQueries({ queryKey: ['parts', id] })}
+        onChanged={() => {
+          queryClient.invalidateQueries({ queryKey: ['parts', id] });
+          invalidateAnalytics();
+        }}
       />
 
       {/* Costs */}
@@ -241,7 +286,17 @@ export default function WorkOrderDetailPage() {
         workOrderId={id}
         costs={costsData?.items ?? []}
         totalCost={totalCost}
-        onChanged={() => queryClient.invalidateQueries({ queryKey: ['costs', id] })}
+        onChanged={() => {
+          queryClient.invalidateQueries({ queryKey: ['costs', id] });
+          invalidateAnalytics();
+        }}
+      />
+
+      {/* Procurement — Sprint 22 */}
+      <ProcurementSection
+        workOrderId={id}
+        requirements={procurementData?.items ?? []}
+        onChanged={() => queryClient.invalidateQueries({ queryKey: ['procurement', id] })}
       />
 
       {/* Photos */}
@@ -526,18 +581,24 @@ function PartsSection({
   onChanged,
 }: {
   workOrderId: string;
-  parts: { id: string; productId: string; quantity: number; unitOfMeasure: string | null }[];
+  parts: MaintenancePartUsage[];
   onChanged: () => void;
 }) {
   const [productId, setProductId] = useState('');
   const [quantity, setQuantity] = useState('1');
+  const [issuingId, setIssuingId] = useState<string | null>(null);
+  const [issueLocationId, setIssueLocationId] = useState('');
   const { data: productsData } = useQuery({
     queryKey: ['products'],
     queryFn: () => listProducts(),
   });
+  const { data: locationsData } = useQuery({
+    queryKey: ['inventory-locations'],
+    queryFn: () => listInventoryLocations(),
+  });
   const productsById = new Map((productsData?.items ?? []).map((p) => [p.id, p]));
 
-  const mutation = useMutation({
+  const requestMutation = useMutation({
     mutationFn: () =>
       recordPartUsage({
         workOrderId,
@@ -552,18 +613,98 @@ function PartsSection({
     },
   });
 
+  const issueMutation = useMutation({
+    mutationFn: ({ partUsageId, locationId }: { partUsageId: string; locationId: string }) =>
+      issuePartUsage(partUsageId, { locationId, issueIdempotencyKey: crypto.randomUUID() }),
+    onSuccess: () => {
+      setIssuingId(null);
+      setIssueLocationId('');
+      onChanged();
+    },
+  });
+
+  const cancelMutation = useMutation({
+    mutationFn: (partUsageId: string) => cancelPartUsage(partUsageId),
+    onSuccess: onChanged,
+  });
+
   return (
     <Section title="Parts Used">
       {parts.length === 0 ? (
         <p className="mb-3 text-sm text-muted-foreground">No parts recorded.</p>
       ) : (
-        <ul className="mb-3 space-y-2 text-sm">
+        <ul className="mb-3 space-y-3 text-sm">
           {parts.map((p) => (
-            <li key={p.id} className="flex items-center justify-between">
-              <span>{productsById.get(p.productId)?.name ?? p.productId}</span>
-              <span className="text-muted-foreground">
-                {p.quantity} {p.unitOfMeasure ?? ''}
-              </span>
+            <li key={p.id} className="rounded-md border border-border p-3">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-medium">
+                  {productsById.get(p.productId)?.name ?? p.productId}
+                </span>
+                <Badge variant={PART_USAGE_STATUS_VARIANT[p.status]}>
+                  {PART_USAGE_STATUS_LABELS[p.status]}
+                </Badge>
+              </div>
+              <div className="mt-1 flex items-center justify-between text-muted-foreground">
+                <span>
+                  {p.quantity} {p.unitOfMeasure ?? ''}
+                </span>
+                {p.status === 'ISSUED' && p.totalCost !== null && (
+                  <span>{formatCurrency(p.totalCost, 'NGN')}</span>
+                )}
+              </div>
+              {p.status === 'REQUESTED' && (
+                <div className="mt-2">
+                  {issuingId === p.id ? (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Select
+                        value={issueLocationId}
+                        onChange={(event) => setIssueLocationId(event.target.value)}
+                        className="min-w-[10rem] flex-1"
+                      >
+                        <option value="">Select location…</option>
+                        {(locationsData?.items ?? []).map((loc) => (
+                          <option key={loc.id} value={loc.id}>
+                            {loc.name}
+                          </option>
+                        ))}
+                      </Select>
+                      <Button
+                        size="sm"
+                        disabled={!issueLocationId || issueMutation.isPending}
+                        onClick={() =>
+                          issueMutation.mutate({ partUsageId: p.id, locationId: issueLocationId })
+                        }
+                      >
+                        Confirm Issue
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => setIssuingId(null)}>
+                        Cancel
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="flex gap-2">
+                      <Button size="sm" variant="outline" onClick={() => setIssuingId(p.id)}>
+                        Issue
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={cancelMutation.isPending}
+                        onClick={() => cancelMutation.mutate(p.id)}
+                      >
+                        Cancel Request
+                      </Button>
+                    </div>
+                  )}
+                  {issueMutation.isError && issuingId === p.id && (
+                    <p className="mt-1 text-xs text-destructive">
+                      {issueMutation.error instanceof ApiError
+                        ? issueMutation.error.message
+                        : 'Failed to issue part.'}
+                    </p>
+                  )}
+                </div>
+              )}
             </li>
           ))}
         </ul>
@@ -591,10 +732,195 @@ function PartsSection({
         />
         <Button
           variant="outline"
-          disabled={!productId || mutation.isPending}
-          onClick={() => mutation.mutate()}
+          disabled={!productId || requestMutation.isPending}
+          onClick={() => requestMutation.mutate()}
         >
-          Add
+          Request Part
+        </Button>
+      </div>
+    </Section>
+  );
+}
+
+function ProcurementSection({
+  workOrderId,
+  requirements,
+  onChanged,
+}: {
+  workOrderId: string;
+  requirements: MaintenanceProcurementRequirement[];
+  onChanged: () => void;
+}) {
+  const [description, setDescription] = useState('');
+  const [estimatedCost, setEstimatedCost] = useState('');
+  const [linkingId, setLinkingId] = useState<string | null>(null);
+  const [purchaseOrderId, setPurchaseOrderId] = useState('');
+  const [apSummaryId, setApSummaryId] = useState<string | null>(null);
+
+  const { data: purchaseOrdersData } = useQuery({
+    queryKey: ['purchase-orders'],
+    queryFn: () => listPurchaseOrders(),
+    enabled: linkingId !== null,
+  });
+  const { data: apSummary } = useQuery({
+    queryKey: ['procurement-ap-summary', workOrderId, apSummaryId],
+    queryFn: () => getProcurementApSummary(workOrderId, apSummaryId!),
+    enabled: apSummaryId !== null,
+  });
+
+  const createMutation = useMutation({
+    mutationFn: () =>
+      createProcurementRequirement(workOrderId, {
+        description,
+        estimatedCost: estimatedCost ? Number(estimatedCost) : undefined,
+        idempotencyKey: crypto.randomUUID(),
+      }),
+    onSuccess: () => {
+      setDescription('');
+      setEstimatedCost('');
+      onChanged();
+    },
+  });
+
+  const linkMutation = useMutation({
+    mutationFn: ({ id, poId }: { id: string; poId: string }) =>
+      linkProcurementRequirement(workOrderId, id, poId),
+    onSuccess: () => {
+      setLinkingId(null);
+      setPurchaseOrderId('');
+      onChanged();
+    },
+  });
+
+  const cancelMutation = useMutation({
+    mutationFn: (id: string) => cancelProcurementRequirement(workOrderId, id),
+    onSuccess: onChanged,
+  });
+
+  return (
+    <Section title="Procurement">
+      {requirements.length === 0 ? (
+        <p className="mb-3 text-sm text-muted-foreground">No procurement needs identified.</p>
+      ) : (
+        <ul className="mb-3 space-y-3 text-sm">
+          {requirements.map((r) => (
+            <li key={r.id} className="rounded-md border border-border p-3">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-medium">{r.description}</span>
+                <Badge variant={PROCUREMENT_STATUS_VARIANT[r.status]}>
+                  {PROCUREMENT_STATUS_LABELS[r.status]}
+                </Badge>
+              </div>
+              {r.estimatedCost !== null && (
+                <p className="mt-1 text-muted-foreground">
+                  Estimated: {formatCurrency(r.estimatedCost, 'NGN')}
+                </p>
+              )}
+              {r.status === 'IDENTIFIED' && (
+                <div className="mt-2">
+                  {linkingId === r.id ? (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Select
+                        value={purchaseOrderId}
+                        onChange={(event) => setPurchaseOrderId(event.target.value)}
+                        className="min-w-[12rem] flex-1"
+                      >
+                        <option value="">Select purchase order…</option>
+                        {(purchaseOrdersData?.items ?? []).map((po) => (
+                          <option key={po.id} value={po.id}>
+                            {po.purchaseOrderNumber} — {po.supplier.supplierName}
+                          </option>
+                        ))}
+                      </Select>
+                      <Button
+                        size="sm"
+                        disabled={!purchaseOrderId || linkMutation.isPending}
+                        onClick={() => linkMutation.mutate({ id: r.id, poId: purchaseOrderId })}
+                      >
+                        Confirm Link
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => setLinkingId(null)}>
+                        Cancel
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="flex gap-2">
+                      <Button size="sm" variant="outline" onClick={() => setLinkingId(r.id)}>
+                        Link Purchase Order
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={cancelMutation.isPending}
+                        onClick={() => cancelMutation.mutate(r.id)}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
+              {r.status === 'LINKED' && (
+                <div className="mt-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setApSummaryId(apSummaryId === r.id ? null : r.id)}
+                  >
+                    {apSummaryId === r.id ? 'Hide AP Summary' : 'View AP Summary'}
+                  </Button>
+                  {apSummaryId === r.id && apSummary && (
+                    <div className="mt-2 space-y-1 rounded-md bg-muted/50 p-2 text-xs">
+                      {apSummary.applicable ? (
+                        <>
+                          <Field
+                            label="Invoiced"
+                            value={formatCurrency(apSummary.invoicedTotal ?? 0, 'NGN')}
+                          />
+                          <Field
+                            label="Paid"
+                            value={formatCurrency(apSummary.amountPaid ?? 0, 'NGN')}
+                          />
+                          <Field
+                            label="Outstanding"
+                            value={formatCurrency(apSummary.amountOutstanding ?? 0, 'NGN')}
+                          />
+                        </>
+                      ) : (
+                        <p className="text-muted-foreground">
+                          {apSummary.reason ?? 'No supplier invoice yet.'}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="flex flex-wrap gap-2">
+        <Input
+          placeholder="What part/service is needed?"
+          value={description}
+          onChange={(event) => setDescription(event.target.value)}
+          className="min-w-[12rem] flex-1"
+        />
+        <Input
+          type="number"
+          min="0"
+          step="0.01"
+          placeholder="Est. cost"
+          value={estimatedCost}
+          onChange={(event) => setEstimatedCost(event.target.value)}
+          className="w-32"
+        />
+        <Button
+          variant="outline"
+          disabled={!description.trim() || createMutation.isPending}
+          onClick={() => createMutation.mutate()}
+        >
+          Identify Procurement Need
         </Button>
       </div>
     </Section>
@@ -658,7 +984,7 @@ function CostsSection({
             </li>
           ))}
           <li className="flex items-center justify-between border-t border-border pt-2 font-medium">
-            <span>Total (operational record — never an accounting balance)</span>
+            <span>Total incl. issued parts (operational record — never an accounting balance)</span>
             <span>{formatCurrency(totalCost, 'NGN')}</span>
           </li>
         </ul>

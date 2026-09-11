@@ -27,19 +27,25 @@ feature is built configurably so it can be reused by future tenants without code
 > that composes all of the above into ROI/NPV/IRR/Payback/Sensitivity/Funding Comparison and a
 > Management Financial Decision Cockpit, computed live from stored assumptions and never a second
 > accounting/forecast/amortisation engine; scenario analysis is 100% side-effect-free. The Finance
-> MVP, as scoped, is now considered functionally complete. Most recently, an Asset Register &
+> MVP, as scoped, is now considered functionally complete. Then, an Asset Register &
 > Asset Management foundation opened a new top-level domain — not a Product, not an
 > `InventoryStock` row, not a Purchase Order — for the durable physical resources the business
 > owns: tenant-scoped hierarchical Asset Categories, a central `Asset` entity with lifecycle kept
 > strictly separate from physical condition, a self-referencing asset hierarchy, a purpose-built
 > Asset Location, immutable movement history, and optional read-only links to Supplier/Purchase
-> Order/Capital Project — zero accounting integration, by construction. Most recently, a
+> Order/Capital Project — zero accounting integration, by construction. Next, a
 > Maintenance Management foundation was built on top of that Asset Register — requests, reusable
 > plans, date-/meter-based preventive schedules (idempotent by construction — repeat generation
 > never creates a duplicate work order), work orders with a mobile-first technician workflow,
 > tasks, downtime, parts usage, and operational cost capture — every asset-status interaction
 > (`IN_SERVICE ⇄ UNDER_MAINTENANCE`) driven through the Asset domain's own lifecycle service, and,
-> again, zero accounting or inventory-mutation side effects, by construction. See
+> again, zero accounting or inventory-mutation side effects, by construction. Most recently, a
+> Maintenance Ecosystem Integration sprint connected that zero-integration foundation to the rest
+> of the business — real Inventory part-issuing (one deliberate, structurally-proven exception to
+> the domain's own no-cross-domain-writes rule), a Procurement linking boundary, Budget
+> cost-vs-budget comparison, and a Maintenance Analytics page — plus the Asset Register detail
+> page's extended Maintenance section and a new mobile-first Field Technician surface built on the
+> existing `assignedToId` convention, with no new RBAC role and zero accounting postings. See
 > [docs/domains/README.md](docs/domains/README.md) for the current status of every domain and
 > [docs/roadmap.md](docs/roadmap.md) for the full build order.
 

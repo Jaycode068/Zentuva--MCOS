@@ -111,107 +111,108 @@ model Organisation {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  users                            User[]
-  roles                            Role[]
-  invitations                      Invitation[]
-  auditLogs                        AuditLog[]
-  sessions                         Session[]
-  userRoles                        UserRole[]
+  users                              User[]
+  roles                              Role[]
+  invitations                        Invitation[]
+  auditLogs                          AuditLog[]
+  sessions                           Session[]
+  userRoles                          UserRole[]
   /// Added Sprint 4.1 — Product Catalogue (docs/domains/catalogue.md).
-  products                         Product[]
+  products                           Product[]
   /// Added Sprint 4.2 — Supplier Management (docs/domains/suppliers.md).
-  suppliers                        Supplier[]
+  suppliers                          Supplier[]
   /// Added Sprint 4.3 — Procurement (docs/domains/procurement.md).
-  purchaseOrders                   PurchaseOrder[]
+  purchaseOrders                     PurchaseOrder[]
   /// Added Sprint 4.4 — Inventory (docs/domains/inventory.md).
-  goodsReceipts                    GoodsReceipt[]
-  inventoryStock                   InventoryStock[]
-  inventoryTransactions            InventoryTransaction[]
+  goodsReceipts                      GoodsReceipt[]
+  inventoryStock                     InventoryStock[]
+  inventoryTransactions              InventoryTransaction[]
   /// Added Sprint 4.5 — Inventory Locations (docs/domains/inventory.md).
-  inventoryLocations               InventoryLocation[]
+  inventoryLocations                 InventoryLocation[]
   /// Added Sprint 4.6 — Production & Bill of Materials (docs/domains/production.md).
-  billOfMaterials                  BillOfMaterial[]
-  productionOrders                 ProductionOrder[]
-  productionMaterialIssues         ProductionMaterialIssue[]
-  productionRuns                   ProductionRun[]
+  billOfMaterials                    BillOfMaterial[]
+  productionOrders                   ProductionOrder[]
+  productionMaterialIssues           ProductionMaterialIssue[]
+  productionRuns                     ProductionRun[]
   /// Added Sprint 4.7 — Product Family, Variant & SKU Architecture (docs/domains/catalogue.md).
-  productFamilies                  ProductFamily[]
-  productVariants                  ProductVariant[]
+  productFamilies                    ProductFamily[]
+  productVariants                    ProductVariant[]
   /// Added Sprint 4.8 — Customer, Territory, Outlet & Retail Network
   /// (docs/domains/retail-network.md).
-  territories                      Territory[]
-  customers                        Customer[]
-  outlets                          Outlet[]
-  outletPhotos                     OutletPhoto[]
-  distributionNetworkRelationships DistributionNetworkRelationship[]
+  territories                        Territory[]
+  customers                          Customer[]
+  outlets                            Outlet[]
+  outletPhotos                       OutletPhoto[]
+  distributionNetworkRelationships   DistributionNetworkRelationship[]
   /// Added Sprint 4.8 — Sales (docs/domains/sales.md).
-  salesOrders                      SalesOrder[]
+  salesOrders                        SalesOrder[]
   /// Added Sprint 4.9 — Sales Fulfilment (docs/domains/sales.md "Fulfilment").
-  salesFulfilments                 SalesFulfilment[]
+  salesFulfilments                   SalesFulfilment[]
   /// Added Sprint 5 — Distribution & Delivery (docs/domains/distribution.md).
-  dispatches                       Dispatch[]
-  deliveries                       Delivery[]
+  dispatches                         Dispatch[]
+  deliveries                         Delivery[]
   /// Added Sprint 6 — Finance (docs/domains/finance.md).
-  invoices                         Invoice[]
-  payments                         Payment[]
-  creditNotes                      CreditNote[]
+  invoices                           Invoice[]
+  payments                           Payment[]
+  creditNotes                        CreditNote[]
   /// Added Sprint 7 — Accounting (docs/domains/accounting.md).
-  chartOfAccounts                  ChartOfAccount[]
-  accountingPeriods                AccountingPeriod[]
-  journalEntries                   JournalEntry[]
+  chartOfAccounts                    ChartOfAccount[]
+  accountingPeriods                  AccountingPeriod[]
+  journalEntries                     JournalEntry[]
   /// Added Sprint 11 — Returns, Claims & Reversals (docs/domains/sales.md,
   /// docs/domains/procurement.md).
-  customerReturns                  CustomerReturn[]
-  supplierReturns                  SupplierReturn[]
+  customerReturns                    CustomerReturn[]
+  supplierReturns                    SupplierReturn[]
   /// Added Sprint 12 — Accounts Payable (docs/domains/finance.md).
-  supplierInvoices                 SupplierInvoice[]
-  supplierPayments                 SupplierPayment[]
-  supplierCreditNotes              SupplierCreditNote[]
+  supplierInvoices                   SupplierInvoice[]
+  supplierPayments                   SupplierPayment[]
+  supplierCreditNotes                SupplierCreditNote[]
   /// Added Sprint 14 — Cash & Bank Management (docs/domains/cash-management.md).
-  cashAccounts                     CashAccount[]
-  cashTransactions                 CashTransaction[]
-  bankStatementImports             BankStatementImport[]
-  bankStatementTransactions        BankStatementTransaction[]
-  bankReconciliations              BankReconciliation[]
+  cashAccounts                       CashAccount[]
+  cashTransactions                   CashTransaction[]
+  bankStatementImports               BankStatementImport[]
+  bankStatementTransactions          BankStatementTransaction[]
+  bankReconciliations                BankReconciliation[]
   /// Added Sprint 15 — Cashflow Management & Forecasting (docs/domains/cashflow.md).
-  cashflowForecastItems             CashflowForecastItem[]
-  cashflowScenarios                 CashflowScenario[]
-  cashflowForecastAdjustments       CashflowForecastAdjustment[]
-  cashflowSettings                  CashflowSettings?
+  cashflowForecastItems              CashflowForecastItem[]
+  cashflowScenarios                  CashflowScenario[]
+  cashflowForecastAdjustments        CashflowForecastAdjustment[]
+  cashflowSettings                   CashflowSettings?
   /// Added Sprint 16 — Budgeting & Financial Planning (docs/domains/budgeting.md).
-  budgets                           Budget[]
-  costCentres                       CostCentre[]
+  budgets                            Budget[]
+  costCentres                        CostCentre[]
   /// Added Sprint 17 — Capital & Debt Management (docs/domains/debt-management.md).
-  lenders                           Lender[]
-  capitalRequirements               CapitalRequirement[]
-  debtFacilities                    DebtFacility[]
-  debtDrawdowns                     DebtDrawdown[]
-  debtRepayments                    DebtRepayment[]
+  lenders                            Lender[]
+  capitalRequirements                CapitalRequirement[]
+  debtFacilities                     DebtFacility[]
+  debtDrawdowns                      DebtDrawdown[]
+  debtRepayments                     DebtRepayment[]
   /// Added Sprint 18 — Investment / Capital Project Management
   /// (docs/domains/investment-projects.md).
-  capitalProjects                   CapitalProject[]
-  capitalProjectFundings            CapitalProjectFunding[]
+  capitalProjects                    CapitalProject[]
+  capitalProjectFundings             CapitalProjectFunding[]
   /// Added Sprint 19 — Financial Decision & Scenario Analysis
   /// (docs/domains/financial-decision-analysis.md).
-  decisionAnalyses                  DecisionAnalysis[]
+  decisionAnalyses                   DecisionAnalysis[]
   /// Added Sprint 20 — Asset Register & Asset Management Foundation
   /// (docs/domains/assets.md).
-  assetCategories                   AssetCategory[]
-  assetLocations                    AssetLocation[]
-  assets                            Asset[]
-  assetDocuments                    AssetDocument[]
-  assetMovements                    AssetMovement[]
-  assetMeters                       AssetMeter[]
-  assetMeterReadings                AssetMeterReading[]
-  maintenanceTypes                  MaintenanceType[]
-  maintenancePlans                  MaintenancePlan[]
-  maintenanceSchedules              MaintenanceSchedule[]
-  maintenanceRequests               MaintenanceRequest[]
-  workOrders                        WorkOrder[]
-  assetDowntimes                    AssetDowntime[]
-  maintenancePartUsages             MaintenancePartUsage[]
-  maintenanceCosts                  MaintenanceCost[]
-  maintenanceDocuments              MaintenanceDocument[]
+  assetCategories                    AssetCategory[]
+  assetLocations                     AssetLocation[]
+  assets                             Asset[]
+  assetDocuments                     AssetDocument[]
+  assetMovements                     AssetMovement[]
+  assetMeters                        AssetMeter[]
+  assetMeterReadings                 AssetMeterReading[]
+  maintenanceTypes                   MaintenanceType[]
+  maintenancePlans                   MaintenancePlan[]
+  maintenanceSchedules               MaintenanceSchedule[]
+  maintenanceRequests                MaintenanceRequest[]
+  workOrders                         WorkOrder[]
+  assetDowntimes                     AssetDowntime[]
+  maintenancePartUsages              MaintenancePartUsage[]
+  maintenanceCosts                   MaintenanceCost[]
+  maintenanceDocuments               MaintenanceDocument[]
+  maintenanceProcurementRequirements MaintenanceProcurementRequirement[]
 
   @@map("organisations")
 }
@@ -706,26 +707,31 @@ model Supplier {
   createdAt               DateTime         @default(now())
   updatedAt               DateTime         @updatedAt
 
-  organisation   Organisation    @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  organisation                       Organisation                        @relation(fields: [organisationId], references: [id], onDelete: Cascade)
   /// Added Sprint 4.3 — Procurement (docs/domains/procurement.md).
-  purchaseOrders PurchaseOrder[]
+  purchaseOrders                     PurchaseOrder[]
   /// Added Sprint 4.4 — Inventory (docs/domains/inventory.md).
-  goodsReceipts  GoodsReceipt[]
+  goodsReceipts                      GoodsReceipt[]
   /// Added Sprint 11 — Returns, Claims & Reversals (docs/domains/procurement.md).
-  supplierReturns SupplierReturn[]
+  supplierReturns                    SupplierReturn[]
   /// Added Sprint 12 — Accounts Payable (docs/domains/finance.md).
-  supplierInvoices SupplierInvoice[]
-  supplierPayments SupplierPayment[]
-  supplierCreditNotes SupplierCreditNote[]
+  supplierInvoices                   SupplierInvoice[]
+  supplierPayments                   SupplierPayment[]
+  supplierCreditNotes                SupplierCreditNote[]
   /// Added Sprint 20 — Asset Register (docs/domains/assets.md). Read-only
   /// reference — an Asset may record which Supplier it was acquired from.
-  assets Asset[]
+  assets                             Asset[]
   /// Added Sprint 21 — Maintenance Management (docs/domains/maintenance.md).
   /// Read-only references — a work order may record an external service
   /// provider, and a maintenance cost line may record which supplier it
   /// was billed by.
-  maintenanceWorkOrders WorkOrder[]        @relation("MaintenanceWorkOrderExternalSupplier")
-  maintenanceCosts      MaintenanceCost[]  @relation("MaintenanceCostSupplier")
+  maintenanceWorkOrders              WorkOrder[]                         @relation("MaintenanceWorkOrderExternalSupplier")
+  maintenanceCosts                   MaintenanceCost[]                   @relation("MaintenanceCostSupplier")
+  /// Added Sprint 22 — Maintenance Ecosystem Integration
+  /// (docs/domains/maintenance-integration.md). Read-only reference — a
+  /// maintenance procurement requirement may record which supplier is
+  /// expected to fulfil it.
+  maintenanceProcurementRequirements MaintenanceProcurementRequirement[] @relation("MaintenanceProcurementSupplier")
 
   @@index([organisationId])
   @@index([organisationId, status])
@@ -787,20 +793,20 @@ model PurchaseOrder {
   createdAt            DateTime            @default(now())
   updatedAt            DateTime            @updatedAt
 
-  organisation  Organisation        @relation(fields: [organisationId], references: [id], onDelete: Cascade)
-  supplier      Supplier            @relation(fields: [supplierId], references: [id], onDelete: Restrict)
-  items         PurchaseOrderItem[]
+  organisation            Organisation             @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  supplier                Supplier                 @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  items                   PurchaseOrderItem[]
   /// Added Sprint 4.4 — Inventory (docs/domains/inventory.md). May now have many rows
   /// (Sprint 4.4.1 removed the "received once" restriction) — a short delivery, a
   /// rejection, or a vendor sending replacement goods each add another immutable
   /// `GoodsReceipt`, never editing a prior one.
-  goodsReceipts GoodsReceipt[]
+  goodsReceipts           GoodsReceipt[]
   /// Added Sprint 11 — Returns, Claims & Reversals (docs/domains/procurement.md).
-  supplierReturns SupplierReturn[]
+  supplierReturns         SupplierReturn[]
   /// Added Sprint 12 — Accounts Payable (docs/domains/finance.md). Header-level
   /// reference only, for display/grouping — 3-way matching itself happens at the
   /// `SupplierInvoiceItem` -> `GoodsReceiptItem` level, never here.
-  supplierInvoices SupplierInvoice[]
+  supplierInvoices        SupplierInvoice[]
   /// Added Sprint 18 — Investment / Capital Project Management (docs/domains/
   /// investment-projects.md). Read-only reference — the FK lives on
   /// `CapitalProjectCostLine`, not here; Procurement's own code never
@@ -809,7 +815,7 @@ model PurchaseOrder {
   /// Added Sprint 20 — Asset Register (docs/domains/assets.md). Read-only
   /// reference — an Asset may record which Purchase Order it was acquired
   /// through; Procurement's own code never references Assets.
-  assets Asset[]
+  assets                  Asset[]
 
   @@index([organisationId])
   @@index([organisationId, status])
@@ -911,28 +917,28 @@ enum LocationStatus {
 /// `discrepancyNotes`, the lightweight supplier-resolution state described below, which
 /// is deliberately *not* a correction to what was actually received.
 model GoodsReceipt {
-  id                 String            @id @default(cuid())
-  organisationId     String
+  id                          String                       @id @default(cuid())
+  organisationId              String
   /// Auto-generated (`GRN-000001`, ...), globally unique, immutable — same
   /// collision-avoidance pattern as `PurchaseOrder.purchaseOrderNumber`.
-  goodsReceiptNumber String            @unique
-  purchaseOrderId    String
+  goodsReceiptNumber          String                       @unique
+  purchaseOrderId             String
   /// Denormalised from `PurchaseOrder.supplierId` at receiving time — a Goods Receipt is
   /// always "goods from this supplier," and this avoids every read joining through the
   /// Purchase Order just to show who delivered.
-  supplierId         String
+  supplierId                  String
   /// Added Sprint 4.5 — which physical location the accepted goods were received into.
   /// Defaults to the organisation's default location when not specified (brief §17:
   /// "Do not break the existing Goods Receiving flow") — `InventoryService.receiveGoods`
   /// resolves it, never the client.
-  locationId         String
-  receivedDate       DateTime
+  locationId                  String
+  receivedDate                DateTime
   /// Plain id, no FK relation — same convention as `AuditLog.actorUserId`/
   /// `PurchaseOrder.createdById` (metadata about who acted, not a relationship the
   /// aggregate depends on). Always the authenticated caller — never accepted as free-text
   /// input.
-  receivedById       String?
-  remarks            String?
+  receivedById                String?
+  remarks                     String?
   /// Added Sprint 4.4.1 — a lightweight, manually-progressed status representing whether
   /// *this specific receipt's* shortfall/rejection still needs supplier resolution
   /// (replacement, credit, ...). Auto-set at creation (`PENDING_SUPPLIER` if any item on
@@ -942,11 +948,11 @@ model GoodsReceipt {
   /// Claims/Returns/Credit-Note system (brief's explicit Architectural Constraints) —
   /// just enough to preserve that the discrepancy happened and track its resolution
   /// state.
-  discrepancyStatus  DiscrepancyStatus @default(NONE)
+  discrepancyStatus           DiscrepancyStatus            @default(NONE)
   /// Free-text context for the current `discrepancyStatus` (e.g. "Supplier confirmed
   /// replacement ships next week") — the one field on this otherwise-immutable row that
   /// can change over time, alongside `discrepancyStatus` itself.
-  discrepancyNotes   String?
+  discrepancyNotes            String?
   /// Added Sprint 11 (docs/domains/procurement.md "Discrepancy Resolution") — which of
   /// the five brief-listed resolution actions this receipt's discrepancy was actually
   /// resolved by. Auto-set to `REPLACEMENT`/`RETURN` when a replacement `GoodsReceipt`
@@ -959,24 +965,24 @@ model GoodsReceipt {
   /// defective/rejected goods for (brief §21/§39). `NULL` for every ordinary receipt.
   /// Deliberately reuses `receive()`'s existing payable/GRNI computation completely
   /// unmodified — see docs/domains/accounting.md "Replacement Goods".
-  replacesGoodsReceiptId String?
+  replacesGoodsReceiptId      String?
   /// Added Sprint 8 — same double-submit protection every other write-path in this
   /// codebase has (`Invoice.idempotencyKey`, `Payment.idempotencyKey`, ...). A retried
   /// `POST /goods-receipts` with the same key against the same Purchase Order returns
   /// the original receipt instead of creating a second one, a second `InventoryStock`
   /// increment, and a second Journal Entry — see `GoodsReceiptRepository.receive`.
-  idempotencyKey     String?
-  createdAt          DateTime          @default(now())
-  updatedAt          DateTime          @updatedAt
+  idempotencyKey              String?
+  createdAt                   DateTime                     @default(now())
+  updatedAt                   DateTime                     @updatedAt
 
-  organisation  Organisation       @relation(fields: [organisationId], references: [id], onDelete: Cascade)
-  purchaseOrder PurchaseOrder      @relation(fields: [purchaseOrderId], references: [id], onDelete: Restrict)
-  supplier      Supplier           @relation(fields: [supplierId], references: [id], onDelete: Restrict)
-  location      InventoryLocation  @relation(fields: [locationId], references: [id], onDelete: Restrict)
-  items         GoodsReceiptItem[]
+  organisation         Organisation       @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  purchaseOrder        PurchaseOrder      @relation(fields: [purchaseOrderId], references: [id], onDelete: Restrict)
+  supplier             Supplier           @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  location             InventoryLocation  @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  items                GoodsReceiptItem[]
   /// Added Sprint 11 — see `replacesGoodsReceiptId` above.
-  replacesGoodsReceipt GoodsReceipt?  @relation("GoodsReceiptReplacement", fields: [replacesGoodsReceiptId], references: [id], onDelete: Restrict)
-  replacementReceipts  GoodsReceipt[] @relation("GoodsReceiptReplacement")
+  replacesGoodsReceipt GoodsReceipt?      @relation("GoodsReceiptReplacement", fields: [replacesGoodsReceiptId], references: [id], onDelete: Restrict)
+  replacementReceipts  GoodsReceipt[]     @relation("GoodsReceiptReplacement")
   supplierReturns      SupplierReturn[]
 
   @@unique([purchaseOrderId, idempotencyKey])
@@ -1004,26 +1010,26 @@ enum RejectionReason {
 /// `productId`) so "ordered quantity" is always read from that row's own immutable
 /// `quantity`, never re-entered here — see docs/domains/inventory.md "Receiving Model".
 model GoodsReceiptItem {
-  id                  String           @id @default(cuid())
-  goodsReceiptId      String
-  purchaseOrderItemId String
+  id                     String           @id @default(cuid())
+  goodsReceiptId         String
+  purchaseOrderItemId    String
   /// Denormalised from `purchaseOrderItem.productId` — same rationale as
   /// `GoodsReceipt.supplierId` (avoids every read joining through the Purchase Order
   /// item just to show which product this line is).
-  productId           String
+  productId              String
   /// The physical quantity counted at receiving — may be less than ordered (short
   /// delivery), more than ordered (excess supply, brief §3 Scenario E — never silently
   /// capped), or zero rejected/all accepted.
-  deliveredQuantity   Float
+  deliveredQuantity      Float
   /// The portion of `deliveredQuantity` rejected (defective, damaged, wrong item, ...).
   /// `0` by default — most receipts have no rejection at all.
-  rejectedQuantity    Float            @default(0)
+  rejectedQuantity       Float            @default(0)
   /// `deliveredQuantity - rejectedQuantity`, computed and stored by `InventoryService`
   /// (never accepted from the client — brief §12: "Do not allow the user to manually
   /// enter Accepted Quantity"). This is the only figure that ever increases
   /// `InventoryStock`/writes an `InventoryTransaction` — see "Important Business Rule"
   /// in the brief.
-  acceptedQuantity    Float
+  acceptedQuantity       Float
   /// Added Sprint 8 (docs/domains/accounting.md "Accepted vs. Payable") — the portion
   /// of `acceptedQuantity` the organisation is commercially liable to pay the supplier
   /// for, computed server-side by `GoodsReceiptRepository.receive` as
@@ -1037,39 +1043,39 @@ model GoodsReceiptItem {
   /// pre-Sprint-8 rows (set equal to `acceptedQuantity` there, since no accounting
   /// integration — and therefore no payable/excess distinction — existed before this
   /// migration); every row created going forward always has this explicitly computed.
-  payableQuantity     Float            @default(0)
-  rejectionReason     RejectionReason?
-  rejectionNotes      String?
+  payableQuantity        Float            @default(0)
+  rejectionReason        RejectionReason?
+  rejectionNotes         String?
   /// Added Sprint 11 (docs/domains/accounting.md "Supplier Return Accounting") —
   /// cumulative quantity returned to the supplier across every `SupplierReturnItem`
   /// ever recorded against this line. Caps eligibility at `acceptedQuantity`; never
   /// decremented.
-  returnedQuantity        Float @default(0)
+  returnedQuantity       Float            @default(0)
   /// Added Sprint 11 — of `returnedQuantity`, how much has been allocated against the
   /// excess/`GRNI_PENDING_APPROVAL` bucket rather than `AP` (excess-first allocation,
   /// see `SupplierReturnRepository`). `returnedQuantity - returnedExcessQuantity` is
   /// always the portion allocated against `AP`.
-  returnedExcessQuantity  Float @default(0)
+  returnedExcessQuantity Float            @default(0)
   /// Added Sprint 11 — cumulative quantity of this line's `rejectedQuantity` resolved
   /// by a replacement `GoodsReceiptItem` (via `replacesRejectedItemId`). Caps at
   /// `rejectedQuantity`; never decremented.
-  replacedQuantity        Float @default(0)
+  replacedQuantity       Float            @default(0)
   /// Added Sprint 11 — self-reference on the *replacement* line back to the original
   /// rejected line it resolves (brief §21/§39). `NULL` for every ordinary line.
-  replacesRejectedItemId  String?
+  replacesRejectedItemId String?
   /// Added Sprint 12 (docs/domains/accounting.md "Supplier Invoice Matching") —
   /// cumulative quantity claimed by every POSTED `SupplierInvoiceItem` (Path A lines
   /// only) against this line's `payableQuantity`. Incremented only at
   /// `SupplierInvoiceRepository.post()` time, never at DRAFT. Read the same way
   /// `returnedQuantity` already is, to compute what remains invoiceable.
-  invoicedQuantity        Float @default(0)
-  createdAt           DateTime         @default(now())
+  invoicedQuantity       Float            @default(0)
+  createdAt              DateTime         @default(now())
 
-  goodsReceipt      GoodsReceipt      @relation(fields: [goodsReceiptId], references: [id], onDelete: Cascade)
-  purchaseOrderItem PurchaseOrderItem @relation(fields: [purchaseOrderItemId], references: [id], onDelete: Restrict)
-  product           Product           @relation(fields: [productId], references: [id], onDelete: Restrict)
-  replacesRejectedItem GoodsReceiptItem?  @relation("GoodsReceiptItemReplacement", fields: [replacesRejectedItemId], references: [id], onDelete: Restrict)
-  replacementItems     GoodsReceiptItem[] @relation("GoodsReceiptItemReplacement")
+  goodsReceipt         GoodsReceipt          @relation(fields: [goodsReceiptId], references: [id], onDelete: Cascade)
+  purchaseOrderItem    PurchaseOrderItem     @relation(fields: [purchaseOrderItemId], references: [id], onDelete: Restrict)
+  product              Product               @relation(fields: [productId], references: [id], onDelete: Restrict)
+  replacesRejectedItem GoodsReceiptItem?     @relation("GoodsReceiptItemReplacement", fields: [replacesRejectedItemId], references: [id], onDelete: Restrict)
+  replacementItems     GoodsReceiptItem[]    @relation("GoodsReceiptItemReplacement")
   supplierReturnItems  SupplierReturnItem[]
   supplierInvoiceItems SupplierInvoiceItem[]
 
@@ -1749,19 +1755,19 @@ model Outlet {
   createdAt         DateTime     @default(now())
   updatedAt         DateTime     @updatedAt
 
-  organisation Organisation  @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  organisation    Organisation     @relation(fields: [organisationId], references: [id], onDelete: Cascade)
   /// `Restrict` — an internal domain FK with no delete endpoint on either side, same
   /// default as `ProductVariant.productFamilyId`. An outlet belongs to exactly one
   /// customer; `customerId` is immutable on update (service-enforced) since moving it
   /// would rewrite sales-order attribution.
-  customer     Customer      @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  territory    Territory?    @relation(fields: [territoryId], references: [id], onDelete: SetNull)
-  photos       OutletPhoto[]
-  salesOrders  SalesOrder[]
+  customer        Customer         @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  territory       Territory?       @relation(fields: [territoryId], references: [id], onDelete: SetNull)
+  photos          OutletPhoto[]
+  salesOrders     SalesOrder[]
   /// Added Sprint 5 — Distribution & Delivery (docs/domains/distribution.md).
-  dispatches   Dispatch[]
+  dispatches      Dispatch[]
   /// Added Sprint 6 — Finance (docs/domains/finance.md).
-  invoices     Invoice[]
+  invoices        Invoice[]
   /// Added Sprint 11 — Returns, Claims & Reversals (docs/domains/sales.md).
   customerReturns CustomerReturn[]
 
@@ -1890,20 +1896,20 @@ model SalesOrder {
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
 
-  organisation Organisation     @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  organisation    Organisation      @relation(fields: [organisationId], references: [id], onDelete: Cascade)
   /// `Restrict` on both — a sales order is history and must never be silently re-pointed
   /// or null-ed out. `outletId` is optional but deliberately declared `Restrict` rather
   /// than letting it default to `SetNull`, which would rewrite history.
-  customer     Customer         @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  outlet       Outlet?          @relation(fields: [outletId], references: [id], onDelete: Restrict)
-  items        SalesOrderItem[]
-  fulfilments  SalesFulfilment[]
+  customer        Customer          @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  outlet          Outlet?           @relation(fields: [outletId], references: [id], onDelete: Restrict)
+  items           SalesOrderItem[]
+  fulfilments     SalesFulfilment[]
   /// Added Sprint 5 — Distribution & Delivery (docs/domains/distribution.md). Denormalised
   /// inverse of `Dispatch.salesOrderId`.
-  dispatches   Dispatch[]
+  dispatches      Dispatch[]
   /// Added Sprint 6 — Finance (docs/domains/finance.md). Denormalised inverse of
   /// `Invoice.salesOrderId`.
-  invoices     Invoice[]
+  invoices        Invoice[]
   /// Added Sprint 11 — Returns, Claims & Reversals (docs/domains/sales.md).
   customerReturns CustomerReturn[]
 
@@ -2004,13 +2010,13 @@ model SalesFulfilment {
 /// `InventoryTransaction` `ISSUE` row (`referenceType: 'SalesFulfilment'`, `referenceId:`
 /// this fulfilment's id) — exact mirror of `ProductionMaterialIssueItem` -> `ISSUE`.
 model SalesFulfilmentItem {
-  id                String   @id @default(cuid())
-  salesFulfilmentId String
-  productId         String
+  id                 String   @id @default(cuid())
+  salesFulfilmentId  String
+  productId          String
   /// The `SalesOrderItem` this fulfils — needed to atomically increment that line's own
   /// `quantityFulfilled` inside the same transaction.
-  salesOrderItemId  String
-  quantityFulfilled Float
+  salesOrderItemId   String
+  quantityFulfilled  Float
   /// Added Sprint 5 — cumulative quantity released across every `DispatchItem` ever
   /// created against this line (via `DispatchItem.salesFulfilmentItemId`). Never
   /// decremented, only incremented inside `DispatchRepository.create`'s own
@@ -2042,14 +2048,14 @@ model SalesFulfilmentItem {
   /// return-request time (not receipt) so two concurrent requests can never together
   /// exceed what was actually fulfilled; decremented if a request is cancelled before
   /// being received.
-  quantityReturned  Float    @default(0)
-  createdAt         DateTime @default(now())
+  quantityReturned   Float    @default(0)
+  createdAt          DateTime @default(now())
 
-  salesFulfilment SalesFulfilment @relation(fields: [salesFulfilmentId], references: [id], onDelete: Cascade)
-  product         Product         @relation(fields: [productId], references: [id], onDelete: Restrict)
-  salesOrderItem  SalesOrderItem  @relation(fields: [salesOrderItemId], references: [id], onDelete: Restrict)
+  salesFulfilment     SalesFulfilment      @relation(fields: [salesFulfilmentId], references: [id], onDelete: Cascade)
+  product             Product              @relation(fields: [productId], references: [id], onDelete: Restrict)
+  salesOrderItem      SalesOrderItem       @relation(fields: [salesOrderItemId], references: [id], onDelete: Restrict)
   /// Added Sprint 5 (docs/domains/distribution.md).
-  dispatchItems   DispatchItem[]
+  dispatchItems       DispatchItem[]
   /// Added Sprint 11 (docs/domains/sales.md "Customer Returns").
   customerReturnItems CustomerReturnItem[]
 
@@ -2125,7 +2131,7 @@ model Dispatch {
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
 
-  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  organisation    Organisation      @relation(fields: [organisationId], references: [id], onDelete: Cascade)
   /// `Restrict` — a dispatch is history and must survive even if a future feature ever
   /// allowed deleting a Sales Fulfilment (it doesn't today), same rationale as
   /// `SalesFulfilment.salesOrder`.
@@ -2315,11 +2321,11 @@ enum CreditNoteStatus {
 /// schema level (a future non-order invoice path is conceivable) but
 /// `InvoiceService.create()` always requires one in Sprint 6.
 model Invoice {
-  id             String   @id @default(cuid())
+  id             String          @id @default(cuid())
   organisationId String
   /// Auto-generated (`INV-000001`, ...), globally unique, immutable — same
   /// collision-avoidance loop as `SO-`/`DSP-`.
-  invoiceCode    String   @unique
+  invoiceCode    String          @unique
   customerId     String
   outletId       String?
   salesOrderId   String?
@@ -2329,26 +2335,26 @@ model Invoice {
   /// `paymentTerms` display changes.
   dueDate        DateTime
   paymentTerms   PaymentTermType
-  status         InvoiceStatus @default(DRAFT)
+  status         InvoiceStatus   @default(DRAFT)
   /// Snapshotted from `Organisation.currency` at creation — never re-read
   /// from the organisation later, same "snapshot, don't re-derive" rule as
   /// every commercial value on this model.
   currency       String
   subtotal       Float
-  discount       Float         @default(0)
+  discount       Float           @default(0)
   /// Sum of `InvoiceItem.taxAmount` — deliberately no header-level `taxRate`
   /// column (would drift from per-line reality the moment two lines carry
   /// different rates; nothing would force them to agree).
-  taxAmount      Float         @default(0)
+  taxAmount      Float           @default(0)
   /// `subtotal - discount + taxAmount`, server-computed.
   total          Float
   /// Cumulative, incremented only inside `PaymentRepository.create()`'s
   /// transaction. `amountOutstanding` is deliberately never stored — always
   /// derived as `total - amountPaid - amountCredited` at every read site.
-  amountPaid     Float         @default(0)
+  amountPaid     Float           @default(0)
   /// Cumulative, incremented only inside `CreditNoteRepository.issue()`'s
   /// transaction.
-  amountCredited Float         @default(0)
+  amountCredited Float           @default(0)
   notes          String?
   /// Client-supplied, optional. Protects `InvoiceService.create()` against a
   /// double-tap/flaky-network retry — same convention as
@@ -2358,8 +2364,8 @@ model Invoice {
   idempotencyKey String?
   createdById    String?
   updatedById    String?
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
 
   organisation Organisation        @relation(fields: [organisationId], references: [id], onDelete: Cascade)
   customer     Customer            @relation(fields: [customerId], references: [id], onDelete: Restrict)
@@ -2381,31 +2387,31 @@ model Invoice {
 /// — mirrors `SalesOrderItem`'s own "never reconstruct from the live catalog"
 /// rule.
 model InvoiceItem {
-  id          String   @id @default(cuid())
-  invoiceId   String
-  productId   String?
+  id               String   @id @default(cuid())
+  invoiceId        String
+  productId        String?
   /// Snapshot — never re-read from `Product` at display time.
-  productCode String
+  productCode      String
   /// Snapshot.
-  productName String
-  description String?
-  quantity    Float
-  unitPrice   Float
-  discount    Float    @default(0)
+  productName      String
+  description      String?
+  quantity         Float
+  unitPrice        Float
+  discount         Float    @default(0)
   /// Percent (e.g. `7.5`) — the only place a tax rate lives on an invoice;
   /// defaults to `ConfigService`'s `finance.defaultTaxRatePercent` when the
   /// client omits it, but whatever value is actually used is permanently
   /// snapshotted here, never recomputed from a "current" default later.
-  taxRate     Float    @default(0)
-  taxAmount   Float    @default(0)
+  taxRate          Float    @default(0)
+  taxAmount        Float    @default(0)
   /// Server-calculated as `roundCurrency(quantity * unitPrice - discount +
   /// taxAmount)` — deliberately absent from `invoiceItemInputSchema` so the
   /// client cannot even express a value.
-  lineTotal   Float
+  lineTotal        Float
   /// Traceability back to the source `SalesOrderItem` this line was
   /// invoiced from.
   salesOrderItemId String?
-  createdAt   DateTime @default(now())
+  createdAt        DateTime @default(now())
 
   invoice        Invoice         @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   product        Product?        @relation(fields: [productId], references: [id], onDelete: Restrict)
@@ -2576,51 +2582,51 @@ enum JournalEntryStatus {
 /// `AccountModule`/`AccountController` (apps/api/src/identity/account/, the
 /// "My Account" profile/password/sessions surface).
 model ChartOfAccount {
-  id             String      @id @default(cuid())
-  organisationId String
+  id              String      @id @default(cuid())
+  organisationId  String
   /// Tenant-defined, e.g. "1000"/"1110" — NOT globally unique like
   /// `Invoice.invoiceCode`; every organisation maintains its own chart.
-  code           String
-  name           String
-  type           AccountType
-  parentId       String?
-  description    String?
-  isActive       Boolean     @default(true)
+  code            String
+  name            String
+  type            AccountType
+  parentId        String?
+  description     String?
+  isActive        Boolean     @default(true)
   /// A system account can never be deactivated via the API — see
   /// `ChartOfAccountService`. Immutable after creation.
-  isSystemAccount Boolean    @default(false)
+  isSystemAccount Boolean     @default(false)
   /// Set only on a system account — lets `journal-posting.ts` resolve "the AR
   /// account for this organisation" without ever hardcoding an id. One of
   /// `SYSTEM_ACCOUNT_KEYS` (AR/SALES_REVENUE/SALES_RETURNS/CASH/BANK/
   /// INVENTORY/COGS/AP). Immutable after creation.
-  systemKey      String?
-  createdById    String?
-  updatedById    String?
-  createdAt      DateTime    @default(now())
-  updatedAt      DateTime    @updatedAt
+  systemKey       String?
+  createdById     String?
+  updatedById     String?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
 
-  organisation Organisation       @relation(fields: [organisationId], references: [id], onDelete: Cascade)
-  parent       ChartOfAccount?    @relation("AccountHierarchy", fields: [parentId], references: [id], onDelete: Restrict)
-  children     ChartOfAccount[]   @relation("AccountHierarchy")
-  journalLines JournalEntryLine[]
+  organisation                    Organisation             @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  parent                          ChartOfAccount?          @relation("AccountHierarchy", fields: [parentId], references: [id], onDelete: Restrict)
+  children                        ChartOfAccount[]         @relation("AccountHierarchy")
+  journalLines                    JournalEntryLine[]
   /// Added Sprint 12 — the "Debit Account" a Path B `SupplierInvoiceItem` (no Goods
   /// Receipt reference) posts against, e.g. a Logistics/Utilities Expense account.
-  supplierInvoiceItems SupplierInvoiceItem[]
+  supplierInvoiceItems            SupplierInvoiceItem[]
   /// Added Sprint 14 — the dedicated CoA row a `CashAccount` is linked to (system-
   /// provisioned, never the generic `CASH`/`BANK` system accounts), and the "Contra
   /// Account" side of a `CashTransaction`.
-  cashAccount                CashAccount?
-  cashTransactionsAsContra   CashTransaction[]
+  cashAccount                     CashAccount?
+  cashTransactionsAsContra        CashTransaction[]
   /// Added Sprint 16 — a `BudgetLine` planned against this account (`REVENUE`/
   /// `OPERATING_EXPENSE` lines only; `CAPEX` lines may omit an account entirely —
   /// see docs/domains/budgeting.md).
-  budgetLines                BudgetLine[]
+  budgetLines                     BudgetLine[]
   /// Added Sprint 17 — the user-chosen, non-system Liability/Expense account a
   /// `DebtFacility`/`DebtRepayment` posts against (docs/domains/debt-management.md
   /// "No New System Accounts") — the exact Sprint 12 Path B pattern, never a
   /// single global loan account.
-  debtFacilitiesAsLiability       DebtFacility[] @relation("DebtFacilityLiabilityAccount")
-  debtFacilitiesAsInterestExpense DebtFacility[] @relation("DebtFacilityInterestExpenseAccount")
+  debtFacilitiesAsLiability       DebtFacility[]           @relation("DebtFacilityLiabilityAccount")
+  debtFacilitiesAsInterestExpense DebtFacility[]           @relation("DebtFacilityInterestExpenseAccount")
   debtRepaymentsAsFee             DebtRepayment[]
   /// Added Sprint 18 — an optional account a `CapitalProjectCostLine` may
   /// reference (mirrors CAPEX's own optional-account convention from
@@ -2725,8 +2731,8 @@ model JournalEntryLine {
   credit         Float    @default(0)
   createdAt      DateTime @default(now())
 
-  journalEntry JournalEntry   @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
-  account      ChartOfAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  journalEntry        JournalEntry         @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
+  account             ChartOfAccount       @relation(fields: [accountId], references: [id], onDelete: Restrict)
   /// Added Sprint 14 — set when this line has been matched to a bank statement
   /// transaction during reconciliation (docs/domains/cash-management.md).
   reconciliationMatch ReconciliationMatch?
@@ -2782,40 +2788,40 @@ enum CustomerReturnStatus {
 /// accounting effect — see `receive()` (`CustomerReturnRepository`) for the one
 /// atomic event that does.
 model CustomerReturn {
-  id             String               @id @default(cuid())
-  organisationId String
+  id                     String               @id @default(cuid())
+  organisationId         String
   /// Auto-generated (`RET-000001`, ...), globally unique, immutable — same
   /// collision-avoidance pattern as `SalesOrder.orderCode`.
-  returnCode     String               @unique
-  customerId     String
-  outletId       String?
-  salesOrderId   String
+  returnCode             String               @unique
+  customerId             String
+  outletId               String?
+  salesOrderId           String
   /// Where the returned goods are physically received — resalable quantity is
   /// restocked here at `receive()` time.
-  locationId     String
-  status         CustomerReturnStatus @default(REQUESTED)
-  returnDate     DateTime
-  reason         CustomerReturnReason
-  reasonNotes    String?
-  notes          String?
+  locationId             String
+  status                 CustomerReturnStatus @default(REQUESTED)
+  returnDate             DateTime
+  reason                 CustomerReturnReason
+  reasonNotes            String?
+  notes                  String?
   /// Photo of the returned/damaged goods — same `FileStorage` port + absolute-URL
   /// pattern as `Delivery.photoUrl`/`photoKey`. Optional (brief §29: "Do not make
   /// photo mandatory for every return").
-  photoUrl       String?
-  photoKey       String?
+  photoUrl               String?
+  photoKey               String?
   /// Guards the *request* (`POST`) call — see `receivedIdempotencyKey` below for the
   /// separate guard on the `receive()` call.
-  idempotencyKey String?
+  idempotencyKey         String?
   /// Set once `receive()` succeeds — guards a retried `receive()` call the same way
   /// `idempotencyKey` guards the request call (Sprint 9→10 lesson: checked before any
   /// business-rule pre-check).
   receivedIdempotencyKey String?
-  receivedAt     DateTime?
+  receivedAt             DateTime?
   /// Plain id, no FK relation — same convention as `GoodsReceipt.receivedById`.
-  receivedById   String?
-  createdById    String?
-  createdAt      DateTime             @default(now())
-  updatedAt      DateTime             @updatedAt
+  receivedById           String?
+  createdById            String?
+  createdAt              DateTime             @default(now())
+  updatedAt              DateTime             @updatedAt
 
   organisation Organisation         @relation(fields: [organisationId], references: [id], onDelete: Cascade)
   customer     Customer             @relation(fields: [customerId], references: [id], onDelete: Restrict)
@@ -3006,68 +3012,68 @@ enum SupplierInvoiceMatchStatus {
 /// `supplierId` — brief explicit: never assumed globally unique, unlike this
 /// codebase's own generated `<PREFIX>-000001` codes.
 model SupplierInvoice {
-  id              String                @id @default(cuid())
-  organisationId  String
-  supplierId      String
+  id                         String                      @id @default(cuid())
+  organisationId             String
+  supplierId                 String
   /// Optional header-level reference for display/grouping only — the actual 3-way
   /// match happens per line, against `SupplierInvoiceItem.goodsReceiptItemId`.
-  purchaseOrderId String?
+  purchaseOrderId            String?
   /// The supplier's own invoice number — see model doc comment.
-  invoiceNumber   String
-  invoiceDate     DateTime
+  invoiceNumber              String
+  invoiceDate                DateTime
   /// Computed server-side from `invoiceDate + paymentTermDays(paymentTerms)` at
   /// creation — same "snapshot, never recompute" rule as `Invoice.dueDate`.
-  dueDate         DateTime
-  paymentTerms    PaymentTermType
-  status          SupplierInvoiceStatus @default(DRAFT)
+  dueDate                    DateTime
+  paymentTerms               PaymentTermType
+  status                     SupplierInvoiceStatus       @default(DRAFT)
   /// Snapshotted from `Organisation.currency` at creation.
-  currency        String
-  subtotal        Float
-  taxAmount       Float                 @default(0)
+  currency                   String
+  subtotal                   Float
+  taxAmount                  Float                       @default(0)
   /// `subtotal + taxAmount`, server-computed — the full amount the supplier billed,
   /// permanently preserved even when a discrepancy caps `recognizedAmount` below it.
-  total           Float
+  total                      Float
   /// `NULL` until `post()` — see `SupplierInvoiceMatchStatus`.
-  matchStatus     SupplierInvoiceMatchStatus?
+  matchStatus                SupplierInvoiceMatchStatus?
   /// Frozen at `post()` — `Σ SupplierInvoiceItem.recognizedAmount`. The actual
   /// AP-eligible amount: Payments/Credit Notes are validated against
   /// `recognizedAmount - amountPaid - amountCredited`, never against `total`. This is
   /// what makes "AP is never silently inflated" and "no overpayment exposure"
   /// structural rather than a special case (docs/domains/accounting.md).
-  recognizedAmount Float                @default(0)
+  recognizedAmount           Float                       @default(0)
   /// `total - recognizedAmount`, always >= 0 — how much of this invoice is NOT
   /// currently payable (a Path A discrepancy only; Path B lines never contribute).
-  varianceAmount   Float                @default(0)
+  varianceAmount             Float                       @default(0)
   /// Cumulative, incremented only inside `SupplierPaymentRepository.create()`'s
   /// transaction.
-  amountPaid       Float                @default(0)
+  amountPaid                 Float                       @default(0)
   /// Cumulative, incremented only inside `SupplierCreditNoteRepository.issue()`'s
   /// transaction.
-  amountCredited   Float                @default(0)
-  notes            String?
+  amountCredited             Float                       @default(0)
+  notes                      String?
   /// Guards the `create()` call — see `postIdempotencyKey` for the separate guard on
   /// `post()`, same two-key convention `CustomerReturn` (Sprint 11) established for
   /// its own two-phase request/receive lifecycle.
-  idempotencyKey     String?
-  postIdempotencyKey String?
-  postedAt         DateTime?
-  postedById       String?
+  idempotencyKey             String?
+  postIdempotencyKey         String?
+  postedAt                   DateTime?
+  postedById                 String?
   /// A human sign-off on a `DISCREPANCY`-status invoice — never changes
   /// `recognizedAmount`/AP (docs/domains/accounting.md "Discrepancy Resolution").
   discrepancyResolvedAt      DateTime?
   discrepancyResolvedById    String?
   discrepancyResolutionNotes String?
-  createdById      String?
-  updatedById      String?
-  createdAt        DateTime              @default(now())
-  updatedAt        DateTime              @updatedAt
+  createdById                String?
+  updatedById                String?
+  createdAt                  DateTime                    @default(now())
+  updatedAt                  DateTime                    @updatedAt
 
   organisation       Organisation                @relation(fields: [organisationId], references: [id], onDelete: Cascade)
-  supplier            Supplier                    @relation(fields: [supplierId], references: [id], onDelete: Restrict)
-  purchaseOrder       PurchaseOrder?              @relation(fields: [purchaseOrderId], references: [id], onDelete: Restrict)
-  items               SupplierInvoiceItem[]
-  paymentAllocations  SupplierPaymentAllocation[]
-  creditNotes         SupplierCreditNote[]
+  supplier           Supplier                    @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  purchaseOrder      PurchaseOrder?              @relation(fields: [purchaseOrderId], references: [id], onDelete: Restrict)
+  items              SupplierInvoiceItem[]
+  paymentAllocations SupplierPaymentAllocation[]
+  creditNotes        SupplierCreditNote[]
 
   @@unique([supplierId, invoiceNumber])
   @@unique([supplierId, idempotencyKey])
@@ -3084,14 +3090,14 @@ model SupplierInvoice {
 /// database constraint (same "either/or, service-enforced" convention used
 /// throughout this codebase).
 model SupplierInvoiceItem {
-  id                String  @id @default(cuid())
-  supplierInvoiceId String
-  productId         String?
-  description       String?
-  quantity          Float
-  unitPrice         Float
+  id                 String   @id @default(cuid())
+  supplierInvoiceId  String
+  productId          String?
+  description        String?
+  quantity           Float
+  unitPrice          Float
   /// Server-calculated as `roundCurrency(quantity * unitPrice)`.
-  lineTotal         Float
+  lineTotal          Float
   /// Path A — the specific `GoodsReceiptItem` this line reconciles against. `NULL`
   /// for a Path B line.
   goodsReceiptItemId String?
@@ -3101,11 +3107,11 @@ model SupplierInvoiceItem {
   debitAccountId     String?
   /// Frozen at `post()`. Path A: `min(lineTotal, remainingPayable × PO unit price)`.
   /// Path B: always `lineTotal` (no cap — a direct, explicit entry).
-  recognizedAmount   Float   @default(0)
+  recognizedAmount   Float    @default(0)
   /// Frozen at `post()`. `lineTotal - recognizedAmount`, always >= 0 (Path A only;
   /// always `0` for Path B).
-  varianceAmount     Float   @default(0)
-  createdAt         DateTime @default(now())
+  varianceAmount     Float    @default(0)
+  createdAt          DateTime @default(now())
 
   supplierInvoice  SupplierInvoice   @relation(fields: [supplierInvoiceId], references: [id], onDelete: Cascade)
   product          Product?          @relation(fields: [productId], references: [id], onDelete: Restrict)
@@ -3275,62 +3281,62 @@ enum ReconciliationMatchType {
 /// user-supplied create input) so its book balance is always derivable on its own
 /// from `JournalEntryLine`, never a shared/collapsed figure.
 model CashAccount {
-  id             String            @id @default(cuid())
-  organisationId String
+  id                     String            @id @default(cuid())
+  organisationId         String
   /// Tenant-defined, e.g. "CASH-001" — unique per organisation, not global.
-  accountCode    String
-  name           String
-  accountType    CashAccountType
-  currency       String
-  bankName       String?
+  accountCode            String
+  name                   String
+  accountType            CashAccountType
+  currency               String
+  bankName               String?
   /// Stored in full — see `accountNumberMasked` (API response layer only, never a
   /// DB column) for the masked value every list/detail read returns. No
   /// field-level encryption exists anywhere in this codebase to build on; this is
   /// documented as a known limitation, not a security gap this sprint claims to
   /// close (docs/domains/cash-management.md "Known Limitations"). Never included
   /// in any audit `metadata` payload — see `cash-bank-audit-actions.ts`.
-  accountNumber  String?
-  accountName    String?
-  description    String?
-  status         CashAccountStatus @default(ACTIVE)
+  accountNumber          String?
+  accountName            String?
+  description            String?
+  status                 CashAccountStatus @default(ACTIVE)
   /// System-provisioned at `create()` — a dedicated child of the org's `CASH`/
   /// `BANK`/`CASH_BANK_PARENT` system account (chosen by `accountType`), never the
   /// system account itself. `@unique` — exactly one `CashAccount` per CoA row.
-  linkedChartOfAccountId String       @unique
+  linkedChartOfAccountId String            @unique
   /// Write-once provenance of what was entered at `create()` time — NOT a live
   /// balance. The actual accounting fact is the journal entry posted alongside it
   /// (`sourceType: 'CASH_ACCOUNT_OPENING_BALANCE'`); this column is never updated
   /// afterward.
-  openingBalance     Float    @default(0)
-  openingBalanceDate DateTime?
+  openingBalance         Float             @default(0)
+  openingBalanceDate     DateTime?
   /// Guards `create()` — the whole operation (CoA provisioning + opening-balance
   /// posting) is money-affecting and must be replay-safe, same Sprint 9/10 lesson
   /// every other financially-material create() in this codebase follows.
-  idempotencyKey String?
-  createdById    String?
-  updatedById    String?
-  createdAt      DateTime          @default(now())
-  updatedAt      DateTime          @updatedAt
+  idempotencyKey         String?
+  createdById            String?
+  updatedById            String?
+  createdAt              DateTime          @default(now())
+  updatedAt              DateTime          @updatedAt
 
-  organisation         Organisation   @relation(fields: [organisationId], references: [id], onDelete: Cascade)
-  linkedChartOfAccount ChartOfAccount @relation(fields: [linkedChartOfAccountId], references: [id], onDelete: Restrict)
-  cashTransactions           CashTransaction[]
-  bankStatementImports       BankStatementImport[]
-  bankStatementTransactions  BankStatementTransaction[]
-  bankReconciliations        BankReconciliation[]
-  payments                   Payment[]
-  supplierPayments           SupplierPayment[]
+  organisation              Organisation               @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  linkedChartOfAccount      ChartOfAccount             @relation(fields: [linkedChartOfAccountId], references: [id], onDelete: Restrict)
+  cashTransactions          CashTransaction[]
+  bankStatementImports      BankStatementImport[]
+  bankStatementTransactions BankStatementTransaction[]
+  bankReconciliations       BankReconciliation[]
+  payments                  Payment[]
+  supplierPayments          SupplierPayment[]
   /// Added Sprint 15 — a `CashflowForecastItem` a user has explicitly assigned to
   /// this account (docs/domains/cashflow.md "Cash-Account-Level Forecast").
-  cashflowForecastItems      CashflowForecastItem[]
+  cashflowForecastItems     CashflowForecastItem[]
   /// Added Sprint 17 — the account a loan drawdown was received into / a
   /// repayment was paid from (docs/domains/debt-management.md).
-  debtDrawdowns              DebtDrawdown[]
-  debtRepayments             DebtRepayment[]
+  debtDrawdowns             DebtDrawdown[]
+  debtRepayments            DebtRepayment[]
   /// Added Sprint 18 — an optional funding-source reference on a
   /// `CapitalProjectFunding` row of type `CASH` (docs/domains/
   /// investment-projects.md).
-  capitalProjectFundings     CapitalProjectFunding[]
+  capitalProjectFundings    CapitalProjectFunding[]
 
   @@unique([organisationId, accountCode])
   @@unique([organisationId, idempotencyKey])
@@ -3406,7 +3412,7 @@ model BankStatementImport {
 /// duplicate-detection layers a re-import is checked against (see
 /// `bank-statement.service.ts`).
 model BankStatementTransaction {
-  id                String                      @id @default(cuid())
+  id                String                     @id @default(cuid())
   organisationId    String
   cashAccountId     String
   importBatchId     String?
@@ -3414,23 +3420,23 @@ model BankStatementTransaction {
   valueDate         DateTime?
   description       String
   reference         String?
-  debit             Float                       @default(0)
-  credit            Float                       @default(0)
+  debit             Float                      @default(0)
+  credit            Float                      @default(0)
   /// `credit - debit`, computed at write time — never independently edited.
   amount            Float
   /// Display-only — see model doc comment.
   balance           Float?
   externalReference String?
-  importedAt        DateTime                    @default(now())
+  importedAt        DateTime                   @default(now())
   /// `sha256(cashAccountId|date|debit|credit|reference|description)` — see
   /// `bank-statement.service.ts` for the exact normalisation. Deterministic
   /// duplicate-detection layer one.
   dedupeHash        String
-  matchStatus       BankTransactionMatchStatus  @default(UNMATCHED)
+  matchStatus       BankTransactionMatchStatus @default(UNMATCHED)
 
-  organisation Organisation          @relation(fields: [organisationId], references: [id], onDelete: Cascade)
-  cashAccount  CashAccount           @relation(fields: [cashAccountId], references: [id], onDelete: Restrict)
-  importBatch  BankStatementImport?  @relation(fields: [importBatchId], references: [id], onDelete: Restrict)
+  organisation Organisation         @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  cashAccount  CashAccount          @relation(fields: [cashAccountId], references: [id], onDelete: Restrict)
+  importBatch  BankStatementImport? @relation(fields: [importBatchId], references: [id], onDelete: Restrict)
   match        ReconciliationMatch?
 
   @@unique([cashAccountId, dedupeHash])
@@ -3452,7 +3458,7 @@ model BankStatementTransaction {
 /// from the GL; they're the very thing the GL is being checked against. Only one
 /// `IN_PROGRESS` session per `CashAccount` is permitted at a time (service-enforced).
 model BankReconciliation {
-  id                 String                    @id @default(cuid())
+  id                 String                   @id @default(cuid())
   organisationId     String
   cashAccountId      String
   periodStart        DateTime
@@ -3467,8 +3473,8 @@ model BankReconciliation {
   createdAt          DateTime                 @default(now())
   updatedAt          DateTime                 @updatedAt
 
-  organisation Organisation           @relation(fields: [organisationId], references: [id], onDelete: Cascade)
-  cashAccount  CashAccount            @relation(fields: [cashAccountId], references: [id], onDelete: Restrict)
+  organisation Organisation          @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  cashAccount  CashAccount           @relation(fields: [cashAccountId], references: [id], onDelete: Restrict)
   matches      ReconciliationMatch[]
 
   @@unique([cashAccountId, idempotencyKey])
@@ -3487,15 +3493,15 @@ model BankReconciliation {
 /// once, full stop. `confidenceScore` is intentionally unused in Sprint 14 — a
 /// future-proofing column only, for a possible future suggested-match mode.
 model ReconciliationMatch {
-  id                         String                   @id @default(cuid())
+  id                         String                  @id @default(cuid())
   bankReconciliationId       String
-  bankStatementTransactionId String                   @unique
-  journalEntryLineId         String                   @unique
+  bankStatementTransactionId String                  @unique
+  journalEntryLineId         String                  @unique
   matchType                  ReconciliationMatchType
   confidenceScore            Float?
   matchedById                String?
-  matchedAt                  DateTime                 @default(now())
-  createdAt                  DateTime                 @default(now())
+  matchedAt                  DateTime                @default(now())
+  createdAt                  DateTime                @default(now())
 
   bankReconciliation       BankReconciliation       @relation(fields: [bankReconciliationId], references: [id], onDelete: Restrict)
   bankStatementTransaction BankStatementTransaction @relation(fields: [bankStatementTransactionId], references: [id], onDelete: Restrict)
@@ -3568,34 +3574,34 @@ enum CashflowForecastSourceType {
 /// Payment/Invoice/SupplierInvoice flows don't already capture — never a
 /// substitute for those flows (docs/domains/cashflow.md "Never Double-Count").
 model CashflowForecastItem {
-  id             String              @id @default(cuid())
-  organisationId String
+  id                String                     @id @default(cuid())
+  organisationId    String
   /// Optional — only meaningful for the per-account forecast view (docs/domains/
   /// cashflow.md "Cash-Account-Level Forecast"); AR/AP items are never assignable
   /// since money not yet collected/paid can't be attributed to a specific account.
-  cashAccountId  String?
-  direction      CashflowDirection
+  cashAccountId     String?
+  direction         CashflowDirection
   /// `ONE_TIME` → `MANUAL_FORECAST`, anything else → `RECURRING_ITEM` — computed
   /// once at create time, immutable afterward (mirrors how `isSystemAccount`/
   /// `systemKey` are immutable on `ChartOfAccount`).
-  sourceType     CashflowForecastSourceType
-  description    String
-  amount         Float
-  currency       String
+  sourceType        CashflowForecastSourceType
+  description       String
+  amount            Float
+  currency          String
   /// The first (or only, for `ONE_TIME`) occurrence date. Later occurrences are
   /// computed deterministically from `recurrence`, never separately stored.
-  expectedDate   DateTime
-  recurrence     CashflowRecurrence @default(ONE_TIME)
+  expectedDate      DateTime
+  recurrence        CashflowRecurrence         @default(ONE_TIME)
   /// `NULL` means "repeats indefinitely" (bounded only by whatever forecast
   /// horizon is requested at read time) — ignored when `recurrence: ONE_TIME`.
   recurrenceEndDate DateTime?
-  status         CashflowItemStatus @default(ACTIVE)
-  notes          String?
-  idempotencyKey String?
-  createdById    String?
-  updatedById    String?
-  createdAt      DateTime            @default(now())
-  updatedAt      DateTime            @updatedAt
+  status            CashflowItemStatus         @default(ACTIVE)
+  notes             String?
+  idempotencyKey    String?
+  createdById       String?
+  updatedById       String?
+  createdAt         DateTime                   @default(now())
+  updatedAt         DateTime                   @updatedAt
 
   organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
   cashAccount  CashAccount? @relation(fields: [cashAccountId], references: [id], onDelete: SetNull)
@@ -3610,22 +3616,22 @@ model CashflowForecastItem {
 /// "Scenarios") — deliberately four plain numbers, not a rules engine. Selecting
 /// no scenario at read time behaves identically to a `{0, 1, 0, 1}` Base scenario.
 model CashflowScenario {
-  id                String              @id @default(cuid())
+  id                String             @id @default(cuid())
   organisationId    String
   name              String
   description       String?
   /// Applied to every inflow item's `expectedDate`/`amount` at read time — never
   /// persisted back onto the source item.
-  inflowDelayDays   Int                 @default(0)
-  inflowMultiplier  Float               @default(1)
-  outflowDelayDays  Int                 @default(0)
-  outflowMultiplier Float               @default(1)
-  status            CashflowItemStatus  @default(ACTIVE)
+  inflowDelayDays   Int                @default(0)
+  inflowMultiplier  Float              @default(1)
+  outflowDelayDays  Int                @default(0)
+  outflowMultiplier Float              @default(1)
+  status            CashflowItemStatus @default(ACTIVE)
   idempotencyKey    String?
   createdById       String?
   updatedById       String?
-  createdAt         DateTime            @default(now())
-  updatedAt         DateTime            @updatedAt
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
 
   organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
   /// Added Sprint 16 — a `Budget` may optionally pair itself with this scenario's
@@ -3643,7 +3649,7 @@ model CashflowScenario {
 /// ever touching the `Invoice`/`SupplierInvoice` row itself — proven never to, by
 /// `cashflow-independence.spec.ts`. At most one per source item (upserted).
 model CashflowForecastAdjustment {
-  id                   String                      @id @default(cuid())
+  id                   String                     @id @default(cuid())
   organisationId       String
   sourceType           CashflowForecastSourceType
   /// The `Invoice.id` or `SupplierInvoice.id` this adjustment overrides — no
@@ -3659,8 +3665,8 @@ model CashflowForecastAdjustment {
   idempotencyKey       String?
   createdById          String?
   updatedById          String?
-  createdAt            DateTime                    @default(now())
-  updatedAt            DateTime                    @updatedAt
+  createdAt            DateTime                   @default(now())
+  updatedAt            DateTime                   @updatedAt
 
   organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
 
@@ -3723,23 +3729,23 @@ enum CostCentreStatus {
 /// tables. Never posts a Journal Entry — `budgeting-independence.spec.ts`
 /// proves it structurally.
 model Budget {
-  id             String       @id @default(cuid())
-  organisationId String
+  id                 String       @id @default(cuid())
+  organisationId     String
   /// Shared across every version/scenario of "the same budget" (e.g.
   /// "BUD-2026-OPS") — `id` is unique per row, `budgetCode` is not.
-  budgetCode     String
-  name           String
-  description    String?
-  fiscalYear     Int
+  budgetCode         String
+  name               String
+  description        String?
+  fiscalYear         Int
   /// "Base" unless this row is an alternative what-if plan — see docs/domains/
   /// budgeting.md §4. Sibling rows share `budgetCode`+`fiscalYear`, differ only
   /// in `scenarioName`, and are never part of each other's revision chain.
-  scenarioName   String       @default("Base")
+  scenarioName       String       @default("Base")
   /// Incremented by `revise()`; the original is always `version: 1`.
-  version        Int          @default(1)
+  version            Int          @default(1)
   /// The prior version this row revises, if any (self-relation) — `null` for
   /// an original budget.
-  revisesBudgetId String?
+  revisesBudgetId    String?
   /// Optional pairing with a Sprint 15 `CashflowScenario` for Budget vs
   /// Forecast (docs/domains/budgeting.md §9) — reuses Sprint 15's own
   /// delay/multiplier knobs rather than duplicating them.
@@ -3747,25 +3753,25 @@ model Budget {
   /// Computed once from the organisation's own `fiscalYearStart` at create
   /// time and stored — never recomputed from `fiscalYear` alone afterward,
   /// the same explicit-range convention `AccountingPeriod` already uses.
-  startDate      DateTime
-  endDate        DateTime
-  currency       String
-  status         BudgetStatus @default(DRAFT)
-  notes          String?
-  idempotencyKey String?
-  createdById    String?
-  approvedById   String?
-  approvedAt     DateTime?
-  activatedAt    DateTime?
-  closedAt       DateTime?
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+  startDate          DateTime
+  endDate            DateTime
+  currency           String
+  status             BudgetStatus @default(DRAFT)
+  notes              String?
+  idempotencyKey     String?
+  createdById        String?
+  approvedById       String?
+  approvedAt         DateTime?
+  activatedAt        DateTime?
+  closedAt           DateTime?
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
 
-  organisation     Organisation      @relation(fields: [organisationId], references: [id], onDelete: Cascade)
-  revisesBudget    Budget?           @relation("BudgetRevision", fields: [revisesBudgetId], references: [id], onDelete: SetNull)
-  revisions        Budget[]          @relation("BudgetRevision")
-  cashflowScenario CashflowScenario? @relation(fields: [cashflowScenarioId], references: [id], onDelete: SetNull)
-  lines            BudgetLine[]
+  organisation        Organisation         @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  revisesBudget       Budget?              @relation("BudgetRevision", fields: [revisesBudgetId], references: [id], onDelete: SetNull)
+  revisions           Budget[]             @relation("BudgetRevision")
+  cashflowScenario    CashflowScenario?    @relation(fields: [cashflowScenarioId], references: [id], onDelete: SetNull)
+  lines               BudgetLine[]
   /// Added Sprint 17 — a `CapitalRequirement` optionally references this budget
   /// as evidence a proposed financing need is already planned for (read-only,
   /// never mutates the budget — docs/domains/debt-management.md).
@@ -3805,9 +3811,9 @@ model BudgetLine {
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
 
-  budget         Budget          @relation(fields: [budgetId], references: [id], onDelete: Cascade)
-  chartOfAccount ChartOfAccount? @relation(fields: [chartOfAccountId], references: [id], onDelete: Restrict)
-  costCentre     CostCentre?     @relation(fields: [costCentreId], references: [id], onDelete: SetNull)
+  budget              Budget               @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+  chartOfAccount      ChartOfAccount?      @relation(fields: [chartOfAccountId], references: [id], onDelete: Restrict)
+  costCentre          CostCentre?          @relation(fields: [costCentreId], references: [id], onDelete: SetNull)
   capitalRequirements CapitalRequirement[]
   capitalProjects     CapitalProject[]
 
@@ -3827,20 +3833,20 @@ model BudgetLine {
 /// with (e.g. "Production", "Sales") — never a redesign of the accounting
 /// model around cost centres, and never linked to `ChartOfAccount` itself.
 model CostCentre {
-  id             String            @id @default(cuid())
+  id             String           @id @default(cuid())
   organisationId String
   code           String
   name           String
   description    String?
-  status         CostCentreStatus  @default(ACTIVE)
+  status         CostCentreStatus @default(ACTIVE)
   createdById    String?
-  createdAt      DateTime          @default(now())
-  updatedAt      DateTime          @updatedAt
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
 
-  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
-  budgetLines  BudgetLine[]
-  capitalRequirements CapitalRequirement[]
-  capitalProjects     CapitalProject[]
+  organisation            Organisation             @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  budgetLines             BudgetLine[]
+  capitalRequirements     CapitalRequirement[]
+  capitalProjects         CapitalProject[]
   capitalProjectCostLines CapitalProjectCostLine[]
 
   @@unique([organisationId, code])
@@ -3957,7 +3963,7 @@ model Lender {
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
-  organisation  Organisation   @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  organisation   Organisation   @relation(fields: [organisationId], references: [id], onDelete: Cascade)
   debtFacilities DebtFacility[]
 
   @@unique([organisationId, name])
@@ -3993,11 +3999,11 @@ model CapitalRequirement {
   createdAt      DateTime                   @default(now())
   updatedAt      DateTime                   @updatedAt
 
-  organisation  Organisation   @relation(fields: [organisationId], references: [id], onDelete: Cascade)
-  budget        Budget?        @relation(fields: [budgetId], references: [id], onDelete: SetNull)
-  budgetLine    BudgetLine?    @relation(fields: [budgetLineId], references: [id], onDelete: SetNull)
-  costCentre    CostCentre?    @relation(fields: [costCentreId], references: [id], onDelete: SetNull)
-  debtFacilities DebtFacility[]
+  organisation    Organisation     @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  budget          Budget?          @relation(fields: [budgetId], references: [id], onDelete: SetNull)
+  budgetLine      BudgetLine?      @relation(fields: [budgetLineId], references: [id], onDelete: SetNull)
+  costCentre      CostCentre?      @relation(fields: [costCentreId], references: [id], onDelete: SetNull)
+  debtFacilities  DebtFacility[]
   /// Added Sprint 18 — a `CapitalProject` optionally references this
   /// requirement as the business case it fulfils (read-only — docs/domains/
   /// investment-projects.md).
@@ -4017,57 +4023,57 @@ model CapitalRequirement {
 /// (`SupplierInvoiceItem.debitAccountId`), letting an organisation run
 /// Short-Term/Long-Term/Director Loans as genuinely distinct ledger accounts.
 model DebtFacility {
-  id             String   @id @default(cuid())
-  organisationId String
+  id                       String             @id @default(cuid())
+  organisationId           String
   /// Auto-generated (`DEBT-000001`, ...), unique per organisation.
-  facilityCode   String
-  lenderId       String
-  name           String
-  debtType       DebtType
-  principalAmount Float
-  currency       String
+  facilityCode             String
+  lenderId                 String
+  name                     String
+  debtType                 DebtType
+  principalAmount          Float
+  currency                 String
   /// Annual percentage, e.g. `20` = 20%.
-  interestRatePercent Float
-  interestType   InterestType    @default(FIXED)
-  repaymentMethod RepaymentMethod
-  repaymentFrequency RepaymentFrequency @default(MONTHLY)
-  startDate      DateTime
-  tenorMonths    Int
+  interestRatePercent      Float
+  interestType             InterestType       @default(FIXED)
+  repaymentMethod          RepaymentMethod
+  repaymentFrequency       RepaymentFrequency @default(MONTHLY)
+  startDate                DateTime
+  tenorMonths              Int
   /// Interest continues to accrue and is due monthly during this window; no
   /// principal is due — see docs/domains/debt-management.md "Grace Period".
-  graceMonths    Int      @default(0)
+  graceMonths              Int                @default(0)
   /// Computed once at creation as `startDate + tenorMonths` and stored — never
   /// recomputed later, the same explicit-range convention `Budget.startDate`/
   /// `.endDate` already established.
-  maturityDate   DateTime
-  status         DebtFacilityStatus @default(PROPOSED)
+  maturityDate             DateTime
+  status                   DebtFacilityStatus @default(PROPOSED)
   /// Non-system `LIABILITY`-type account this facility's principal posts
   /// against — `onDelete: Restrict` (never silently orphaned).
-  liabilityAccountId String
+  liabilityAccountId       String
   /// Non-system `EXPENSE`-type account this facility's interest posts
   /// against.
   interestExpenseAccountId String
-  capitalRequirementId String?
-  notes          String?
-  idempotencyKey String?
-  createdById    String?
-  approvedById   String?
-  approvedAt     DateTime?
-  activatedAt    DateTime?
-  closedAt       DateTime?
-  cancelledAt    DateTime?
-  defaultedAt    DateTime?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  capitalRequirementId     String?
+  notes                    String?
+  idempotencyKey           String?
+  createdById              String?
+  approvedById             String?
+  approvedAt               DateTime?
+  activatedAt              DateTime?
+  closedAt                 DateTime?
+  cancelledAt              DateTime?
+  defaultedAt              DateTime?
+  createdAt                DateTime           @default(now())
+  updatedAt                DateTime           @updatedAt
 
-  organisation          Organisation        @relation(fields: [organisationId], references: [id], onDelete: Cascade)
-  lender                Lender              @relation(fields: [lenderId], references: [id], onDelete: Restrict)
-  liabilityAccount      ChartOfAccount      @relation("DebtFacilityLiabilityAccount", fields: [liabilityAccountId], references: [id], onDelete: Restrict)
-  interestExpenseAccount ChartOfAccount     @relation("DebtFacilityInterestExpenseAccount", fields: [interestExpenseAccountId], references: [id], onDelete: Restrict)
-  capitalRequirement    CapitalRequirement? @relation(fields: [capitalRequirementId], references: [id], onDelete: SetNull)
-  schedule              DebtRepaymentSchedule[]
-  drawdowns             DebtDrawdown[]
-  repayments            DebtRepayment[]
+  organisation           Organisation            @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  lender                 Lender                  @relation(fields: [lenderId], references: [id], onDelete: Restrict)
+  liabilityAccount       ChartOfAccount          @relation("DebtFacilityLiabilityAccount", fields: [liabilityAccountId], references: [id], onDelete: Restrict)
+  interestExpenseAccount ChartOfAccount          @relation("DebtFacilityInterestExpenseAccount", fields: [interestExpenseAccountId], references: [id], onDelete: Restrict)
+  capitalRequirement     CapitalRequirement?     @relation(fields: [capitalRequirementId], references: [id], onDelete: SetNull)
+  schedule               DebtRepaymentSchedule[]
+  drawdowns              DebtDrawdown[]
+  repayments             DebtRepayment[]
   /// Added Sprint 18 — a `CapitalProjectFunding` row of type `DEBT`
   /// referencing this facility as a project's funding source (read-only —
   /// the repayment schedule stays owned entirely by this model, never
@@ -4077,7 +4083,7 @@ model DebtFacility {
   /// read-only for its own real interest rate/term/repayment schedule
   /// (docs/domains/financial-decision-analysis.md); the schedule stays
   /// owned entirely by this model, never duplicated.
-  decisionAnalyses      DecisionAnalysis[]
+  decisionAnalyses       DecisionAnalysis[]
 
   @@unique([organisationId, facilityCode])
   @@unique([organisationId, idempotencyKey])
@@ -4117,7 +4123,7 @@ model DebtDrawdown {
 /// drawdown. `amountPaid` is the only mutable field — incremented as
 /// `DebtRepayment`s are applied oldest-installment-first.
 model DebtRepaymentSchedule {
-  id                String              @id @default(cuid())
+  id                String             @id @default(cuid())
   debtFacilityId    String
   installmentNumber Int
   dueDate           DateTime
@@ -4126,10 +4132,10 @@ model DebtRepaymentSchedule {
   interestDue       Float
   totalDue          Float
   closingPrincipal  Float
-  amountPaid        Float               @default(0)
-  status            DebtScheduleStatus  @default(SCHEDULED)
-  createdAt         DateTime            @default(now())
-  updatedAt         DateTime            @updatedAt
+  amountPaid        Float              @default(0)
+  status            DebtScheduleStatus @default(SCHEDULED)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
 
   debtFacility DebtFacility @relation(fields: [debtFacilityId], references: [id], onDelete: Cascade)
 
@@ -4143,25 +4149,25 @@ model DebtRepaymentSchedule {
 /// collapsed into one generic amount, and applied to the oldest unpaid
 /// `DebtRepaymentSchedule` installment(s) first.
 model DebtRepayment {
-  id             String    @id @default(cuid())
-  organisationId String
-  debtFacilityId String
-  cashAccountId  String
-  paymentDate    DateTime
-  principalAmount Float    @default(0)
-  interestAmount  Float    @default(0)
-  feeAmount       Float    @default(0)
+  id                  String   @id @default(cuid())
+  organisationId      String
+  debtFacilityId      String
+  cashAccountId       String
+  paymentDate         DateTime
+  principalAmount     Float    @default(0)
+  interestAmount      Float    @default(0)
+  feeAmount           Float    @default(0)
   /// Required only when `feeAmount > 0` — a non-system `EXPENSE` account
   /// (service-validated), the same Path B pattern as the facility's own
   /// interest-expense account.
   feeExpenseAccountId String?
-  totalAmount    Float
-  reference      String?
-  notes          String?
-  idempotencyKey String?
-  createdById    String?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  totalAmount         Float
+  reference           String?
+  notes               String?
+  idempotencyKey      String?
+  createdById         String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 
   organisation      Organisation    @relation(fields: [organisationId], references: [id], onDelete: Cascade)
   debtFacility      DebtFacility    @relation(fields: [debtFacilityId], references: [id], onDelete: Restrict)
@@ -4214,60 +4220,60 @@ enum CapitalProjectFundingType {
 /// live from Procurement's `PurchaseOrder`/Finance's `SupplierInvoice`, and
 /// creating/transitioning a project never posts a Journal Entry.
 model CapitalProject {
-  id             String                 @id @default(cuid())
-  organisationId String
+  id                                String                 @id @default(cuid())
+  organisationId                    String
   /// Auto-generated (`CAP-000001`, ...), unique per organisation, immutable.
-  projectCode    String
-  name           String
-  description    String?
-  businessPurpose String?
-  category       CapitalProjectCategory
-  status         CapitalProjectStatus   @default(DRAFT)
+  projectCode                       String
+  name                              String
+  description                       String?
+  businessPurpose                   String?
+  category                          CapitalProjectCategory
+  status                            CapitalProjectStatus   @default(DRAFT)
   /// Plain id, no FK relation — the `createdById`/`Product.createdById`
   /// convention already used throughout this codebase.
-  ownerId        String?
-  costCentreId   String?
+  ownerId                           String?
+  costCentreId                      String?
   /// Optional — a project need not originate from a Capital Requirement
   /// (docs/domains/investment-projects.md "Capital Requirement Integration").
-  capitalRequirementId String?
+  capitalRequirementId              String?
   /// Independent of `capitalRequirementId` even when both are set — a
   /// project may reference a more specific line than its parent requirement
   /// did. Read-only; never mutates the budget.
-  budgetId       String?
-  budgetLineId   String?
-  plannedStartDate      DateTime
-  plannedCompletionDate DateTime
+  budgetId                          String?
+  budgetLineId                      String?
+  plannedStartDate                  DateTime
+  plannedCompletionDate             DateTime
   /// Set automatically by `activate()` — never manually entered.
-  actualStartDate       DateTime?
+  actualStartDate                   DateTime?
   /// Set automatically by `complete()` — never manually entered.
-  actualCompletionDate  DateTime?
+  actualCompletionDate              DateTime?
   /// Planning assumptions only (docs/domains/investment-projects.md
   /// "Investment Metrics — Foundation Only") — raw inputs for a future
   /// Sprint 19 decision engine, never a calculated ROI/NPV/IRR here.
-  expectedAnnualRevenueImpact      Float?
+  expectedAnnualRevenueImpact       Float?
   expectedAnnualOperatingCostImpact Float?
-  expectedAnnualSavings            Float?
-  usefulLifeYears                  Int?
-  currentCapacityUnitsPerDay       Float?
-  expectedCapacityUnitsPerDay      Float?
-  expectedCommissioningDate        DateTime?
-  currency       String   @default("NGN")
-  notes          String?
-  idempotencyKey String?
-  createdById    String?
-  approvedById   String?
-  approvedAt     DateTime?
-  activatedAt    DateTime?
-  completedAt    DateTime?
-  cancelledAt    DateTime?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  expectedAnnualSavings             Float?
+  usefulLifeYears                   Int?
+  currentCapacityUnitsPerDay        Float?
+  expectedCapacityUnitsPerDay       Float?
+  expectedCommissioningDate         DateTime?
+  currency                          String                 @default("NGN")
+  notes                             String?
+  idempotencyKey                    String?
+  createdById                       String?
+  approvedById                      String?
+  approvedAt                        DateTime?
+  activatedAt                       DateTime?
+  completedAt                       DateTime?
+  cancelledAt                       DateTime?
+  createdAt                         DateTime               @default(now())
+  updatedAt                         DateTime               @updatedAt
 
-  organisation       Organisation        @relation(fields: [organisationId], references: [id], onDelete: Cascade)
-  costCentre         CostCentre?         @relation(fields: [costCentreId], references: [id], onDelete: SetNull)
-  capitalRequirement CapitalRequirement? @relation(fields: [capitalRequirementId], references: [id], onDelete: SetNull)
-  budget             Budget?             @relation(fields: [budgetId], references: [id], onDelete: SetNull)
-  budgetLine         BudgetLine?         @relation(fields: [budgetLineId], references: [id], onDelete: SetNull)
+  organisation       Organisation             @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  costCentre         CostCentre?              @relation(fields: [costCentreId], references: [id], onDelete: SetNull)
+  capitalRequirement CapitalRequirement?      @relation(fields: [capitalRequirementId], references: [id], onDelete: SetNull)
+  budget             Budget?                  @relation(fields: [budgetId], references: [id], onDelete: SetNull)
+  budgetLine         BudgetLine?              @relation(fields: [budgetLineId], references: [id], onDelete: SetNull)
   costLines          CapitalProjectCostLine[]
   funding            CapitalProjectFunding[]
   /// Added Sprint 19 — a `DecisionAnalysis` may reference this project
@@ -4334,7 +4340,7 @@ model CapitalProjectCostLine {
 /// references to Sprint 17/14's own models (docs/domains/
 /// investment-projects.md "Funding Plan").
 model CapitalProjectFunding {
-  id               String                     @id @default(cuid())
+  id               String                    @id @default(cuid())
   organisationId   String
   capitalProjectId String
   fundingType      CapitalProjectFundingType
@@ -4349,13 +4355,13 @@ model CapitalProjectFunding {
   description      String?
   idempotencyKey   String?
   createdById      String?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  createdAt        DateTime                  @default(now())
+  updatedAt        DateTime                  @updatedAt
 
-  organisation   Organisation    @relation(fields: [organisationId], references: [id], onDelete: Cascade)
-  capitalProject CapitalProject  @relation(fields: [capitalProjectId], references: [id], onDelete: Cascade)
-  debtFacility   DebtFacility?   @relation(fields: [debtFacilityId], references: [id], onDelete: Restrict)
-  cashAccount    CashAccount?    @relation(fields: [cashAccountId], references: [id], onDelete: Restrict)
+  organisation   Organisation   @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  capitalProject CapitalProject @relation(fields: [capitalProjectId], references: [id], onDelete: Cascade)
+  debtFacility   DebtFacility?  @relation(fields: [debtFacilityId], references: [id], onDelete: Restrict)
+  cashAccount    CashAccount?   @relation(fields: [cashAccountId], references: [id], onDelete: Restrict)
 
   @@unique([organisationId, idempotencyKey])
   @@index([capitalProjectId])
@@ -4404,23 +4410,23 @@ enum DecisionScenarioType {
 /// decision is a paper sign-off only: it never creates a Capital Project,
 /// never draws down a facility, never posts anything.
 model DecisionAnalysis {
-  id                        String                  @id @default(cuid())
+  id                        String                 @id @default(cuid())
   organisationId            String
   name                      String
   description               String?
   decisionType              DecisionType
-  status                    DecisionAnalysisStatus  @default(DRAFT)
+  status                    DecisionAnalysisStatus @default(DRAFT)
   /// Planning horizon in months over which cashflows are projected.
-  analysisPeriodMonths      Int                     @default(60)
+  analysisPeriodMonths      Int                    @default(60)
   /// Annual discount rate used for NPV — user-set, never a hidden default.
-  discountRatePercent       Float                   @default(15)
+  discountRatePercent       Float                  @default(15)
   /// Recommendation threshold (docs/domains/financial-decision-analysis.md
   /// "Recommendation Rules") — configurable per analysis, never a hidden
   /// constant.
-  maxAcceptablePaybackYears Float                   @default(3)
+  maxAcceptablePaybackYears Float                  @default(3)
   capitalProjectId          String?
   debtFacilityId            String?
-  currency                  String                  @default("NGN")
+  currency                  String                 @default("NGN")
   notes                     String?
   idempotencyKey            String?
   createdById               String?
@@ -4430,12 +4436,12 @@ model DecisionAnalysis {
   rejectedById              String?
   rejectedAt                DateTime?
   rejectionReason           String?
-  createdAt                 DateTime                @default(now())
-  updatedAt                 DateTime                @updatedAt
+  createdAt                 DateTime               @default(now())
+  updatedAt                 DateTime               @updatedAt
 
-  organisation   Organisation    @relation(fields: [organisationId], references: [id], onDelete: Cascade)
-  capitalProject CapitalProject? @relation(fields: [capitalProjectId], references: [id], onDelete: SetNull)
-  debtFacility   DebtFacility?   @relation(fields: [debtFacilityId], references: [id], onDelete: SetNull)
+  organisation   Organisation       @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  capitalProject CapitalProject?    @relation(fields: [capitalProjectId], references: [id], onDelete: SetNull)
+  debtFacility   DebtFacility?      @relation(fields: [debtFacilityId], references: [id], onDelete: SetNull)
   scenarios      DecisionScenario[]
 
   @@unique([organisationId, idempotencyKey])
@@ -4449,36 +4455,36 @@ model DecisionAnalysis {
 /// break-even/sensitivity are always recomputed live from these fields by
 /// `decision-calculations.ts`, never stored.
 model DecisionScenario {
-  id                                 String                @id @default(cuid())
-  decisionAnalysisId                 String
-  name                               String
-  scenarioType                       DecisionScenarioType  @default(CUSTOM)
+  id                               String               @id @default(cuid())
+  decisionAnalysisId               String
+  name                             String
+  scenarioType                     DecisionScenarioType @default(CUSTOM)
   /// Null = inherit the linked Capital Project's live plannedCost at read
   /// time; a scenario may still override it explicitly.
-  initialInvestment                  Float?
-  additionalCapex                    Float                 @default(0)
-  additionalMonthlyRevenue           Float                 @default(0)
-  annualRevenueGrowthPercent         Float                 @default(0)
-  rampUpMonths                       Int                   @default(0)
-  additionalMonthlyOperatingCost     Float                 @default(0)
-  additionalMonthlyMaintenanceCost   Float                 @default(0)
-  additionalMonthlyLabourCost        Float                 @default(0)
-  additionalMonthlyUtilitiesCost     Float                 @default(0)
-  additionalMonthlyLogisticsCost     Float                 @default(0)
-  cashFundingAmount                  Float                 @default(0)
-  debtFundingAmount                  Float                 @default(0)
+  initialInvestment                Float?
+  additionalCapex                  Float                @default(0)
+  additionalMonthlyRevenue         Float                @default(0)
+  annualRevenueGrowthPercent       Float                @default(0)
+  rampUpMonths                     Int                  @default(0)
+  additionalMonthlyOperatingCost   Float                @default(0)
+  additionalMonthlyMaintenanceCost Float                @default(0)
+  additionalMonthlyLabourCost      Float                @default(0)
+  additionalMonthlyUtilitiesCost   Float                @default(0)
+  additionalMonthlyLogisticsCost   Float                @default(0)
+  cashFundingAmount                Float                @default(0)
+  debtFundingAmount                Float                @default(0)
   /// Hypothetical financing terms — used only when the parent
   /// `DecisionAnalysis` has no `debtFacilityId` linked; when one is
   /// linked, the facility's own real terms are used instead (never both).
-  debtInterestRatePercent            Float?
-  debtTermMonths                     Int?
-  debtRepaymentMethod                RepaymentMethod?      @default(AMORTISING)
-  workingCapitalImpact               Float                 @default(0)
-  notes                              String?
-  idempotencyKey                     String?
-  createdById                        String?
-  createdAt                          DateTime              @default(now())
-  updatedAt                          DateTime              @updatedAt
+  debtInterestRatePercent          Float?
+  debtTermMonths                   Int?
+  debtRepaymentMethod              RepaymentMethod?     @default(AMORTISING)
+  workingCapitalImpact             Float                @default(0)
+  notes                            String?
+  idempotencyKey                   String?
+  createdById                      String?
+  createdAt                        DateTime             @default(now())
+  updatedAt                        DateTime             @updatedAt
 
   decisionAnalysis DecisionAnalysis @relation(fields: [decisionAnalysisId], references: [id], onDelete: Cascade)
 
@@ -4569,10 +4575,10 @@ model AssetCategory {
   createdAt        DateTime            @default(now())
   updatedAt        DateTime            @updatedAt
 
-  organisation   Organisation    @relation(fields: [organisationId], references: [id], onDelete: Cascade)
-  parentCategory AssetCategory?  @relation("AssetCategoryHierarchy", fields: [parentCategoryId], references: [id], onDelete: SetNull)
-  childCategories AssetCategory[] @relation("AssetCategoryHierarchy")
-  assets         Asset[]
+  organisation     Organisation      @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  parentCategory   AssetCategory?    @relation("AssetCategoryHierarchy", fields: [parentCategoryId], references: [id], onDelete: SetNull)
+  childCategories  AssetCategory[]   @relation("AssetCategoryHierarchy")
+  assets           Asset[]
   /// Added Sprint 21 — Maintenance Management (docs/domains/maintenance.md).
   maintenancePlans MaintenancePlan[]
 
@@ -4617,64 +4623,64 @@ model AssetLocation {
 /// `capitalProjectId` are all optional, read-only references — this
 /// domain never mutates any of them.
 model Asset {
-  id                    String                @id @default(cuid())
-  organisationId        String
-  assetCode             String
-  assetTag              String?
-  name                  String
-  description           String?
-  categoryId            String
-  parentAssetId         String?
-  status                AssetStatus           @default(DRAFT)
-  condition             AssetCondition        @default(NEW)
-  serialNumber          String?
-  manufacturer          String?
-  model                 String?
-  yearOfManufacture     Int?
-  locationId            String?
+  id                String               @id @default(cuid())
+  organisationId    String
+  assetCode         String
+  assetTag          String?
+  name              String
+  description       String?
+  categoryId        String
+  parentAssetId     String?
+  status            AssetStatus          @default(DRAFT)
+  condition         AssetCondition       @default(NEW)
+  serialNumber      String?
+  manufacturer      String?
+  model             String?
+  yearOfManufacture Int?
+  locationId        String?
   /// Plain id, no FK relation — same convention as `CapitalProject.ownerId`.
-  custodianId           String?
-  acquisitionType       AssetAcquisitionType  @default(PURCHASE)
-  acquisitionDate       DateTime?
-  inServiceDate         DateTime?
-  acquisitionCost       Float?
-  currency              String                @default("NGN")
-  supplierId            String?
-  purchaseOrderId       String?
-  capitalProjectId      String?
-  warrantyStartDate     DateTime?
-  warrantyEndDate       DateTime?
-  warrantyProvider      String?
-  warrantyReference     String?
-  warrantyNotes         String?
+  custodianId       String?
+  acquisitionType   AssetAcquisitionType @default(PURCHASE)
+  acquisitionDate   DateTime?
+  inServiceDate     DateTime?
+  acquisitionCost   Float?
+  currency          String               @default("NGN")
+  supplierId        String?
+  purchaseOrderId   String?
+  capitalProjectId  String?
+  warrantyStartDate DateTime?
+  warrantyEndDate   DateTime?
+  warrantyProvider  String?
+  warrantyReference String?
+  warrantyNotes     String?
   /// Foundation only — no depreciation is calculated from these fields
   /// this sprint (docs/domains/assets.md "Acquisition Cost / Valuation").
-  usefulLifeMonths      Int?
-  salvageValue          Float?
-  notes                 String?
-  imageUrl              String?
-  imageKey              String?
-  idempotencyKey        String?
-  createdById           String?
-  updatedById           String?
-  activatedAt           DateTime?
-  commissionedAt        DateTime?
-  disposedAt            DateTime?
-  retiredAt             DateTime?
-  createdAt             DateTime              @default(now())
-  updatedAt             DateTime              @updatedAt
+  usefulLifeMonths  Int?
+  salvageValue      Float?
+  notes             String?
+  imageUrl          String?
+  imageKey          String?
+  idempotencyKey    String?
+  createdById       String?
+  updatedById       String?
+  activatedAt       DateTime?
+  commissionedAt    DateTime?
+  disposedAt        DateTime?
+  retiredAt         DateTime?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
 
-  organisation   Organisation    @relation(fields: [organisationId], references: [id], onDelete: Cascade)
-  category       AssetCategory   @relation(fields: [categoryId], references: [id], onDelete: Restrict)
-  parentAsset    Asset?          @relation("AssetHierarchy", fields: [parentAssetId], references: [id], onDelete: SetNull)
-  childAssets    Asset[]         @relation("AssetHierarchy")
-  location       AssetLocation?  @relation(fields: [locationId], references: [id], onDelete: SetNull)
-  supplier       Supplier?       @relation(fields: [supplierId], references: [id], onDelete: SetNull)
-  purchaseOrder  PurchaseOrder?  @relation(fields: [purchaseOrderId], references: [id], onDelete: SetNull)
-  capitalProject CapitalProject? @relation(fields: [capitalProjectId], references: [id], onDelete: SetNull)
-  documents      AssetDocument[]
-  movements      AssetMovement[]
-  meters         AssetMeter[]
+  organisation         Organisation          @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  category             AssetCategory         @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  parentAsset          Asset?                @relation("AssetHierarchy", fields: [parentAssetId], references: [id], onDelete: SetNull)
+  childAssets          Asset[]               @relation("AssetHierarchy")
+  location             AssetLocation?        @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  supplier             Supplier?             @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  purchaseOrder        PurchaseOrder?        @relation(fields: [purchaseOrderId], references: [id], onDelete: SetNull)
+  capitalProject       CapitalProject?       @relation(fields: [capitalProjectId], references: [id], onDelete: SetNull)
+  documents            AssetDocument[]
+  movements            AssetMovement[]
+  meters               AssetMeter[]
   /// Added Sprint 21 — Maintenance Management (docs/domains/maintenance.md).
   maintenancePlans     MaintenancePlan[]
   maintenanceSchedules MaintenanceSchedule[]
@@ -4720,7 +4726,7 @@ model AssetDocument {
 /// deleted. The current `Asset.locationId`/`custodianId` represent the
 /// current state; this table represents what happened, over time.
 model AssetMovement {
-  id                  String    @id @default(cuid())
+  id                  String   @id @default(cuid())
   organisationId      String
   assetId             String
   previousLocationId  String?
@@ -4729,10 +4735,10 @@ model AssetMovement {
   newCustodianId      String?
   reason              String?
   notes               String?
-  effectiveAt         DateTime  @default(now())
+  effectiveAt         DateTime @default(now())
   performedById       String?
   idempotencyKey      String?
-  createdAt           DateTime  @default(now())
+  createdAt           DateTime @default(now())
 
   organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
   asset        Asset        @relation(fields: [assetId], references: [id], onDelete: Cascade)
@@ -4771,15 +4777,15 @@ model AssetMeter {
 /// reading is rejected at the service layer (meters are cumulative), never
 /// silently accepted.
 model AssetMeterReading {
-  id             String    @id @default(cuid())
+  id             String   @id @default(cuid())
   organisationId String
   meterId        String
   reading        Float
-  readingDate    DateTime  @default(now())
+  readingDate    DateTime @default(now())
   recordedById   String?
   notes          String?
   idempotencyKey String?
-  createdAt      DateTime  @default(now())
+  createdAt      DateTime @default(now())
 
   organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
   meter        AssetMeter   @relation(fields: [meterId], references: [id], onDelete: Cascade)
@@ -4899,6 +4905,28 @@ enum MaintenancePartUsageType {
   RETURNED
 }
 
+/// Sprint 22 minimal two-step lifecycle: a technician REQUESTS a part
+/// (no inventory effect), then Inventory ISSUEs it (atomic stock
+/// deduction + `InventoryTransaction`, see `MaintenancePartUsageRepository.
+/// issue()`), or the request is CANCELLED before issue. Never
+/// re-enterable after ISSUED/CANCELLED (both terminal).
+enum MaintenancePartUsageStatus {
+  REQUESTED
+  ISSUED
+  CANCELLED
+}
+
+/// The smallest boundary Maintenance owns before Procurement's own,
+/// separate workflow takes over — see `MaintenanceProcurementRequirement`'s
+/// own doc comment. IDENTIFIED = Maintenance flagged a need; LINKED = a
+/// human created the real Purchase Order in Procurement and attached its
+/// id here; CANCELLED = no longer needed.
+enum MaintenanceProcurementStatus {
+  IDENTIFIED
+  LINKED
+  CANCELLED
+}
+
 /// Polymorphic owner discriminator for `MaintenanceDocument` — the exact
 /// `CreditNote.sourceType`/`sourceId` precedent (Sprint 11), one table
 /// serving two owner types rather than two near-identical child tables.
@@ -5013,7 +5041,7 @@ model MaintenancePlanTask {
 /// bookkeeping needed (docs/domains/maintenance.md "Preventive Scheduling
 /// Idempotency").
 model MaintenanceSchedule {
-  id                       String                     @id @default(cuid())
+  id                       String                    @id @default(cuid())
   organisationId           String
   maintenancePlanId        String
   assetId                  String
@@ -5030,8 +5058,8 @@ model MaintenanceSchedule {
   idempotencyKey           String?
   createdById              String?
   updatedById              String?
-  createdAt                DateTime                   @default(now())
-  updatedAt                DateTime                   @updatedAt
+  createdAt                DateTime                  @default(now())
+  updatedAt                DateTime                  @updatedAt
 
   organisation    Organisation    @relation(fields: [organisationId], references: [id], onDelete: Cascade)
   maintenancePlan MaintenancePlan @relation(fields: [maintenancePlanId], references: [id], onDelete: Cascade)
@@ -5130,16 +5158,17 @@ model WorkOrder {
   createdAt            DateTime            @default(now())
   updatedAt            DateTime            @updatedAt
 
-  organisation       Organisation           @relation(fields: [organisationId], references: [id], onDelete: Cascade)
-  asset              Asset                  @relation(fields: [assetId], references: [id], onDelete: Cascade)
-  maintenanceType    MaintenanceType        @relation(fields: [maintenanceTypeId], references: [id], onDelete: Restrict)
-  maintenancePlan    MaintenancePlan?       @relation(fields: [maintenancePlanId], references: [id], onDelete: SetNull)
-  maintenanceRequest MaintenanceRequest?    @relation(fields: [maintenanceRequestId], references: [id], onDelete: SetNull)
-  externalSupplier   Supplier?              @relation("MaintenanceWorkOrderExternalSupplier", fields: [externalSupplierId], references: [id], onDelete: SetNull)
-  tasks              WorkOrderTask[]
-  downtimes          AssetDowntime[]
-  partUsages         MaintenancePartUsage[]
-  costs              MaintenanceCost[]
+  organisation            Organisation                        @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  asset                   Asset                               @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  maintenanceType         MaintenanceType                     @relation(fields: [maintenanceTypeId], references: [id], onDelete: Restrict)
+  maintenancePlan         MaintenancePlan?                    @relation(fields: [maintenancePlanId], references: [id], onDelete: SetNull)
+  maintenanceRequest      MaintenanceRequest?                 @relation(fields: [maintenanceRequestId], references: [id], onDelete: SetNull)
+  externalSupplier        Supplier?                           @relation("MaintenanceWorkOrderExternalSupplier", fields: [externalSupplierId], references: [id], onDelete: SetNull)
+  tasks                   WorkOrderTask[]
+  downtimes               AssetDowntime[]
+  partUsages              MaintenancePartUsage[]
+  costs                   MaintenanceCost[]
+  procurementRequirements MaintenanceProcurementRequirement[]
 
   @@unique([organisationId, workOrderCode])
   @@unique([organisationId, idempotencyKey])
@@ -5210,12 +5239,21 @@ model AssetDowntime {
 
 /// Records intended/actual maintenance parts consumption against an
 /// existing `Product` (the sole transactional SKU entity, Sprint 4.1/4.7)
-/// — never a duplicate inventory system. `inventoryTransactionId` stays
-/// null in Sprint 21 by design: recording a part here never deducts
-/// `InventoryStock`/creates an `InventoryTransaction` — an explicit,
-/// deferred future integration boundary.
+/// — never a duplicate inventory system. Sprint 21 created every row with
+/// `status: REQUESTED` and `inventoryTransactionId: null` always (no
+/// inventory effect). Sprint 22 adds the real issue path
+/// (`MaintenancePartUsageRepository.issue()`): a `REQUESTED` row can be
+/// atomically transitioned to `ISSUED`, at which point exactly one real
+/// `InventoryTransaction` (type `ISSUE`) is created and this row's
+/// `inventoryTransactionId`/`unitCost`/`totalCost`/`issuedAt`/`issuedById`
+/// are populated — the same "narrow, documented, atomic-transaction
+/// exception" `SalesFulfilmentRepository`/`ProductionMaterialIssueRepository`
+/// already establish, applied a third time here. `unitCost` is a snapshot
+/// of `InventoryStock.averageUnitCost` taken at issue time (never
+/// recomputed later) so a Work Order's historical cost never silently
+/// drifts as later receipts change the live average.
 model MaintenancePartUsage {
-  id                     String                   @id @default(cuid())
+  id                     String                     @id @default(cuid())
   organisationId         String
   workOrderId            String
   productId              String
@@ -5224,23 +5262,41 @@ model MaintenancePartUsage {
   /// historical fact, not re-derived if the product's own unit changes
   /// later.
   unitOfMeasure          String?
-  usageType              MaintenancePartUsageType @default(CONSUMED)
+  usageType              MaintenancePartUsageType   @default(CONSUMED)
+  status                 MaintenancePartUsageStatus @default(REQUESTED)
+  /// Which `InventoryLocation` to issue from — required at `issue()` time,
+  /// validated tenant-scoped via `InventoryLocationRepository` (read-only).
+  locationId             String?
   notes                  String?
-  /// Always null in Sprint 21 — reserved for a future explicit,
-  /// transactional Inventory integration (never populated by this
-  /// sprint's own code).
+  /// Null until `issue()` succeeds — then references the exactly-one
+  /// `InventoryTransaction` (type `ISSUE`) that row's issue created.
   inventoryTransactionId String?
+  /// Snapshot of `InventoryStock.averageUnitCost` at issue time — never a
+  /// competing costing calculation, always Inventory's own live figure at
+  /// the moment of issue.
+  unitCost               Float?
+  /// Server-computed `quantity × unitCost`, frozen at issue time.
+  totalCost              Float?
+  issuedAt               DateTime?
+  issuedById             String?
   recordedById           String?
   idempotencyKey         String?
-  createdAt              DateTime                 @default(now())
+  /// Separate from `idempotencyKey` — that key covers the REQUESTED
+  /// create; this one covers the `issue()` mutation itself (the exact
+  /// `SupplierInvoice.idempotencyKey`/`.postIdempotencyKey` two-phase
+  /// precedent).
+  issueIdempotencyKey    String?
+  createdAt              DateTime                   @default(now())
 
   organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
   workOrder    WorkOrder    @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
   product      Product      @relation(fields: [productId], references: [id], onDelete: Restrict)
 
   @@unique([organisationId, idempotencyKey])
+  @@unique([organisationId, issueIdempotencyKey])
   @@index([workOrderId])
   @@index([organisationId, productId])
+  @@index([organisationId, status])
   @@map("maintenance_part_usages")
 }
 
@@ -5261,6 +5317,14 @@ model MaintenanceCost {
   totalCost      Float
   currency       String                  @default("NGN")
   supplierId     String?
+  /// Plain reference (no `@relation`) into Budgeting's own `CostCentre`
+  /// table — the exact `CapitalProject.costCentreId` convention: a
+  /// freely cross-referenceable tag, validated read-only via a narrow
+  /// direct-Prisma reach in `MaintenanceAnalyticsService`, never a hard
+  /// FK forcing a module import into Budgeting. Enables a real, live
+  /// "maintenance cost vs. budget line" comparison without either domain
+  /// mutating the other.
+  costCentreId   String?
   referenceType  String?
   referenceId    String?
   recordedById   String?
@@ -5275,7 +5339,50 @@ model MaintenanceCost {
   @@unique([organisationId, idempotencyKey])
   @@index([workOrderId])
   @@index([organisationId, category])
+  @@index([organisationId, costCentreId])
   @@map("maintenance_costs")
+}
+
+/// The smallest safe integration boundary between Maintenance and
+/// Procurement (docs/domains/maintenance-integration.md "Procurement").
+/// No requisition/purchase-request concept exists anywhere in
+/// Procurement to mirror (confirmed by repo-wide search) — so this is a
+/// Maintenance-owned record of "we identified a need," never a
+/// duplicate/parallel PurchaseOrder. `purchaseOrderId` is a plain
+/// reference (no `@relation`, deliberately — Maintenance must never gain
+/// a hard FK that could tempt a future write into Procurement's own
+/// aggregate), validated read-only via the now-imported
+/// `PurchaseOrderRepository`. Maintenance NEVER calls
+/// `PurchaseOrderRepository.create()`/`.update()` — a real Purchase
+/// Order is always created by a human through Procurement's own existing
+/// UI/service, then linked back here.
+model MaintenanceProcurementRequirement {
+  id              String                       @id @default(cuid())
+  organisationId  String
+  workOrderId     String
+  description     String
+  estimatedCost   Float?
+  status          MaintenanceProcurementStatus @default(IDENTIFIED)
+  /// Plain reference — see model doc comment. Never written to by any
+  /// Maintenance code path other than this field's own assignment at
+  /// `link()` time.
+  purchaseOrderId String?
+  supplierId      String?
+  idempotencyKey  String?
+  createdById     String?
+  linkedAt        DateTime?
+  cancelledAt     DateTime?
+  createdAt       DateTime                     @default(now())
+  updatedAt       DateTime                     @updatedAt
+
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  workOrder    WorkOrder    @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  supplier     Supplier?    @relation("MaintenanceProcurementSupplier", fields: [supplierId], references: [id], onDelete: SetNull)
+
+  @@unique([organisationId, idempotencyKey])
+  @@index([workOrderId])
+  @@index([organisationId, status])
+  @@map("maintenance_procurement_requirements")
 }
 
 /// A file attached to a `MaintenanceRequest` or `WorkOrder` — before/after

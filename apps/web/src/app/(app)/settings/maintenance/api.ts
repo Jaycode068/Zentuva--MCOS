@@ -31,6 +31,8 @@ export interface MaintenanceOverview {
   openRequests: number;
   openWorkOrders: number;
   inProgress: number;
+  /** Sprint 22 — work orders not yet COMPLETED/CANCELLED whose plannedEndAt has passed. */
+  overdueWorkOrders: number;
   overduePreventive: number;
   dueSoonPreventive: number;
   criticalWorkOrders: number;
@@ -38,12 +40,36 @@ export interface MaintenanceOverview {
   unplannedBreakdownsThisMonth: number;
   downtimeMinutesThisMonth: number;
   maintenanceCostThisMonth: number;
+  /** Sprint 22 — Σ issued MaintenancePartUsage.totalCost this month, already folded into maintenanceCostThisMonth. */
+  partsCostThisMonth: number;
+  partsIssuedCountThisMonth: number;
   workOrdersByStatus: Record<string, number>;
   workOrdersByType: { maintenanceTypeId: string; name: string; count: number }[];
 }
 
 export function getMaintenanceOverview(): Promise<MaintenanceOverview> {
   return apiFetch<MaintenanceOverview>('/maintenance/overview');
+}
+
+// === Sprint 22 — Active Downtime (Production integration read-side) ===
+
+export interface ActiveDowntimeItem {
+  id: string;
+  asset: { id: string; assetCode: string; name: string };
+  workOrder: {
+    id: string;
+    workOrderCode: string;
+    title: string;
+    priority: MaintenancePriority;
+  } | null;
+  startedAt: string;
+  reason: string | null;
+  planned: boolean;
+  durationMinutesSoFar: number;
+}
+
+export function getActiveDowntime(): Promise<{ items: ActiveDowntimeItem[] }> {
+  return apiFetch<{ items: ActiveDowntimeItem[] }>('/maintenance/downtime/active');
 }
 
 export interface Technician {
@@ -599,6 +625,8 @@ export function endDowntime(id: string, endedAt?: string): Promise<AssetDowntime
 
 // === Parts Usage ===
 
+export type MaintenancePartUsageStatus = 'REQUESTED' | 'ISSUED' | 'CANCELLED';
+
 export interface MaintenancePartUsage {
   id: string;
   workOrderId: string;
@@ -606,6 +634,14 @@ export interface MaintenancePartUsage {
   quantity: number;
   unitOfMeasure: string | null;
   usageType: MaintenancePartUsageType;
+  /** Sprint 22 — REQUESTED (no inventory effect) → ISSUED (real stock deducted) or CANCELLED. */
+  status: MaintenancePartUsageStatus;
+  locationId: string | null;
+  inventoryTransactionId: string | null;
+  unitCost: number | null;
+  totalCost: number | null;
+  issuedAt: string | null;
+  issuedById: string | null;
   notes: string | null;
   createdAt: string;
 }
@@ -630,6 +666,26 @@ export function recordPartUsage(input: {
   });
 }
 
+/** Sprint 22 — the one and only place a maintenance part usage actually
+ *  deducts real stock (docs/domains/maintenance-integration.md "Inventory
+ *  Integration"). Requires a location to issue from. */
+export function issuePartUsage(
+  id: string,
+  input: { locationId: string; issueIdempotencyKey?: string },
+): Promise<MaintenancePartUsage> {
+  return apiFetch<MaintenancePartUsage>(`/maintenance/parts/${id}/issue`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function cancelPartUsage(id: string): Promise<MaintenancePartUsage> {
+  return apiFetch<MaintenancePartUsage>(`/maintenance/parts/${id}/cancel`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
+}
+
 // === Costs ===
 
 export interface MaintenanceCost {
@@ -642,6 +698,8 @@ export interface MaintenanceCost {
   totalCost: number;
   currency: string;
   supplierId: string | null;
+  /** Sprint 22 — a plain reference into Budgeting's own CostCentre table. */
+  costCentreId: string | null;
   createdAt: string;
 }
 
@@ -657,6 +715,7 @@ export function recordCost(input: {
   unitCost: number;
   currency?: string;
   supplierId?: string;
+  costCentreId?: string;
   idempotencyKey?: string;
 }): Promise<MaintenanceCost> {
   return apiFetch<MaintenanceCost>('/maintenance/costs', {
@@ -671,8 +730,17 @@ export interface AssetMaintenanceHistory {
   workOrders: WorkOrder[];
   downtimes: AssetDowntime[];
   totalCost: number;
+  /** Sprint 22 — Σ MaintenanceCost.totalCost (labour/service/transport/other), excluding issued parts. */
+  laborAndOtherCost: number;
+  /** Sprint 22 — Σ issued MaintenancePartUsage.totalCost. */
+  partsCost: number;
+  partsIssuedCount: number;
+  partsUsed: (MaintenancePartUsage & { product: { id: string; code: string; name: string } })[];
   lastMaintenance: WorkOrder | null;
   upcomingSchedules: MaintenanceSchedule[];
+  nextScheduledMaintenance: MaintenanceSchedule | null;
+  /** Sprint 22 — the asset's originating Capital Project, read-only, only when linked. */
+  capitalProject: { id: string; projectCode: string; name: string } | null;
 }
 
 export function getAssetMaintenanceHistory(assetId: string): Promise<AssetMaintenanceHistory> {
@@ -681,4 +749,165 @@ export function getAssetMaintenanceHistory(assetId: string): Promise<AssetMainte
 
 export function getAssetOpenWork(assetId: string): Promise<{ items: WorkOrder[] }> {
   return apiFetch<{ items: WorkOrder[] }>(`/maintenance/assets/${assetId}/open-work`);
+}
+
+// === Sprint 22 — Procurement Requirements ===
+// (docs/domains/maintenance-integration.md "Procurement Integration")
+
+export type MaintenanceProcurementStatus = 'IDENTIFIED' | 'LINKED' | 'CANCELLED';
+
+export interface MaintenanceProcurementRequirement {
+  id: string;
+  workOrderId: string;
+  description: string;
+  estimatedCost: number | null;
+  status: MaintenanceProcurementStatus;
+  purchaseOrderId: string | null;
+  supplierId: string | null;
+  linkedAt: string | null;
+  cancelledAt: string | null;
+  createdAt: string;
+}
+
+export function listProcurementRequirements(
+  workOrderId: string,
+): Promise<{ items: MaintenanceProcurementRequirement[] }> {
+  return apiFetch<{ items: MaintenanceProcurementRequirement[] }>(
+    `/maintenance/work-orders/${workOrderId}/procurement`,
+  );
+}
+
+export function createProcurementRequirement(
+  workOrderId: string,
+  input: {
+    description: string;
+    estimatedCost?: number;
+    supplierId?: string;
+    idempotencyKey?: string;
+  },
+): Promise<MaintenanceProcurementRequirement> {
+  return apiFetch<MaintenanceProcurementRequirement>(
+    `/maintenance/work-orders/${workOrderId}/procurement`,
+    { method: 'POST', body: JSON.stringify(input) },
+  );
+}
+
+export function linkProcurementRequirement(
+  workOrderId: string,
+  id: string,
+  purchaseOrderId: string,
+): Promise<MaintenanceProcurementRequirement> {
+  return apiFetch<MaintenanceProcurementRequirement>(
+    `/maintenance/work-orders/${workOrderId}/procurement/${id}/link`,
+    { method: 'POST', body: JSON.stringify({ purchaseOrderId }) },
+  );
+}
+
+export function cancelProcurementRequirement(
+  workOrderId: string,
+  id: string,
+): Promise<MaintenanceProcurementRequirement> {
+  return apiFetch<MaintenanceProcurementRequirement>(
+    `/maintenance/work-orders/${workOrderId}/procurement/${id}/cancel`,
+    { method: 'POST' },
+  );
+}
+
+export interface ProcurementApSummary {
+  applicable: boolean;
+  reason?: string;
+  purchaseOrderId?: string;
+  invoicedTotal?: number;
+  recognizedAmount?: number;
+  amountPaid?: number;
+  amountOutstanding?: number;
+  discrepancyCount?: number;
+}
+
+export function getProcurementApSummary(
+  workOrderId: string,
+  id: string,
+): Promise<ProcurementApSummary> {
+  return apiFetch<ProcurementApSummary>(
+    `/maintenance/work-orders/${workOrderId}/procurement/${id}/ap-summary`,
+  );
+}
+
+// === Sprint 22 — Analytics ===
+// (docs/domains/maintenance-integration.md "Analytics")
+
+export interface CostVsBudgetResult {
+  costCentreId: string;
+  from: string;
+  to: string;
+  actual: number;
+  laborAndOtherCost: number;
+  partsCost: number;
+  budget: number;
+  variance: number;
+  variancePercent: number | null;
+  withinBudget: boolean;
+}
+
+export function getCostVsBudget(
+  costCentreId: string,
+  from: string,
+  to: string,
+): Promise<CostVsBudgetResult> {
+  const query = new URLSearchParams({ costCentreId, from, to });
+  return apiFetch<CostVsBudgetResult>(`/maintenance/analytics/cost-vs-budget?${query.toString()}`);
+}
+
+export interface CostBreakdownRow {
+  key: string;
+  label: string;
+  amount: number;
+}
+
+export interface CostBreakdownResult {
+  from: string;
+  to: string;
+  total: number;
+  byAsset: CostBreakdownRow[];
+  byCategory: CostBreakdownRow[];
+  byMaintenanceType: CostBreakdownRow[];
+  byMonth: CostBreakdownRow[];
+  byLocation: CostBreakdownRow[];
+}
+
+export function getCostBreakdown(from: string, to: string): Promise<CostBreakdownResult> {
+  const query = new URLSearchParams({ from, to });
+  return apiFetch<CostBreakdownResult>(`/maintenance/analytics/cost-breakdown?${query.toString()}`);
+}
+
+export interface OperationalMetricsResult {
+  from: string;
+  to: string;
+  costPerAsset: CostBreakdownRow[];
+  downtimeMinutesByAsset: { assetId: string; assetCode: string; name: string; minutes: number }[];
+  failureCountsByAsset: { assetId: string; assetCode: string; name: string; count: number }[];
+  preventiveCount: number;
+  correctiveCount: number;
+  preventiveToCorrectiveRatio: number | null;
+  averageTimeToCompleteHours: number | null;
+  workOrderCountByAsset: { assetId: string; assetCode: string; name: string; count: number }[];
+}
+
+export function getOperationalMetrics(from: string, to: string): Promise<OperationalMetricsResult> {
+  const query = new URLSearchParams({ from, to });
+  return apiFetch<OperationalMetricsResult>(
+    `/maintenance/analytics/operational-metrics?${query.toString()}`,
+  );
+}
+
+export interface RiskSignal {
+  type: 'REPEAT_FAILURE' | 'HIGH_COST';
+  assetId: string;
+  assetCode: string;
+  name: string;
+  detail: string;
+}
+
+export function getRiskSignals(): Promise<{ items: RiskSignal[] }> {
+  return apiFetch<{ items: RiskSignal[] }>('/maintenance/analytics/risk-signals');
 }

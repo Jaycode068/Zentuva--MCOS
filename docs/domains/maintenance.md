@@ -1,13 +1,19 @@
 # Maintenance Management Domain
 
 - **Status:** Foundation implemented — Sprint 21 ("Maintenance Management
-  Foundation"). A dedicated domain built on top of Sprint 20's Asset
-  Register, owning requests, plans, schedules, work orders, tasks,
-  downtime, and operational cost/parts-usage records. Explicitly the
-  **foundation** for future Maintenance Intelligence, Reliability
-  Analytics (MTBF/MTTR), and Asset Economics — none of which are
-  implemented here; only the correct source data is captured.
-- **Sprint:** 21
+  Foundation"); ecosystem integration completed — Sprint 22 ("Maintenance
+  Ecosystem Integration"). A dedicated domain built on top of Sprint 20's
+  Asset Register, owning requests, plans, schedules, work orders, tasks,
+  downtime, and operational cost/parts-usage records. Sprint 22 connected
+  this domain to Inventory (real part issuing), Procurement/Supplier/AP
+  (a narrow linking boundary), Budgeting (live cost-vs-budget), and added
+  a Maintenance-owned Analytics page, an extended Asset detail integration,
+  and a Field Technician mobile surface — see
+  [Maintenance Ecosystem Integration](maintenance-integration.md) for all
+  of that. Still explicitly the **foundation** for future Maintenance
+  Intelligence, Reliability Analytics (MTBF/MTTR), predictive maintenance,
+  and IoT/sensor integration — none of which are implemented here.
+- **Sprint:** 21-22
 - **Depends on:** [Asset Register & Asset Management](assets.md) (real
   Prisma FK relations, and — critically — every asset-status interaction
   goes through `AssetService`'s own lifecycle methods, never a raw Prisma
@@ -15,17 +21,30 @@
   `AuditService`, `UserService.listByOrganisation()` for the technician
   picker), Product Catalogue (`ProductRepository`, read-only, for parts
   usage), Suppliers (`SupplierRepository`, read-only, for external-service/
-  cost references) — both already-exported, already-small modules
-  (ADR-002).
+  cost references and procurement-requirement supplier validation) — all
+  already-exported, already-small modules (ADR-002). **Sprint 22 adds:**
+  [Inventory](inventory.md) (`InventoryStockRepository`/
+  `InventoryTransactionRepository`/`InventoryLocationRepository`, read-only
+  DI — the one exception is `MaintenancePartUsageRepository.issue()`
+  writing `inventoryStock`/`inventoryTransaction` directly inside its own
+  transaction, the same narrow ADR-002 exception Sales/Production's own
+  stock-issuing writers already establish) and Procurement's
+  `PurchaseOrderRepository` (read-only, for procurement-requirement PO
+  linking).
 - **Explicitly does not depend on:** [Accounting](accounting.md),
-  [Finance](finance.md), [Inventory](inventory.md), [Sales](sales.md),
-  [Production](production.md), [Distribution](distribution.md) — proven
-  executably by `maintenance-independence.spec.ts`
-  (`apps/api/src/maintenance/`), not just documented here.
+  [Finance](finance.md), [Sales](sales.md), [Production](production.md),
+  [Distribution](distribution.md) — proven executably by
+  `maintenance-independence.spec.ts` (`apps/api/src/maintenance/`), not
+  just documented here. `FinanceModule`/`ProductionModule` are never
+  imported — Finance exports nothing to import anyway, and Production
+  exports nothing either (it has no Asset/equipment concept yet).
 - **See also:** [Asset Register & Asset Management](assets.md),
   [Accounting](accounting.md), [Product Catalogue](catalogue.md),
   [Suppliers](suppliers.md), [Procurement](procurement.md),
-  [Sprint 21 Completion Report](../sprint-21-completion-report.md).
+  [Inventory](inventory.md), [Budgeting](budgeting.md),
+  [Maintenance Ecosystem Integration](maintenance-integration.md),
+  [Sprint 21 Completion Report](../sprint-21-completion-report.md),
+  [Sprint 22 Completion Report](../sprint-22-completion-report.md).
 
 ## 1. Business Purpose
 
@@ -224,22 +243,35 @@ Negative durations (`endedAt` before `startedAt`) are rejected at both
 downtime window (§8) so a technician who forgets to explicitly end it
 never leaves an unbounded-duration record.
 
-## 11. Parts / Material Usage — Foundation Only, No Second Inventory System
+## 11. Parts / Material Usage — Foundation in Sprint 21, Real Inventory Integration in Sprint 22
 
 `MaintenancePartUsage` references an existing `Product` (the sole
 transactional SKU entity, Sprint 4.1/4.7) — never a duplicate inventory
 system. `unitOfMeasure` is snapshotted from `Product.unit` at write time
-(an immutable historical fact). **`inventoryTransactionId` always stays
-null in Sprint 21** — recording a part here never deducts
-`InventoryStock` and never creates an `InventoryTransaction`, proven
-structurally by `maintenance-independence.spec.ts`. This is a deliberate,
-documented deferral: the brief's own explicit guidance was "prefer
-recording intended consumption over silently mutating inventory," and
-this sprint's own architectural review found no sufficiently narrow,
-safe, atomic, idempotent, auditable integration point to justify crossing
-that boundary yet. A future sprint can add real inventory consumption
-behind this same `inventoryTransactionId` field without any schema
-change here.
+(an immutable historical fact).
+
+**Sprint 21** left `inventoryTransactionId` always `null` — recording a
+part never touched `InventoryStock`/`InventoryTransaction`, a deliberate
+foundation-sprint deferral (no sufficiently narrow, safe, atomic,
+idempotent, auditable integration point existed yet).
+
+**Sprint 22** ("Maintenance Ecosystem Integration") closed that gap with a
+minimal two-step lifecycle — `REQUESTED` (no inventory effect, still the
+`record()` behaviour above) → `ISSUED` (real stock deducted) or
+`CANCELLED` (only before `ISSUED`). `MaintenancePartUsageRepository.
+issue()` is the **one and only** place in this entire domain that writes
+`inventoryStock`/`inventoryTransaction` — inside its own transaction,
+using the injected `PrismaService` directly, the same deliberate, narrow
+exception to ADR-002 that `SalesFulfilmentRepository.create()`/
+`ProductionMaterialIssueRepository.issue()` already establish. Every
+other file in the domain is still structurally forbidden from touching
+those two tables — proven by the extended `maintenance-independence.spec.
+ts`, not just documented here. `unitCost`/`totalCost` are snapshotted
+from `InventoryStock.averageUnitCost` at the moment of issue (an
+immutable historical fact — the live average keeps drifting afterward as
+later receipts land, and a Work Order's cost history must not silently
+change). Full detail: [Maintenance Ecosystem
+Integration](maintenance-integration.md) §1.
 
 ## 12. Maintenance Cost — Operational Capture Only
 
@@ -314,31 +346,63 @@ every other domain's audit actions use, wired into the existing
 
 ## 17. Known Limitations / Non-Goals
 
+Resolved in Sprint 22 (kept here, struck through, so the history stays
+legible — see [Maintenance Ecosystem
+Integration](maintenance-integration.md) for the actual implementation):
+
+- ~~No spare-parts inventory management~~ — `MaintenancePartUsage.
+issue()` now performs a real, atomic `InventoryStock` deduction +
+  `InventoryTransaction`, Sprint 22 §1.
+- ~~No procurement linkage when a part is unavailable~~ —
+  `MaintenanceProcurementRequirement` now provides the smallest linking
+  boundary into Procurement (Maintenance still never creates a Purchase
+  Order itself), Sprint 22 §2.
+- ~~No maintenance cost reporting/analytics~~ — a Maintenance-owned
+  Analytics page now exists (cost breakdown, operational metrics,
+  deterministic risk signals, cost-vs-budget), Sprint 22 §6/§9.
+- ~~No mobile technician app beyond the Admin responsive UI~~ — a
+  dedicated `/field/maintenance` Field Technician surface now exists,
+  Sprint 22 §9.
+
+Still deferred (unchanged, or newly explicit) after Sprint 22:
+
 - **No predictive maintenance, AI recommendations, machine learning, IoT,
   sensor integration, or real-time telemetry** — meter readings are
-  entered manually, the exact Sprint 20 foundation.
-- **No GPS/fleet tracking.**
-- **No spare-parts inventory management or automatic procurement** —
-  `MaintenancePartUsage` records intended/actual consumption as data
-  only; no `InventoryStock`/`InventoryTransaction` mutation, no automatic
-  Purchase Order creation when a part is "unavailable" (no such concept
-  exists this sprint).
+  entered manually, the exact Sprint 20 foundation. Explicitly **not**
+  started by Sprint 22's Analytics/risk-signals work, which is
+  deterministic threshold logic, never a model.
+- **No GPS/fleet tracking, no fleet management.**
 - **No automatic supplier invoicing** — external service costs are
-  captured as `MaintenanceCost` records only.
+  captured as `MaintenanceCost` records only; a linked Purchase Order's
+  AP status is read-only visibility, never automated invoice creation.
 - **No maintenance accounting integration, depreciation, or fixed-asset
-  accounting** — see §2/§12.
+  accounting** — see §2/§12. Still zero `postSystemJournalEntry` calls
+  anywhere in this domain, Sprint 21 or 22.
 - **No warranty claims management** — classification only, see §14.
 - **No insurance management.**
 - **No advanced technician payroll, labour scheduling, or shift
   management** — a technician is simply an assignable organisation
-  member.
+  member; no new Technician RBAC role was created in Sprint 22 either —
+  every maintenance write still uses the identical Owner/Administrator
+  (plus any-authenticated for checklist-task completion) convention
+  Sprint 21 established.
 - **No external contractor portal** — external service is captured as
   plain fields/cost records on the work order itself.
 - **No offline mobile application, push notifications, or WhatsApp
-  integration** — the technician workflow is a responsive, mobile-first
-  web UI only.
+  integration** — the Field Technician workflow (Sprint 22) is a
+  responsive, mobile-first web UI only, same as Field Sales.
 - **No maintenance marketplace.**
 - **No configurable-permission RBAC model** — the same deferred decision
   as every prior sprint in this codebase.
 - **A simple "any open work order blocks Asset resume" guard, not a full
   reservation/locking system** — see §8/§9.
+- **No automated maintenance optimisation or advanced maintenance
+  intelligence** — Sprint 22's risk signals are two named, deterministic
+  thresholds (repeat-failure count, cost-vs-category-median), not a
+  scoring/optimisation engine.
+- **No frontend automated test harness** — `apps/web` has no existing
+  Vitest/Jest/RTL setup at all (its `test` script is a no-op stub); Sprint
+  22's frontend was verified through live browser + database
+  cross-checks, documented in the Sprint 22 completion report, not through
+  automated frontend tests. Standing up a test harness is a deliberate,
+  separate platform-quality decision, not part of this domain.

@@ -9,13 +9,15 @@ const TABS = [
   { label: 'Requests', href: '/settings/maintenance/requests' },
   { label: 'Plans', href: '/settings/maintenance/plans' },
   { label: 'Schedules', href: '/settings/maintenance/schedules' },
+  { label: 'Analytics', href: '/settings/maintenance/analytics' },
 ];
 
 /** Shared sub-navigation for the `/settings/maintenance/*` pages (Sprint
  *  21, docs/domains/maintenance.md) — the exact `AssetTabs` clone/
- *  convention. Five tabs, deliberately lean — Technicians/Downtime/Costs
+ *  convention. Six tabs, deliberately lean — Technicians/Downtime/Costs
  *  surface within Work Order detail and the Overview dashboard instead of
- *  their own tabs. */
+ *  their own tabs. "Analytics" (Sprint 22) is the one addition — a
+ *  Maintenance-owned operational analytics surface, not a new module. */
 export function MaintenanceTabs() {
   const pathname = usePathname();
 
