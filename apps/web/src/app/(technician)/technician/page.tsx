@@ -7,8 +7,8 @@ import { Badge } from '@zentuva/ui';
 import { getAccountProfile } from '@/lib/account';
 import { FieldCard } from '@/components/field/FieldCard';
 
-import { listWorkOrders, type WorkOrder } from '../api';
-import { MAINTENANCE_PRIORITY_LABELS, MAINTENANCE_PRIORITY_VARIANT } from '../labels';
+import { listWorkOrders, type WorkOrder } from './api';
+import { MAINTENANCE_PRIORITY_LABELS, MAINTENANCE_PRIORITY_VARIANT } from './labels';
 
 const OPEN_STATUSES = ['OPEN', 'ASSIGNED', 'IN_PROGRESS', 'ON_HOLD'] as const;
 
@@ -16,18 +16,19 @@ const OPEN_STATUSES = ['OPEN', 'ASSIGNED', 'IN_PROGRESS', 'ON_HOLD'] as const;
  * Field Technician Maintenance Home (Sprint 22, docs/domains/
  * maintenance-integration.md "Field Technician Experience") — the exact
  * `FieldDeliveriesPage`/`FieldHomePage` card-list convention, applied to a
- * technician's own assigned Work Orders. No new Technician role exists
- * (decision unchanged since Sprint 21) — "my work orders" is simply every
+ * technician's own assigned Work Orders, in its own `(technician)` shell
+ * rather than under Field Sales. No new Technician role exists (decision
+ * unchanged since Sprint 21) — "my work orders" is simply every
  * `WorkOrder` where `assignedToId` equals the signed-in user's own id, the
  * same `assignedToId` convention Admin already uses.
  */
-export default function FieldMaintenanceHomePage() {
+export default function TechnicianHomePage() {
   const { data: profile } = useQuery({
     queryKey: ['account', 'profile'],
     queryFn: getAccountProfile,
   });
   const { data, isLoading, isError, error, refetch } = useQuery({
-    queryKey: ['work-orders', 'field', profile?.id],
+    queryKey: ['work-orders', 'technician', profile?.id],
     queryFn: () => listWorkOrders({ assignedToId: profile!.id }),
     enabled: !!profile?.id,
   });
@@ -120,7 +121,7 @@ function WorkOrderSection({
       </h2>
       <div className="space-y-2">
         {items.map((wo) => (
-          <FieldCard key={wo.id} href={`/field/maintenance/${wo.id}`}>
+          <FieldCard key={wo.id} href={`/technician/${wo.id}`}>
             <div className="flex items-center justify-between gap-2">
               <p className="min-w-0 flex-1 truncate font-medium">{wo.title}</p>
               <Badge variant={MAINTENANCE_PRIORITY_VARIANT[wo.priority]}>

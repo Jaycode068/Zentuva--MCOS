@@ -361,8 +361,8 @@ issue()` now performs a real, atomic `InventoryStock` deduction +
   Analytics page now exists (cost breakdown, operational metrics,
   deterministic risk signals, cost-vs-budget), Sprint 22 §6/§9.
 - ~~No mobile technician app beyond the Admin responsive UI~~ — a
-  dedicated `/field/maintenance` Field Technician surface now exists,
-  Sprint 22 §9.
+  dedicated `/technician` Field Technician surface now exists, in its own
+  shell separate from Field Sales, Sprint 22 §9.
 
 Still deferred (unchanged, or newly explicit) after Sprint 22:
 

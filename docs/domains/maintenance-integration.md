@@ -9,7 +9,7 @@
   Parts issue/cancel flow, Procurement section, Overview KPI tiles, the
   **Maintenance Analytics page** (`/settings/maintenance/analytics`), the
   **Asset Register detail page's extended Maintenance section**, and the
-  new **Field Technician Maintenance surface** (`/field/maintenance`) are
+  new **Field Technician Maintenance surface** (`/technician`) are
   all built and live-verified in the browser end-to-end, including direct
   database cross-checks. See §11 "Remaining Work" for what is deliberately
   still deferred to future sprints (this is a foundation-closing sprint,
@@ -389,15 +389,29 @@ confirming the Work Order detail page, this Asset section, and Analytics
 
 ## 11. Field Technician Experience
 
-`/field/maintenance` (`apps/web/src/app/(field)/field/maintenance/`) — the
-mobile-first surface this sprint adds, built on the existing `(field)`
-route architecture (`FieldShell`, `FieldBottomNav`, `FieldCard`,
-`FieldStickyActionBar`, `Sheet side="full"`) rather than a shrunk desktop
-page. `field/api.ts`/`field/labels.ts` re-export the existing Maintenance
-and Asset frontend API/label modules verbatim (`export * from
-'@/app/(app)/settings/maintenance/api'`, plus the two Asset functions
-needed for meter reading) — no fetch logic is duplicated, and no new
-backend endpoint exists for this surface.
+`/technician` (`apps/web/src/app/(technician)/technician/`) — the
+mobile-first surface this sprint adds, in its **own route group and own
+shell** (`TechnicianShell`, `TechnicianHeader`), deliberately separate
+from the Field Sales shell (`(field)`). It was originally built as a
+sixth tab inside `(field)`; that placement was corrected during this
+sprint after review, because a Field Sales agent's job (customers,
+outlets, orders, deliveries) and a Maintenance technician's job (work
+orders) are unrelated, and once a real Technician RBAC role exists it
+must not inherit Field Sales' Customer/Order/Delivery access, nor should
+a Field Sales agent be able to reach Maintenance data. `TechnicianShell`
+reuses only genuinely generic mobile primitives from Field Sales
+(`FieldCard`, `FieldStickyActionBar` — plain presentational components
+with no Sales-specific data or branding); it has its own header (no
+"Zentuva Sales" branding) and, unlike Field Sales' five destinations, no
+bottom tab bar — this shell has exactly one top-level screen (My Work
+Orders) plus its own detail view, so a tab bar would have nothing else to
+navigate to. `technician/api.ts`/`technician/labels.ts` re-export the
+existing Maintenance and Asset frontend API/label modules verbatim
+(`export * from '@/app/(app)/settings/maintenance/api'`, plus the two
+Asset functions needed for meter reading) — no fetch logic is duplicated,
+and no new backend endpoint exists for this surface. Reachable from the
+desktop Admin sidebar via a "Field Maintenance" entry, next to "Field
+Sales."
 
 - **No new RBAC role.** Per the brief's explicit constraint, there is no
   Technician role. "My Work Orders" is simply `listWorkOrders({
@@ -415,10 +429,10 @@ assignedToId: <signed-in user's own id> })` — the exact `assignedToId`
   A dedicated Technician role with narrower permissions remains a future
   RBAC decision, out of scope for this sprint (which was explicitly
   forbidden from creating one).
-- **Home** (`field/maintenance/page.tsx`) — Overdue / In Progress / Today /
+- **Home** (`technician/page.tsx`) — Overdue / In Progress / Today /
   Upcoming sections, derived client-side from the same fetched list (no
   new backend filter). Empty state when nothing is assigned.
-- **Detail** (`field/maintenance/[id]/page.tsx`) — one obvious primary
+- **Detail** (`technician/[id]/page.tsx`) — one obvious primary
   action per status via `FieldStickyActionBar`: OPEN → Assign to
   self + Start (combined into one mutation, since an unassigned work order
   reaching a technician's own list only happens through direct navigation),
@@ -450,13 +464,15 @@ assignedToId: <signed-in user's own id> })` — the exact `assignedToId`
     Analytics (§9) all reflect a Field-driven change without a manual
     refresh — the same cross-page cache-correctness discipline §9 already
     established, now applied to the third surface reading this data.
-- **Navigation** — `FieldBottomNav` gained a sixth `Maintenance` tab; no
-  duplicate nav was introduced (Admin's `MaintenanceTabs` and this bottom
-  nav address two different shells and audiences).
+- **Navigation** — a "Field Maintenance" entry in the desktop Admin
+  sidebar (`navigation-config.ts`), next to "Field Sales"; no duplicate
+  nav was introduced (Admin's `MaintenanceTabs` and this entry address
+  two different shells and audiences, and Field Sales' own
+  `FieldBottomNav` carries no Maintenance item).
 
 **Verified live end-to-end** (signed in as `admin@bobybites.local`,
 standing in for the technician convention above): opened an assigned work
-order from `/field/maintenance` → started it → completed its checklist
+order from `/technician` → started it → completed its checklist
 tasks → requested and issued a real part (confirmed a new
 `InventoryTransaction` row, `referenceType: 'MaintenancePartUsage'`) →
 ended its active downtime window → recorded a meter reading and completed

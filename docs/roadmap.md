@@ -329,7 +329,8 @@ ASSIGNED → IN_PROGRESS ⇄ ON_HOLD → COMPLETED`/`CANCELLED`, both
       downtime feed, and a Maintenance Analytics service/page. Frontend:
       the Analytics page, the Asset Register detail page's extended
       Maintenance section, and a new mobile-first Field Technician surface
-      (`/field/maintenance`) built on the existing `assignedToId`
+      (`/technician`, its own shell, separate from Field Sales) built on
+      the existing `assignedToId`
       convention — no new RBAC role. Zero accounting postings; full live
       cross-surface verification (Work Order ⇄ Asset ⇄ Analytics). See
       [`docs/domains/maintenance-integration.md`](domains/maintenance-integration.md)

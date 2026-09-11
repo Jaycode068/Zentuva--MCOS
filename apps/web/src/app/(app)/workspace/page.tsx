@@ -55,6 +55,7 @@ const MODULE_DESCRIPTIONS: Record<string, string> = {
   '/settings/distribution': 'Dispatch and delivery of already-fulfilled sales orders.',
   '/settings/retail': 'Customers, outlets, territories, and the distribution network.',
   '/field': 'The mobile field-sales workspace for onboarding and taking orders.',
+  '/technician': 'The mobile workspace for technicians working assigned maintenance work orders.',
   '/settings/finance': 'Invoices, payments, credit notes, and accounts receivable.',
   '/reports': 'Dashboards and business intelligence.',
 };

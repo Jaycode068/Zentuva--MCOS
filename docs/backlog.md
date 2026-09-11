@@ -359,8 +359,9 @@ UNDER_MAINTENANCE` transition driven through Asset's own lifecycle
   Production downtime feed, and a Maintenance Analytics service/page
   (`/settings/maintenance/analytics`) — plus the Asset Register detail
   page's extended Maintenance section and a new mobile-first Field
-  Technician surface (`/field/maintenance`), built on the `assignedToId`
-  convention with no new RBAC role. Zero accounting postings, structurally
+  Technician surface (`/technician`, its own shell, separate from Field
+  Sales), built on the `assignedToId` convention with no new RBAC role.
+  Zero accounting postings, structurally
   proven inventory-write boundary, and full live cross-surface
   verification — see
   [`docs/domains/maintenance-integration.md`](domains/maintenance-integration.md).

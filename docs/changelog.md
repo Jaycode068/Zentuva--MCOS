@@ -40,11 +40,12 @@ surfaces needed to actually use it day-to-day.**
   history, parts used, downtime, and upcoming preventive schedules, all
   from data the backend already computed.
 - **Field Technician Maintenance surface** — a new mobile-first
-  `/field/maintenance` (home list + work order detail) on the existing
-  Field shell, giving technicians a real day-to-day workflow: start/
-  complete work orders, checklist tasks, part request/issue, meter
-  reading, downtime, and photos — all through existing services, with no
-  new backend endpoint and no new RBAC role (reuses the existing
+  `/technician` (home list + work order detail) in its own shell,
+  separate from the Field Sales shell, giving technicians a real
+  day-to-day workflow: start/complete work orders, checklist tasks, part
+  request/issue, meter reading, downtime, and photos — all through
+  existing services, with no new backend endpoint and no new RBAC role
+  (reuses the existing
   `assignedToId` convention).
 - A read-side-only `/maintenance/downtime/active` endpoint, shaped for
   eventual Production consumption once Production gains its own Asset

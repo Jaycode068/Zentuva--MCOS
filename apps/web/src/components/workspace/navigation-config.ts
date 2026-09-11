@@ -70,6 +70,7 @@ export const WORKSPACE_NAV_GROUPS: WorkspaceNavGroup[] = [
       { label: 'Returns', href: '/settings/returns', icon: RotateCcwIcon },
       { label: 'Retail Network', href: '/settings/retail', icon: TruckIcon },
       { label: 'Field Sales', href: '/field', icon: TrendingUpIcon },
+      { label: 'Field Maintenance', href: '/technician', icon: WrenchIcon },
       { label: 'Finance', href: '/settings/finance', icon: BanknoteIcon },
       { label: 'Reports', href: '/reports', icon: BarChartIcon, comingSoon: true },
     ],

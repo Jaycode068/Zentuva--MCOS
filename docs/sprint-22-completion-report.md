@@ -40,8 +40,8 @@ the same desktop admin UI as everyone else.
   boundary (§13).
 - **Asset Register maintenance visibility** — the existing Asset detail
   page's Maintenance section, extended (§14).
-- **Field Technician surface** — a new mobile-first `/field/maintenance`
-  (§15).
+- **Field Technician surface** — a new mobile-first `/technician`, in its
+  own shell, separate from Field Sales (§15).
 - **Seed data** — new idempotent Sprint 22 fixtures (§16).
 - **Full documentation closeout** (§21).
 
@@ -254,12 +254,21 @@ distinctly). Loading/empty/error states match the page's existing
 
 ## 15. Field Technician Experience (Frontend)
 
-`/field/maintenance` (`apps/web/src/app/(field)/field/maintenance/`) —
-built on the existing `(field)` route architecture (`FieldShell`,
-`FieldBottomNav`, `FieldCard`, `FieldStickyActionBar`,
-`Sheet side="full"`), not a shrunk desktop page. `field/api.ts`/
-`field/labels.ts` re-export the existing Maintenance/Asset frontend
-modules verbatim.
+`/technician` (`apps/web/src/app/(technician)/technician/`), in its own
+route group and shell (`TechnicianShell`, `TechnicianHeader`) — **not**
+a tab inside the Field Sales shell (`(field)`). This surface was
+initially built as a sixth `(field)` bottom-nav tab; that was corrected
+during this sprint after review, since a Field Sales agent (customers,
+outlets, orders, deliveries) and a Maintenance technician (work orders)
+are different jobs, and once a real Technician RBAC role exists it must
+map onto a UI surface that doesn't already carry Field Sales' access, nor
+grant a Field Sales agent access to Maintenance data. The corrected
+version reuses only generic, non-Sales-specific presentational
+components from Field Sales (`FieldCard`, `FieldStickyActionBar`); it has
+its own header/branding and no bottom tab bar (one top-level screen plus
+its own detail view has nothing else to navigate to). `technician/api.ts`/
+`technician/labels.ts` re-export the existing Maintenance/Asset frontend
+modules verbatim — not through `(field)/field/api.ts`.
 
 - **Home** — Overdue/In Progress/Today/Upcoming sections over
   `listWorkOrders({ assignedToId: <own id> })`.
@@ -274,14 +283,16 @@ modules verbatim.
   untouched), and the existing Maintenance document upload endpoint for
   before/after photos. A read-only Procurement card notes that linking a
   PO stays an Owner/Administrator action in the Admin UI.
-- **Navigation** — `FieldBottomNav` gained a sixth `Maintenance` tab; no
-  duplicate nav introduced (Admin's `MaintenanceTabs` and this bottom nav
-  address two different shells/audiences).
+- **Navigation** — a "Field Maintenance" entry in the desktop Admin
+  sidebar, next to "Field Sales"; no duplicate nav (Admin's
+  `MaintenanceTabs` and this entry address two different shells/
+  audiences, and `FieldBottomNav` carries no Maintenance item).
 - **Cache correctness** — an `invalidateAll()` helper invalidates
-  `work-order`, `work-orders field`, `maintenance-overview`, and every
-  `maintenance-analytics-*` query key after any mutation, so Admin's Work
-  Order detail, the Asset Register Maintenance section, and Analytics all
-  reflect a Field-driven change with no manual refresh.
+  `work-order`, `work-orders technician`, `maintenance-overview`, and
+  every `maintenance-analytics-*` query key after any mutation, so
+  Admin's Work Order detail, the Asset Register Maintenance section, and
+  Analytics all reflect a technician-driven change with no manual
+  refresh.
 
 ## 16. Seed Data
 
@@ -314,7 +325,7 @@ Against the real dev servers/database (Boby Bites seed data):
 
 **End-to-end scenario chain** (signed in as `admin@bobybites.local`,
 standing in for the technician convention documented in §4): opened an
-assigned work order from `/field/maintenance` → started it → completed
+assigned work order from `/technician` → started it → completed
 its checklist tasks → requested and issued a real part (confirmed a new
 `InventoryTransaction` row, `referenceType: 'MaintenancePartUsage'`) →
 ended its active downtime window → recorded a meter reading and
@@ -381,7 +392,19 @@ verification. One implementation-time reference error (an unused
 `asset.location.name` reference on the Field Work Order detail page,
 before it was noticed the `Asset` type has no nested `location` object)
 — caught before verification, fixed by removing the line rather than
-adding an extra fetch for a "nice to have."
+adding an extra fetch for a "nice to have." One architectural placement
+mistake, found after initial completion and corrected within the same
+sprint: the Field Technician surface was first built as a sixth tab
+inside the Field Sales `(field)` shell (`/field/maintenance`), reusing
+`FieldBottomNav`/`FieldHeader`. That conflated two unrelated jobs — a
+Field Sales agent's (customers, outlets, orders, deliveries) and a
+Maintenance technician's (work orders) — under one shell and nav, which
+would have made a future Technician RBAC role either over-broad (if
+scoped to the whole `(field)` shell) or awkward to carve out later.
+Corrected by moving the surface to its own `(technician)` route group
+and shell (`/technician`), with its own header and no shared bottom nav,
+reusing only the generic, non-Sales-specific presentational pieces
+(`FieldCard`, `FieldStickyActionBar`) — see §15.
 
 ## 21. Documentation Updated
 

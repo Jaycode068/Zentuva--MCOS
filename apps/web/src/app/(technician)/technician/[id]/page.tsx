@@ -41,7 +41,7 @@ import {
   resumeWorkOrder,
   startWorkOrder,
   updateWorkOrderTask,
-} from '../../api';
+} from '../api';
 import {
   MAINTENANCE_PRIORITY_LABELS,
   MAINTENANCE_PRIORITY_VARIANT,
@@ -51,7 +51,7 @@ import {
   PROCUREMENT_STATUS_VARIANT,
   WORK_ORDER_STATUS_LABELS,
   WORK_ORDER_STATUS_VARIANT,
-} from '../../labels';
+} from '../labels';
 
 /**
  * Field Technician Work Order detail (Sprint 22, docs/domains/
@@ -62,9 +62,12 @@ import {
  * parts/completion logic). One obvious primary action per status, the
  * same status→action mapping Sprint 21's own Admin page already
  * established, presented as a sticky bottom bar (`FieldStickyActionBar`)
- * instead of an inline button per the Field Sales shell convention.
+ * instead of an inline button, matching the mobile-first shell
+ * convention. Lives in its own `(technician)` shell — not under Field
+ * Sales — since there is no bottom nav here to sit above, this bar pins
+ * to `bottom-0` instead of `FieldStickyActionBar`'s default `bottom-16`.
  */
-export default function FieldWorkOrderDetailPage({ params }: { params: { id: string } }) {
+export default function TechnicianWorkOrderDetailPage({ params }: { params: { id: string } }) {
   const { id } = params;
   const queryClient = useQueryClient();
   const [completeOpen, setCompleteOpen] = useState(false);
@@ -107,7 +110,7 @@ export default function FieldWorkOrderDetailPage({ params }: { params: { id: str
 
   const invalidateAll = () => {
     queryClient.invalidateQueries({ queryKey: ['work-order', id] });
-    queryClient.invalidateQueries({ queryKey: ['work-orders', 'field'] });
+    queryClient.invalidateQueries({ queryKey: ['work-orders', 'technician'] });
     queryClient.invalidateQueries({ queryKey: ['maintenance-overview'] });
     queryClient.invalidateQueries({ queryKey: ['maintenance-analytics-operational-metrics'] });
     queryClient.invalidateQueries({ queryKey: ['maintenance-analytics-cost-breakdown'] });
@@ -236,7 +239,7 @@ export default function FieldWorkOrderDetailPage({ params }: { params: { id: str
         workOrder.status === 'ASSIGNED' ||
         workOrder.status === 'IN_PROGRESS' ||
         workOrder.status === 'ON_HOLD') && (
-        <FieldStickyActionBar className="flex-col gap-2">
+        <FieldStickyActionBar className="bottom-0 flex-col gap-2">
           {(workOrder.status === 'OPEN' || workOrder.status === 'ASSIGNED') && (
             <Button
               size="touch"
