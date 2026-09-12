@@ -10,6 +10,7 @@ import { validateEnv } from './config/env.validation';
 import { AccountModule } from './identity/account/account.module';
 import { AuthModule } from './identity/auth/auth.module';
 import { HealthModule } from './health/health.module';
+import { HrModule } from './hr/hr.module';
 import { IdentityModule } from './identity/identity.module';
 import { OrganisationModule } from './identity/organisation/organisation.module';
 import { SettingsModule } from './identity/settings/settings.module';
@@ -59,6 +60,7 @@ import { SupplierModule } from './suppliers/supplier/supplier.module';
     FinanceModule,
     AssetsModule,
     MaintenanceModule,
+    HrModule,
   ],
 })
 export class AppModule {}

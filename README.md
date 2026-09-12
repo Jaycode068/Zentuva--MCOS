@@ -39,13 +39,20 @@ feature is built configurably so it can be reused by future tenants without code
 > never creates a duplicate work order), work orders with a mobile-first technician workflow,
 > tasks, downtime, parts usage, and operational cost capture — every asset-status interaction
 > (`IN_SERVICE ⇄ UNDER_MAINTENANCE`) driven through the Asset domain's own lifecycle service, and,
-> again, zero accounting or inventory-mutation side effects, by construction. Most recently, a
+> again, zero accounting or inventory-mutation side effects, by construction. Then, a
 > Maintenance Ecosystem Integration sprint connected that zero-integration foundation to the rest
 > of the business — real Inventory part-issuing (one deliberate, structurally-proven exception to
 > the domain's own no-cross-domain-writes rule), a Procurement linking boundary, Budget
 > cost-vs-budget comparison, and a Maintenance Analytics page — plus the Asset Register detail
 > page's extended Maintenance section and a new mobile-first Field Technician surface built on the
-> existing `assignedToId` convention, with no new RBAC role and zero accounting postings. See
+> existing `assignedToId` convention, with no new RBAC role and zero accounting postings. Most
+> recently, an HR Employee Lifecycle Foundation opened a new top-level domain — Department/Position
+> (organisational units and job titles, explicitly never application permission roles), Employee
+> (the central HR record, deliberately separate from `User` — not every employee has a login
+> account, not every user is an employee), a real `employmentStatus` lifecycle validated
+> server-side the same way Asset's own lifecycle is, and an onboarding checklist — again zero
+> accounting/inventory/procurement/production/sales/distribution/asset/maintenance integration and
+> no new permission engine, by construction. See
 > [docs/domains/README.md](docs/domains/README.md) for the current status of every domain and
 > [docs/roadmap.md](docs/roadmap.md) for the full build order.
 

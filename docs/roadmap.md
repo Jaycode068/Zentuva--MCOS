@@ -337,7 +337,27 @@ ASSIGNED → IN_PROGRESS ⇄ ON_HOLD → COMPLETED`/`CANCELLED`, both
 
 ## Phase 3 — Extended Experiences
 
-- [ ] HR Employee Lifecycle Foundation (Sprint 23 — next, not yet started)
+- [x] HR Employee Lifecycle Foundation — shipped Sprint 23. Department/
+      Position (organisational units and job titles, explicitly never
+      application permission roles), Employee (the central HR record,
+      deliberately separate from `User` — not every employee has a login
+      account, not every user is an employee), EmployeeDocument (metadata
+      only), EmployeeOnboarding/EmployeeOnboardingTask (a default 7-task
+      checklist, not a workflow engine). A real `employmentStatus`
+      lifecycle validated server-side by the exact
+      `AssetService.transition()` generic guard; a shared cycle-detection
+      utility guards Department/Position/Employee-manager hierarchies
+      alike. Reuses Identity's `UserService`/`AuditService`/guards
+      unchanged — no fine-grained permission key introduced (deferred to
+      Sprint 25). Zero accounting/inventory/procurement/production/
+      sales/distribution/asset/maintenance integration, by construction,
+      proven by `hr-independence.spec.ts`. Explicitly not payroll,
+      attendance, recruitment, performance, or workflow — see
+      [`docs/domains/hr.md`](domains/hr.md)
+- [ ] HR Attendance, Training & People Operations (Sprint 24 — next, not
+      yet started)
+- [ ] Access Control + Organisational Structure (Sprint 25 — subsequent,
+      not yet started)
 - [ ] Retail Portal (mobile)
 - [ ] Sales Rep mobile workflows
 - [ ] Business Intelligence dashboards

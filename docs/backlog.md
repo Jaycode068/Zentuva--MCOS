@@ -766,6 +766,43 @@ REJECTED}`) optionally linking an existing `CapitalProject`/
   [`docs/domains/financial-decision-analysis.md`](domains/financial-decision-analysis.md)
   and [`docs/domains/finance.md`](domains/finance.md) §19/§20.
 
+### Epic 24 — HR Employee Lifecycle Management
+
+- **Objective:** the organisational and employee foundation every later
+  HR capability (Access Control, Attendance, Training, KPIs,
+  Compensation, Workflow Approvals, Notifications, Management Reporting)
+  needs to build on — a real employee directory, department/position
+  structure, and onboarding checklist, without becoming a payroll or
+  people-operations platform.
+- **Includes:** Department/Position (organisational units and job
+  titles, explicitly distinct from application access roles), Employee
+  (the central HR record, deliberately separate from `User`),
+  EmployeeDocument (metadata only), EmployeeOnboarding/
+  EmployeeOnboardingTask (a checklist), employee lifecycle actions
+  (activate/suspend/reactivate/separate), reporting-line management, and
+  an Overview/Employees/Departments/Positions/Organisation Structure
+  admin workspace. Deliberately excludes payroll, attendance, leave,
+  recruitment automation, performance/KPI engines, training delivery,
+  workflow/notification engines, and any Access Control redesign — those
+  belong to Sprint 24/25 and beyond.
+- **Status:** **Foundation implemented — Sprint 23 ("HR Employee
+  Lifecycle Foundation")**. `employmentStatus` is a real lifecycle
+  (`DRAFT/ONBOARDING/ACTIVE/SUSPENDED/SEPARATED`, `SEPARATED`
+  hard-terminal) validated server-side by the exact
+  `AssetService.transition()` generic guard Sprint 20 established; a
+  shared cycle-detection utility guards Department/Position/
+  Employee-manager hierarchies alike; server-generated `EMP-000001`-style
+  employee codes, the exact `generateWorkOrderCode`/`generateAssetCode`
+  concurrency-safe pattern. Reuses Identity's `UserService`/
+  `AuditService`/guards unchanged — no fine-grained permission key was
+  introduced, since none is evaluated anywhere in the app yet (deferred
+  to Sprint 25). Zero accounting/inventory/procurement/production/sales/
+  distribution/asset/maintenance integration, by construction, proven by
+  `hr-independence.spec.ts`. See
+  [`docs/domains/hr.md`](domains/hr.md) for the full record, including
+  the Employee-vs-User and Department/Position-vs-Access-Role
+  distinctions and the complete deferred-features list.
+
 ## 5. Current Sprint Status
 
 **Completed:**
@@ -812,17 +849,21 @@ REJECTED}`) optionally linking an existing `CapitalProject`/
 - ✓ Sprint 20 — Asset Register & Asset Management Foundation
 - ✓ Sprint 21 — Maintenance Management Foundation
 - ✓ Sprint 22 — Maintenance Ecosystem Integration
+- ✓ Sprint 23 — HR Employee Lifecycle Foundation
 
 **Current focus:** The Finance MVP (Sprints 6-19) is considered
-functionally complete. Epic 14 (Asset & Maintenance Management) is now
-fully built end-to-end — Sprint 20 (Asset Register), Sprint 21
-(Maintenance Management foundation), and Sprint 22 (Maintenance Ecosystem
-Integration: Inventory/Procurement/Budget/Production integration,
-Analytics, Asset Register maintenance visibility, and the Field
-Technician surface). Deliberately not started as part of this scope:
-predictive maintenance, IoT/sensor integration, fleet management, and a
-dedicated Technician RBAC role. Next sprint: Sprint 23 (HR Employee
-Lifecycle Foundation) — not yet started.
+functionally complete. Epic 14 (Asset & Maintenance Management) is fully
+built end-to-end — Sprint 20 (Asset Register), Sprint 21 (Maintenance
+Management foundation), and Sprint 22 (Maintenance Ecosystem
+Integration). Epic 24 (HR Employee Lifecycle Management) now has its
+foundation — Sprint 23 (Department/Position/Employee/Onboarding/
+Documents, employee lifecycle actions, the `/settings/hr` admin
+workspace). Deliberately not started as part of Sprint 23's scope:
+payroll, attendance, leave, recruitment automation, performance/KPI
+engines, and a Technician RBAC role (from Sprint 22). Next sprint:
+Sprint 24 (HR Attendance, Training & People Operations) — not yet
+started; Sprint 25 (Access Control + Organisational Structure) is
+subsequent.
 
 ## 6. Future Ideas (Not Prioritised Yet)
 

@@ -7,6 +7,61 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 23 HR Employee Lifecycle Foundation] - 2026-09-12
+
+**A new HR domain — the organisational and employee foundation future
+Access Control, Attendance, Training, KPI, Compensation, Workflow, and
+Reporting capabilities will build on.**
+
+### Added
+
+- **Department & Position** — organisational units and job titles,
+  explicitly distinct from application access roles (`Owner`/
+  `Administrator`/`Member`). Both support an optional self-referencing
+  hierarchy (parent department / reports-to position), cycle-guarded by
+  a shared utility; both are simple `ACTIVE`/`INACTIVE` master data with
+  unique codes per organisation.
+- **Employee** — the central HR record, deliberately separate from the
+  existing `User` model: an employee may exist with no login account,
+  and a user may exist with no employee record. Server-generated
+  `EMP-000001`-style employee codes. A real `employmentStatus` lifecycle
+  (`DRAFT → ONBOARDING → ACTIVE ⇄ SUSPENDED → SEPARATED`, hard-terminal)
+  with server-side transition validation, plus department/position
+  assignment and reporting-line (manager) management with self-reference,
+  cross-tenant, circular-hierarchy, and separated-manager guards.
+- **Employee-User linking** — link/unlink an employee to an existing
+  user account. Linking never grants a new permission; unlinking never
+  deletes the user.
+- **Employee documents** — metadata-only records (employment contracts,
+  identification, qualifications, certifications, policy
+  acknowledgements) reusing the existing file-storage infrastructure —
+  no new file-storage system.
+- **Onboarding** — a default 7-task checklist per employee (required and
+  optional tasks), atomic completion that validates every required task
+  is done first, and an automatic `ONBOARDING → ACTIVE` transition on
+  successful completion.
+- **HR Admin workspace** (`/settings/hr`) — Overview (foundation-level
+  metrics only), a searchable/filterable/paginated Employee directory,
+  Employee create/detail pages, Departments, Positions, and an
+  Organisation Structure view (department hierarchy, members, and
+  reporting lines).
+- Full audit trail for every lifecycle action, department/position
+  change, and onboarding event, using the existing audit infrastructure.
+
+### Notes
+
+- Zero accounting/inventory/procurement/production/sales/distribution/
+  asset/maintenance integration, by construction and proven by a
+  structural independence test.
+- No fine-grained HR permission key was introduced — the existing
+  role-name authorization (`Owner`/`Administrator`) is reused unchanged;
+  a dedicated permission engine is deferred to a future Access Control
+  sprint.
+- Payroll, attendance, leave, recruitment automation, performance/KPI
+  engines, training delivery, and workflow/notification engines remain
+  out of scope — see
+  [`docs/domains/hr.md`](domains/hr.md).
+
 ## [Sprint 22 Maintenance Ecosystem Integration] - 2026-09-11
 
 **Connects Sprint 21's zero-integration Maintenance domain to the rest of

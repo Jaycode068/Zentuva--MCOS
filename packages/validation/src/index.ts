@@ -10,6 +10,7 @@ export * from './decision';
 export * from './distribution';
 export * from './env';
 export * from './finance';
+export * from './hr';
 export * from './identity';
 export * from './inventory';
 export * from './investment';

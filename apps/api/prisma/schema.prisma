@@ -213,6 +213,13 @@ model Organisation {
   maintenanceCosts                   MaintenanceCost[]
   maintenanceDocuments               MaintenanceDocument[]
   maintenanceProcurementRequirements MaintenanceProcurementRequirement[]
+  /// Added Sprint 23 — HR Employee Lifecycle Foundation (docs/domains/hr.md).
+  hrDepartments                      Department[]
+  hrPositions                        Position[]
+  hrEmployees                        Employee[]
+  hrEmployeeDocuments                EmployeeDocument[]
+  hrEmployeeOnboardings              EmployeeOnboarding[]
+  hrEmployeeOnboardingTasks          EmployeeOnboardingTask[]
 
   @@map("organisations")
 }
@@ -266,6 +273,13 @@ model User {
   sessions        Session[]
   sentInvitations Invitation[]         @relation("InvitedBy")
   passwordResets  PasswordResetToken[]
+  /// Added Sprint 23 — HR Employee Lifecycle Foundation. A User is
+  /// optionally linked to at most one Employee (see `Employee.userId`,
+  /// unique). `User.employeeCode` above predates this and stays
+  /// unused/legacy — the real, actively-used employee code lives on
+  /// `Employee.employeeCode` instead, since not every Employee has a
+  /// User account (docs/domains/hr.md "Employee vs User").
+  hrEmployee      Employee?
 
   @@index([organisationId])
   @@map("users")
@@ -5408,4 +5422,282 @@ model MaintenanceDocument {
   @@index([organisationId])
   @@index([entityType, entityId])
   @@map("maintenance_documents")
+}
+
+// ============================================================================
+// HR — Employee Lifecycle Foundation (Sprint 23, docs/domains/hr.md)
+//
+// Deliberately distinguishes: User (login/application access, Identity's own
+// model, untouched), Employee (the person employed/engaged — this domain's
+// central record), Department/Position (organisation structure — job titles,
+// never application permission roles), EmployeeDocument (metadata only, the
+// exact url/key pattern AssetDocument/MaintenanceDocument already
+// established — no new file-storage system), EmployeeOnboarding/
+// EmployeeOnboardingTask (a checklist, not a workflow engine). Not every
+// Employee has a User (userId nullable); not every User is an Employee
+// (Employee.userId unique, optional back-relation on User).
+// ============================================================================
+
+/// An organisational unit. Deliberately simple — ACTIVE/INACTIVE only, one
+/// optional self-referencing parent for future hierarchy, an optional
+/// department head (a plain Employee reference, validated at the service
+/// layer — same-organisation, active-employee-where-applicable — never
+/// enforceable purely via the FK since "active" is a business rule, not a
+/// type constraint).
+model Department {
+  id                       String           @id @default(cuid())
+  organisationId           String
+  code                     String
+  name                     String
+  description              String?
+  parentDepartmentId       String?
+  departmentHeadEmployeeId String?
+  status                   DepartmentStatus @default(ACTIVE)
+  createdById              String?
+  createdAt                DateTime         @default(now())
+  updatedAt                DateTime         @updatedAt
+
+  organisation     Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  parentDepartment Department?  @relation("DepartmentHierarchy", fields: [parentDepartmentId], references: [id])
+  childDepartments Department[] @relation("DepartmentHierarchy")
+  departmentHead   Employee?    @relation("DepartmentHead", fields: [departmentHeadEmployeeId], references: [id])
+  positions        Position[]
+  employees        Employee[]   @relation("EmployeeDepartment")
+
+  @@unique([organisationId, code])
+  @@unique([organisationId, name])
+  @@index([organisationId])
+  @@index([parentDepartmentId])
+  @@map("hr_departments")
+}
+
+enum DepartmentStatus {
+  ACTIVE
+  INACTIVE
+}
+
+/// A job title / organisational role — explicitly NOT an application
+/// permission role (`Role`/`Permission` above stay untouched and unrelated).
+/// "Production Manager" is a Position; "Owner"/"Administrator"/"Member" are
+/// access roles. No permission is stored here and none is implied by
+/// assignment — see docs/domains/hr.md "Access-Control Preparation".
+model Position {
+  id                  String         @id @default(cuid())
+  organisationId      String
+  code                String
+  title               String
+  description         String?
+  departmentId        String?
+  reportsToPositionId String?
+  status              PositionStatus @default(ACTIVE)
+  createdById         String?
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+
+  organisation         Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  department           Department?  @relation(fields: [departmentId], references: [id])
+  reportsToPosition    Position?    @relation("PositionHierarchy", fields: [reportsToPositionId], references: [id])
+  subordinatePositions Position[]   @relation("PositionHierarchy")
+  employees            Employee[]
+
+  @@unique([organisationId, code])
+  @@unique([organisationId, title])
+  @@index([organisationId])
+  @@index([departmentId])
+  @@map("hr_positions")
+}
+
+enum PositionStatus {
+  ACTIVE
+  INACTIVE
+}
+
+/// The central HR record for a person employed/engaged by the
+/// organisation. Deliberately excludes payroll-sensitive fields (bank
+/// details, tax/national ID numbers, medical/biometric data) — out of
+/// scope this sprint, a future dedicated-security decision. `userId` is
+/// nullable and unique: an Employee may exist with no login account, and a
+/// User may exist before (or without ever having) an Employee record.
+model Employee {
+  id             String  @id @default(cuid())
+  organisationId String
+  employeeCode   String
+  userId         String? @unique
+
+  firstName                    String
+  middleName                   String?
+  lastName                     String
+  preferredName                String?
+  workEmail                    String?
+  personalEmail                String?
+  phoneNumber                  String?
+  alternatePhoneNumber         String?
+  dateOfBirth                  DateTime?
+  gender                       Gender?
+  nationality                  String?
+  address                      String?
+  emergencyContactName         String?
+  emergencyContactPhone        String?
+  emergencyContactRelationship String?
+
+  departmentId      String?
+  positionId        String?
+  managerEmployeeId String?
+
+  employmentType   EmploymentType
+  employmentStatus EmploymentStatus @default(DRAFT)
+
+  hireDate         DateTime
+  probationEndDate DateTime?
+  confirmationDate DateTime?
+  separationDate   DateTime?
+  separationReason String?
+
+  notes String?
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  organisation      Organisation        @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  user              User?               @relation(fields: [userId], references: [id])
+  department        Department?         @relation("EmployeeDepartment", fields: [departmentId], references: [id])
+  position          Position?           @relation(fields: [positionId], references: [id])
+  manager           Employee?           @relation("EmployeeManager", fields: [managerEmployeeId], references: [id])
+  directReports     Employee[]          @relation("EmployeeManager")
+  headOfDepartments Department[]        @relation("DepartmentHead")
+  documents         EmployeeDocument[]
+  onboarding        EmployeeOnboarding?
+
+  @@unique([organisationId, employeeCode])
+  @@index([organisationId])
+  @@index([departmentId])
+  @@index([positionId])
+  @@index([managerEmployeeId])
+  @@map("hr_employees")
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+  PREFER_NOT_TO_SAY
+}
+
+enum EmploymentType {
+  FULL_TIME
+  PART_TIME
+  CONTRACT
+  TEMPORARY
+  INTERN
+  CASUAL
+  VOLUNTEER
+}
+
+/// DRAFT → ONBOARDING → ACTIVE ⇄ SUSPENDED → SEPARATED (hard-terminal, the
+/// same terminal-status convention `Asset.DISPOSED`/`RETIRED` established).
+/// ON_LEAVE exists as a future-compatible value only — no transition into
+/// or out of it is implemented this sprint (no leave-management system
+/// exists), and no leave balance/record is implied by its presence.
+enum EmploymentStatus {
+  DRAFT
+  ONBOARDING
+  ACTIVE
+  ON_LEAVE
+  SUSPENDED
+  SEPARATED
+}
+
+/// Document metadata only — the exact `AssetDocument`/`MaintenanceDocument`
+/// url/key pattern (Sprint 20/21), reusing the same `FileStorageModule`.
+/// No binary content is ever stored in Postgres.
+model EmployeeDocument {
+  id               String                 @id @default(cuid())
+  organisationId   String
+  employeeId       String
+  documentType     EmployeeDocumentType
+  name             String
+  description      String?
+  url              String
+  key              String
+  issuedDate       DateTime?
+  expiryDate       DateTime?
+  status           EmployeeDocumentStatus @default(ACTIVE)
+  uploadedByUserId String?
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  employee     Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([organisationId])
+  @@index([employeeId])
+  @@map("hr_employee_documents")
+}
+
+enum EmployeeDocumentType {
+  EMPLOYMENT_CONTRACT
+  IDENTIFICATION
+  QUALIFICATION
+  CERTIFICATION
+  POLICY_ACKNOWLEDGEMENT
+  ONBOARDING_DOCUMENT
+  OTHER
+}
+
+enum EmployeeDocumentStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+/// One onboarding record per Employee (unique `employeeId`) — a checklist,
+/// not a workflow engine. No notifications are sent (deliberately, per
+/// this sprint's scope); `EmployeeOnboardingTask` rows are the only
+/// extension point a future notification system would hook into.
+model EmployeeOnboarding {
+  id                   String           @id @default(cuid())
+  organisationId       String
+  employeeId           String           @unique
+  status               OnboardingStatus @default(NOT_STARTED)
+  startedAt            DateTime?
+  targetCompletionDate DateTime?
+  completedAt          DateTime?
+  notes                String?
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+
+  organisation Organisation             @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  employee     Employee                 @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  tasks        EmployeeOnboardingTask[]
+
+  @@index([organisationId])
+  @@map("hr_employee_onboarding")
+}
+
+enum OnboardingStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+model EmployeeOnboardingTask {
+  id                String    @id @default(cuid())
+  organisationId    String
+  onboardingId      String
+  title             String
+  description       String?
+  isRequired        Boolean   @default(true)
+  completedAt       DateTime?
+  completedByUserId String?
+  sortOrder         Int       @default(0)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  organisation Organisation       @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  onboarding   EmployeeOnboarding @relation(fields: [onboardingId], references: [id], onDelete: Cascade)
+
+  @@index([organisationId])
+  @@index([onboardingId])
+  @@map("hr_employee_onboarding_tasks")
 }
