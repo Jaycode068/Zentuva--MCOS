@@ -7,6 +7,79 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 24 HR Attendance, Training & People Operations] - 2026-09-13
+
+**Extends the Sprint 23 HR foundation into basic daily people operations
+— attendance, work schedules, a policy catalogue, and a lightweight
+training catalogue.**
+
+### Added
+
+- **Work schedules** — expected hours master data (`code`/`name`,
+  work days, expected start/end time, a grace period), assigned to
+  employees via a direct nullable FK (no assignment-history table, same
+  convention as department/position). Used to derive on-time vs. late
+  attendance.
+- **Attendance** — server-authoritative sign-in/sign-out, one record per
+  employee per organisation-local calendar day (derived from
+  `Organisation.timeZone`). Self-service sign-in/out is idempotent and
+  gated to active, non-separated employees; administrative entry lets an
+  Owner/Administrator record attendance on any employee's behalf without
+  location. Optional, privacy-conscious location capture (latitude/
+  longitude/accuracy/label) that is never fabricated when permission is
+  denied or unavailable. `PRESENT`/`LATE` derived from the assigned work
+  schedule; `INCOMPLETE` derived lazily for a past day's dangling
+  sign-in — no cron job.
+- **Attendance corrections** — a dedicated, auditable
+  `AttendanceCorrectionRequest` entity. An employee may request a
+  correction only for their own record; approval applies the requested
+  values to the attendance record atomically inside one transaction;
+  rejection leaves the original values untouched; an employee cannot
+  approve their own request.
+- **Policy catalogue** — versioned policies (`Policy`/`PolicyVersion`)
+  with organisation-wide or department scope. Publishing a version
+  auto-archives the previously-published one; published/archived
+  versions are immutable; historical versions remain fully visible.
+  Employee acknowledgement (`PolicyAcknowledgement`) is unique per
+  employee/version and recorded administratively this sprint (the
+  backend also supports self-service acknowledgement, ready for a future
+  self-service UI).
+- **Training catalogue** — a lightweight `TrainingCourse`/
+  `EmployeeTraining` model, explicitly not an LMS. Assignment requires an
+  active course and rejects a duplicate active assignment; completion
+  validates a certificate reference belongs to the same employee;
+  `OVERDUE` is derived lazily on read, no cron job.
+- **People Operations overview** — the HR overview page gains today's
+  attendance split, attendance requiring review, pending policy
+  acknowledgements (a defensible per-policy denominator, never a
+  fabricated rate), and active/overdue training counts.
+- **Employee detail integration** — a new "Attendance, Training &
+  Policies" section on the employee detail page, composed read-only from
+  the existing endpoints above.
+- **`/settings/hr` admin surfaces** — Schedules, Attendance (with
+  responsive table/card list, filters, review, and correction actions),
+  Policies (catalogue, version history, publish, acknowledge), and
+  Training (courses, assignments) tabs.
+- **`/attendance`** — a new, dedicated mobile-first self-service surface
+  (its own route group, separate from Field Sales and Field Maintenance
+  by the same reasoning that already separated those two) for sign-in/
+  sign-out, history, and requesting a correction.
+
+### Notes
+
+- Zero accounting/inventory/procurement/production/sales/distribution/
+  asset/maintenance integration, by construction — proven executably by
+  `hr-independence.spec.ts`.
+- No fine-grained permission key was introduced (deferred to Sprint 25);
+  no workflow or notification engine was introduced (corrections,
+  overdue training, and pending acknowledgements are reviewed manually
+  this sprint).
+- Explicitly deferred: payroll, leave management (`ON_LEAVE` remains
+  unwired), recruitment, performance/KPI engines, an LMS, biometric
+  integration, geofencing/continuous location tracking, and a general
+  employee self-service portal. See
+  [`docs/domains/hr.md`](domains/hr.md) §21 for the complete list.
+
 ## [Sprint 23 HR Employee Lifecycle Foundation] - 2026-09-12
 
 **A new HR domain — the organisational and employee foundation future

@@ -18,6 +18,7 @@ import {
   AssignEmployeeDepartmentInput,
   AssignEmployeeManagerInput,
   AssignEmployeePositionInput,
+  AssignEmployeeWorkScheduleInput,
   CompleteOnboardingInput,
   CreateEmployeeInput,
   LinkEmployeeUserInput,
@@ -29,6 +30,7 @@ import {
   assignEmployeeDepartmentSchema,
   assignEmployeeManagerSchema,
   assignEmployeePositionSchema,
+  assignEmployeeWorkScheduleSchema,
   completeOnboardingSchema,
   createEmployeeSchema,
   linkEmployeeUserSchema,
@@ -48,10 +50,13 @@ import { Roles } from '../identity/auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../identity/auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../identity/auth/guards/roles.guard';
 import { TokenPayload } from '../identity/auth/ports/token.port';
+import { AttendanceService } from './attendance.service';
 import { EmployeeDocumentService } from './employee-document.service';
 import { EmployeeOnboardingService } from './employee-onboarding.service';
+import { EmployeeTrainingService } from './employee-training.service';
 import { EmployeeService } from './employee.service';
 import { HR_AUDIT_ACTIONS } from './hr-audit-actions';
+import { PolicyService } from './policy.service';
 
 @Controller('hr/employees')
 @UseGuards(JwtAuthGuard)
@@ -60,6 +65,9 @@ export class EmployeeController {
     private readonly employeeService: EmployeeService,
     private readonly onboardingService: EmployeeOnboardingService,
     private readonly documentService: EmployeeDocumentService,
+    private readonly attendanceService: AttendanceService,
+    private readonly policyService: PolicyService,
+    private readonly employeeTrainingService: EmployeeTrainingService,
     private readonly auditService: AuditService,
   ) {}
 
@@ -214,6 +222,34 @@ export class EmployeeController {
       organisationId: user.organisationId,
       actorUserId: user.sub,
       metadata: { managerEmployeeId: body.managerEmployeeId },
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+    });
+    return updated;
+  }
+
+  @Post(':id/work-schedule')
+  @UseGuards(RolesGuard)
+  @Roles('Owner', 'Administrator')
+  async assignWorkSchedule(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(assignEmployeeWorkScheduleSchema))
+    body: AssignEmployeeWorkScheduleInput,
+    @CurrentUser() user: TokenPayload,
+    @Req() req: Request,
+  ) {
+    const updated = await this.employeeService.assignWorkSchedule(
+      user.organisationId,
+      id,
+      body.workScheduleId,
+    );
+    await this.auditService.record({
+      action: HR_AUDIT_ACTIONS.EMPLOYEE_WORK_SCHEDULE_ASSIGNED,
+      entityType: 'Employee',
+      entityId: updated.id,
+      organisationId: user.organisationId,
+      actorUserId: user.sub,
+      metadata: { workScheduleId: body.workScheduleId },
       ipAddress: req.ip,
       userAgent: req.headers['user-agent'],
     });
@@ -493,6 +529,33 @@ export class EmployeeController {
       });
     }
     return onboarding;
+  }
+
+  // --- Sprint 24: attendance / policy / training summaries -----------------
+
+  @Get(':id/attendance')
+  getAttendance(
+    @CurrentUser() user: TokenPayload,
+    @Param('id') id: string,
+    @Query('dateFrom') dateFromRaw?: string,
+    @Query('dateTo') dateToRaw?: string,
+  ) {
+    const now = new Date();
+    const dateTo = dateToRaw ? new Date(dateToRaw) : now;
+    const dateFrom = dateFromRaw ? new Date(dateFromRaw) : new Date(now.getTime() - 30 * 86400000);
+    return this.attendanceService.listForEmployee(user.organisationId, id, dateFrom, dateTo);
+  }
+
+  @Get(':id/training')
+  async getTraining(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
+    const items = await this.employeeTrainingService.listForEmployee(user.organisationId, id);
+    return { items };
+  }
+
+  @Get(':id/policy-acknowledgements')
+  async getPolicyAcknowledgements(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
+    const items = await this.policyService.listAcknowledgementsForEmployee(user.organisationId, id);
+    return { items };
   }
 
   // --- Audit -----------------------------------------------------------

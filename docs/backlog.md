@@ -785,19 +785,26 @@ REJECTED}`) optionally linking an existing `CapitalProject`/
   recruitment automation, performance/KPI engines, training delivery,
   workflow/notification engines, and any Access Control redesign — those
   belong to Sprint 24/25 and beyond.
-- **Status:** **Foundation implemented — Sprint 23 ("HR Employee
-  Lifecycle Foundation")**. `employmentStatus` is a real lifecycle
-  (`DRAFT/ONBOARDING/ACTIVE/SUSPENDED/SEPARATED`, `SEPARATED`
-  hard-terminal) validated server-side by the exact
+- **Status:** **Sprints 23 and 24 both implemented and live-verified.**
+  Sprint 23 ("HR Employee Lifecycle Foundation"): `employmentStatus` is a
+  real lifecycle (`DRAFT/ONBOARDING/ACTIVE/SUSPENDED/SEPARATED`,
+  `SEPARATED` hard-terminal) validated server-side by the exact
   `AssetService.transition()` generic guard Sprint 20 established; a
   shared cycle-detection utility guards Department/Position/
   Employee-manager hierarchies alike; server-generated `EMP-000001`-style
-  employee codes, the exact `generateWorkOrderCode`/`generateAssetCode`
-  concurrency-safe pattern. Reuses Identity's `UserService`/
-  `AuditService`/guards unchanged — no fine-grained permission key was
-  introduced, since none is evaluated anywhere in the app yet (deferred
-  to Sprint 25). Zero accounting/inventory/procurement/production/sales/
-  distribution/asset/maintenance integration, by construction, proven by
+  employee codes. Sprint 24 ("HR Attendance, Training & People
+  Operations") extends it with `WorkSchedule`, `AttendanceRecord`/
+  `AttendanceCorrectionRequest` (server-authoritative sign-in/out,
+  privacy-conscious optional location capture, an atomic dedicated
+  correction-request/review flow), `Policy`/`PolicyVersion`/
+  `PolicyAcknowledgement` (versioned, auto-archive-on-publish), and
+  `TrainingCourse`/`EmployeeTraining` (explicitly not an LMS) — plus a
+  new dedicated self-service mobile surface at `/attendance`. Reuses
+  Identity's `UserService`/`OrganisationService`/`AuditService`/guards
+  unchanged — no fine-grained permission key was introduced, since none
+  is evaluated anywhere in the app yet (deferred to Sprint 25). Zero
+  accounting/inventory/procurement/production/sales/distribution/asset/
+  maintenance integration in either sprint, by construction, proven by
   `hr-independence.spec.ts`. See
   [`docs/domains/hr.md`](domains/hr.md) for the full record, including
   the Employee-vs-User and Department/Position-vs-Access-Role
@@ -850,20 +857,25 @@ REJECTED}`) optionally linking an existing `CapitalProject`/
 - ✓ Sprint 21 — Maintenance Management Foundation
 - ✓ Sprint 22 — Maintenance Ecosystem Integration
 - ✓ Sprint 23 — HR Employee Lifecycle Foundation
+- ✓ Sprint 24 — HR Attendance, Training & People Operations
 
 **Current focus:** The Finance MVP (Sprints 6-19) is considered
 functionally complete. Epic 14 (Asset & Maintenance Management) is fully
 built end-to-end — Sprint 20 (Asset Register), Sprint 21 (Maintenance
 Management foundation), and Sprint 22 (Maintenance Ecosystem
-Integration). Epic 24 (HR Employee Lifecycle Management) now has its
-foundation — Sprint 23 (Department/Position/Employee/Onboarding/
+Integration). Epic 24 (HR Employee Lifecycle Management) now spans two
+completed sprints — Sprint 23 (Department/Position/Employee/Onboarding/
 Documents, employee lifecycle actions, the `/settings/hr` admin
-workspace). Deliberately not started as part of Sprint 23's scope:
-payroll, attendance, leave, recruitment automation, performance/KPI
-engines, and a Technician RBAC role (from Sprint 22). Next sprint:
-Sprint 24 (HR Attendance, Training & People Operations) — not yet
-started; Sprint 25 (Access Control + Organisational Structure) is
-subsequent.
+workspace) and Sprint 24 (work schedules, attendance sign-in/out with
+corrections and review, a policy catalogue with versioning and
+acknowledgement, a lightweight training catalogue, an extended People
+Operations overview, and a new self-service `/attendance` mobile
+surface). Deliberately still not started: payroll, leave management,
+recruitment automation, performance/KPI engines, an LMS, a workflow/
+notification engine, and a Technician RBAC role (from Sprint 22). Next
+sprint: Sprint 25 (Access Control + Organisational Structure); Sprint 26
+(Workflow & Approval Engine) and Sprint 27 (Notification + Business
+Activity Engine) are subsequent.
 
 ## 6. Future Ideas (Not Prioritised Yet)
 

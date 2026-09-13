@@ -64,6 +64,29 @@ export default function HrOverviewPage() {
             />
           </div>
 
+          <div className="mb-8 grid grid-cols-2 gap-4 sm:grid-cols-4">
+            <SummaryCard title="Present Today" value={String(data.attendanceToday.present)} />
+            <SummaryCard title="Late Today" value={String(data.attendanceToday.late)} />
+            <SummaryCard
+              title="Attendance Needing Review"
+              value={String(data.attendanceRequiringReview)}
+              destructive={data.attendanceRequiringReview > 0}
+            />
+            <SummaryCard
+              title="Pending Policy Acknowledgements"
+              value={String(data.pendingPolicyAcknowledgements)}
+            />
+            <SummaryCard
+              title="Active Training Assignments"
+              value={String(data.activeTrainingAssignments)}
+            />
+            <SummaryCard
+              title="Overdue Training"
+              value={String(data.overdueTrainingAssignments)}
+              destructive={data.overdueTrainingAssignments > 0}
+            />
+          </div>
+
           <Card>
             <CardHeader>
               <CardTitle className="text-sm font-medium text-muted-foreground">

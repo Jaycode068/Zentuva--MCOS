@@ -33,8 +33,11 @@ import {
   completeOnboarding,
   completeOnboardingTask,
   getEmployee,
+  getEmployeeAttendance,
   getEmployeeAuditHistory,
   getEmployeeOnboarding,
+  getEmployeePolicyAcknowledgements,
+  getEmployeeTraining,
   linkEmployeeUser,
   listDepartments,
   listEmployeeDocuments,
@@ -47,7 +50,11 @@ import {
   unlinkEmployeeUser,
 } from '../../api';
 import {
+  ATTENDANCE_STATUS_LABELS,
+  ATTENDANCE_STATUS_VARIANT,
   EMPLOYEE_DOCUMENT_TYPE_LABELS,
+  EMPLOYEE_TRAINING_STATUS_LABELS,
+  EMPLOYEE_TRAINING_STATUS_VARIANT,
   EMPLOYMENT_STATUS_LABELS,
   EMPLOYMENT_STATUS_VARIANT,
   EMPLOYMENT_TYPE_LABELS,
@@ -115,6 +122,7 @@ export default function EmployeeDetailPage() {
         onChanged={invalidate}
       />
       <DocumentsSection employeeId={id} onChanged={invalidate} />
+      <PeopleOperationsSection employeeId={id} />
       <AuditSection employeeId={id} />
     </main>
   );
@@ -786,6 +794,93 @@ function DocumentsSection({
           {mutation.error instanceof ApiError ? mutation.error.message : 'Failed to add document.'}
         </p>
       )}
+    </Section>
+  );
+}
+
+/** Sprint 24 — attendance, training, and policy acknowledgement summaries
+ *  on the employee detail page, reusing the existing HR read endpoints
+ *  rather than duplicating any employee data. */
+function PeopleOperationsSection({ employeeId }: { employeeId: string }) {
+  const { data: attendance } = useQuery({
+    queryKey: ['hr-employee-attendance', employeeId],
+    queryFn: () => getEmployeeAttendance(employeeId),
+  });
+  const { data: training } = useQuery({
+    queryKey: ['hr-employee-training', employeeId],
+    queryFn: () => getEmployeeTraining(employeeId),
+  });
+  const { data: acknowledgements } = useQuery({
+    queryKey: ['hr-employee-acknowledgements', employeeId],
+    queryFn: () => getEmployeePolicyAcknowledgements(employeeId),
+  });
+
+  const recentAttendance = (attendance ?? []).slice(0, 5);
+  const trainingItems = training?.items ?? [];
+  const acknowledgementItems = acknowledgements?.items ?? [];
+
+  return (
+    <Section title="Attendance, Training & Policies">
+      <div>
+        <p className="mb-2 text-xs font-semibold uppercase text-muted-foreground">
+          Recent Attendance
+        </p>
+        {recentAttendance.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No attendance recorded yet.</p>
+        ) : (
+          <ul className="space-y-1.5">
+            {recentAttendance.map((record) => (
+              <li key={record.id} className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">
+                  {new Date(record.attendanceDate).toLocaleDateString()}
+                </span>
+                <Badge variant={ATTENDANCE_STATUS_VARIANT[record.status]}>
+                  {ATTENDANCE_STATUS_LABELS[record.status]}
+                </Badge>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <div className="pt-3">
+        <p className="mb-2 text-xs font-semibold uppercase text-muted-foreground">Training</p>
+        {trainingItems.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No training assigned yet.</p>
+        ) : (
+          <ul className="space-y-1.5">
+            {trainingItems.map((assignment) => (
+              <li key={assignment.id} className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">{assignment.trainingCourse?.title}</span>
+                <Badge variant={EMPLOYEE_TRAINING_STATUS_VARIANT[assignment.status]}>
+                  {EMPLOYEE_TRAINING_STATUS_LABELS[assignment.status]}
+                </Badge>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <div className="pt-3">
+        <p className="mb-2 text-xs font-semibold uppercase text-muted-foreground">
+          Policy Acknowledgements
+        </p>
+        {acknowledgementItems.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No policies acknowledged yet.</p>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            {acknowledgementItems.length} polic{acknowledgementItems.length === 1 ? 'y' : 'ies'}{' '}
+            acknowledged, most recently{' '}
+            {new Date(
+              acknowledgementItems
+                .map((a) => a.acknowledgedAt)
+                .sort()
+                .at(-1)!,
+            ).toLocaleDateString()}
+            .
+          </p>
+        )}
+      </div>
     </Section>
   );
 }

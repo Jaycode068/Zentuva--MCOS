@@ -9,6 +9,10 @@ const TABS = [
   { label: 'Departments', href: '/settings/hr/departments' },
   { label: 'Positions', href: '/settings/hr/positions' },
   { label: 'Organisation Structure', href: '/settings/hr/structure' },
+  { label: 'Schedules', href: '/settings/hr/schedules' },
+  { label: 'Attendance', href: '/settings/hr/attendance' },
+  { label: 'Policies', href: '/settings/hr/policies' },
+  { label: 'Training', href: '/settings/hr/training' },
 ];
 
 /** Shared sub-navigation for the `/settings/hr/*` pages (Sprint 23,

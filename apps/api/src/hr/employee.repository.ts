@@ -223,6 +223,14 @@ export class EmployeeRepository {
     return this.updateMatching(organisationId, id, { managerEmployeeId });
   }
 
+  assignWorkSchedule(
+    organisationId: string,
+    id: string,
+    workScheduleId: string | null,
+  ): Promise<Employee | null> {
+    return this.updateMatching(organisationId, id, { workScheduleId });
+  }
+
   async linkUser(
     organisationId: string,
     id: string,

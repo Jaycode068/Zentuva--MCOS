@@ -354,9 +354,33 @@ ASSIGNED → IN_PROGRESS ⇄ ON_HOLD → COMPLETED`/`CANCELLED`, both
       proven by `hr-independence.spec.ts`. Explicitly not payroll,
       attendance, recruitment, performance, or workflow — see
       [`docs/domains/hr.md`](domains/hr.md)
-- [ ] HR Attendance, Training & People Operations (Sprint 24 — next, not
+- [x] HR Attendance, Training & People Operations — shipped Sprint 24.
+      Extends the Sprint 23 foundation with `WorkSchedule` (expected
+      hours), `AttendanceRecord`/`AttendanceCorrectionRequest`
+      (server-authoritative sign-in/out, one row per employee per
+      organisation-local day derived from `Organisation.timeZone`,
+      privacy-conscious optional location capture that is never
+      fabricated, lazily-derived `INCOMPLETE`/training-`OVERDUE`
+      statuses instead of a cron job, a dedicated correction-request/
+      review entity applied atomically), `Policy`/`PolicyVersion`/
+      `PolicyAcknowledgement` (versioned catalogue, publishing
+      auto-archives the prior version, published versions immutable),
+      and `TrainingCourse`/`EmployeeTraining` (a lightweight catalogue,
+      explicitly not an LMS) — plus a new dedicated self-service mobile
+      surface at `/attendance`, separate from Field Sales/Field
+      Maintenance by the same reasoning that already separated those
+      two. No fine-grained permission key introduced (still deferred to
+      Sprint 25); zero accounting/inventory/procurement/production/
+      sales/distribution/asset/maintenance integration, by construction,
+      proven by `hr-independence.spec.ts`. Explicitly still not payroll,
+      leave management, recruitment, performance, an LMS, or a
+      workflow/notification engine — see
+      [`docs/domains/hr.md`](domains/hr.md)
+- [ ] Access Control + Organisational Structure (Sprint 25 — next, not
       yet started)
-- [ ] Access Control + Organisational Structure (Sprint 25 — subsequent,
+- [ ] Workflow & Approval Engine (Sprint 26 — subsequent, not yet
+      started)
+- [ ] Notification + Business Activity Engine (Sprint 27 — subsequent,
       not yet started)
 - [ ] Retail Portal (mobile)
 - [ ] Sales Rep mobile workflows

@@ -4,6 +4,7 @@ import { CreateEmployeeInput, UpdateEmployeeInput } from '@zentuva/validation';
 
 import { UserService } from '../identity/user/user.service';
 import { DepartmentRepository } from './department.repository';
+import { WorkScheduleRepository } from './work-schedule.repository';
 import {
   CreateEmployeeData,
   EmployeeRepository,
@@ -26,6 +27,7 @@ export class EmployeeService {
     private readonly employeeRepository: EmployeeRepository,
     private readonly departmentRepository: DepartmentRepository,
     private readonly positionRepository: PositionRepository,
+    private readonly workScheduleRepository: WorkScheduleRepository,
     private readonly userService: UserService,
   ) {}
 
@@ -180,6 +182,29 @@ export class EmployeeService {
       organisationId,
       id,
       managerEmployeeId,
+    );
+    if (!updated) {
+      throw new NotFoundException('Employee not found');
+    }
+    return updated;
+  }
+
+  async assignWorkSchedule(
+    organisationId: string,
+    id: string,
+    workScheduleId: string | null,
+  ): Promise<Employee> {
+    await this.getByIdOrThrow(organisationId, id);
+    if (workScheduleId) {
+      const schedule = await this.workScheduleRepository.findById(organisationId, workScheduleId);
+      if (!schedule) {
+        throw new BadRequestException('Work schedule not found in this organisation');
+      }
+    }
+    const updated = await this.employeeRepository.assignWorkSchedule(
+      organisationId,
+      id,
+      workScheduleId,
     );
     if (!updated) {
       throw new NotFoundException('Employee not found');

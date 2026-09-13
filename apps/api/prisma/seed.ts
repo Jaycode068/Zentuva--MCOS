@@ -5849,12 +5849,12 @@ async function seedHrFixtures(
 ): Promise<void> {
   console.log('Seeding Sprint 23 HR Employee Lifecycle Foundation fixtures...');
 
-  const existing = await prisma.department.findFirst({
+  const existingDepartment = await prisma.department.findFirst({
     where: { organisationId, code: 'EXEC' },
   });
-  if (existing) {
-    console.log('  Skipping — HR fixtures already seeded.');
-    return;
+  const sprint23AlreadySeeded = Boolean(existingDepartment);
+  if (sprint23AlreadySeeded) {
+    console.log('  Skipping Sprint 23 fixtures — already seeded.');
   }
 
   const departmentDefs = [
@@ -5868,323 +5868,737 @@ async function seedHrFixtures(
     { code: 'HR', name: 'Human Resources' },
   ] as const;
 
-  const departmentsByCode: Record<string, { id: string }> = {};
-  for (const def of departmentDefs) {
-    departmentsByCode[def.code] = await prisma.department.create({
+  let departmentsByCode: Record<string, { id: string }> = {};
+  let positionsByCode: Record<string, { id: string }> = {};
+  let employeesByCode: Record<string, { id: string }> = {};
+
+  if (!sprint23AlreadySeeded) {
+    for (const def of departmentDefs) {
+      departmentsByCode[def.code] = await prisma.department.create({
+        data: {
+          organisationId,
+          code: def.code,
+          name: def.name,
+          status: 'ACTIVE',
+          createdById: ownerUserId,
+        },
+      });
+    }
+
+    const positionDefs = [
+      { code: 'MD', title: 'Managing Director', dept: 'EXEC', reportsTo: null as string | null },
+      { code: 'GM', title: 'General Manager', dept: 'EXEC', reportsTo: 'MD' },
+      { code: 'PRODMGR', title: 'Production Manager', dept: 'PROD', reportsTo: 'GM' },
+      { code: 'PROCOFF', title: 'Procurement Officer', dept: 'PROC', reportsTo: 'GM' },
+      { code: 'WHSUP', title: 'Warehouse Supervisor', dept: 'INVW', reportsTo: 'GM' },
+      { code: 'SALESLEAD', title: 'Sales Team Lead', dept: 'SALE', reportsTo: 'GM' },
+      {
+        code: 'FIELDSALES',
+        title: 'Field Sales Representative',
+        dept: 'SALE',
+        reportsTo: 'SALESLEAD',
+      },
+      { code: 'FINOFF', title: 'Finance Officer', dept: 'FIN', reportsTo: 'GM' },
+      { code: 'MAINTSUP', title: 'Maintenance Supervisor', dept: 'MAINT', reportsTo: 'GM' },
+      { code: 'HRADMIN', title: 'HR/Administration Officer', dept: 'HR', reportsTo: 'GM' },
+    ] as const;
+
+    for (const def of positionDefs) {
+      positionsByCode[def.code] = await prisma.position.create({
+        data: {
+          organisationId,
+          code: def.code,
+          title: def.title,
+          departmentId: departmentsByCode[def.dept]?.id,
+          reportsToPositionId: def.reportsTo ? positionsByCode[def.reportsTo]?.id : undefined,
+          status: 'ACTIVE',
+          createdById: ownerUserId,
+        },
+      });
+    }
+
+    interface EmployeeDef {
+      code: string;
+      firstName: string;
+      lastName: string;
+      position: string;
+      dept: string;
+      manager?: string;
+      hireDate: Date;
+      employmentType: 'FULL_TIME' | 'PART_TIME' | 'CONTRACT';
+      employmentStatus: 'ACTIVE' | 'ONBOARDING' | 'SUSPENDED' | 'SEPARATED';
+      userId?: string;
+      workEmail?: string;
+    }
+
+    const employeeDefs: EmployeeDef[] = [
+      {
+        code: 'EMP-000001',
+        firstName: 'Adaeze',
+        lastName: 'Balogun',
+        position: 'MD',
+        dept: 'EXEC',
+        hireDate: new Date('2021-01-04'),
+        employmentType: 'FULL_TIME',
+        employmentStatus: 'ACTIVE',
+        userId: ownerUserId,
+        workEmail: 'adaeze.balogun@bobybites.local',
+      },
+      {
+        code: 'EMP-000002',
+        firstName: 'Chinedu',
+        lastName: 'Obi',
+        position: 'GM',
+        dept: 'EXEC',
+        manager: 'EMP-000001',
+        hireDate: new Date('2021-03-15'),
+        employmentType: 'FULL_TIME',
+        employmentStatus: 'ACTIVE',
+        userId: administratorUserId,
+        workEmail: 'chinedu.obi@bobybites.local',
+      },
+      {
+        code: 'EMP-000003',
+        firstName: 'Folake',
+        lastName: 'Adewale',
+        position: 'PRODMGR',
+        dept: 'PROD',
+        manager: 'EMP-000002',
+        hireDate: new Date('2021-06-01'),
+        employmentType: 'FULL_TIME',
+        employmentStatus: 'ACTIVE',
+        workEmail: 'folake.adewale@bobybites.local',
+      },
+      {
+        code: 'EMP-000004',
+        firstName: 'Ibrahim',
+        lastName: 'Musa',
+        position: 'PROCOFF',
+        dept: 'PROC',
+        manager: 'EMP-000002',
+        hireDate: new Date('2021-08-10'),
+        employmentType: 'FULL_TIME',
+        employmentStatus: 'ACTIVE',
+      },
+      {
+        code: 'EMP-000005',
+        firstName: 'Grace',
+        lastName: 'Effiong',
+        position: 'WHSUP',
+        dept: 'INVW',
+        manager: 'EMP-000002',
+        hireDate: new Date('2022-01-17'),
+        employmentType: 'FULL_TIME',
+        employmentStatus: 'ACTIVE',
+      },
+      {
+        code: 'EMP-000006',
+        firstName: 'Tunde',
+        lastName: 'Bakare',
+        position: 'SALESLEAD',
+        dept: 'SALE',
+        manager: 'EMP-000002',
+        hireDate: new Date('2022-02-01'),
+        employmentType: 'FULL_TIME',
+        employmentStatus: 'ACTIVE',
+        userId: memberUserId,
+        workEmail: 'tunde.bakare@bobybites.local',
+      },
+      {
+        code: 'EMP-000007',
+        firstName: 'Ngozi',
+        lastName: 'Eze',
+        position: 'FIELDSALES',
+        dept: 'SALE',
+        manager: 'EMP-000006',
+        hireDate: new Date('2022-09-05'),
+        employmentType: 'FULL_TIME',
+        employmentStatus: 'ACTIVE',
+      },
+      {
+        code: 'EMP-000008',
+        firstName: 'Emeka',
+        lastName: 'Nwachukwu',
+        position: 'FINOFF',
+        dept: 'FIN',
+        manager: 'EMP-000002',
+        hireDate: new Date('2022-04-11'),
+        employmentType: 'FULL_TIME',
+        employmentStatus: 'ACTIVE',
+      },
+      {
+        code: 'EMP-000009',
+        firstName: 'Segun',
+        lastName: 'Afolabi',
+        position: 'MAINTSUP',
+        dept: 'MAINT',
+        manager: 'EMP-000002',
+        hireDate: new Date('2023-01-09'),
+        employmentType: 'FULL_TIME',
+        employmentStatus: 'ACTIVE',
+      },
+      {
+        code: 'EMP-000010',
+        firstName: 'Blessing',
+        lastName: 'Okafor',
+        position: 'HRADMIN',
+        dept: 'HR',
+        manager: 'EMP-000002',
+        hireDate: new Date('2026-08-25'),
+        employmentType: 'FULL_TIME',
+        employmentStatus: 'ONBOARDING',
+      },
+      {
+        code: 'EMP-000011',
+        firstName: 'Kunle',
+        lastName: 'Adeyemi',
+        position: 'PRODMGR',
+        dept: 'PROD',
+        manager: 'EMP-000003',
+        hireDate: new Date('2022-11-14'),
+        employmentType: 'CONTRACT',
+        employmentStatus: 'SUSPENDED',
+      },
+      {
+        code: 'EMP-000012',
+        firstName: 'Yetunde',
+        lastName: 'Salako',
+        position: 'WHSUP',
+        dept: 'INVW',
+        manager: 'EMP-000005',
+        hireDate: new Date('2022-05-20'),
+        employmentType: 'FULL_TIME',
+        employmentStatus: 'SEPARATED',
+      },
+    ];
+
+    for (const def of employeeDefs) {
+      const employee = await prisma.employee.create({
+        data: {
+          organisationId,
+          employeeCode: def.code,
+          userId: def.userId,
+          firstName: def.firstName,
+          lastName: def.lastName,
+          workEmail: def.workEmail,
+          departmentId: departmentsByCode[def.dept]?.id,
+          positionId: positionsByCode[def.position]?.id,
+          managerEmployeeId: def.manager ? employeesByCode[def.manager]?.id : undefined,
+          employmentType: def.employmentType,
+          // Created directly at its target status — this seed represents an
+          // already-running organisation, not a fresh hire walking through
+          // every transition. Real transition validation is covered by
+          // `employee.service.spec.ts`, not re-proven here.
+          employmentStatus:
+            def.employmentStatus === 'ONBOARDING' ? 'ONBOARDING' : def.employmentStatus,
+          hireDate: def.hireDate,
+          separationDate: def.employmentStatus === 'SEPARATED' ? new Date('2026-07-31') : undefined,
+          separationReason:
+            def.employmentStatus === 'SEPARATED' ? 'Resigned — relocated out of state' : undefined,
+          createdById: ownerUserId,
+        },
+      });
+      employeesByCode[def.code] = employee;
+    }
+
+    // Department heads — set after employees exist, matching the real
+    // service-layer flow (a department can be created before its head is
+    // hired).
+    await prisma.department.update({
+      where: { id: departmentsByCode.EXEC!.id },
+      data: { departmentHeadEmployeeId: employeesByCode['EMP-000001']!.id },
+    });
+    await prisma.department.update({
+      where: { id: departmentsByCode.PROD!.id },
+      data: { departmentHeadEmployeeId: employeesByCode['EMP-000003']!.id },
+    });
+    await prisma.department.update({
+      where: { id: departmentsByCode.SALE!.id },
+      data: { departmentHeadEmployeeId: employeesByCode['EMP-000006']!.id },
+    });
+    await prisma.department.update({
+      where: { id: departmentsByCode.FIN!.id },
+      data: { departmentHeadEmployeeId: employeesByCode['EMP-000008']!.id },
+    });
+    await prisma.department.update({
+      where: { id: departmentsByCode.MAINT!.id },
+      data: { departmentHeadEmployeeId: employeesByCode['EMP-000009']!.id },
+    });
+
+    // Onboarding for EMP-000010 (HR/Administration Officer, still
+    // ONBOARDING) — the default 7-task checklist, with 3 of the 5 required
+    // tasks already done, demonstrating a genuine "in progress, cannot yet
+    // complete" state for live verification.
+    const onboarding = await prisma.employeeOnboarding.create({
       data: {
         organisationId,
-        code: def.code,
-        name: def.name,
-        status: 'ACTIVE',
-        createdById: ownerUserId,
+        employeeId: employeesByCode['EMP-000010']!.id,
+        status: 'IN_PROGRESS',
+        startedAt: new Date('2026-08-25T09:00:00Z'),
+        targetCompletionDate: new Date('2026-09-15'),
       },
     });
-  }
+    const onboardingTaskDefs = [
+      { title: 'Collect employment documentation', isRequired: true, sortOrder: 1, done: true },
+      { title: 'Confirm department and position', isRequired: true, sortOrder: 2, done: true },
+      { title: 'Create or link user account', isRequired: true, sortOrder: 3, done: false },
+      { title: 'Provide workplace orientation', isRequired: true, sortOrder: 4, done: true },
+      { title: 'Acknowledge key policies', isRequired: true, sortOrder: 5, done: false },
+      { title: 'Assign reporting manager', isRequired: false, sortOrder: 6, done: true },
+      { title: 'Confirm onboarding completion', isRequired: true, sortOrder: 7, done: false },
+    ];
+    for (const task of onboardingTaskDefs) {
+      await prisma.employeeOnboardingTask.create({
+        data: {
+          organisationId,
+          onboardingId: onboarding.id,
+          title: task.title,
+          isRequired: task.isRequired,
+          sortOrder: task.sortOrder,
+          completedAt: task.done ? new Date('2026-08-26T10:00:00Z') : undefined,
+          completedByUserId: task.done ? administratorUserId : undefined,
+        },
+      });
+    }
 
-  const positionDefs = [
-    { code: 'MD', title: 'Managing Director', dept: 'EXEC', reportsTo: null as string | null },
-    { code: 'GM', title: 'General Manager', dept: 'EXEC', reportsTo: 'MD' },
-    { code: 'PRODMGR', title: 'Production Manager', dept: 'PROD', reportsTo: 'GM' },
-    { code: 'PROCOFF', title: 'Procurement Officer', dept: 'PROC', reportsTo: 'GM' },
-    { code: 'WHSUP', title: 'Warehouse Supervisor', dept: 'INVW', reportsTo: 'GM' },
-    { code: 'SALESLEAD', title: 'Sales Team Lead', dept: 'SALE', reportsTo: 'GM' },
-    {
-      code: 'FIELDSALES',
-      title: 'Field Sales Representative',
-      dept: 'SALE',
-      reportsTo: 'SALESLEAD',
-    },
-    { code: 'FINOFF', title: 'Finance Officer', dept: 'FIN', reportsTo: 'GM' },
-    { code: 'MAINTSUP', title: 'Maintenance Supervisor', dept: 'MAINT', reportsTo: 'GM' },
-    { code: 'HRADMIN', title: 'HR/Administration Officer', dept: 'HR', reportsTo: 'GM' },
-  ] as const;
-
-  const positionsByCode: Record<string, { id: string }> = {};
-  for (const def of positionDefs) {
-    positionsByCode[def.code] = await prisma.position.create({
+    // One document each for the Managing Director and the onboarding HR
+    // Officer — metadata only, no real file upload (this seed script has
+    // no multipart request to send), matching the `AssetDocument`/
+    // `MaintenanceDocument` fixtures' own "metadata without a real binary"
+    // convention where a placeholder URL is acceptable for demo data.
+    await prisma.employeeDocument.create({
       data: {
         organisationId,
-        code: def.code,
-        title: def.title,
-        departmentId: departmentsByCode[def.dept]?.id,
-        reportsToPositionId: def.reportsTo ? positionsByCode[def.reportsTo]?.id : undefined,
-        status: 'ACTIVE',
-        createdById: ownerUserId,
+        employeeId: employeesByCode['EMP-000001']!.id,
+        documentType: 'EMPLOYMENT_CONTRACT',
+        name: 'Employment Contract — Adaeze Balogun',
+        url: '/uploads/employee-documents/seed-placeholder-contract.pdf',
+        key: 'employee-documents/seed-placeholder-contract',
+        issuedDate: new Date('2021-01-04'),
+        uploadedByUserId: ownerUserId,
       },
     });
+    await prisma.employeeDocument.create({
+      data: {
+        organisationId,
+        employeeId: employeesByCode['EMP-000010']!.id,
+        documentType: 'IDENTIFICATION',
+        name: 'National ID — Blessing Okafor',
+        url: '/uploads/employee-documents/seed-placeholder-id.pdf',
+        key: 'employee-documents/seed-placeholder-id',
+        uploadedByUserId: administratorUserId,
+      },
+    });
+  } else {
+    // Sprint 23 fixtures already exist (e.g. a re-run after this
+    // organisation was seeded before Sprint 24 existed) — reload the
+    // lookup maps from the database so Sprint 24 fixtures below can still
+    // reference the right department/position/employee ids.
+    const [departments, positions, employees] = await Promise.all([
+      prisma.department.findMany({ where: { organisationId } }),
+      prisma.position.findMany({ where: { organisationId } }),
+      prisma.employee.findMany({ where: { organisationId } }),
+    ]);
+    departmentsByCode = Object.fromEntries(departments.map((d) => [d.code, d]));
+    positionsByCode = Object.fromEntries(positions.map((p) => [p.code, p]));
+    employeesByCode = Object.fromEntries(employees.map((e) => [e.employeeCode, e]));
   }
 
-  interface EmployeeDef {
-    code: string;
-    firstName: string;
-    lastName: string;
-    position: string;
-    dept: string;
-    manager?: string;
-    hireDate: Date;
-    employmentType: 'FULL_TIME' | 'PART_TIME' | 'CONTRACT';
-    employmentStatus: 'ACTIVE' | 'ONBOARDING' | 'SUSPENDED' | 'SEPARATED';
-    userId?: string;
-    workEmail?: string;
+  // ---------------------------------------------------------------------
+  // Sprint 24 — Attendance, Training & People Operations
+  // ---------------------------------------------------------------------
+
+  const existingSchedule = await prisma.workSchedule.findFirst({
+    where: { organisationId, code: 'STD-WEEKDAY' },
+  });
+  if (existingSchedule) {
+    console.log('  Skipping Sprint 24 fixtures — already seeded.');
+    return;
   }
 
-  const employeeDefs: EmployeeDef[] = [
-    {
-      code: 'EMP-000001',
-      firstName: 'Adaeze',
-      lastName: 'Balogun',
-      position: 'MD',
-      dept: 'EXEC',
-      hireDate: new Date('2021-01-04'),
-      employmentType: 'FULL_TIME',
-      employmentStatus: 'ACTIVE',
-      userId: ownerUserId,
-      workEmail: 'adaeze.balogun@bobybites.local',
+  console.log('Seeding Sprint 24 HR Attendance, Training & People Operations fixtures...');
+
+  const standardSchedule = await prisma.workSchedule.create({
+    data: {
+      organisationId,
+      code: 'STD-WEEKDAY',
+      name: 'Standard Weekday',
+      description: 'Monday to Friday, 9am–5pm, with a 10-minute grace period.',
+      workDays: [1, 2, 3, 4, 5],
+      expectedStartTime: '09:00',
+      expectedEndTime: '17:00',
+      gracePeriodMinutes: 10,
+      status: 'ACTIVE',
     },
-    {
-      code: 'EMP-000002',
-      firstName: 'Chinedu',
-      lastName: 'Obi',
-      position: 'GM',
-      dept: 'EXEC',
-      manager: 'EMP-000001',
-      hireDate: new Date('2021-03-15'),
-      employmentType: 'FULL_TIME',
-      employmentStatus: 'ACTIVE',
-      userId: administratorUserId,
-      workEmail: 'chinedu.obi@bobybites.local',
+  });
+  const productionSchedule = await prisma.workSchedule.create({
+    data: {
+      organisationId,
+      code: 'PROD-SHIFT',
+      name: 'Production Shift',
+      description: 'Monday to Saturday, 6am–2pm, with a 15-minute grace period.',
+      workDays: [1, 2, 3, 4, 5, 6],
+      expectedStartTime: '06:00',
+      expectedEndTime: '14:00',
+      gracePeriodMinutes: 15,
+      status: 'ACTIVE',
     },
-    {
-      code: 'EMP-000003',
-      firstName: 'Folake',
-      lastName: 'Adewale',
-      position: 'PRODMGR',
-      dept: 'PROD',
-      manager: 'EMP-000002',
-      hireDate: new Date('2021-06-01'),
-      employmentType: 'FULL_TIME',
-      employmentStatus: 'ACTIVE',
-      workEmail: 'folake.adewale@bobybites.local',
-    },
-    {
-      code: 'EMP-000004',
-      firstName: 'Ibrahim',
-      lastName: 'Musa',
-      position: 'PROCOFF',
-      dept: 'PROC',
-      manager: 'EMP-000002',
-      hireDate: new Date('2021-08-10'),
-      employmentType: 'FULL_TIME',
-      employmentStatus: 'ACTIVE',
-    },
-    {
-      code: 'EMP-000005',
-      firstName: 'Grace',
-      lastName: 'Effiong',
-      position: 'WHSUP',
-      dept: 'INVW',
-      manager: 'EMP-000002',
-      hireDate: new Date('2022-01-17'),
-      employmentType: 'FULL_TIME',
-      employmentStatus: 'ACTIVE',
-    },
-    {
-      code: 'EMP-000006',
-      firstName: 'Tunde',
-      lastName: 'Bakare',
-      position: 'SALESLEAD',
-      dept: 'SALE',
-      manager: 'EMP-000002',
-      hireDate: new Date('2022-02-01'),
-      employmentType: 'FULL_TIME',
-      employmentStatus: 'ACTIVE',
-      userId: memberUserId,
-      workEmail: 'tunde.bakare@bobybites.local',
-    },
-    {
-      code: 'EMP-000007',
-      firstName: 'Ngozi',
-      lastName: 'Eze',
-      position: 'FIELDSALES',
-      dept: 'SALE',
-      manager: 'EMP-000006',
-      hireDate: new Date('2022-09-05'),
-      employmentType: 'FULL_TIME',
-      employmentStatus: 'ACTIVE',
-    },
-    {
-      code: 'EMP-000008',
-      firstName: 'Emeka',
-      lastName: 'Nwachukwu',
-      position: 'FINOFF',
-      dept: 'FIN',
-      manager: 'EMP-000002',
-      hireDate: new Date('2022-04-11'),
-      employmentType: 'FULL_TIME',
-      employmentStatus: 'ACTIVE',
-    },
-    {
-      code: 'EMP-000009',
-      firstName: 'Segun',
-      lastName: 'Afolabi',
-      position: 'MAINTSUP',
-      dept: 'MAINT',
-      manager: 'EMP-000002',
-      hireDate: new Date('2023-01-09'),
-      employmentType: 'FULL_TIME',
-      employmentStatus: 'ACTIVE',
-    },
-    {
-      code: 'EMP-000010',
-      firstName: 'Blessing',
-      lastName: 'Okafor',
-      position: 'HRADMIN',
-      dept: 'HR',
-      manager: 'EMP-000002',
-      hireDate: new Date('2026-08-25'),
-      employmentType: 'FULL_TIME',
-      employmentStatus: 'ONBOARDING',
-    },
-    {
-      code: 'EMP-000011',
-      firstName: 'Kunle',
-      lastName: 'Adeyemi',
-      position: 'PRODMGR',
-      dept: 'PROD',
-      manager: 'EMP-000003',
-      hireDate: new Date('2022-11-14'),
-      employmentType: 'CONTRACT',
-      employmentStatus: 'SUSPENDED',
-    },
-    {
-      code: 'EMP-000012',
-      firstName: 'Yetunde',
-      lastName: 'Salako',
-      position: 'WHSUP',
-      dept: 'INVW',
-      manager: 'EMP-000005',
-      hireDate: new Date('2022-05-20'),
-      employmentType: 'FULL_TIME',
-      employmentStatus: 'SEPARATED',
-    },
+  });
+
+  const standardScheduleEmployees = [
+    'EMP-000001',
+    'EMP-000002',
+    'EMP-000004',
+    'EMP-000005',
+    'EMP-000006',
+    'EMP-000008',
+    'EMP-000009',
+    'EMP-000010',
   ];
-
-  const employeesByCode: Record<string, { id: string }> = {};
-  for (const def of employeeDefs) {
-    const employee = await prisma.employee.create({
-      data: {
-        organisationId,
-        employeeCode: def.code,
-        userId: def.userId,
-        firstName: def.firstName,
-        lastName: def.lastName,
-        workEmail: def.workEmail,
-        departmentId: departmentsByCode[def.dept]?.id,
-        positionId: positionsByCode[def.position]?.id,
-        managerEmployeeId: def.manager ? employeesByCode[def.manager]?.id : undefined,
-        employmentType: def.employmentType,
-        // Created directly at its target status — this seed represents an
-        // already-running organisation, not a fresh hire walking through
-        // every transition. Real transition validation is covered by
-        // `employee.service.spec.ts`, not re-proven here.
-        employmentStatus:
-          def.employmentStatus === 'ONBOARDING' ? 'ONBOARDING' : def.employmentStatus,
-        hireDate: def.hireDate,
-        separationDate: def.employmentStatus === 'SEPARATED' ? new Date('2026-07-31') : undefined,
-        separationReason:
-          def.employmentStatus === 'SEPARATED' ? 'Resigned — relocated out of state' : undefined,
-        createdById: ownerUserId,
-      },
+  for (const code of standardScheduleEmployees) {
+    await prisma.employee.update({
+      where: { id: employeesByCode[code]!.id },
+      data: { workScheduleId: standardSchedule.id },
     });
-    employeesByCode[def.code] = employee;
   }
-
-  // Department heads — set after employees exist, matching the real
-  // service-layer flow (a department can be created before its head is
-  // hired).
-  await prisma.department.update({
-    where: { id: departmentsByCode.EXEC!.id },
-    data: { departmentHeadEmployeeId: employeesByCode['EMP-000001']!.id },
-  });
-  await prisma.department.update({
-    where: { id: departmentsByCode.PROD!.id },
-    data: { departmentHeadEmployeeId: employeesByCode['EMP-000003']!.id },
-  });
-  await prisma.department.update({
-    where: { id: departmentsByCode.SALE!.id },
-    data: { departmentHeadEmployeeId: employeesByCode['EMP-000006']!.id },
-  });
-  await prisma.department.update({
-    where: { id: departmentsByCode.FIN!.id },
-    data: { departmentHeadEmployeeId: employeesByCode['EMP-000008']!.id },
-  });
-  await prisma.department.update({
-    where: { id: departmentsByCode.MAINT!.id },
-    data: { departmentHeadEmployeeId: employeesByCode['EMP-000009']!.id },
-  });
-
-  // Onboarding for EMP-000010 (HR/Administration Officer, still
-  // ONBOARDING) — the default 7-task checklist, with 3 of the 5 required
-  // tasks already done, demonstrating a genuine "in progress, cannot yet
-  // complete" state for live verification.
-  const onboarding = await prisma.employeeOnboarding.create({
-    data: {
-      organisationId,
-      employeeId: employeesByCode['EMP-000010']!.id,
-      status: 'IN_PROGRESS',
-      startedAt: new Date('2026-08-25T09:00:00Z'),
-      targetCompletionDate: new Date('2026-09-15'),
-    },
-  });
-  const onboardingTaskDefs = [
-    { title: 'Collect employment documentation', isRequired: true, sortOrder: 1, done: true },
-    { title: 'Confirm department and position', isRequired: true, sortOrder: 2, done: true },
-    { title: 'Create or link user account', isRequired: true, sortOrder: 3, done: false },
-    { title: 'Provide workplace orientation', isRequired: true, sortOrder: 4, done: true },
-    { title: 'Acknowledge key policies', isRequired: true, sortOrder: 5, done: false },
-    { title: 'Assign reporting manager', isRequired: false, sortOrder: 6, done: true },
-    { title: 'Confirm onboarding completion', isRequired: true, sortOrder: 7, done: false },
-  ];
-  for (const task of onboardingTaskDefs) {
-    await prisma.employeeOnboardingTask.create({
-      data: {
-        organisationId,
-        onboardingId: onboarding.id,
-        title: task.title,
-        isRequired: task.isRequired,
-        sortOrder: task.sortOrder,
-        completedAt: task.done ? new Date('2026-08-26T10:00:00Z') : undefined,
-        completedByUserId: task.done ? administratorUserId : undefined,
-      },
+  for (const code of ['EMP-000003', 'EMP-000011']) {
+    await prisma.employee.update({
+      where: { id: employeesByCode[code]!.id },
+      data: { workScheduleId: productionSchedule.id },
     });
   }
 
-  // One document each for the Managing Director and the onboarding HR
-  // Officer — metadata only, no real file upload (this seed script has
-  // no multipart request to send), matching the `AssetDocument`/
-  // `MaintenanceDocument` fixtures' own "metadata without a real binary"
-  // convention where a placeholder URL is acceptable for demo data.
-  await prisma.employeeDocument.create({
+  // Attendance — one of each required demo scenario, all on past dates so
+  // they read as settled history rather than "in progress today".
+  const presentRecord = await prisma.attendanceRecord.create({
     data: {
       organisationId,
-      employeeId: employeesByCode['EMP-000001']!.id,
-      documentType: 'EMPLOYMENT_CONTRACT',
-      name: 'Employment Contract — Adaeze Balogun',
-      url: '/uploads/employee-documents/seed-placeholder-contract.pdf',
-      key: 'employee-documents/seed-placeholder-contract',
-      issuedDate: new Date('2021-01-04'),
-      uploadedByUserId: ownerUserId,
+      employeeId: employeesByCode['EMP-000002']!.id,
+      attendanceDate: new Date('2026-09-10T00:00:00.000Z'),
+      workScheduleId: standardSchedule.id,
+      signInAt: new Date('2026-09-10T08:55:00.000Z'),
+      signInLatitude: 6.5244,
+      signInLongitude: 3.3792,
+      signInAccuracyMeters: 25,
+      signInLocationLabel: 'Demo location — Head Office (approximate)',
+      signOutAt: new Date('2026-09-10T17:05:00.000Z'),
+      signOutLatitude: 6.5244,
+      signOutLongitude: 3.3792,
+      signOutAccuracyMeters: 30,
+      signOutLocationLabel: 'Demo location — Head Office (approximate)',
+      status: 'PRESENT',
+      reviewStatus: 'NOT_REVIEWED',
+      source: 'SELF_SERVICE',
     },
   });
-  await prisma.employeeDocument.create({
+  const lateRecord = await prisma.attendanceRecord.create({
     data: {
       organisationId,
-      employeeId: employeesByCode['EMP-000010']!.id,
-      documentType: 'IDENTIFICATION',
-      name: 'National ID — Blessing Okafor',
-      url: '/uploads/employee-documents/seed-placeholder-id.pdf',
-      key: 'employee-documents/seed-placeholder-id',
+      employeeId: employeesByCode['EMP-000006']!.id,
+      attendanceDate: new Date('2026-09-10T00:00:00.000Z'),
+      workScheduleId: standardSchedule.id,
+      signInAt: new Date('2026-09-10T09:25:00.000Z'),
+      signOutAt: new Date('2026-09-10T17:10:00.000Z'),
+      status: 'LATE',
+      reviewStatus: 'NOT_REVIEWED',
+      source: 'SELF_SERVICE',
+      notes: 'Location permission was denied on this device — no coordinates captured.',
+    },
+  });
+  await prisma.attendanceRecord.create({
+    data: {
+      organisationId,
+      employeeId: employeesByCode['EMP-000008']!.id,
+      attendanceDate: new Date('2026-09-09T00:00:00.000Z'),
+      workScheduleId: standardSchedule.id,
+      signInAt: new Date('2026-09-09T09:02:00.000Z'),
+      // No sign-out on a past date — the exact shape `AttendanceService`'s
+      // lazy `markPastIncomplete` derives on every list/get read; seeded
+      // directly here as INCOMPLETE so the fixture already reflects what
+      // the very first live read would produce.
+      status: 'INCOMPLETE',
+      reviewStatus: 'NOT_REVIEWED',
+      source: 'SELF_SERVICE',
+    },
+  });
+  await prisma.attendanceRecord.create({
+    data: {
+      organisationId,
+      employeeId: employeesByCode['EMP-000009']!.id,
+      attendanceDate: new Date('2026-09-09T00:00:00.000Z'),
+      signInAt: new Date('2026-09-09T09:30:00.000Z'),
+      signOutAt: new Date('2026-09-09T17:00:00.000Z'),
+      status: 'PRESENT',
+      reviewStatus: 'REQUIRES_CORRECTION',
+      source: 'SELF_SERVICE',
+      notes: 'Sign-in time looks inconsistent with the gate log — please verify.',
+    },
+  });
+  await prisma.attendanceRecord.create({
+    data: {
+      organisationId,
+      employeeId: employeesByCode['EMP-000005']!.id,
+      attendanceDate: new Date('2026-09-08T00:00:00.000Z'),
+      signInAt: new Date('2026-09-08T08:00:00.000Z'),
+      signOutAt: new Date('2026-09-08T16:00:00.000Z'),
+      status: 'PRESENT',
+      reviewStatus: 'NOT_REVIEWED',
+      source: 'ADMINISTRATIVE',
+      notes: 'Recorded by HR — no device was available at the warehouse gate that day.',
+    },
+  });
+
+  // One pending correction request against the LATE record above — a
+  // realistic "biometric device was slow" dispute, left REQUESTED so live
+  // verification can exercise the review/approve flow end to end.
+  await prisma.attendanceCorrectionRequest.create({
+    data: {
+      organisationId,
+      attendanceRecordId: lateRecord.id,
+      requestedByEmployeeId: employeesByCode['EMP-000006']!.id,
+      requestedByUserId: memberUserId,
+      requestedSignInAt: new Date('2026-09-10T09:05:00.000Z'),
+      reason: 'The biometric device was slow to register my sign-in this morning.',
+      status: 'REQUESTED',
+    },
+  });
+  void presentRecord;
+
+  // Policies — Workplace Conduct gets two versions (superseded → current),
+  // demonstrating that an archived version remains historically visible;
+  // the other three each get a single published version.
+  const conductPolicy = await prisma.policy.create({
+    data: {
+      organisationId,
+      code: 'CONDUCT',
+      title: 'Workplace Conduct Policy',
+      description: 'Expected standards of behaviour for all Boby Bites employees.',
+      scopeType: 'ORGANISATION',
+      status: 'ACTIVE',
+    },
+  });
+  const conductV1 = await prisma.policyVersion.create({
+    data: {
+      organisationId,
+      policyId: conductPolicy.id,
+      versionNumber: 1,
+      content: 'v1: Treat colleagues, customers, and suppliers with respect at all times.',
+      effectiveDate: new Date('2025-01-01'),
+      requiresAcknowledgement: true,
+      status: 'ARCHIVED',
+      publishedAt: new Date('2025-01-01'),
+      publishedByUserId: ownerUserId,
+    },
+  });
+  const conductV2 = await prisma.policyVersion.create({
+    data: {
+      organisationId,
+      policyId: conductPolicy.id,
+      versionNumber: 2,
+      content:
+        'v2: Treat colleagues, customers, and suppliers with respect at all times. Updated 2026 with the anti-harassment section expanded.',
+      effectiveDate: new Date('2026-06-01'),
+      requiresAcknowledgement: true,
+      status: 'PUBLISHED',
+      publishedAt: new Date('2026-06-01'),
+      publishedByUserId: ownerUserId,
+    },
+  });
+  void conductV1;
+
+  const safetyPolicy = await prisma.policy.create({
+    data: {
+      organisationId,
+      code: 'SAFETY',
+      title: 'Health and Safety Policy',
+      scopeType: 'ORGANISATION',
+      status: 'ACTIVE',
+    },
+  });
+  const safetyVersion = await prisma.policyVersion.create({
+    data: {
+      organisationId,
+      policyId: safetyPolicy.id,
+      versionNumber: 1,
+      content: 'Personal protective equipment is mandatory on the production floor at all times.',
+      effectiveDate: new Date('2026-01-01'),
+      requiresAcknowledgement: true,
+      status: 'PUBLISHED',
+      publishedAt: new Date('2026-01-01'),
+      publishedByUserId: ownerUserId,
+    },
+  });
+
+  const hygienePolicy = await prisma.policy.create({
+    data: {
+      organisationId,
+      code: 'PROD-HYGIENE',
+      title: 'Production Hygiene Policy',
+      scopeType: 'DEPARTMENT',
+      departmentId: departmentsByCode.PROD!.id,
+      ownerDepartmentId: departmentsByCode.PROD!.id,
+      status: 'ACTIVE',
+    },
+  });
+  await prisma.policyVersion.create({
+    data: {
+      organisationId,
+      policyId: hygienePolicy.id,
+      versionNumber: 1,
+      content: 'Hairnets and gloves are required on the production floor at all times.',
+      effectiveDate: new Date('2026-01-01'),
+      requiresAcknowledgement: true,
+      status: 'PUBLISHED',
+      publishedAt: new Date('2026-01-01'),
+      publishedByUserId: ownerUserId,
+    },
+  });
+
+  const infosecPolicy = await prisma.policy.create({
+    data: {
+      organisationId,
+      code: 'INFOSEC',
+      title: 'Information Security Policy',
+      scopeType: 'ORGANISATION',
+      status: 'ACTIVE',
+    },
+  });
+  await prisma.policyVersion.create({
+    data: {
+      organisationId,
+      policyId: infosecPolicy.id,
+      versionNumber: 1,
+      content: 'Company devices must be locked whenever unattended.',
+      effectiveDate: new Date('2026-01-01'),
+      requiresAcknowledgement: false,
+      status: 'PUBLISHED',
+      publishedAt: new Date('2026-01-01'),
+      publishedByUserId: ownerUserId,
+    },
+  });
+
+  // Acknowledgements — some employees, not all, mirroring a realistic
+  // rollout in progress.
+  for (const code of ['EMP-000001', 'EMP-000002', 'EMP-000003', 'EMP-000006']) {
+    await prisma.policyAcknowledgement.create({
+      data: {
+        organisationId,
+        employeeId: employeesByCode[code]!.id,
+        policyVersionId: conductV2.id,
+        acknowledgedAt: new Date('2026-06-05'),
+        acknowledgedByUserId: administratorUserId,
+        source: 'ADMINISTRATIVE',
+      },
+    });
+  }
+  for (const code of ['EMP-000003', 'EMP-000009']) {
+    await prisma.policyAcknowledgement.create({
+      data: {
+        organisationId,
+        employeeId: employeesByCode[code]!.id,
+        policyVersionId: safetyVersion.id,
+        acknowledgedAt: new Date('2026-01-10'),
+        acknowledgedByUserId: administratorUserId,
+        source: 'ADMINISTRATIVE',
+      },
+    });
+  }
+
+  // Training catalogue and assignments — assigned, completed (with a
+  // certificate document reference), and overdue.
+  const safetyCourse = await prisma.trainingCourse.create({
+    data: {
+      organisationId,
+      code: 'SAFETY-101',
+      title: 'Workplace Safety Induction',
+      deliveryMode: 'IN_PERSON',
+      durationMinutes: 120,
+      status: 'ACTIVE',
+    },
+  });
+  const hygieneCourse = await prisma.trainingCourse.create({
+    data: {
+      organisationId,
+      code: 'HYGIENE-101',
+      title: 'Production Hygiene Training',
+      deliveryMode: 'IN_PERSON',
+      durationMinutes: 90,
+      validityPeriodDays: 365,
+      status: 'ACTIVE',
+    },
+  });
+  const equipmentCourse = await prisma.trainingCourse.create({
+    data: {
+      organisationId,
+      code: 'EQUIP-SAFETY',
+      title: 'Equipment Safety Orientation',
+      deliveryMode: 'BLENDED',
+      durationMinutes: 60,
+      status: 'ACTIVE',
+    },
+  });
+  await prisma.trainingCourse.create({
+    data: {
+      organisationId,
+      code: 'INFOSEC-101',
+      title: 'Basic Information Security',
+      deliveryMode: 'ONLINE',
+      durationMinutes: 45,
+      status: 'ACTIVE',
+    },
+  });
+
+  await prisma.employeeTraining.create({
+    data: {
+      organisationId,
+      employeeId: employeesByCode['EMP-000004']!.id,
+      trainingCourseId: safetyCourse.id,
+      assignedByUserId: administratorUserId,
+      assignedAt: new Date('2026-09-01'),
+      dueDate: new Date('2026-10-01'),
+      status: 'ASSIGNED',
+    },
+  });
+
+  const hygieneCertificate = await prisma.employeeDocument.create({
+    data: {
+      organisationId,
+      employeeId: employeesByCode['EMP-000003']!.id,
+      documentType: 'CERTIFICATION',
+      name: 'Production Hygiene Training Certificate — Folake Adewale',
+      url: '/uploads/employee-documents/seed-placeholder-hygiene-certificate.pdf',
+      key: 'employee-documents/seed-placeholder-hygiene-certificate',
+      issuedDate: new Date('2026-02-15'),
       uploadedByUserId: administratorUserId,
+    },
+  });
+  await prisma.employeeTraining.create({
+    data: {
+      organisationId,
+      employeeId: employeesByCode['EMP-000003']!.id,
+      trainingCourseId: hygieneCourse.id,
+      assignedByUserId: administratorUserId,
+      assignedAt: new Date('2026-02-01'),
+      dueDate: new Date('2026-02-20'),
+      startedAt: new Date('2026-02-10'),
+      completedAt: new Date('2026-02-15'),
+      status: 'COMPLETED',
+      certificateDocumentId: hygieneCertificate.id,
+    },
+  });
+
+  await prisma.employeeTraining.create({
+    data: {
+      organisationId,
+      employeeId: employeesByCode['EMP-000005']!.id,
+      trainingCourseId: equipmentCourse.id,
+      assignedByUserId: administratorUserId,
+      assignedAt: new Date('2026-07-01'),
+      dueDate: new Date('2026-08-01'),
+      // Past its due date and never completed — seeded directly as
+      // OVERDUE, the same status `EmployeeTrainingRepository.syncOverdue`
+      // would lazily derive on the first live read.
+      status: 'OVERDUE',
     },
   });
 }

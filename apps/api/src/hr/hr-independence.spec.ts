@@ -37,6 +37,26 @@ describe('HR Employee Lifecycle Foundation independence (Sprint 23)', () => {
     'hr-overview.service.ts',
     'hr-organisation-structure.service.ts',
     'hr-overview.controller.ts',
+    // Sprint 24 — Attendance, Training & People Operations
+    'hr-attendance-date.util.ts',
+    'policy-version-number.ts',
+    'work-schedule.repository.ts',
+    'work-schedule.service.ts',
+    'work-schedule.controller.ts',
+    'attendance.repository.ts',
+    'attendance.service.ts',
+    'attendance.controller.ts',
+    'attendance-correction.repository.ts',
+    'attendance-correction.service.ts',
+    'policy.repository.ts',
+    'policy.service.ts',
+    'policy.controller.ts',
+    'policy-acknowledgement.repository.ts',
+    'training-course.repository.ts',
+    'training-course.service.ts',
+    'employee-training.repository.ts',
+    'employee-training.service.ts',
+    'training.controller.ts',
   ];
 
   const FORBIDDEN_WRITE_PATTERN =
@@ -96,9 +116,20 @@ describe('HR Employee Lifecycle Foundation independence (Sprint 23)', () => {
       'employee.repository.ts',
       'employee-document.repository.ts',
       'employee-onboarding.repository.ts',
+      'work-schedule.repository.ts',
+      'attendance.repository.ts',
+      // Sprint 24's one deliberate, documented exception (the Maintenance-
+      // precedent kind): the correction repository also writes
+      // `attendanceRecord` — but only inside `review()`'s own transaction,
+      // to apply an APPROVED correction to its target record atomically.
+      'attendance-correction.repository.ts',
+      'policy.repository.ts',
+      'policy-acknowledgement.repository.ts',
+      'training-course.repository.ts',
+      'employee-training.repository.ts',
     ]);
     const ownWritePattern =
-      /\.(department|position|employee|employeeDocument|employeeOnboarding|employeeOnboardingTask)\.(create|update|updateMany|delete|deleteMany|upsert|createMany)\(/;
+      /\.(department|position|employee|employeeDocument|employeeOnboarding|employeeOnboardingTask|workSchedule|attendanceRecord|attendanceCorrectionRequest|policy|policyVersion|policyAcknowledgement|trainingCourse|employeeTraining)\.(create|update|updateMany|delete|deleteMany|upsert|createMany)\(/;
     for (const fileName of HR_FILES) {
       if (writingFiles.has(fileName)) continue;
       expect(readSource(fileName)).not.toMatch(ownWritePattern);

@@ -45,14 +45,24 @@ feature is built configurably so it can be reused by future tenants without code
 > the domain's own no-cross-domain-writes rule), a Procurement linking boundary, Budget
 > cost-vs-budget comparison, and a Maintenance Analytics page — plus the Asset Register detail
 > page's extended Maintenance section and a new mobile-first Field Technician surface built on the
-> existing `assignedToId` convention, with no new RBAC role and zero accounting postings. Most
-> recently, an HR Employee Lifecycle Foundation opened a new top-level domain — Department/Position
+> existing `assignedToId` convention, with no new RBAC role and zero accounting postings. Then, an
+> HR Employee Lifecycle Foundation opened a new top-level domain — Department/Position
 > (organisational units and job titles, explicitly never application permission roles), Employee
 > (the central HR record, deliberately separate from `User` — not every employee has a login
 > account, not every user is an employee), a real `employmentStatus` lifecycle validated
 > server-side the same way Asset's own lifecycle is, and an onboarding checklist — again zero
 > accounting/inventory/procurement/production/sales/distribution/asset/maintenance integration and
-> no new permission engine, by construction. See
+> no new permission engine, by construction. Most recently, an HR Attendance,
+> Training & People Operations sprint extended that foundation with work schedules,
+> server-authoritative sign-in/sign-out attendance (one record per employee per
+> organisation-local day, privacy-conscious optional location capture that is never
+> fabricated, an atomic dedicated correction-request/review flow), a versioned policy
+> catalogue (publishing auto-archives the prior version; published versions are
+> immutable), and a lightweight training catalogue explicitly not an LMS — plus a new
+> dedicated self-service mobile surface at `/attendance`, kept separate from Field Sales
+> and Field Maintenance by the same reasoning that already separated those two. Still
+> zero accounting/inventory/procurement/production/sales/distribution/asset/maintenance
+> integration and no new permission engine, by construction. See
 > [docs/domains/README.md](docs/domains/README.md) for the current status of every domain and
 > [docs/roadmap.md](docs/roadmap.md) for the full build order.
 

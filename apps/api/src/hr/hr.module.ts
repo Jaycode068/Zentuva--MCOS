@@ -3,6 +3,11 @@ import { Module } from '@nestjs/common';
 import { AuthModule } from '../identity/auth/auth.module';
 import { IdentityModule } from '../identity/identity.module';
 import { FileStorageModule } from '../identity/organisation/infrastructure/file-storage.module';
+import { AttendanceController } from './attendance.controller';
+import { AttendanceCorrectionRepository } from './attendance-correction.repository';
+import { AttendanceCorrectionService } from './attendance-correction.service';
+import { AttendanceRepository } from './attendance.repository';
+import { AttendanceService } from './attendance.service';
 import { DepartmentController } from './department.controller';
 import { DepartmentRepository } from './department.repository';
 import { DepartmentService } from './department.service';
@@ -13,37 +18,56 @@ import { EmployeeOnboardingRepository } from './employee-onboarding.repository';
 import { EmployeeOnboardingService } from './employee-onboarding.service';
 import { EmployeeRepository } from './employee.repository';
 import { EmployeeService } from './employee.service';
+import { EmployeeTrainingRepository } from './employee-training.repository';
+import { EmployeeTrainingService } from './employee-training.service';
 import { HrOrganisationStructureService } from './hr-organisation-structure.service';
 import { HrOverviewController } from './hr-overview.controller';
 import { HrOverviewService } from './hr-overview.service';
+import { PolicyAcknowledgementRepository } from './policy-acknowledgement.repository';
+import { PolicyController } from './policy.controller';
+import { PolicyRepository } from './policy.repository';
+import { PolicyService } from './policy.service';
 import { PositionController } from './position.controller';
 import { PositionRepository } from './position.repository';
 import { PositionService } from './position.service';
+import { TrainingController } from './training.controller';
+import { TrainingCourseRepository } from './training-course.repository';
+import { TrainingCourseService } from './training-course.service';
+import { WorkScheduleController } from './work-schedule.controller';
+import { WorkScheduleRepository } from './work-schedule.repository';
+import { WorkScheduleService } from './work-schedule.service';
 
 /**
- * HR Employee Lifecycle Foundation (Sprint 23, docs/domains/hr.md) — a
- * genuinely new top-level domain, the `assets/`/`maintenance/` "one
- * umbrella module per top-level directory" convention.
+ * HR domain module (Sprint 23 Employee Lifecycle Foundation + Sprint 24
+ * Attendance, Training & People Operations, docs/domains/hr.md) — the
+ * `assets/`/`maintenance/` "one umbrella module per top-level directory"
+ * convention.
  *
- * Imports `IdentityModule` (universal — `AuditService`, and specifically
- * `UserService` here, read-only, to validate `Employee.userId` linking:
- * the target User must exist and belong to the same organisation;
- * `UserService.getById()` is already org-scoped so this is a genuine
- * reuse of an exported service, not a duplicated lookup), `AuthModule`
- * (guards), and `FileStorageModule` (employee document uploads, the exact
- * `AssetDocument`/`MaintenanceDocument` url/key pattern). No other
- * domain module is imported — HR does not read or write Accounting,
- * Inventory, Procurement, Production, Sales, Distribution, Asset, or
- * Maintenance data, and none of those domains import HR either.
+ * Imports `IdentityModule` (universal — `AuditService`, `OrganisationService`
+ * for `timeZone`-based attendance-date bucketing added Sprint 24, and
+ * `UserService` for Employee↔User link validation), `AuthModule` (guards),
+ * and `FileStorageModule` (employee document uploads). No other domain
+ * module is imported — HR does not read or write Accounting, Inventory,
+ * Procurement, Production, Sales, Distribution, Asset, or Maintenance data,
+ * and none of those domains import HR either.
  *
- * `Department`/`Position`/`Employee`/`EmployeeDocument`/
- * `EmployeeOnboarding`/`EmployeeOnboardingTask` are all owned and written
- * exclusively by this module's own repositories — proven executably by
- * `hr-independence.spec.ts`, not just documented here.
+ * Every `hr_*`-mapped table is owned and written exclusively by this
+ * module's own repositories — proven executably by
+ * `hr-independence.spec.ts`/`hr-attendance-independence.spec.ts`, not just
+ * documented here.
  */
 @Module({
   imports: [IdentityModule, AuthModule, FileStorageModule],
-  controllers: [DepartmentController, PositionController, EmployeeController, HrOverviewController],
+  controllers: [
+    DepartmentController,
+    PositionController,
+    EmployeeController,
+    HrOverviewController,
+    WorkScheduleController,
+    AttendanceController,
+    PolicyController,
+    TrainingController,
+  ],
   providers: [
     DepartmentRepository,
     DepartmentService,
@@ -57,6 +81,19 @@ import { PositionService } from './position.service';
     EmployeeOnboardingService,
     HrOverviewService,
     HrOrganisationStructureService,
+    WorkScheduleRepository,
+    WorkScheduleService,
+    AttendanceRepository,
+    AttendanceService,
+    AttendanceCorrectionRepository,
+    AttendanceCorrectionService,
+    PolicyRepository,
+    PolicyAcknowledgementRepository,
+    PolicyService,
+    TrainingCourseRepository,
+    TrainingCourseService,
+    EmployeeTrainingRepository,
+    EmployeeTrainingService,
   ],
 })
 export class HrModule {}

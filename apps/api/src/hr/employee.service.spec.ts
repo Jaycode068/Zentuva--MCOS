@@ -96,6 +96,7 @@ function makeService(options?: {
 
   const departmentRepository = { findById: jest.fn(async () => ({ id: 'dept-1' })) };
   const positionRepository = { findById: jest.fn(async () => ({ id: 'pos-1' })) };
+  const workScheduleRepository = { findById: jest.fn(async () => ({ id: 'schedule-1' })) };
   const userService = {
     getById: jest.fn(async (org: string, id: string) => {
       const u = users[id];
@@ -107,6 +108,7 @@ function makeService(options?: {
     employeeRepository as never,
     departmentRepository as never,
     positionRepository as never,
+    workScheduleRepository as never,
     userService as never,
   );
   return { service, employeeRepository, userService };

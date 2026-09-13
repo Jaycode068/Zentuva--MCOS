@@ -220,6 +220,16 @@ model Organisation {
   hrEmployeeDocuments                EmployeeDocument[]
   hrEmployeeOnboardings              EmployeeOnboarding[]
   hrEmployeeOnboardingTasks          EmployeeOnboardingTask[]
+  /// Added Sprint 24 — HR Attendance, Training & People Operations
+  /// (docs/domains/hr.md).
+  hrWorkSchedules                    WorkSchedule[]
+  hrAttendanceRecords                AttendanceRecord[]
+  hrAttendanceCorrectionRequests     AttendanceCorrectionRequest[]
+  hrPolicies                         Policy[]
+  hrPolicyVersions                   PolicyVersion[]
+  hrPolicyAcknowledgements           PolicyAcknowledgement[]
+  hrTrainingCourses                  TrainingCourse[]
+  hrEmployeeTrainings                EmployeeTraining[]
 
   @@map("organisations")
 }
@@ -5463,6 +5473,10 @@ model Department {
   departmentHead   Employee?    @relation("DepartmentHead", fields: [departmentHeadEmployeeId], references: [id])
   positions        Position[]
   employees        Employee[]   @relation("EmployeeDepartment")
+  /// Added Sprint 24 — policies scoped to this department.
+  scopedPolicies   Policy[]     @relation("PolicyDepartmentScope")
+  /// Added Sprint 24 — policies this department owns/authors (independent of scope).
+  ownedPolicies    Policy[]     @relation("PolicyOwnerDepartment")
 
   @@unique([organisationId, code])
   @@unique([organisationId, name])
@@ -5543,6 +5557,11 @@ model Employee {
   departmentId      String?
   positionId        String?
   managerEmployeeId String?
+  /// Added Sprint 24 — direct nullable FK, no assignment-history table, the
+  /// same convention `departmentId`/`positionId` already established.
+  /// Historical schedule-assignment tracking is deferred (documented in
+  /// docs/domains/hr.md).
+  workScheduleId    String?
 
   employmentType   EmploymentType
   employmentStatus EmploymentStatus @default(DRAFT)
@@ -5568,12 +5587,18 @@ model Employee {
   headOfDepartments Department[]        @relation("DepartmentHead")
   documents         EmployeeDocument[]
   onboarding        EmployeeOnboarding?
+  workSchedule      WorkSchedule?                 @relation(fields: [workScheduleId], references: [id])
+  attendanceRecords AttendanceRecord[]
+  requestedCorrections AttendanceCorrectionRequest[] @relation("AttendanceCorrectionRequestedByEmployee")
+  policyAcknowledgements PolicyAcknowledgement[]
+  trainingRecords   EmployeeTraining[]
 
   @@unique([organisationId, employeeCode])
   @@index([organisationId])
   @@index([departmentId])
   @@index([positionId])
   @@index([managerEmployeeId])
+  @@index([workScheduleId])
   @@map("hr_employees")
 }
 
@@ -5629,6 +5654,9 @@ model EmployeeDocument {
 
   organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
   employee     Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  /// Added Sprint 24 — a training certificate may optionally reference an
+  /// existing EmployeeDocument row rather than a new document system.
+  trainingCertificateFor EmployeeTraining[]
 
   @@index([organisationId])
   @@index([employeeId])
@@ -5700,4 +5728,317 @@ model EmployeeOnboardingTask {
   @@index([organisationId])
   @@index([onboardingId])
   @@map("hr_employee_onboarding_tasks")
+}
+
+// ---------------------------------------------------------------------------
+// Sprint 24 — HR Attendance, Training & People Operations (docs/domains/hr.md)
+// ---------------------------------------------------------------------------
+// Extends the Sprint 23 HR foundation with work schedules, daily attendance,
+// a policy catalogue with versioning/acknowledgement, and a lightweight
+// training catalogue. Still zero accounting/inventory/payroll integration,
+// by construction — see hr-independence.spec.ts / hr-attendance-independence
+// coverage. Attendance timestamps are always server-authoritative UTC
+// `DateTime`s; `attendanceDate` is a day-bucket (stored as UTC midnight)
+// derived from `Organisation.timeZone` — see `hr-attendance-date.util.ts`.
+
+model WorkSchedule {
+  id                 String             @id @default(cuid())
+  organisationId     String
+  code               String
+  name               String
+  description        String?
+  /// Day-of-week integers, 0 = Sunday .. 6 = Saturday. Stored as a JSON
+  /// array, e.g. `[1,2,3,4,5]` for Monday-Friday.
+  workDays           Json
+  /// "HH:mm" 24-hour strings — deliberately not `DateTime`: a schedule's
+  /// expected start/end has no calendar date of its own. An overnight
+  /// schedule (end < start) is permitted and interpreted as crossing
+  /// midnight; no rotating-shift/roster engine is implemented.
+  expectedStartTime  String
+  expectedEndTime    String
+  gracePeriodMinutes Int                @default(0)
+  status             WorkScheduleStatus @default(ACTIVE)
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  employees    Employee[]
+
+  @@unique([organisationId, code])
+  @@index([organisationId])
+  @@map("hr_work_schedules")
+}
+
+enum WorkScheduleStatus {
+  ACTIVE
+  INACTIVE
+}
+
+/// One row per employee per attendance date (day-bucket) — see the module
+/// doc comment above. Sign-in/out are columns on this same row, not
+/// separate event rows: this MVP supports a single daily sign-in/out pair,
+/// not multiple shifts/sessions per day (a documented limitation).
+model AttendanceRecord {
+  id             String   @id @default(cuid())
+  organisationId String
+  employeeId     String
+  attendanceDate DateTime
+
+  workScheduleId String?
+
+  signInAt             DateTime?
+  signInLatitude       Float?
+  signInLongitude      Float?
+  signInAccuracyMeters Float?
+  signInLocationLabel  String?
+
+  signOutAt             DateTime?
+  signOutLatitude       Float?
+  signOutLongitude      Float?
+  signOutAccuracyMeters Float?
+  signOutLocationLabel  String?
+
+  status       AttendanceStatus       @default(PENDING_REVIEW)
+  reviewStatus AttendanceReviewStatus @default(NOT_REVIEWED)
+  source       AttendanceSource       @default(SELF_SERVICE)
+  notes        String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organisation Organisation                  @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  employee     Employee                      @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  corrections  AttendanceCorrectionRequest[]
+
+  @@unique([organisationId, employeeId, attendanceDate])
+  @@index([organisationId])
+  @@index([employeeId])
+  @@map("hr_attendance_records")
+}
+
+enum AttendanceStatus {
+  PRESENT
+  LATE
+  ABSENT
+  INCOMPLETE
+  OFF_DAY
+  EXCUSED
+  PENDING_REVIEW
+}
+
+enum AttendanceReviewStatus {
+  NOT_REVIEWED
+  APPROVED
+  REQUIRES_CORRECTION
+  REJECTED
+}
+
+enum AttendanceSource {
+  SELF_SERVICE
+  ADMINISTRATIVE
+  IMPORTED
+}
+
+/// Auditable correction path: the original `AttendanceRecord` values are
+/// never overwritten by a raw mutation — only the approval path
+/// (`AttendanceCorrectionService.review`) mutates them, atomically, inside
+/// a transaction alongside this row's own status change. A rejected or
+/// cancelled correction never touches the attendance record.
+model AttendanceCorrectionRequest {
+  id                    String                     @id @default(cuid())
+  organisationId        String
+  attendanceRecordId    String
+  requestedByEmployeeId String?
+  requestedByUserId     String
+  requestedSignInAt     DateTime?
+  requestedSignOutAt    DateTime?
+  reason                String
+  status                AttendanceCorrectionStatus @default(REQUESTED)
+  reviewedByUserId      String?
+  reviewedAt            DateTime?
+  reviewComment         String?
+  createdAt             DateTime                   @default(now())
+  updatedAt             DateTime                   @updatedAt
+
+  organisation        Organisation     @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  attendanceRecord    AttendanceRecord @relation(fields: [attendanceRecordId], references: [id], onDelete: Cascade)
+  requestedByEmployee Employee?        @relation("AttendanceCorrectionRequestedByEmployee", fields: [requestedByEmployeeId], references: [id])
+
+  @@index([organisationId])
+  @@index([attendanceRecordId])
+  @@map("hr_attendance_correction_requests")
+}
+
+enum AttendanceCorrectionStatus {
+  REQUESTED
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+model Policy {
+  id                String          @id @default(cuid())
+  organisationId    String
+  code              String
+  title             String
+  description       String?
+  scopeType         PolicyScopeType @default(ORGANISATION)
+  departmentId      String?
+  status            PolicyStatus    @default(DRAFT)
+  ownerDepartmentId String?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  organisation    Organisation    @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  department      Department?     @relation("PolicyDepartmentScope", fields: [departmentId], references: [id])
+  ownerDepartment Department?     @relation("PolicyOwnerDepartment", fields: [ownerDepartmentId], references: [id])
+  versions        PolicyVersion[]
+
+  @@unique([organisationId, code])
+  @@index([organisationId])
+  @@map("hr_policies")
+}
+
+enum PolicyScopeType {
+  ORGANISATION
+  DEPARTMENT
+}
+
+enum PolicyStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+/// `versionNumber` is unique per policy and server-generated (a linear
+/// probe inside a transaction — the same pattern `generateEmployeeCode`
+/// established). A published version is never edited again — a material
+/// change always creates a new version; publishing one auto-archives the
+/// previously-published version (see `PolicyService.publishVersion`).
+model PolicyVersion {
+  id                      String              @id @default(cuid())
+  organisationId          String
+  policyId                String
+  versionNumber           Int
+  content                 String
+  effectiveDate           DateTime
+  requiresAcknowledgement Boolean             @default(false)
+  publishedAt             DateTime?
+  publishedByUserId       String?
+  status                  PolicyVersionStatus @default(DRAFT)
+  createdAt               DateTime            @default(now())
+  updatedAt               DateTime            @updatedAt
+
+  organisation     Organisation            @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  policy           Policy                  @relation(fields: [policyId], references: [id], onDelete: Cascade)
+  acknowledgements PolicyAcknowledgement[]
+
+  @@unique([policyId, versionNumber])
+  @@index([organisationId])
+  @@index([policyId])
+  @@map("hr_policy_versions")
+}
+
+enum PolicyVersionStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+model PolicyAcknowledgement {
+  id                   String                      @id @default(cuid())
+  organisationId       String
+  employeeId           String
+  policyVersionId      String
+  acknowledgedAt       DateTime                    @default(now())
+  acknowledgedByUserId String?
+  source               PolicyAcknowledgementSource @default(ADMINISTRATIVE)
+  notes                String?
+
+  organisation  Organisation  @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  employee      Employee      @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  policyVersion PolicyVersion @relation(fields: [policyVersionId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, policyVersionId])
+  @@index([organisationId])
+  @@index([policyVersionId])
+  @@map("hr_policy_acknowledgements")
+}
+
+enum PolicyAcknowledgementSource {
+  SELF_SERVICE
+  ADMINISTRATIVE
+}
+
+model TrainingCourse {
+  id                 String               @id @default(cuid())
+  organisationId     String
+  code               String
+  title              String
+  description        String?
+  provider           String?
+  deliveryMode       TrainingDeliveryMode
+  durationMinutes    Int?
+  validityPeriodDays Int?
+  status             TrainingCourseStatus @default(DRAFT)
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+
+  organisation Organisation       @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  assignments  EmployeeTraining[]
+
+  @@unique([organisationId, code])
+  @@index([organisationId])
+  @@map("hr_training_courses")
+}
+
+enum TrainingDeliveryMode {
+  IN_PERSON
+  ONLINE
+  BLENDED
+  SELF_STUDY
+}
+
+enum TrainingCourseStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+/// `status` is derived lazily on read (list/get flips a past-due
+/// ASSIGNED/IN_PROGRESS row to OVERDUE via `updateMany` before returning) —
+/// no cron job or notification engine is introduced this sprint.
+model EmployeeTraining {
+  id                    String                 @id @default(cuid())
+  organisationId        String
+  employeeId            String
+  trainingCourseId      String
+  assignedByUserId      String
+  assignedAt            DateTime               @default(now())
+  dueDate               DateTime?
+  startedAt             DateTime?
+  completedAt           DateTime?
+  status                EmployeeTrainingStatus @default(ASSIGNED)
+  completionNotes       String?
+  certificateDocumentId String?
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+
+  organisation        Organisation      @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  employee            Employee          @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  trainingCourse       TrainingCourse    @relation(fields: [trainingCourseId], references: [id])
+  certificateDocument  EmployeeDocument? @relation(fields: [certificateDocumentId], references: [id])
+
+  @@index([organisationId])
+  @@index([employeeId])
+  @@index([trainingCourseId])
+  @@map("hr_employee_trainings")
+}
+
+enum EmployeeTrainingStatus {
+  ASSIGNED
+  IN_PROGRESS
+  COMPLETED
+  OVERDUE
+  CANCELLED
 }
