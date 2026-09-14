@@ -5,6 +5,8 @@ import { CurrentUser } from '../../identity/auth/decorators/current-user.decorat
 import { JwtAuthGuard } from '../../identity/auth/guards/jwt-auth.guard';
 import { TokenPayload } from '../../identity/auth/ports/token.port';
 import { LedgerService } from './ledger.service';
+import { RequirePermission } from '../../identity/auth/decorators/require-permission.decorator';
+import { PermissionsGuard } from '../../identity/auth/guards/permissions.guard';
 
 /**
  * General Ledger / Trial Balance / Account Activity HTTP surface (Sprint 7,
@@ -12,11 +14,12 @@ import { LedgerService } from './ledger.service';
  * Member has full read access, same convention as `AccountsReceivableController`.
  */
 @Controller('finance')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class LedgerController {
   constructor(private readonly ledgerService: LedgerService) {}
 
   @Get('ledger')
+  @RequirePermission('finance.journal.view')
   async getLedger(
     @CurrentUser() user: TokenPayload,
     @Query('accountId') accountId?: string,
@@ -40,6 +43,7 @@ export class LedgerController {
   }
 
   @Get('trial-balance')
+  @RequirePermission('finance.trial_balance.view')
   async getTrialBalance(
     @CurrentUser() user: TokenPayload,
     @Query('from') from?: string,
@@ -54,6 +58,7 @@ export class LedgerController {
   }
 
   @Get('accounts/:id/activity')
+  @RequirePermission('finance.trial_balance.view')
   async getAccountActivity(
     @CurrentUser() user: TokenPayload,
     @Param('id') id: string,

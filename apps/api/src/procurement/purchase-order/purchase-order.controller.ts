@@ -23,10 +23,8 @@ import { AuditService } from '../../identity/audit/audit.service';
 import { ZodValidationPipe } from '../../identity/auth/common/zod-validation.pipe';
 import { CurrentUser } from '../../identity/auth/decorators/current-user.decorator';
 import { RequirePermission } from '../../identity/auth/decorators/require-permission.decorator';
-import { Roles } from '../../identity/auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../identity/auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../identity/auth/guards/permissions.guard';
-import { RolesGuard } from '../../identity/auth/guards/roles.guard';
 import { TokenPayload } from '../../identity/auth/ports/token.port';
 import { PURCHASE_ORDER_AUDIT_ACTIONS } from './purchase-order-audit-actions';
 import { PurchaseOrderWithRelations } from './purchase-order.repository';
@@ -48,7 +46,7 @@ import { PurchaseOrderService } from './purchase-order.service';
  * history").
  */
 @Controller('procurement/purchase-orders')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class PurchaseOrderController {
   constructor(
     private readonly purchaseOrderService: PurchaseOrderService,
@@ -56,6 +54,7 @@ export class PurchaseOrderController {
   ) {}
 
   @Get()
+  @RequirePermission('procurement.purchase_order.view')
   async list(
     @CurrentUser() user: TokenPayload,
     @Query('search') search?: string,
@@ -71,6 +70,7 @@ export class PurchaseOrderController {
   }
 
   @Get(':id')
+  @RequirePermission('procurement.purchase_order.view')
   async getOne(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const purchaseOrder = await this.purchaseOrderService.getById(user.organisationId, id);
     if (!purchaseOrder) {
@@ -108,8 +108,7 @@ export class PurchaseOrderController {
   }
 
   @Patch(':id')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('procurement.purchase_order.edit')
   async update(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(updatePurchaseOrderSchema)) body: UpdatePurchaseOrderInput,

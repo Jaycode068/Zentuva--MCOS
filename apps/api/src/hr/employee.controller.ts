@@ -47,10 +47,8 @@ import { AuditService } from '../identity/audit/audit.service';
 import { ZodValidationPipe } from '../identity/auth/common/zod-validation.pipe';
 import { CurrentUser } from '../identity/auth/decorators/current-user.decorator';
 import { RequirePermission } from '../identity/auth/decorators/require-permission.decorator';
-import { Roles } from '../identity/auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../identity/auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../identity/auth/guards/permissions.guard';
-import { RolesGuard } from '../identity/auth/guards/roles.guard';
 import { TokenPayload } from '../identity/auth/ports/token.port';
 import { EffectiveAccessResolver } from '../identity/authorization/effective-access-resolver';
 import { ScopeEvaluator } from '../identity/authorization/scope-evaluator';
@@ -63,7 +61,7 @@ import { HR_AUDIT_ACTIONS } from './hr-audit-actions';
 import { PolicyService } from './policy.service';
 
 @Controller('hr/employees')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class EmployeeController {
   constructor(
     private readonly employeeService: EmployeeService,
@@ -132,13 +130,13 @@ export class EmployeeController {
   }
 
   @Get(':id')
+  @RequirePermission('hr.employee.view')
   getOne(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     return this.employeeService.getByIdWithRelations(user.organisationId, id);
   }
 
   @Post()
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('hr.employee.edit')
   async create(
     @Body(new ZodValidationPipe(createEmployeeSchema)) body: CreateEmployeeInput,
     @CurrentUser() user: TokenPayload,
@@ -159,8 +157,7 @@ export class EmployeeController {
   }
 
   @Patch(':id')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('hr.employee.edit')
   async update(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(updateEmployeeSchema)) body: UpdateEmployeeInput,
@@ -181,8 +178,7 @@ export class EmployeeController {
   }
 
   @Post(':id/department')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('hr.employee.edit')
   async assignDepartment(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(assignEmployeeDepartmentSchema))
@@ -209,8 +205,7 @@ export class EmployeeController {
   }
 
   @Post(':id/position')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('hr.employee.edit')
   async assignPosition(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(assignEmployeePositionSchema)) body: AssignEmployeePositionInput,
@@ -236,8 +231,7 @@ export class EmployeeController {
   }
 
   @Post(':id/manager')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('hr.employee.edit')
   async assignManager(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(assignEmployeeManagerSchema)) body: AssignEmployeeManagerInput,
@@ -263,8 +257,7 @@ export class EmployeeController {
   }
 
   @Post(':id/work-schedule')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('hr.employee.edit')
   async assignWorkSchedule(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(assignEmployeeWorkScheduleSchema))
@@ -291,8 +284,7 @@ export class EmployeeController {
   }
 
   @Post(':id/link-user')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('hr.employee.edit')
   async linkUser(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(linkEmployeeUserSchema)) body: LinkEmployeeUserInput,
@@ -314,8 +306,7 @@ export class EmployeeController {
   }
 
   @Post(':id/unlink-user')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('hr.employee.edit')
   async unlinkUser(
     @Param('id') id: string,
     @CurrentUser() user: TokenPayload,
@@ -335,8 +326,7 @@ export class EmployeeController {
   }
 
   @Post(':id/activate')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('hr.employee.separate')
   activate(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
     return this.handleTransition(
       id,
@@ -348,8 +338,7 @@ export class EmployeeController {
   }
 
   @Post(':id/suspend')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('hr.employee.separate')
   suspend(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(suspendEmployeeSchema)) _body: SuspendEmployeeInput,
@@ -366,8 +355,7 @@ export class EmployeeController {
   }
 
   @Post(':id/reactivate')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('hr.employee.separate')
   reactivate(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
     return this.handleTransition(
       id,
@@ -399,14 +387,14 @@ export class EmployeeController {
   // --- Documents ---------------------------------------------------------
 
   @Get(':id/documents')
+  @RequirePermission('hr.employee.view')
   async listDocuments(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const items = await this.documentService.list(user.organisationId, id);
     return { items };
   }
 
   @Post(':id/documents')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('hr.document.manage')
   @UseInterceptors(FileInterceptor('file'))
   async addDocument(
     @Param('id') id: string,
@@ -447,8 +435,7 @@ export class EmployeeController {
   }
 
   @Patch(':id/documents/:documentId')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('hr.document.manage')
   async updateDocument(
     @Param('id') id: string,
     @Param('documentId') documentId: string,
@@ -473,13 +460,13 @@ export class EmployeeController {
   // --- Onboarding ----------------------------------------------------------
 
   @Get(':id/onboarding')
+  @RequirePermission('hr.employee.view')
   getOnboarding(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     return this.onboardingService.getByEmployeeId(user.organisationId, id);
   }
 
   @Post(':id/onboarding/start')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('hr.onboarding.manage')
   async startOnboarding(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(startOnboardingSchema)) body: StartOnboardingInput,
@@ -507,8 +494,7 @@ export class EmployeeController {
   }
 
   @Patch(':id/onboarding/tasks/:taskId')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('hr.onboarding.manage')
   async completeOnboardingTask(
     @Param('id') id: string,
     @Param('taskId') taskId: string,
@@ -537,8 +523,7 @@ export class EmployeeController {
   }
 
   @Post(':id/onboarding/complete')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('hr.onboarding.manage')
   async completeOnboarding(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(completeOnboardingSchema)) body: CompleteOnboardingInput,
@@ -568,6 +553,7 @@ export class EmployeeController {
   // --- Sprint 24: attendance / policy / training summaries -----------------
 
   @Get(':id/attendance')
+  @RequirePermission('hr.attendance.view')
   getAttendance(
     @CurrentUser() user: TokenPayload,
     @Param('id') id: string,
@@ -581,12 +567,14 @@ export class EmployeeController {
   }
 
   @Get(':id/training')
+  @RequirePermission('hr.training.view')
   async getTraining(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const items = await this.employeeTrainingService.listForEmployee(user.organisationId, id);
     return { items };
   }
 
   @Get(':id/policy-acknowledgements')
+  @RequirePermission('hr.policy.view')
   async getPolicyAcknowledgements(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const items = await this.policyService.listAcknowledgementsForEmployee(user.organisationId, id);
     return { items };
@@ -597,6 +585,7 @@ export class EmployeeController {
   /** Read-only composition over the existing `AuditLog` table — the exact
    *  pattern `WorkOrderController.getAuditHistory()` established. */
   @Get(':id/audit')
+  @RequirePermission('hr.employee.view')
   async getAuditHistory(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const events = await this.auditService.listByOrganisation(user.organisationId, {
       entityType: 'Employee',

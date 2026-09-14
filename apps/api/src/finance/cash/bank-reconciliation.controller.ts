@@ -10,12 +10,12 @@ import { Request } from 'express';
 import { AuditService } from '../../identity/audit/audit.service';
 import { ZodValidationPipe } from '../../identity/auth/common/zod-validation.pipe';
 import { CurrentUser } from '../../identity/auth/decorators/current-user.decorator';
-import { Roles } from '../../identity/auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../identity/auth/guards/jwt-auth.guard';
-import { RolesGuard } from '../../identity/auth/guards/roles.guard';
 import { TokenPayload } from '../../identity/auth/ports/token.port';
 import { CASH_BANK_AUDIT_ACTIONS } from '../cash-bank-audit-actions';
 import { BankReconciliationService, ReconciliationDetail } from './bank-reconciliation.service';
+import { RequirePermission } from '../../identity/auth/decorators/require-permission.decorator';
+import { PermissionsGuard } from '../../identity/auth/guards/permissions.guard';
 
 /**
  * Bank Reconciliation HTTP surface (Sprint 14, docs/domains/cash-management.md
@@ -26,7 +26,7 @@ import { BankReconciliationService, ReconciliationDetail } from './bank-reconcil
  * than erroring) — see `bank-reconciliation.repository.ts`.
  */
 @Controller('finance/cash/reconciliations')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class BankReconciliationController {
   constructor(
     private readonly bankReconciliationService: BankReconciliationService,
@@ -34,20 +34,21 @@ export class BankReconciliationController {
   ) {}
 
   @Get()
+  @RequirePermission('finance.bank_reconciliation.view')
   async list(@CurrentUser() user: TokenPayload, @Query('cashAccountId') cashAccountId?: string) {
     const items = await this.bankReconciliationService.list(user.organisationId, cashAccountId);
     return { items: items.map(toBankReconciliationResponse) };
   }
 
   @Get(':id')
+  @RequirePermission('finance.bank_reconciliation.view')
   async getOne(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const detail = await this.bankReconciliationService.getDetail(user.organisationId, id);
     return toReconciliationDetailResponse(detail);
   }
 
   @Post()
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.bank_reconciliation.perform')
   async create(
     @Body(new ZodValidationPipe(createBankReconciliationSchema))
     body: CreateBankReconciliationInput,
@@ -81,8 +82,7 @@ export class BankReconciliationController {
   }
 
   @Post(':id/auto-match')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.bank_reconciliation.perform')
   async autoMatch(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
     const result = await this.bankReconciliationService.autoMatch(
       user.organisationId,
@@ -107,8 +107,7 @@ export class BankReconciliationController {
   }
 
   @Post(':id/match')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.bank_reconciliation.perform')
   async match(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(matchReconciliationSchema)) body: MatchReconciliationInput,
@@ -139,8 +138,7 @@ export class BankReconciliationController {
   }
 
   @Post(':id/unmatch/:matchId')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.bank_reconciliation.perform')
   async unmatch(
     @Param('id') id: string,
     @Param('matchId') matchId: string,
@@ -164,8 +162,7 @@ export class BankReconciliationController {
   }
 
   @Post(':id/complete')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.bank_reconciliation.perform')
   async complete(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
     const before = await this.bankReconciliationService.getDetail(user.organisationId, id);
     const wasAlreadyCompleted = before.reconciliation.status === 'COMPLETED';

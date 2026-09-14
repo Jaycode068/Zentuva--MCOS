@@ -44,25 +44,20 @@ import { AuditService } from '../identity/audit/audit.service';
 import { ZodValidationPipe } from '../identity/auth/common/zod-validation.pipe';
 import { CurrentUser } from '../identity/auth/decorators/current-user.decorator';
 import { RequirePermission } from '../identity/auth/decorators/require-permission.decorator';
-import { Roles } from '../identity/auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../identity/auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../identity/auth/guards/permissions.guard';
-import { RolesGuard } from '../identity/auth/guards/roles.guard';
 import { TokenPayload } from '../identity/auth/ports/token.port';
 import { MAINTENANCE_AUDIT_ACTIONS } from './maintenance-audit-actions';
 import { MaintenanceDocumentService } from './maintenance-document.service';
 import { WorkOrderService } from './work-order.service';
 
 /**
- * Work Order HTTP surface (Sprint 21, docs/domains/maintenance.md). `GET`
- * requires only authentication (technicians need to read their own
- * assigned work); header/lifecycle writes require Owner/Administrator,
- * matching this codebase's one binary RBAC convention throughout (no
- * separate "Technician" role exists anywhere in this system — see
- * docs/domains/maintenance.md "RBAC").
+ * Work Order HTTP surface (Sprint 21, docs/domains/maintenance.md; migrated to the
+ * central permission system in Sprint 25.1, docs/architecture/authorization-coverage.md).
+ * Every route requires a `maintenance.work_order.*` permission via `PermissionsGuard`.
  */
 @Controller('maintenance/work-orders')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class WorkOrderController {
   constructor(
     private readonly workOrderService: WorkOrderService,
@@ -71,6 +66,7 @@ export class WorkOrderController {
   ) {}
 
   @Get()
+  @RequirePermission('maintenance.work_order.view')
   async list(
     @CurrentUser() user: TokenPayload,
     @Query('status') status?: WorkOrderStatus,
@@ -94,13 +90,13 @@ export class WorkOrderController {
   }
 
   @Get(':id')
+  @RequirePermission('maintenance.work_order.view')
   getOne(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     return this.workOrderService.getById(user.organisationId, id);
   }
 
   @Post()
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('maintenance.work_order.create')
   async create(
     @Body(new ZodValidationPipe(createWorkOrderSchema)) body: CreateWorkOrderInput,
     @CurrentUser() user: TokenPayload,
@@ -127,8 +123,7 @@ export class WorkOrderController {
   }
 
   @Patch(':id')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('maintenance.work_order.manage')
   async update(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(updateWorkOrderSchema)) body: UpdateWorkOrderInput,
@@ -149,8 +144,7 @@ export class WorkOrderController {
   }
 
   @Post(':id/assign')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('maintenance.work_order.assign')
   assign(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(assignWorkOrderSchema)) body: AssignWorkOrderInput,
@@ -168,8 +162,7 @@ export class WorkOrderController {
   }
 
   @Post(':id/start')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('maintenance.work_order.manage')
   start(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
     return this.handleTransition(
       id,
@@ -181,8 +174,7 @@ export class WorkOrderController {
   }
 
   @Post(':id/hold')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('maintenance.work_order.manage')
   hold(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(holdWorkOrderSchema)) body: HoldWorkOrderInput,
@@ -199,8 +191,7 @@ export class WorkOrderController {
   }
 
   @Post(':id/resume')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('maintenance.work_order.manage')
   resume(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
     return this.handleTransition(
       id,
@@ -212,8 +203,7 @@ export class WorkOrderController {
   }
 
   @Post(':id/cancel')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('maintenance.work_order.manage')
   cancel(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(cancelWorkOrderSchema)) body: CancelWorkOrderInput,
@@ -230,7 +220,6 @@ export class WorkOrderController {
   }
 
   @Post(':id/complete')
-  @UseGuards(PermissionsGuard)
   @RequirePermission('maintenance.work_order.complete')
   async complete(
     @Param('id') id: string,
@@ -260,14 +249,14 @@ export class WorkOrderController {
   }
 
   @Get(':id/tasks')
+  @RequirePermission('maintenance.work_order.view')
   async listTasks(@Param('id') id: string) {
     const items = await this.workOrderService.listTasks(id);
     return { items };
   }
 
   @Post(':id/tasks')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('maintenance.work_order.manage')
   addTask(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(createWorkOrderTaskSchema)) body: CreateWorkOrderTaskInput,
@@ -277,6 +266,7 @@ export class WorkOrderController {
   }
 
   @Patch(':id/tasks/:taskId')
+  @RequirePermission('maintenance.work_order.manage')
   async updateTask(
     @Param('id') id: string,
     @Param('taskId') taskId: string,
@@ -301,14 +291,14 @@ export class WorkOrderController {
   }
 
   @Get(':id/documents')
+  @RequirePermission('maintenance.work_order.view')
   async listDocuments(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const items = await this.maintenanceDocumentService.list(user.organisationId, 'WORK_ORDER', id);
     return { items };
   }
 
   @Post(':id/documents')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('maintenance.work_order.manage')
   @UseInterceptors(FileInterceptor('file'))
   async addDocument(
     @Param('id') id: string,
@@ -344,8 +334,7 @@ export class WorkOrderController {
   }
 
   @Delete(':id/documents/:documentId')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('maintenance.work_order.manage')
   async removeDocument(
     @Param('id') id: string,
     @Param('documentId') documentId: string,
@@ -369,6 +358,7 @@ export class WorkOrderController {
   /** Read-only composition over the existing `AuditLog` table — the exact
    *  pattern `AssetController.getAuditHistory()` established (Sprint 20). */
   @Get(':id/audit')
+  @RequirePermission('maintenance.work_order.view')
   async getAuditHistory(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const events = await this.auditService.listByOrganisation(user.organisationId, {
       entityType: 'WorkOrder',

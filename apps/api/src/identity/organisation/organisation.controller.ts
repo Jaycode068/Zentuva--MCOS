@@ -9,23 +9,25 @@ import { Request } from 'express';
 import { AuditService } from '../audit/audit.service';
 import { ZodValidationPipe } from '../auth/common/zod-validation.pipe';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
-import { Roles } from '../auth/decorators/roles.decorator';
+import { RequirePermission } from '../auth/decorators/require-permission.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { RolesGuard } from '../auth/guards/roles.guard';
+import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { TokenPayload } from '../auth/ports/token.port';
 import { ORGANISATION_AUDIT_ACTIONS } from './organisation-audit-actions';
 import { OrganisationService, UpdateOrganisationProfileInput } from './organisation.service';
 
 /**
- * Organisation Management HTTP surface (Sprint 2.1 brief): retrieve and update the
- * authenticated caller's own organisation profile only. Deliberately no
- * create/list/delete/switch-organisation endpoints — out of scope for this sprint.
+ * Organisation Management HTTP surface (Sprint 2.1 brief; migrated to the central
+ * permission system in Sprint 25.1, docs/architecture/authorization-coverage.md):
+ * retrieve and update the authenticated caller's own organisation profile only.
+ * Deliberately no create/list/delete/switch-organisation endpoints — out of scope
+ * for this sprint.
  *
- * `GET /me` requires only authentication (any role may read). `PATCH /me` additionally
- * requires the Owner or Administrator role (RolesGuard) — Member is read-only, per the
- * brief's "Authorisation (MVP)" section.
+ * `GET /me` requires only authentication (any role may read). `PATCH /me` requires
+ * `identity.organisation.manage`.
  */
 @Controller('organisation')
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class OrganisationController {
   constructor(
     private readonly organisationService: OrganisationService,
@@ -33,7 +35,6 @@ export class OrganisationController {
   ) {}
 
   @Get('me')
-  @UseGuards(JwtAuthGuard)
   async getMe(@CurrentUser() user: TokenPayload) {
     const organisation = await this.organisationService.getById(user.organisationId);
     if (!organisation) {
@@ -43,8 +44,7 @@ export class OrganisationController {
   }
 
   @Patch('me')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('identity.organisation.manage')
   async updateMe(
     @Body(new ZodValidationPipe(updateOrganisationProfileSchema))
     body: UpdateOrganisationProfileDto,

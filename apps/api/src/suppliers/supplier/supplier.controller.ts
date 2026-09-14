@@ -22,12 +22,12 @@ import { Request } from 'express';
 import { AuditService } from '../../identity/audit/audit.service';
 import { ZodValidationPipe } from '../../identity/auth/common/zod-validation.pipe';
 import { CurrentUser } from '../../identity/auth/decorators/current-user.decorator';
-import { Roles } from '../../identity/auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../identity/auth/guards/jwt-auth.guard';
-import { RolesGuard } from '../../identity/auth/guards/roles.guard';
 import { TokenPayload } from '../../identity/auth/ports/token.port';
 import { SUPPLIER_AUDIT_ACTIONS } from './supplier-audit-actions';
 import { SupplierService } from './supplier.service';
+import { RequirePermission } from '../../identity/auth/decorators/require-permission.decorator';
+import { PermissionsGuard } from '../../identity/auth/guards/permissions.guard';
 
 /**
  * Supplier Management HTTP surface (Sprint 4.2 brief). `GET` requires only
@@ -43,7 +43,7 @@ import { SupplierService } from './supplier.service';
  * instead become INACTIVE" — a status change via `PATCH`).
  */
 @Controller('suppliers')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class SupplierController {
   constructor(
     private readonly supplierService: SupplierService,
@@ -51,6 +51,7 @@ export class SupplierController {
   ) {}
 
   @Get()
+  @RequirePermission('procurement.supplier.view')
   async list(
     @CurrentUser() user: TokenPayload,
     @Query('search') search?: string,
@@ -66,6 +67,7 @@ export class SupplierController {
   }
 
   @Get(':id')
+  @RequirePermission('procurement.supplier.view')
   async getOne(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const supplier = await this.supplierService.getById(user.organisationId, id);
     if (!supplier) {
@@ -75,8 +77,7 @@ export class SupplierController {
   }
 
   @Post()
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('procurement.supplier.manage')
   async create(
     @Body(new ZodValidationPipe(createSupplierSchema)) body: CreateSupplierInput,
     @CurrentUser() user: TokenPayload,
@@ -99,8 +100,7 @@ export class SupplierController {
   }
 
   @Patch(':id')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('procurement.supplier.manage')
   async update(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(updateSupplierSchema)) body: UpdateSupplierInput,

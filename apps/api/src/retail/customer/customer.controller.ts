@@ -22,12 +22,12 @@ import { Request } from 'express';
 import { AuditService } from '../../identity/audit/audit.service';
 import { ZodValidationPipe } from '../../identity/auth/common/zod-validation.pipe';
 import { CurrentUser } from '../../identity/auth/decorators/current-user.decorator';
-import { Roles } from '../../identity/auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../identity/auth/guards/jwt-auth.guard';
-import { RolesGuard } from '../../identity/auth/guards/roles.guard';
 import { TokenPayload } from '../../identity/auth/ports/token.port';
 import { CUSTOMER_AUDIT_ACTIONS } from './customer-audit-actions';
 import { CustomerService } from './customer.service';
+import { RequirePermission } from '../../identity/auth/decorators/require-permission.decorator';
+import { PermissionsGuard } from '../../identity/auth/guards/permissions.guard';
 
 /**
  * Customer HTTP surface (Sprint 4.8, docs/domains/customers.md). `GET` requires only
@@ -38,7 +38,7 @@ import { CustomerService } from './customer.service';
  * together, same convention as every other domain controller.
  */
 @Controller('retail/customers')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class CustomerController {
   constructor(
     private readonly customerService: CustomerService,
@@ -46,6 +46,7 @@ export class CustomerController {
   ) {}
 
   @Get()
+  @RequirePermission('sales.customer.view')
   async list(
     @CurrentUser() user: TokenPayload,
     @Query('status') status?: CustomerStatus,
@@ -63,6 +64,7 @@ export class CustomerController {
   }
 
   @Get(':id')
+  @RequirePermission('sales.customer.view')
   async getOne(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const customer = await this.customerService.getById(user.organisationId, id);
     if (!customer) {
@@ -72,8 +74,7 @@ export class CustomerController {
   }
 
   @Post()
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('sales.customer.manage')
   async create(
     @Body(new ZodValidationPipe(createCustomerSchema)) body: CreateCustomerInput,
     @CurrentUser() user: TokenPayload,
@@ -100,8 +101,7 @@ export class CustomerController {
   }
 
   @Patch(':id')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('sales.customer.manage')
   async update(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(updateCustomerSchema)) body: UpdateCustomerInput,
@@ -125,8 +125,7 @@ export class CustomerController {
   }
 
   @Post(':id/activate')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('sales.customer.manage')
   async activate(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
     const updated = await this.customerService.activate(user.organisationId, id, user.sub);
 
@@ -144,8 +143,7 @@ export class CustomerController {
   }
 
   @Post(':id/deactivate')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('sales.customer.manage')
   async deactivate(
     @Param('id') id: string,
     @CurrentUser() user: TokenPayload,

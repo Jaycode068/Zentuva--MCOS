@@ -34,7 +34,7 @@ import { PaymentService } from './payment.service';
  * together, same convention as every other domain controller.
  */
 @Controller('finance')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class InvoiceController {
   constructor(
     private readonly invoiceService: InvoiceService,
@@ -46,12 +46,14 @@ export class InvoiceController {
   /** `GET /eligible-sales-orders` — read-only, never gates anything by itself; the
    *  create-invoice flow's own server-side checks are what actually enforce eligibility. */
   @Get('eligible-sales-orders')
+  @RequirePermission('finance.invoice.view')
   async listEligibleSalesOrders(@CurrentUser() user: TokenPayload) {
     const orders = await this.invoiceService.listEligibleSalesOrders(user.organisationId);
     return { items: orders.map(toEligibleSalesOrderResponse) };
   }
 
   @Get('invoices')
+  @RequirePermission('finance.invoice.view')
   async list(
     @CurrentUser() user: TokenPayload,
     @Query('status') status?: InvoiceStatus,
@@ -69,6 +71,7 @@ export class InvoiceController {
   }
 
   @Get('invoices/:id')
+  @RequirePermission('finance.invoice.view')
   async getOne(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const invoice = await this.invoiceService.getById(user.organisationId, id);
     return toInvoiceResponse(invoice);
@@ -76,6 +79,7 @@ export class InvoiceController {
 
   /** `GET /invoices/:id/payments` — drill-down, auth-only. */
   @Get('invoices/:id/payments')
+  @RequirePermission('finance.invoice.view')
   async listPayments(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const items = await this.paymentService.list(user.organisationId, { invoiceId: id });
     return { items: items.map(toPaymentResponse) };
@@ -83,6 +87,7 @@ export class InvoiceController {
 
   /** `GET /invoices/:id/credit-notes` — drill-down, auth-only. */
   @Get('invoices/:id/credit-notes')
+  @RequirePermission('finance.invoice.view')
   async listCreditNotes(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const items = await this.creditNoteService.list(user.organisationId, { invoiceId: id });
     return { items: items.map(toCreditNoteResponse) };

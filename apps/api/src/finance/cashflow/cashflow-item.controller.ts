@@ -11,12 +11,12 @@ import { Request } from 'express';
 import { AuditService } from '../../identity/audit/audit.service';
 import { ZodValidationPipe } from '../../identity/auth/common/zod-validation.pipe';
 import { CurrentUser } from '../../identity/auth/decorators/current-user.decorator';
-import { Roles } from '../../identity/auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../identity/auth/guards/jwt-auth.guard';
-import { RolesGuard } from '../../identity/auth/guards/roles.guard';
 import { TokenPayload } from '../../identity/auth/ports/token.port';
 import { CASHFLOW_AUDIT_ACTIONS } from '../cashflow-audit-actions';
 import { CashflowItemService } from './cashflow-item.service';
+import { RequirePermission } from '../../identity/auth/decorators/require-permission.decorator';
+import { PermissionsGuard } from '../../identity/auth/guards/permissions.guard';
 
 /**
  * Cashflow Forecast Item HTTP surface (Sprint 15, docs/domains/cashflow.md
@@ -26,7 +26,7 @@ import { CashflowItemService } from './cashflow-item.service';
  * history.
  */
 @Controller('finance/cashflow/items')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class CashflowItemController {
   constructor(
     private readonly cashflowItemService: CashflowItemService,
@@ -34,6 +34,7 @@ export class CashflowItemController {
   ) {}
 
   @Get()
+  @RequirePermission('finance.budget.view')
   async list(
     @CurrentUser() user: TokenPayload,
     @Query('status') status?: CashflowItemStatus,
@@ -47,14 +48,14 @@ export class CashflowItemController {
   }
 
   @Get(':id')
+  @RequirePermission('finance.budget.view')
   async getOne(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const item = await this.cashflowItemService.getById(user.organisationId, id);
     return toCashflowForecastItemResponse(item);
   }
 
   @Post()
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.cashflow.manage')
   async create(
     @Body(new ZodValidationPipe(createCashflowForecastItemSchema))
     body: CreateCashflowForecastItemInput,
@@ -88,8 +89,7 @@ export class CashflowItemController {
   }
 
   @Patch(':id')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.cashflow.manage')
   async update(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(updateCashflowForecastItemSchema))
@@ -114,8 +114,7 @@ export class CashflowItemController {
   }
 
   @Post(':id/deactivate')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.cashflow.manage')
   async deactivate(
     @Param('id') id: string,
     @CurrentUser() user: TokenPayload,
@@ -137,8 +136,7 @@ export class CashflowItemController {
   }
 
   @Post(':id/activate')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.cashflow.manage')
   async activate(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
     const updated = await this.cashflowItemService.activate(user.organisationId, id, user.sub);
 

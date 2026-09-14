@@ -5,6 +5,8 @@ import { JwtAuthGuard } from '../identity/auth/guards/jwt-auth.guard';
 import { TokenPayload } from '../identity/auth/ports/token.port';
 import { UserService } from '../identity/user/user.service';
 import { MaintenanceOverviewService } from './maintenance-overview.service';
+import { RequirePermission } from '../identity/auth/decorators/require-permission.decorator';
+import { PermissionsGuard } from '../identity/auth/guards/permissions.guard';
 
 /**
  * Maintenance Overview / Asset-History HTTP surface (Sprint 21, docs/
@@ -13,7 +15,7 @@ import { MaintenanceOverviewService } from './maintenance-overview.service';
  * every prior domain's own dashboard/reporting endpoints already use.
  */
 @Controller('maintenance')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class MaintenanceOverviewController {
   constructor(
     private readonly maintenanceOverviewService: MaintenanceOverviewService,
@@ -21,6 +23,7 @@ export class MaintenanceOverviewController {
   ) {}
 
   @Get('overview')
+  @RequirePermission('maintenance.analytics.view')
   getOverview(@CurrentUser() user: TokenPayload) {
     return this.maintenanceOverviewService.getOverview(user.organisationId);
   }
@@ -30,6 +33,7 @@ export class MaintenanceOverviewController {
    *  Production has no Asset/equipment concept yet to key off, so
    *  nothing on the Production side calls this today. */
   @Get('downtime/active')
+  @RequirePermission('maintenance.analytics.view')
   getActiveDowntime(@CurrentUser() user: TokenPayload) {
     return this.maintenanceOverviewService.getActiveDowntime(user.organisationId);
   }
@@ -38,6 +42,7 @@ export class MaintenanceOverviewController {
    *  precedent (Sprint 20): no separate "Technician" role/table exists,
    *  any organisation member can be assigned. */
   @Get('technicians')
+  @RequirePermission('maintenance.analytics.view')
   async listTechnicians(@CurrentUser() user: TokenPayload) {
     const items = await this.userService.listByOrganisation(user.organisationId);
     return {
@@ -51,11 +56,13 @@ export class MaintenanceOverviewController {
   }
 
   @Get('assets/:assetId/history')
+  @RequirePermission('maintenance.analytics.view')
   getAssetHistory(@CurrentUser() user: TokenPayload, @Param('assetId') assetId: string) {
     return this.maintenanceOverviewService.getAssetHistory(user.organisationId, assetId);
   }
 
   @Get('assets/:assetId/open-work')
+  @RequirePermission('maintenance.analytics.view')
   async getAssetOpenWork(@CurrentUser() user: TokenPayload, @Param('assetId') assetId: string) {
     const items = await this.maintenanceOverviewService.getAssetOpenWork(
       user.organisationId,

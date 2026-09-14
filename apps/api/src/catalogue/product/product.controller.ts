@@ -28,14 +28,14 @@ import { Request } from 'express';
 import { AuditService } from '../../identity/audit/audit.service';
 import { ZodValidationPipe } from '../../identity/auth/common/zod-validation.pipe';
 import { CurrentUser } from '../../identity/auth/decorators/current-user.decorator';
-import { Roles } from '../../identity/auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../identity/auth/guards/jwt-auth.guard';
-import { RolesGuard } from '../../identity/auth/guards/roles.guard';
 import { TokenPayload } from '../../identity/auth/ports/token.port';
 import { assertValidImageFile } from '../../identity/common/image-upload-validation';
 import { PRODUCT_AUDIT_ACTIONS } from './product-audit-actions';
 import { ProductWithHierarchy } from './product.repository';
 import { ProductService } from './product.service';
+import { RequirePermission } from '../../identity/auth/decorators/require-permission.decorator';
+import { PermissionsGuard } from '../../identity/auth/guards/permissions.guard';
 
 /**
  * Product Catalogue HTTP surface (Sprint 4.1 brief). `GET` requires only authentication —
@@ -49,7 +49,7 @@ import { ProductService } from './product.service';
  * 404s exactly like a nonexistent one, same convention as `UserController`.
  */
 @Controller('products')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class ProductController {
   constructor(
     private readonly productService: ProductService,
@@ -58,6 +58,7 @@ export class ProductController {
   ) {}
 
   @Get()
+  @RequirePermission('catalogue.product.view')
   async list(@CurrentUser() user: TokenPayload, @Query('search') search?: string) {
     const products = await this.productService.list(user.organisationId, {
       search: search?.trim() || undefined,
@@ -66,6 +67,7 @@ export class ProductController {
   }
 
   @Get(':id')
+  @RequirePermission('catalogue.product.view')
   async getOne(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const product = await this.productService.getById(user.organisationId, id);
     if (!product) {
@@ -75,8 +77,7 @@ export class ProductController {
   }
 
   @Post()
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('catalogue.product.manage')
   async create(
     @Body(new ZodValidationPipe(createProductSchema)) body: CreateProductInput,
     @CurrentUser() user: TokenPayload,
@@ -99,8 +100,7 @@ export class ProductController {
   }
 
   @Patch(':id')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('catalogue.product.manage')
   async update(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(updateProductSchema)) body: UpdateProductInput,
@@ -124,8 +124,7 @@ export class ProductController {
   }
 
   @Post(':id/activate')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('catalogue.product.manage')
   async activate(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
     const updated = await this.productService.activate(user.organisationId, id, user.sub);
 
@@ -143,8 +142,7 @@ export class ProductController {
   }
 
   @Post(':id/archive')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('catalogue.product.manage')
   async archive(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
     const updated = await this.productService.archive(user.organisationId, id, user.sub);
 
@@ -162,8 +160,7 @@ export class ProductController {
   }
 
   @Post(':id/image')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('catalogue.product.manage')
   @UseInterceptors(FileInterceptor('file'))
   async uploadImage(
     @Param('id') id: string,
@@ -198,8 +195,7 @@ export class ProductController {
   }
 
   @Delete(':id/image')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('catalogue.product.manage')
   async deleteImage(
     @Param('id') id: string,
     @CurrentUser() user: TokenPayload,

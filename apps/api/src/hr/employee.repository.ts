@@ -22,7 +22,10 @@ export interface ListEmployeesParams {
 }
 
 export interface ListEmployeesResult {
-  items: Employee[];
+  /** `user` reflects the actual `findManyPaginated` query's `include` (Sprint 25.1 —
+   *  `SalesOrderController`'s `OWN_TEAM` scope needs a direct report's linked
+   *  `User.id`; the query always selected it, this interface just hadn't declared it). */
+  items: (Employee & { user: { id: string } | null })[];
   total: number;
 }
 

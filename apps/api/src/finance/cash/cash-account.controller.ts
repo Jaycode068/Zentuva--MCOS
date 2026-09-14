@@ -11,12 +11,12 @@ import { Request } from 'express';
 import { AuditService } from '../../identity/audit/audit.service';
 import { ZodValidationPipe } from '../../identity/auth/common/zod-validation.pipe';
 import { CurrentUser } from '../../identity/auth/decorators/current-user.decorator';
-import { Roles } from '../../identity/auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../identity/auth/guards/jwt-auth.guard';
-import { RolesGuard } from '../../identity/auth/guards/roles.guard';
 import { TokenPayload } from '../../identity/auth/ports/token.port';
 import { CASH_BANK_AUDIT_ACTIONS } from '../cash-bank-audit-actions';
 import { CashAccountService } from './cash-account.service';
+import { RequirePermission } from '../../identity/auth/decorators/require-permission.decorator';
+import { PermissionsGuard } from '../../identity/auth/guards/permissions.guard';
 
 /**
  * Cash Account HTTP surface (Sprint 14, docs/domains/cash-management.md). `GET`
@@ -27,7 +27,7 @@ import { CashAccountService } from './cash-account.service';
  * no metadata payload (never the number itself).
  */
 @Controller('finance/cash/accounts')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class CashAccountController {
   constructor(
     private readonly cashAccountService: CashAccountService,
@@ -35,6 +35,7 @@ export class CashAccountController {
   ) {}
 
   @Get()
+  @RequirePermission('finance.cash_account.view')
   async list(
     @CurrentUser() user: TokenPayload,
     @Query('status') status?: CashAccountStatus,
@@ -48,14 +49,14 @@ export class CashAccountController {
   }
 
   @Get(':id')
+  @RequirePermission('finance.cash_account.view')
   async getOne(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const account = await this.cashAccountService.getById(user.organisationId, id);
     return toCashAccountResponse(account);
   }
 
   @Get(':id/account-number')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.cash_account.view')
   async getAccountNumber(
     @Param('id') id: string,
     @CurrentUser() user: TokenPayload,
@@ -77,8 +78,7 @@ export class CashAccountController {
   }
 
   @Post()
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.cash_account.manage')
   async create(
     @Body(new ZodValidationPipe(createCashAccountSchema)) body: CreateCashAccountInput,
     @CurrentUser() user: TokenPayload,
@@ -123,8 +123,7 @@ export class CashAccountController {
   }
 
   @Patch(':id')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.cash_account.manage')
   async update(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(updateCashAccountSchema)) body: UpdateCashAccountInput,
@@ -148,8 +147,7 @@ export class CashAccountController {
   }
 
   @Post(':id/deactivate')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.cash_account.manage')
   async deactivate(
     @Param('id') id: string,
     @CurrentUser() user: TokenPayload,
@@ -172,8 +170,7 @@ export class CashAccountController {
   }
 
   @Post(':id/activate')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.cash_account.manage')
   async activate(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
     const updated = await this.cashAccountService.activate(user.organisationId, id, user.sub);
 

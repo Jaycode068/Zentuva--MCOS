@@ -4,6 +4,8 @@ import { CurrentUser } from '../../identity/auth/decorators/current-user.decorat
 import { JwtAuthGuard } from '../../identity/auth/guards/jwt-auth.guard';
 import { TokenPayload } from '../../identity/auth/ports/token.port';
 import { FinancialStatementService } from './financial-statement.service';
+import { RequirePermission } from '../../identity/auth/decorators/require-permission.decorator';
+import { PermissionsGuard } from '../../identity/auth/guards/permissions.guard';
 
 /**
  * Profit & Loss / Balance Sheet HTTP surface (Sprint 13, docs/domains/accounting.md
@@ -12,11 +14,12 @@ import { FinancialStatementService } from './financial-statement.service';
  * `AccountsReceivableController`).
  */
 @Controller('finance/reports')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class FinancialStatementController {
   constructor(private readonly financialStatementService: FinancialStatementService) {}
 
   @Get('profit-loss')
+  @RequirePermission('finance.reports.view')
   async getProfitAndLoss(
     @CurrentUser() user: TokenPayload,
     @Query('from') from?: string,
@@ -43,6 +46,7 @@ export class FinancialStatementController {
   }
 
   @Get('balance-sheet')
+  @RequirePermission('finance.reports.view')
   async getBalanceSheet(@CurrentUser() user: TokenPayload, @Query('asOf') asOf?: string) {
     return this.financialStatementService.getBalanceSheet(user.organisationId, {
       asOf: asOf ? new Date(asOf) : new Date(),

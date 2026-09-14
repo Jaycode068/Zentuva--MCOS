@@ -11,12 +11,12 @@ import { Request } from 'express';
 import { AuditService } from '../identity/audit/audit.service';
 import { ZodValidationPipe } from '../identity/auth/common/zod-validation.pipe';
 import { CurrentUser } from '../identity/auth/decorators/current-user.decorator';
-import { Roles } from '../identity/auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../identity/auth/guards/jwt-auth.guard';
-import { RolesGuard } from '../identity/auth/guards/roles.guard';
 import { TokenPayload } from '../identity/auth/ports/token.port';
 import { MAINTENANCE_AUDIT_ACTIONS } from './maintenance-audit-actions';
 import { MaintenanceTypeService } from './maintenance-type.service';
+import { RequirePermission } from '../identity/auth/decorators/require-permission.decorator';
+import { PermissionsGuard } from '../identity/auth/guards/permissions.guard';
 
 /**
  * Maintenance Type HTTP surface (Sprint 21, docs/domains/maintenance.md).
@@ -24,7 +24,7 @@ import { MaintenanceTypeService } from './maintenance-type.service';
  * the Owner or Administrator role.
  */
 @Controller('maintenance/types')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class MaintenanceTypeController {
   constructor(
     private readonly maintenanceTypeService: MaintenanceTypeService,
@@ -32,19 +32,20 @@ export class MaintenanceTypeController {
   ) {}
 
   @Get()
+  @RequirePermission('maintenance.plan.view')
   async list(@CurrentUser() user: TokenPayload, @Query('status') status?: MaintenanceTypeStatus) {
     const items = await this.maintenanceTypeService.list(user.organisationId, { status });
     return { items };
   }
 
   @Get(':id')
+  @RequirePermission('maintenance.plan.view')
   getOne(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     return this.maintenanceTypeService.getById(user.organisationId, id);
   }
 
   @Post()
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('maintenance.plan.manage')
   async create(
     @Body(new ZodValidationPipe(createMaintenanceTypeSchema)) body: CreateMaintenanceTypeInput,
     @CurrentUser() user: TokenPayload,
@@ -71,8 +72,7 @@ export class MaintenanceTypeController {
   }
 
   @Patch(':id')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('maintenance.plan.manage')
   async update(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(updateMaintenanceTypeSchema)) body: UpdateMaintenanceTypeInput,
@@ -93,15 +93,13 @@ export class MaintenanceTypeController {
   }
 
   @Post(':id/deactivate')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('maintenance.plan.manage')
   deactivate(@Param('id') id: string, @CurrentUser() user: TokenPayload) {
     return this.maintenanceTypeService.deactivate(user.organisationId, id);
   }
 
   @Post(':id/activate')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('maintenance.plan.manage')
   activate(@Param('id') id: string, @CurrentUser() user: TokenPayload) {
     return this.maintenanceTypeService.activate(user.organisationId, id);
   }

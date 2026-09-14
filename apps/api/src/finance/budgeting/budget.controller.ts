@@ -15,15 +15,15 @@ import { Request } from 'express';
 import { AuditService } from '../../identity/audit/audit.service';
 import { ZodValidationPipe } from '../../identity/auth/common/zod-validation.pipe';
 import { CurrentUser } from '../../identity/auth/decorators/current-user.decorator';
-import { Roles } from '../../identity/auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../identity/auth/guards/jwt-auth.guard';
-import { RolesGuard } from '../../identity/auth/guards/roles.guard';
 import { TokenPayload } from '../../identity/auth/ports/token.port';
 import { BUDGETING_AUDIT_ACTIONS } from '../budgeting-audit-actions';
 import { BudgetActualsService } from './budget-actuals.service';
 import { BudgetForecastService } from './budget-forecast.service';
 import { BudgetLineService } from './budget-line.service';
 import { BudgetService } from './budget.service';
+import { RequirePermission } from '../../identity/auth/decorators/require-permission.decorator';
+import { PermissionsGuard } from '../../identity/auth/guards/permissions.guard';
 
 /**
  * Budget HTTP surface (Sprint 16, docs/domains/budgeting.md). `GET` requires
@@ -33,7 +33,7 @@ import { BudgetService } from './budget.service';
  * shape.
  */
 @Controller('finance/budgets')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class BudgetController {
   constructor(
     private readonly budgetService: BudgetService,
@@ -44,6 +44,7 @@ export class BudgetController {
   ) {}
 
   @Get()
+  @RequirePermission('finance.budget.view')
   async list(
     @CurrentUser() user: TokenPayload,
     @Query('status') status?: BudgetStatus,
@@ -59,12 +60,14 @@ export class BudgetController {
   }
 
   @Get(':id')
+  @RequirePermission('finance.budget.view')
   async getOne(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const budget = await this.budgetService.getById(user.organisationId, id);
     return toBudgetResponse(budget);
   }
 
   @Get(':id/siblings')
+  @RequirePermission('finance.budget.view')
   async siblings(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const budget = await this.budgetService.getById(user.organisationId, id);
     const siblings = await this.budgetService.listSiblings(
@@ -76,8 +79,7 @@ export class BudgetController {
   }
 
   @Post()
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.budget.manage')
   async create(
     @Body(new ZodValidationPipe(createBudgetSchema)) body: CreateBudgetInput,
     @CurrentUser() user: TokenPayload,
@@ -106,8 +108,7 @@ export class BudgetController {
   }
 
   @Patch(':id')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.budget.manage')
   async update(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(updateBudgetSchema)) body: UpdateBudgetInput,
@@ -128,8 +129,7 @@ export class BudgetController {
   }
 
   @Post(':id/approve')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.budget.manage')
   async approve(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
     const updated = await this.budgetService.approve(user.organisationId, id, user.sub);
     await this.auditService.record({
@@ -145,8 +145,7 @@ export class BudgetController {
   }
 
   @Post(':id/activate')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.budget.manage')
   async activate(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
     const updated = await this.budgetService.activate(user.organisationId, id);
     await this.auditService.record({
@@ -162,8 +161,7 @@ export class BudgetController {
   }
 
   @Post(':id/close')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.budget.manage')
   async close(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
     const updated = await this.budgetService.close(user.organisationId, id);
     await this.auditService.record({
@@ -179,8 +177,7 @@ export class BudgetController {
   }
 
   @Post(':id/revise')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.budget.manage')
   async revise(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
     const revision = await this.budgetService.revise(user.organisationId, id, user.sub);
     await this.auditService.record({
@@ -197,6 +194,7 @@ export class BudgetController {
   }
 
   @Get(':id/lines')
+  @RequirePermission('finance.budget.view')
   async listLines(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     await this.budgetService.getById(user.organisationId, id);
     const lines = await this.budgetLineService.list(id);
@@ -204,8 +202,7 @@ export class BudgetController {
   }
 
   @Post(':id/lines')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.budget.manage')
   async upsertLine(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(createBudgetLineSchema)) body: CreateBudgetLineInput,
@@ -236,8 +233,7 @@ export class BudgetController {
   }
 
   @Patch(':id/lines/:lineId')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.budget.manage')
   async updateLine(
     @Param('id') id: string,
     @Param('lineId') lineId: string,
@@ -265,12 +261,14 @@ export class BudgetController {
   }
 
   @Get(':id/vs-actual')
+  @RequirePermission('finance.budget.view')
   async vsActual(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     await this.budgetService.getById(user.organisationId, id);
     return this.budgetActualsService.getVarianceReport(user.organisationId, id);
   }
 
   @Get(':id/vs-forecast')
+  @RequirePermission('finance.budget.view')
   async vsForecast(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     await this.budgetService.getById(user.organisationId, id);
     return this.budgetForecastService.getBudgetVsForecast(user.organisationId, id);

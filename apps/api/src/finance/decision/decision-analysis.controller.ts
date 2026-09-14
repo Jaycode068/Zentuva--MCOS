@@ -28,13 +28,13 @@ import { Request } from 'express';
 import { AuditService } from '../../identity/audit/audit.service';
 import { ZodValidationPipe } from '../../identity/auth/common/zod-validation.pipe';
 import { CurrentUser } from '../../identity/auth/decorators/current-user.decorator';
-import { Roles } from '../../identity/auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../identity/auth/guards/jwt-auth.guard';
-import { RolesGuard } from '../../identity/auth/guards/roles.guard';
 import { TokenPayload } from '../../identity/auth/ports/token.port';
 import { DECISION_ANALYSIS_AUDIT_ACTIONS } from '../decision-analysis-audit-actions';
 import { DecisionAnalysisService } from './decision-analysis.service';
 import { DecisionScenarioService } from './decision-scenario.service';
+import { RequirePermission } from '../../identity/auth/decorators/require-permission.decorator';
+import { PermissionsGuard } from '../../identity/auth/guards/permissions.guard';
 
 /**
  * Decision Analysis HTTP surface (Sprint 19, docs/domains/financial-
@@ -44,7 +44,7 @@ import { DecisionScenarioService } from './decision-scenario.service';
  * (ephemeral reads, not state changes).
  */
 @Controller('finance/decisions')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class DecisionAnalysisController {
   constructor(
     private readonly decisionAnalysisService: DecisionAnalysisService,
@@ -53,12 +53,14 @@ export class DecisionAnalysisController {
   ) {}
 
   @Get()
+  @RequirePermission('finance.decision_analysis.view')
   async list(@CurrentUser() user: TokenPayload, @Query('status') status?: DecisionAnalysisStatus) {
     const items = await this.decisionAnalysisService.list(user.organisationId, { status });
     return { items };
   }
 
   @Get(':id')
+  @RequirePermission('finance.decision_analysis.view')
   getOne(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     return this.decisionAnalysisService.getById(user.organisationId, id);
   }
@@ -67,6 +69,7 @@ export class DecisionAnalysisController {
    *  audit-writing path, just a filtered view for this one analysis and its
    *  scenarios. */
   @Get(':id/audit')
+  @RequirePermission('finance.decision_analysis.view')
   async getAuditHistory(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const [analysisEvents, scenarioEvents] = await Promise.all([
       this.auditService.listByOrganisation(user.organisationId, {
@@ -88,8 +91,7 @@ export class DecisionAnalysisController {
   }
 
   @Post()
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.decision_analysis.manage')
   async create(
     @Body(new ZodValidationPipe(createDecisionAnalysisSchema)) body: CreateDecisionAnalysisInput,
     @CurrentUser() user: TokenPayload,
@@ -116,8 +118,7 @@ export class DecisionAnalysisController {
   }
 
   @Patch(':id')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.decision_analysis.manage')
   async update(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(updateDecisionAnalysisSchema)) body: UpdateDecisionAnalysisInput,
@@ -138,8 +139,7 @@ export class DecisionAnalysisController {
   }
 
   @Post(':id/submit')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.decision_analysis.manage')
   async submit(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
     return this.handleTransition(
       id,
@@ -151,8 +151,7 @@ export class DecisionAnalysisController {
   }
 
   @Post(':id/approve')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.decision_analysis.manage')
   async approve(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
     return this.handleTransition(
       id,
@@ -164,8 +163,7 @@ export class DecisionAnalysisController {
   }
 
   @Post(':id/reject')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.decision_analysis.manage')
   async reject(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(rejectDecisionAnalysisSchema)) body: RejectDecisionAnalysisInput,
@@ -188,14 +186,14 @@ export class DecisionAnalysisController {
   }
 
   @Get(':id/scenarios')
+  @RequirePermission('finance.decision_analysis.view')
   async listScenarios(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const items = await this.decisionScenarioService.list(user.organisationId, id);
     return { items };
   }
 
   @Post(':id/scenarios')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.decision_analysis.manage')
   async addScenario(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(createDecisionScenarioSchema)) body: CreateDecisionScenarioInput,
@@ -224,8 +222,7 @@ export class DecisionAnalysisController {
   }
 
   @Patch(':id/scenarios/:scenarioId')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.decision_analysis.manage')
   async updateScenario(
     @Param('id') id: string,
     @Param('scenarioId') scenarioId: string,
@@ -253,8 +250,7 @@ export class DecisionAnalysisController {
   }
 
   @Delete(':id/scenarios/:scenarioId')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.decision_analysis.manage')
   async removeScenario(
     @Param('id') id: string,
     @Param('scenarioId') scenarioId: string,
@@ -276,6 +272,7 @@ export class DecisionAnalysisController {
   }
 
   @Get(':id/scenarios/:scenarioId/results')
+  @RequirePermission('finance.decision_analysis.view')
   getResults(
     @CurrentUser() user: TokenPayload,
     @Param('id') id: string,
@@ -285,6 +282,7 @@ export class DecisionAnalysisController {
   }
 
   @Get(':id/scenarios/:scenarioId/sensitivity')
+  @RequirePermission('finance.decision_analysis.view')
   getSensitivity(
     @CurrentUser() user: TokenPayload,
     @Param('id') id: string,
@@ -294,6 +292,7 @@ export class DecisionAnalysisController {
   }
 
   @Get(':id/scenarios/:scenarioId/cashflow-impact')
+  @RequirePermission('finance.decision_analysis.view')
   getCashflowImpact(
     @CurrentUser() user: TokenPayload,
     @Param('id') id: string,
@@ -303,6 +302,7 @@ export class DecisionAnalysisController {
   }
 
   @Get(':id/scenarios/:scenarioId/budget-impact')
+  @RequirePermission('finance.decision_analysis.view')
   getBudgetImpact(
     @CurrentUser() user: TokenPayload,
     @Param('id') id: string,
@@ -312,6 +312,7 @@ export class DecisionAnalysisController {
   }
 
   @Get(':id/scenarios/:scenarioId/debt-impact')
+  @RequirePermission('finance.decision_analysis.view')
   getDebtImpact(
     @CurrentUser() user: TokenPayload,
     @Param('id') id: string,
@@ -321,6 +322,7 @@ export class DecisionAnalysisController {
   }
 
   @Get(':id/scenarios/:scenarioId/recommendation')
+  @RequirePermission('finance.decision_analysis.view')
   getRecommendation(
     @CurrentUser() user: TokenPayload,
     @Param('id') id: string,
@@ -330,6 +332,7 @@ export class DecisionAnalysisController {
   }
 
   @Get(':id/funding-comparison')
+  @RequirePermission('finance.decision_analysis.view')
   getFundingComparison(
     @CurrentUser() user: TokenPayload,
     @Param('id') id: string,

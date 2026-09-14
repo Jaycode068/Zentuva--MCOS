@@ -20,20 +20,21 @@ import { Request } from 'express';
 import { AuditService } from '../audit/audit.service';
 import { ZodValidationPipe } from '../auth/common/zod-validation.pipe';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
-import { Roles } from '../auth/decorators/roles.decorator';
+import { RequirePermission } from '../auth/decorators/require-permission.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { RolesGuard } from '../auth/guards/roles.guard';
+import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { TokenPayload } from '../auth/ports/token.port';
 import { USER_AUDIT_ACTIONS } from './user-audit-actions';
 import { UserWithRoles } from './user.repository';
 import { UserService, toWireStatus } from './user.service';
 
 /**
- * User Management HTTP surface (Sprint 2.2 brief): list/view/create/update users within
- * the caller's own organisation only — no invitation email, self-service onboarding, or
- * permission management (all explicitly deferred). `GET` requires only authentication
- * (Member has read-only access, per the brief); `POST`/`PATCH` additionally require the
- * Owner or Administrator role (RolesGuard, same mechanism as Sprint 2.1).
+ * User Management HTTP surface (Sprint 2.2 brief; migrated to the central permission
+ * system in Sprint 25.1, docs/architecture/authorization-coverage.md): list/view/
+ * create/update users within the caller's own organisation only — no invitation
+ * email, self-service onboarding, or permission management (all explicitly
+ * deferred). `GET` requires `identity.users.read`; `POST`/`PATCH` require
+ * `identity.users.update`.
  *
  * Tenant isolation: every method resolves the target user by `(id, organisationId)`
  * together (never by `id` alone), scoped to the caller's own `organisationId` from their
@@ -41,6 +42,7 @@ import { UserService, toWireStatus } from './user.service';
  * user in another (a cross-tenant id 404s exactly like a nonexistent one).
  */
 @Controller('users')
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class UserController {
   constructor(
     private readonly userService: UserService,
@@ -48,14 +50,14 @@ export class UserController {
   ) {}
 
   @Get()
-  @UseGuards(JwtAuthGuard)
+  @RequirePermission('identity.users.read')
   async list(@CurrentUser() user: TokenPayload) {
     const users = await this.userService.listWithRoles(user.organisationId);
     return { items: users.map(toUserResponse) };
   }
 
   @Get(':id')
-  @UseGuards(JwtAuthGuard)
+  @RequirePermission('identity.users.read')
   async getOne(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const target = await this.userService.getByIdWithRoles(user.organisationId, id);
     if (!target) {
@@ -65,8 +67,7 @@ export class UserController {
   }
 
   @Post()
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('identity.users.update')
   async create(
     @Body(new ZodValidationPipe(createUserSchema)) body: CreateUserInput,
     @CurrentUser() user: TokenPayload,
@@ -88,8 +89,7 @@ export class UserController {
   }
 
   @Patch(':id')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('identity.users.update')
   async update(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(updateUserSchema)) body: UpdateUserInput,

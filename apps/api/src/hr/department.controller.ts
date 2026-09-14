@@ -11,16 +11,16 @@ import { Request } from 'express';
 import { AuditService } from '../identity/audit/audit.service';
 import { ZodValidationPipe } from '../identity/auth/common/zod-validation.pipe';
 import { CurrentUser } from '../identity/auth/decorators/current-user.decorator';
-import { Roles } from '../identity/auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../identity/auth/guards/jwt-auth.guard';
-import { RolesGuard } from '../identity/auth/guards/roles.guard';
 import { TokenPayload } from '../identity/auth/ports/token.port';
 import { DepartmentService } from './department.service';
 import { EmployeeService } from './employee.service';
 import { HR_AUDIT_ACTIONS } from './hr-audit-actions';
+import { RequirePermission } from '../identity/auth/decorators/require-permission.decorator';
+import { PermissionsGuard } from '../identity/auth/guards/permissions.guard';
 
 @Controller('hr/departments')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class DepartmentController {
   constructor(
     private readonly departmentService: DepartmentService,
@@ -29,6 +29,7 @@ export class DepartmentController {
   ) {}
 
   @Get()
+  @RequirePermission('hr.organisation_structure.view')
   async list(@CurrentUser() user: TokenPayload, @Query('status') status?: DepartmentStatus) {
     const items = await this.departmentService.list(user.organisationId, { status });
     const withCounts = await Promise.all(
@@ -44,6 +45,7 @@ export class DepartmentController {
   }
 
   @Get(':id')
+  @RequirePermission('hr.organisation_structure.view')
   async getOne(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const department = await this.departmentService.getById(user.organisationId, id);
     const employeeCount = await this.departmentService.countEmployees(user.organisationId, id);
@@ -51,6 +53,7 @@ export class DepartmentController {
   }
 
   @Get(':id/employees')
+  @RequirePermission('hr.organisation_structure.view')
   async listEmployees(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     await this.departmentService.getById(user.organisationId, id);
     const result = await this.employeeService.list(user.organisationId, {
@@ -62,8 +65,7 @@ export class DepartmentController {
   }
 
   @Post()
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('hr.organisation_structure.manage')
   async create(
     @Body(new ZodValidationPipe(createDepartmentSchema)) body: CreateDepartmentInput,
     @CurrentUser() user: TokenPayload,
@@ -90,8 +92,7 @@ export class DepartmentController {
   }
 
   @Patch(':id')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('hr.organisation_structure.manage')
   async update(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(updateDepartmentSchema)) body: UpdateDepartmentInput,
@@ -112,8 +113,7 @@ export class DepartmentController {
   }
 
   @Post(':id/activate')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('hr.organisation_structure.manage')
   async activate(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
     const updated = await this.departmentService.activate(user.organisationId, id);
     await this.auditService.record({
@@ -129,8 +129,7 @@ export class DepartmentController {
   }
 
   @Post(':id/deactivate')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('hr.organisation_structure.manage')
   async deactivate(
     @Param('id') id: string,
     @CurrentUser() user: TokenPayload,

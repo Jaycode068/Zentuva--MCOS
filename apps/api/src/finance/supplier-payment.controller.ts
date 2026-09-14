@@ -5,13 +5,13 @@ import { Request } from 'express';
 import { AuditService } from '../identity/audit/audit.service';
 import { ZodValidationPipe } from '../identity/auth/common/zod-validation.pipe';
 import { CurrentUser } from '../identity/auth/decorators/current-user.decorator';
-import { Roles } from '../identity/auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../identity/auth/guards/jwt-auth.guard';
-import { RolesGuard } from '../identity/auth/guards/roles.guard';
 import { TokenPayload } from '../identity/auth/ports/token.port';
 import { ACCOUNTS_PAYABLE_AUDIT_ACTIONS } from './accounts-payable-audit-actions';
 import { SupplierPaymentWithRelations } from './supplier-payment.repository';
 import { SupplierPaymentService } from './supplier-payment.service';
+import { RequirePermission } from '../identity/auth/decorators/require-permission.decorator';
+import { PermissionsGuard } from '../identity/auth/guards/permissions.guard';
 
 /**
  * Supplier Payment HTTP surface (Sprint 12, docs/domains/finance.md "Accounts
@@ -21,7 +21,7 @@ import { SupplierPaymentService } from './supplier-payment.service';
  * history.
  */
 @Controller('finance/supplier-payments')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class SupplierPaymentController {
   constructor(
     private readonly supplierPaymentService: SupplierPaymentService,
@@ -29,6 +29,7 @@ export class SupplierPaymentController {
   ) {}
 
   @Get()
+  @RequirePermission('finance.supplier_payment.view')
   async list(
     @CurrentUser() user: TokenPayload,
     @Query('supplierId') supplierId?: string,
@@ -42,14 +43,14 @@ export class SupplierPaymentController {
   }
 
   @Get(':id')
+  @RequirePermission('finance.supplier_payment.view')
   async getOne(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const payment = await this.supplierPaymentService.getById(user.organisationId, id);
     return toSupplierPaymentResponse(payment);
   }
 
   @Post()
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.supplier_payment.create')
   async create(
     @Body(new ZodValidationPipe(createSupplierPaymentSchema)) body: CreateSupplierPaymentInput,
     @CurrentUser() user: TokenPayload,
@@ -79,8 +80,7 @@ export class SupplierPaymentController {
   }
 
   @Post(':id/void')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.supplier_payment.cancel')
   async void(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
     const { supplierPayment, supplierInvoiceId } = await this.supplierPaymentService.void(
       user.organisationId,

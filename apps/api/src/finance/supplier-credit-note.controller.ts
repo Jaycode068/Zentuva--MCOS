@@ -5,13 +5,13 @@ import { Request } from 'express';
 import { AuditService } from '../identity/audit/audit.service';
 import { ZodValidationPipe } from '../identity/auth/common/zod-validation.pipe';
 import { CurrentUser } from '../identity/auth/decorators/current-user.decorator';
-import { Roles } from '../identity/auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../identity/auth/guards/jwt-auth.guard';
-import { RolesGuard } from '../identity/auth/guards/roles.guard';
 import { TokenPayload } from '../identity/auth/ports/token.port';
 import { ACCOUNTS_PAYABLE_AUDIT_ACTIONS } from './accounts-payable-audit-actions';
 import { SupplierCreditNoteWithRelations } from './supplier-credit-note.repository';
 import { SupplierCreditNoteService } from './supplier-credit-note.service';
+import { RequirePermission } from '../identity/auth/decorators/require-permission.decorator';
+import { PermissionsGuard } from '../identity/auth/guards/permissions.guard';
 
 /**
  * Supplier Credit Note HTTP surface (Sprint 12, docs/domains/finance.md "Accounts
@@ -19,7 +19,7 @@ import { SupplierCreditNoteService } from './supplier-credit-note.service';
  * the Owner or Administrator role.
  */
 @Controller('finance/supplier-credit-notes')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class SupplierCreditNoteController {
   constructor(
     private readonly supplierCreditNoteService: SupplierCreditNoteService,
@@ -27,6 +27,7 @@ export class SupplierCreditNoteController {
   ) {}
 
   @Get()
+  @RequirePermission('finance.supplier_invoice.view')
   async list(
     @CurrentUser() user: TokenPayload,
     @Query('supplierId') supplierId?: string,
@@ -40,14 +41,14 @@ export class SupplierCreditNoteController {
   }
 
   @Get(':id')
+  @RequirePermission('finance.supplier_invoice.view')
   async getOne(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const creditNote = await this.supplierCreditNoteService.getById(user.organisationId, id);
     return toSupplierCreditNoteResponse(creditNote);
   }
 
   @Post()
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.supplier_invoice.manage')
   async create(
     @Body(new ZodValidationPipe(createSupplierCreditNoteSchema))
     body: CreateSupplierCreditNoteInput,
@@ -79,8 +80,7 @@ export class SupplierCreditNoteController {
   }
 
   @Post(':id/issue')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.supplier_invoice.manage')
   async issue(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
     const { creditNote, supplierInvoiceId } = await this.supplierCreditNoteService.issue(
       user.organisationId,
@@ -107,8 +107,7 @@ export class SupplierCreditNoteController {
   }
 
   @Post(':id/void')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.supplier_invoice.manage')
   async void(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
     const { creditNote, supplierInvoiceId } = await this.supplierCreditNoteService.void(
       user.organisationId,

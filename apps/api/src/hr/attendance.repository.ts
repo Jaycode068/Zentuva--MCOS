@@ -8,6 +8,11 @@ export interface ListAttendanceParams {
   pageSize: number;
   employeeId?: string;
   departmentId?: string;
+  /** Sprint 25.1 (docs/architecture/authorization-coverage.md) — `hr.attendance.view`'s
+   *  `OWN_TEAM` scope filter, the exact `EmployeeRepository.managerEmployeeId` pattern
+   *  Sprint 25 established for `hr.employee.view`, applied via the existing
+   *  `employee.managerEmployeeId` relation. No new data. */
+  managerEmployeeId?: string;
   dateFrom?: Date;
   dateTo?: Date;
   status?: AttendanceStatus;
@@ -80,7 +85,14 @@ export class AttendanceRepository {
     const where: Prisma.AttendanceRecordWhereInput = {
       organisationId,
       ...(params.employeeId ? { employeeId: params.employeeId } : {}),
-      ...(params.departmentId ? { employee: { departmentId: params.departmentId } } : {}),
+      ...(params.departmentId || params.managerEmployeeId
+        ? {
+            employee: {
+              ...(params.departmentId ? { departmentId: params.departmentId } : {}),
+              ...(params.managerEmployeeId ? { managerEmployeeId: params.managerEmployeeId } : {}),
+            },
+          }
+        : {}),
       ...(params.status ? { status: params.status } : {}),
       ...(params.reviewStatus ? { reviewStatus: params.reviewStatus } : {}),
       ...(params.dateFrom || params.dateTo

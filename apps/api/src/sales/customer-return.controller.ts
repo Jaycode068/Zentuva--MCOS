@@ -25,14 +25,14 @@ import { Request } from 'express';
 import { AuditService } from '../identity/audit/audit.service';
 import { ZodValidationPipe } from '../identity/auth/common/zod-validation.pipe';
 import { CurrentUser } from '../identity/auth/decorators/current-user.decorator';
-import { Roles } from '../identity/auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../identity/auth/guards/jwt-auth.guard';
-import { RolesGuard } from '../identity/auth/guards/roles.guard';
 import { TokenPayload } from '../identity/auth/ports/token.port';
 import { assertValidImageFile } from '../identity/common/image-upload-validation';
 import { SALES_AUDIT_ACTIONS } from './sales-audit-actions';
 import { CustomerReturnWithRelations } from './customer-return.repository';
 import { CustomerReturnService } from './customer-return.service';
+import { RequirePermission } from '../identity/auth/decorators/require-permission.decorator';
+import { PermissionsGuard } from '../identity/auth/guards/permissions.guard';
 
 /**
  * Customer Return HTTP surface (Sprint 11, docs/domains/sales.md "Customer Returns").
@@ -42,7 +42,7 @@ import { CustomerReturnService } from './customer-return.service';
  * the target return by `(id, organisationId)` together.
  */
 @Controller('sales/customer-returns')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class CustomerReturnController {
   constructor(
     private readonly customerReturnService: CustomerReturnService,
@@ -51,6 +51,7 @@ export class CustomerReturnController {
   ) {}
 
   @Get()
+  @RequirePermission('sales.order.view')
   async list(
     @CurrentUser() user: TokenPayload,
     @Query('status') status?: CustomerReturnStatus,
@@ -68,14 +69,14 @@ export class CustomerReturnController {
   }
 
   @Get(':id')
+  @RequirePermission('sales.order.view')
   async getOne(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const customerReturn = await this.customerReturnService.getById(user.organisationId, id);
     return toCustomerReturnResponse(customerReturn);
   }
 
   @Post()
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('sales.customer_return.manage')
   async request(
     @Body(new ZodValidationPipe(createCustomerReturnSchema)) body: CreateCustomerReturnInput,
     @CurrentUser() user: TokenPayload,
@@ -111,8 +112,7 @@ export class CustomerReturnController {
    *  Only emits audit events when `wasCreated === true` — a replayed idempotent
    *  request must not double-record history. */
   @Post(':id/receive')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('sales.customer_return.manage')
   async receive(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(receiveCustomerReturnSchema)) body: ReceiveCustomerReturnInput,
@@ -173,8 +173,7 @@ export class CustomerReturnController {
   }
 
   @Post(':id/cancel')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('sales.customer_return.manage')
   async cancel(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
     const customerReturn = await this.customerReturnService.cancel(user.organisationId, id);
 
@@ -193,8 +192,7 @@ export class CustomerReturnController {
   }
 
   @Post(':id/photo')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('sales.customer_return.manage')
   @UseInterceptors(FileInterceptor('file'))
   async uploadPhoto(
     @Param('id') id: string,

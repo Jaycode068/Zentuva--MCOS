@@ -18,16 +18,16 @@ import { Request } from 'express';
 import { AuditService } from '../identity/audit/audit.service';
 import { ZodValidationPipe } from '../identity/auth/common/zod-validation.pipe';
 import { CurrentUser } from '../identity/auth/decorators/current-user.decorator';
-import { Roles } from '../identity/auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../identity/auth/guards/jwt-auth.guard';
-import { RolesGuard } from '../identity/auth/guards/roles.guard';
 import { TokenPayload } from '../identity/auth/ports/token.port';
 import { EmployeeTrainingService } from './employee-training.service';
 import { HR_AUDIT_ACTIONS } from './hr-audit-actions';
 import { TrainingCourseService } from './training-course.service';
+import { RequirePermission } from '../identity/auth/decorators/require-permission.decorator';
+import { PermissionsGuard } from '../identity/auth/guards/permissions.guard';
 
 @Controller('hr/training')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class TrainingController {
   constructor(
     private readonly trainingCourseService: TrainingCourseService,
@@ -38,6 +38,7 @@ export class TrainingController {
   // --- Courses --------------------------------------------------------------
 
   @Get('courses')
+  @RequirePermission('hr.training.view')
   async listCourses(
     @CurrentUser() user: TokenPayload,
     @Query('status') status?: TrainingCourseStatus,
@@ -47,13 +48,13 @@ export class TrainingController {
   }
 
   @Get('courses/:id')
+  @RequirePermission('hr.training.view')
   getCourse(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     return this.trainingCourseService.getById(user.organisationId, id);
   }
 
   @Post('courses')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('hr.training.manage')
   async createCourse(
     @Body(new ZodValidationPipe(createTrainingCourseSchema)) body: CreateTrainingCourseInput,
     @CurrentUser() user: TokenPayload,
@@ -79,8 +80,7 @@ export class TrainingController {
   }
 
   @Patch('courses/:id')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('hr.training.manage')
   async updateCourse(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(updateTrainingCourseSchema)) body: UpdateTrainingCourseInput,
@@ -101,8 +101,7 @@ export class TrainingController {
   }
 
   @Post('courses/:id/activate')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('hr.training.manage')
   async activateCourse(
     @Param('id') id: string,
     @CurrentUser() user: TokenPayload,
@@ -122,8 +121,7 @@ export class TrainingController {
   }
 
   @Post('courses/:id/archive')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('hr.training.manage')
   async archiveCourse(
     @Param('id') id: string,
     @CurrentUser() user: TokenPayload,
@@ -143,8 +141,7 @@ export class TrainingController {
   }
 
   @Post('courses/:id/assignments')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('hr.training.manage')
   async assign(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(assignTrainingSchema)) body: AssignTrainingInput,
@@ -173,8 +170,7 @@ export class TrainingController {
   // --- Assignments ------------------------------------------------------------
 
   @Get('assignments')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('hr.training.view')
   async listAssignments(
     @CurrentUser() user: TokenPayload,
     @Query('page') pageRaw?: string,
@@ -195,13 +191,13 @@ export class TrainingController {
   }
 
   @Get('assignments/:id')
+  @RequirePermission('hr.training.view')
   getAssignment(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     return this.employeeTrainingService.getById(user.organisationId, id);
   }
 
   @Patch('assignments/:id')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('hr.training.manage')
   async updateAssignment(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(updateEmployeeTrainingSchema)) body: UpdateEmployeeTrainingInput,
@@ -224,8 +220,7 @@ export class TrainingController {
   }
 
   @Post('assignments/:id/complete')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('hr.training.manage')
   async complete(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(completeEmployeeTrainingSchema))
@@ -247,8 +242,7 @@ export class TrainingController {
   }
 
   @Post('assignments/:id/cancel')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('hr.training.manage')
   async cancel(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
     const updated = await this.employeeTrainingService.cancel(user.organisationId, id);
     await this.auditService.record({

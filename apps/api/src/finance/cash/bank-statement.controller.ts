@@ -17,12 +17,12 @@ import { Request } from 'express';
 import { AuditService } from '../../identity/audit/audit.service';
 import { ZodValidationPipe } from '../../identity/auth/common/zod-validation.pipe';
 import { CurrentUser } from '../../identity/auth/decorators/current-user.decorator';
-import { Roles } from '../../identity/auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../identity/auth/guards/jwt-auth.guard';
-import { RolesGuard } from '../../identity/auth/guards/roles.guard';
 import { TokenPayload } from '../../identity/auth/ports/token.port';
 import { CASH_BANK_AUDIT_ACTIONS } from '../cash-bank-audit-actions';
 import { BankStatementService } from './bank-statement.service';
+import { RequirePermission } from '../../identity/auth/decorators/require-permission.decorator';
+import { PermissionsGuard } from '../../identity/auth/guards/permissions.guard';
 
 /**
  * Bank Statement HTTP surface (Sprint 14, docs/domains/cash-management.md "Bank
@@ -31,7 +31,7 @@ import { BankStatementService } from './bank-statement.service';
  * replayed idempotent import must not double-record history.
  */
 @Controller('finance/cash/bank-statements')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class BankStatementController {
   constructor(
     private readonly bankStatementService: BankStatementService,
@@ -39,6 +39,7 @@ export class BankStatementController {
   ) {}
 
   @Get('imports')
+  @RequirePermission('finance.bank_reconciliation.view')
   async listImports(
     @CurrentUser() user: TokenPayload,
     @Query('cashAccountId') cashAccountId?: string,
@@ -48,6 +49,7 @@ export class BankStatementController {
   }
 
   @Get('imports/:id')
+  @RequirePermission('finance.bank_reconciliation.view')
   async getImport(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const bankStatementImport = await this.bankStatementService.getImportById(
       user.organisationId,
@@ -60,6 +62,7 @@ export class BankStatementController {
   }
 
   @Get('transactions')
+  @RequirePermission('finance.bank_reconciliation.view')
   async listTransactions(
     @CurrentUser() user: TokenPayload,
     @Query('cashAccountId') cashAccountId?: string,
@@ -73,8 +76,7 @@ export class BankStatementController {
   }
 
   @Post(':cashAccountId/import')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.bank_reconciliation.perform')
   async import(
     @Param('cashAccountId') cashAccountId: string,
     @Body(new ZodValidationPipe(importBankStatementSchema)) body: ImportBankStatementInput,

@@ -5,13 +5,13 @@ import { Request } from 'express';
 import { AuditService } from '../../identity/audit/audit.service';
 import { ZodValidationPipe } from '../../identity/auth/common/zod-validation.pipe';
 import { CurrentUser } from '../../identity/auth/decorators/current-user.decorator';
-import { Roles } from '../../identity/auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../identity/auth/guards/jwt-auth.guard';
-import { RolesGuard } from '../../identity/auth/guards/roles.guard';
 import { TokenPayload } from '../../identity/auth/ports/token.port';
 import { CASH_BANK_AUDIT_ACTIONS } from '../cash-bank-audit-actions';
 import { CashTransactionWithRelations } from './cash-transaction.repository';
 import { CashTransactionService } from './cash-transaction.service';
+import { RequirePermission } from '../../identity/auth/decorators/require-permission.decorator';
+import { PermissionsGuard } from '../../identity/auth/guards/permissions.guard';
 
 /**
  * Cash Transaction HTTP surface (Sprint 14, docs/domains/cash-management.md). `GET`
@@ -20,7 +20,7 @@ import { CashTransactionService } from './cash-transaction.service';
  * replayed idempotent request must not double-record history.
  */
 @Controller('finance/cash/transactions')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class CashTransactionController {
   constructor(
     private readonly cashTransactionService: CashTransactionService,
@@ -28,6 +28,7 @@ export class CashTransactionController {
   ) {}
 
   @Get()
+  @RequirePermission('finance.cash_transaction.view')
   async list(@CurrentUser() user: TokenPayload, @Query('cashAccountId') cashAccountId?: string) {
     const transactions = await this.cashTransactionService.list(user.organisationId, {
       cashAccountId,
@@ -36,14 +37,14 @@ export class CashTransactionController {
   }
 
   @Get(':id')
+  @RequirePermission('finance.cash_transaction.view')
   async getOne(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const transaction = await this.cashTransactionService.getById(user.organisationId, id);
     return toCashTransactionResponse(transaction);
   }
 
   @Post()
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.cash_transaction.create')
   async create(
     @Body(new ZodValidationPipe(createCashTransactionSchema)) body: CreateCashTransactionInput,
     @CurrentUser() user: TokenPayload,
@@ -76,8 +77,7 @@ export class CashTransactionController {
   }
 
   @Post(':id/void')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.cash_transaction.cancel')
   async void(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
     const cashTransaction = await this.cashTransactionService.void(user.organisationId, id);
 

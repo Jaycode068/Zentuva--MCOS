@@ -22,12 +22,12 @@ import { Request } from 'express';
 import { AuditService } from '../../identity/audit/audit.service';
 import { ZodValidationPipe } from '../../identity/auth/common/zod-validation.pipe';
 import { CurrentUser } from '../../identity/auth/decorators/current-user.decorator';
-import { Roles } from '../../identity/auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../identity/auth/guards/jwt-auth.guard';
-import { RolesGuard } from '../../identity/auth/guards/roles.guard';
 import { TokenPayload } from '../../identity/auth/ports/token.port';
 import { PRODUCT_VARIANT_AUDIT_ACTIONS } from './product-variant-audit-actions';
 import { ProductVariantService } from './product-variant.service';
+import { RequirePermission } from '../../identity/auth/decorators/require-permission.decorator';
+import { PermissionsGuard } from '../../identity/auth/guards/permissions.guard';
 
 /**
  * Product Variant HTTP surface (Sprint 4.7 brief, docs/domains/catalogue.md). `GET`
@@ -38,7 +38,7 @@ import { ProductVariantService } from './product-variant.service';
  * together, same convention as `ProductController`/`ProductFamilyController`.
  */
 @Controller('product-variants')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class ProductVariantController {
   constructor(
     private readonly productVariantService: ProductVariantService,
@@ -46,6 +46,7 @@ export class ProductVariantController {
   ) {}
 
   @Get()
+  @RequirePermission('catalogue.product.view')
   async list(
     @CurrentUser() user: TokenPayload,
     @Query('productFamilyId') productFamilyId?: string,
@@ -61,6 +62,7 @@ export class ProductVariantController {
   }
 
   @Get(':id')
+  @RequirePermission('catalogue.product.view')
   async getOne(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const variant = await this.productVariantService.getById(user.organisationId, id);
     if (!variant) {
@@ -70,8 +72,7 @@ export class ProductVariantController {
   }
 
   @Post()
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('catalogue.product.manage')
   async create(
     @Body(new ZodValidationPipe(createProductVariantSchema)) body: CreateProductVariantInput,
     @CurrentUser() user: TokenPayload,
@@ -98,8 +99,7 @@ export class ProductVariantController {
   }
 
   @Patch(':id')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('catalogue.product.manage')
   async update(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(updateProductVariantSchema)) body: UpdateProductVariantInput,

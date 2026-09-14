@@ -11,12 +11,12 @@ import { Request } from 'express';
 import { AuditService } from '../../identity/audit/audit.service';
 import { ZodValidationPipe } from '../../identity/auth/common/zod-validation.pipe';
 import { CurrentUser } from '../../identity/auth/decorators/current-user.decorator';
-import { Roles } from '../../identity/auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../identity/auth/guards/jwt-auth.guard';
-import { RolesGuard } from '../../identity/auth/guards/roles.guard';
 import { TokenPayload } from '../../identity/auth/ports/token.port';
 import { BUDGETING_AUDIT_ACTIONS } from '../budgeting-audit-actions';
 import { CostCentreService } from './cost-centre.service';
+import { RequirePermission } from '../../identity/auth/decorators/require-permission.decorator';
+import { PermissionsGuard } from '../../identity/auth/guards/permissions.guard';
 
 /**
  * Cost Centre HTTP surface (Sprint 16, docs/domains/budgeting.md §10). `GET`
@@ -24,7 +24,7 @@ import { CostCentreService } from './cost-centre.service';
  * or Administrator role.
  */
 @Controller('finance/cost-centres')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class CostCentreController {
   constructor(
     private readonly costCentreService: CostCentreService,
@@ -32,20 +32,21 @@ export class CostCentreController {
   ) {}
 
   @Get()
+  @RequirePermission('finance.budget.view')
   async list(@CurrentUser() user: TokenPayload, @Query('status') status?: CostCentreStatus) {
     const items = await this.costCentreService.list(user.organisationId, { status });
     return { items: items.map(toCostCentreResponse) };
   }
 
   @Get(':id')
+  @RequirePermission('finance.budget.view')
   async getOne(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const costCentre = await this.costCentreService.getById(user.organisationId, id);
     return toCostCentreResponse(costCentre);
   }
 
   @Post()
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.budget.manage')
   async create(
     @Body(new ZodValidationPipe(createCostCentreSchema)) body: CreateCostCentreInput,
     @CurrentUser() user: TokenPayload,
@@ -74,8 +75,7 @@ export class CostCentreController {
   }
 
   @Patch(':id')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.budget.manage')
   async update(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(updateCostCentreSchema)) body: UpdateCostCentreInput,
@@ -98,8 +98,7 @@ export class CostCentreController {
   }
 
   @Post(':id/deactivate')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.budget.manage')
   async deactivate(
     @Param('id') id: string,
     @CurrentUser() user: TokenPayload,
@@ -121,8 +120,7 @@ export class CostCentreController {
   }
 
   @Post(':id/activate')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.budget.manage')
   async activate(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
     const updated = await this.costCentreService.activate(user.organisationId, id);
 

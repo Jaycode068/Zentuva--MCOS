@@ -5,6 +5,8 @@ import { CurrentUser } from '../../identity/auth/decorators/current-user.decorat
 import { JwtAuthGuard } from '../../identity/auth/guards/jwt-auth.guard';
 import { TokenPayload } from '../../identity/auth/ports/token.port';
 import { CashflowForecastService } from './cashflow-forecast.service';
+import { RequirePermission } from '../../identity/auth/decorators/require-permission.decorator';
+import { PermissionsGuard } from '../../identity/auth/guards/permissions.guard';
 
 /**
  * Cashflow Forecast HTTP surface (Sprint 15, docs/domains/cashflow.md) — a pure
@@ -12,11 +14,12 @@ import { CashflowForecastService } from './cashflow-forecast.service';
  * `cashflow-audit-actions.ts`'s own doc comment.
  */
 @Controller('finance/cashflow')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class CashflowForecastController {
   constructor(private readonly cashflowForecastService: CashflowForecastService) {}
 
   @Get('forecast')
+  @RequirePermission('finance.budget.view')
   getForecast(
     @CurrentUser() user: TokenPayload,
     @Query('horizonDays') horizonDays?: string,
@@ -34,6 +37,7 @@ export class CashflowForecastController {
   }
 
   @Get('accounts/breakdown')
+  @RequirePermission('finance.budget.view')
   getCashAccountBreakdown(
     @CurrentUser() user: TokenPayload,
     @Query('horizonDays') horizonDays?: string,

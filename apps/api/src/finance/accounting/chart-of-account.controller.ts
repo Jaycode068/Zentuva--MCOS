@@ -11,12 +11,12 @@ import { Request } from 'express';
 import { AuditService } from '../../identity/audit/audit.service';
 import { ZodValidationPipe } from '../../identity/auth/common/zod-validation.pipe';
 import { CurrentUser } from '../../identity/auth/decorators/current-user.decorator';
-import { Roles } from '../../identity/auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../identity/auth/guards/jwt-auth.guard';
-import { RolesGuard } from '../../identity/auth/guards/roles.guard';
 import { TokenPayload } from '../../identity/auth/ports/token.port';
 import { ACCOUNTING_AUDIT_ACTIONS } from './accounting-audit-actions';
 import { ChartOfAccountService } from './chart-of-account.service';
+import { RequirePermission } from '../../identity/auth/decorators/require-permission.decorator';
+import { PermissionsGuard } from '../../identity/auth/guards/permissions.guard';
 
 /**
  * Chart of Accounts HTTP surface (Sprint 7, docs/domains/accounting.md). `GET`
@@ -24,7 +24,7 @@ import { ChartOfAccountService } from './chart-of-account.service';
  * requires the Owner or Administrator role, same convention as every other domain.
  */
 @Controller('finance/accounts')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class ChartOfAccountController {
   constructor(
     private readonly chartOfAccountService: ChartOfAccountService,
@@ -32,6 +32,7 @@ export class ChartOfAccountController {
   ) {}
 
   @Get()
+  @RequirePermission('finance.chart_of_accounts.manage')
   async list(
     @CurrentUser() user: TokenPayload,
     @Query('type') type?: AccountType,
@@ -47,14 +48,14 @@ export class ChartOfAccountController {
   }
 
   @Get(':id')
+  @RequirePermission('finance.chart_of_accounts.manage')
   async getOne(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const account = await this.chartOfAccountService.getById(user.organisationId, id);
     return toChartOfAccountResponse(account);
   }
 
   @Post()
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.chart_of_accounts.manage')
   async create(
     @Body(new ZodValidationPipe(createChartOfAccountSchema)) body: CreateChartOfAccountInput,
     @CurrentUser() user: TokenPayload,
@@ -77,8 +78,7 @@ export class ChartOfAccountController {
   }
 
   @Patch(':id')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.chart_of_accounts.manage')
   async update(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(updateChartOfAccountSchema)) body: UpdateChartOfAccountInput,
@@ -107,8 +107,7 @@ export class ChartOfAccountController {
   }
 
   @Post(':id/activate')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.chart_of_accounts.manage')
   async activate(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
     const updated = await this.chartOfAccountService.activate(user.organisationId, id, user.sub);
 
@@ -127,8 +126,7 @@ export class ChartOfAccountController {
   }
 
   @Post(':id/deactivate')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.chart_of_accounts.manage')
   async deactivate(
     @Param('id') id: string,
     @CurrentUser() user: TokenPayload,

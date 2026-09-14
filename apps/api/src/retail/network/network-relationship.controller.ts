@@ -22,13 +22,13 @@ import { Request } from 'express';
 import { AuditService } from '../../identity/audit/audit.service';
 import { ZodValidationPipe } from '../../identity/auth/common/zod-validation.pipe';
 import { CurrentUser } from '../../identity/auth/decorators/current-user.decorator';
-import { Roles } from '../../identity/auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../identity/auth/guards/jwt-auth.guard';
-import { RolesGuard } from '../../identity/auth/guards/roles.guard';
 import { TokenPayload } from '../../identity/auth/ports/token.port';
 import { NETWORK_RELATIONSHIP_AUDIT_ACTIONS } from './network-relationship-audit-actions';
 import { NetworkRelationshipWithCustomers } from './network-relationship.repository';
 import { NetworkRelationshipService } from './network-relationship.service';
+import { RequirePermission } from '../../identity/auth/decorators/require-permission.decorator';
+import { PermissionsGuard } from '../../identity/auth/guards/permissions.guard';
 
 /**
  * Distribution Network Relationship HTTP surface (Sprint 4.8,
@@ -40,7 +40,7 @@ import { NetworkRelationshipService } from './network-relationship.service';
  * organisationId)` together, same convention as every other domain controller.
  */
 @Controller('retail/network-relationships')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class NetworkRelationshipController {
   constructor(
     private readonly networkRelationshipService: NetworkRelationshipService,
@@ -48,6 +48,7 @@ export class NetworkRelationshipController {
   ) {}
 
   @Get()
+  @RequirePermission('sales.customer.view')
   async list(
     @CurrentUser() user: TokenPayload,
     @Query('status') status?: NetworkRelationshipStatus,
@@ -63,6 +64,7 @@ export class NetworkRelationshipController {
   }
 
   @Get(':id')
+  @RequirePermission('sales.customer.view')
   async getOne(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const relationship = await this.networkRelationshipService.getById(user.organisationId, id);
     if (!relationship) {
@@ -72,8 +74,7 @@ export class NetworkRelationshipController {
   }
 
   @Post()
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('retail.network.manage')
   async create(
     @Body(new ZodValidationPipe(createNetworkRelationshipSchema))
     body: CreateNetworkRelationshipInput,
@@ -105,8 +106,7 @@ export class NetworkRelationshipController {
   }
 
   @Patch(':id')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('retail.network.manage')
   async update(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(updateNetworkRelationshipSchema))
@@ -136,8 +136,7 @@ export class NetworkRelationshipController {
   }
 
   @Post(':id/deactivate')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('retail.network.manage')
   async deactivate(
     @Param('id') id: string,
     @CurrentUser() user: TokenPayload,

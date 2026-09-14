@@ -5,13 +5,13 @@ import { Request } from 'express';
 import { AuditService } from '../identity/audit/audit.service';
 import { ZodValidationPipe } from '../identity/auth/common/zod-validation.pipe';
 import { CurrentUser } from '../identity/auth/decorators/current-user.decorator';
-import { Roles } from '../identity/auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../identity/auth/guards/jwt-auth.guard';
-import { RolesGuard } from '../identity/auth/guards/roles.guard';
 import { TokenPayload } from '../identity/auth/ports/token.port';
 import { CreditNoteWithRelations } from './credit-note.repository';
 import { CreditNoteService } from './credit-note.service';
 import { FINANCE_AUDIT_ACTIONS } from './finance-audit-actions';
+import { RequirePermission } from '../identity/auth/decorators/require-permission.decorator';
+import { PermissionsGuard } from '../identity/auth/guards/permissions.guard';
 
 /**
  * Credit Note HTTP surface (Sprint 6, docs/domains/finance.md). `GET` requires only
@@ -19,7 +19,7 @@ import { FINANCE_AUDIT_ACTIONS } from './finance-audit-actions';
  * Owner or Administrator role.
  */
 @Controller('finance/credit-notes')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class CreditNoteController {
   constructor(
     private readonly creditNoteService: CreditNoteService,
@@ -27,6 +27,7 @@ export class CreditNoteController {
   ) {}
 
   @Get()
+  @RequirePermission('finance.credit_note.view')
   async list(
     @CurrentUser() user: TokenPayload,
     @Query('customerId') customerId?: string,
@@ -40,14 +41,14 @@ export class CreditNoteController {
   }
 
   @Get(':id')
+  @RequirePermission('finance.credit_note.view')
   async getOne(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const creditNote = await this.creditNoteService.getById(user.organisationId, id);
     return toCreditNoteResponse(creditNote);
   }
 
   @Post()
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.credit_note.manage')
   async create(
     @Body(new ZodValidationPipe(createCreditNoteSchema)) body: CreateCreditNoteInput,
     @CurrentUser() user: TokenPayload,
@@ -74,8 +75,7 @@ export class CreditNoteController {
   }
 
   @Post(':id/issue')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.credit_note.manage')
   async issue(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
     const { creditNote, invoiceId } = await this.creditNoteService.issue(
       user.organisationId,
@@ -98,8 +98,7 @@ export class CreditNoteController {
   }
 
   @Post(':id/void')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.credit_note.manage')
   async void(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
     const { creditNote, invoiceId } = await this.creditNoteService.void(
       user.organisationId,

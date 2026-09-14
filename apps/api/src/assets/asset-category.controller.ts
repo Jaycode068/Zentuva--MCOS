@@ -11,12 +11,12 @@ import { Request } from 'express';
 import { AuditService } from '../identity/audit/audit.service';
 import { ZodValidationPipe } from '../identity/auth/common/zod-validation.pipe';
 import { CurrentUser } from '../identity/auth/decorators/current-user.decorator';
-import { Roles } from '../identity/auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../identity/auth/guards/jwt-auth.guard';
-import { RolesGuard } from '../identity/auth/guards/roles.guard';
 import { TokenPayload } from '../identity/auth/ports/token.port';
 import { ASSET_AUDIT_ACTIONS } from './asset-audit-actions';
 import { AssetCategoryService } from './asset-category.service';
+import { RequirePermission } from '../identity/auth/decorators/require-permission.decorator';
+import { PermissionsGuard } from '../identity/auth/guards/permissions.guard';
 
 /**
  * Asset Category HTTP surface (Sprint 20, docs/domains/assets.md). `GET`
@@ -24,7 +24,7 @@ import { AssetCategoryService } from './asset-category.service';
  * Owner or Administrator role.
  */
 @Controller('assets/categories')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class AssetCategoryController {
   constructor(
     private readonly assetCategoryService: AssetCategoryService,
@@ -32,20 +32,21 @@ export class AssetCategoryController {
   ) {}
 
   @Get()
+  @RequirePermission('assets.asset.view')
   async list(@CurrentUser() user: TokenPayload, @Query('status') status?: AssetCategoryStatus) {
     const items = await this.assetCategoryService.list(user.organisationId, { status });
     return { items: items.map(toAssetCategoryResponse) };
   }
 
   @Get(':id')
+  @RequirePermission('assets.asset.view')
   async getOne(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const assetCategory = await this.assetCategoryService.getById(user.organisationId, id);
     return toAssetCategoryResponse(assetCategory);
   }
 
   @Post()
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('assets.asset.manage')
   async create(
     @Body(new ZodValidationPipe(createAssetCategorySchema)) body: CreateAssetCategoryInput,
     @CurrentUser() user: TokenPayload,
@@ -74,8 +75,7 @@ export class AssetCategoryController {
   }
 
   @Patch(':id')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('assets.asset.manage')
   async update(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(updateAssetCategorySchema)) body: UpdateAssetCategoryInput,
@@ -98,8 +98,7 @@ export class AssetCategoryController {
   }
 
   @Post(':id/deactivate')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('assets.asset.manage')
   async deactivate(
     @Param('id') id: string,
     @CurrentUser() user: TokenPayload,
@@ -121,8 +120,7 @@ export class AssetCategoryController {
   }
 
   @Post(':id/activate')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('assets.asset.manage')
   async activate(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
     const updated = await this.assetCategoryService.activate(user.organisationId, id);
 

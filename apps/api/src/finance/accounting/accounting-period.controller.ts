@@ -6,12 +6,12 @@ import { Request } from 'express';
 import { AuditService } from '../../identity/audit/audit.service';
 import { ZodValidationPipe } from '../../identity/auth/common/zod-validation.pipe';
 import { CurrentUser } from '../../identity/auth/decorators/current-user.decorator';
-import { Roles } from '../../identity/auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../identity/auth/guards/jwt-auth.guard';
-import { RolesGuard } from '../../identity/auth/guards/roles.guard';
 import { TokenPayload } from '../../identity/auth/ports/token.port';
 import { ACCOUNTING_AUDIT_ACTIONS } from './accounting-audit-actions';
 import { AccountingPeriodService } from './accounting-period.service';
+import { RequirePermission } from '../../identity/auth/decorators/require-permission.decorator';
+import { PermissionsGuard } from '../../identity/auth/guards/permissions.guard';
 
 /**
  * Accounting Period HTTP surface (Sprint 7, docs/domains/accounting.md). `GET`
@@ -19,7 +19,7 @@ import { AccountingPeriodService } from './accounting-period.service';
  * Administrator.
  */
 @Controller('finance/accounting-periods')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class AccountingPeriodController {
   constructor(
     private readonly accountingPeriodService: AccountingPeriodService,
@@ -27,20 +27,21 @@ export class AccountingPeriodController {
   ) {}
 
   @Get()
+  @RequirePermission('finance.chart_of_accounts.manage')
   async list(@CurrentUser() user: TokenPayload) {
     const periods = await this.accountingPeriodService.list(user.organisationId);
     return { items: periods.map(toAccountingPeriodResponse) };
   }
 
   @Get(':id')
+  @RequirePermission('finance.chart_of_accounts.manage')
   async getOne(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const period = await this.accountingPeriodService.getById(user.organisationId, id);
     return toAccountingPeriodResponse(period);
   }
 
   @Post()
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.chart_of_accounts.manage')
   async create(
     @Body(new ZodValidationPipe(createAccountingPeriodSchema)) body: CreateAccountingPeriodInput,
     @CurrentUser() user: TokenPayload,
@@ -63,8 +64,7 @@ export class AccountingPeriodController {
   }
 
   @Post(':id/close')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.chart_of_accounts.manage')
   async close(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
     const updated = await this.accountingPeriodService.close(user.organisationId, id, user.sub);
 

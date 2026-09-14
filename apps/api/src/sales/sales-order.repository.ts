@@ -7,6 +7,15 @@ export interface ListSalesOrdersParams {
   status?: SalesOrderStatus;
   customerId?: string;
   outletId?: string;
+  /** Sprint 25.1 (docs/architecture/authorization-coverage.md) — `sales.order.view`'s
+   *  `OWN_RECORDS` scope filter, using the already-existing `salesAgentId` column
+   *  ("always the authenticated caller", per its own schema comment). No new data. */
+  salesAgentId?: string;
+  /** Sprint 25.1 — `sales.order.view`'s `OWN_TEAM` scope filter: the `User.id`s of the
+   *  caller's direct reports (resolved by the controller via `EmployeeService`'s
+   *  existing `managerEmployeeId` relationship, then each report's linked `User.id`).
+   *  Mutually exclusive with `salesAgentId` — the controller sends at most one. */
+  salesAgentIds?: string[];
   /** Simple case-insensitive substring match against the order code or the customer's
    *  name — same convention as every other domain's `search` filter. */
   search?: string;
@@ -73,6 +82,8 @@ export class SalesOrderRepository {
         ...(params.status ? { status: params.status } : {}),
         ...(params.customerId ? { customerId: params.customerId } : {}),
         ...(params.outletId ? { outletId: params.outletId } : {}),
+        ...(params.salesAgentId ? { salesAgentId: params.salesAgentId } : {}),
+        ...(params.salesAgentIds ? { salesAgentId: { in: params.salesAgentIds } } : {}),
         ...(params.search
           ? {
               OR: [

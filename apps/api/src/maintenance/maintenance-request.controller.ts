@@ -35,13 +35,13 @@ import { Request } from 'express';
 import { AuditService } from '../identity/audit/audit.service';
 import { ZodValidationPipe } from '../identity/auth/common/zod-validation.pipe';
 import { CurrentUser } from '../identity/auth/decorators/current-user.decorator';
-import { Roles } from '../identity/auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../identity/auth/guards/jwt-auth.guard';
-import { RolesGuard } from '../identity/auth/guards/roles.guard';
 import { TokenPayload } from '../identity/auth/ports/token.port';
 import { MAINTENANCE_AUDIT_ACTIONS } from './maintenance-audit-actions';
 import { MaintenanceDocumentService } from './maintenance-document.service';
 import { MaintenanceRequestService } from './maintenance-request.service';
+import { RequirePermission } from '../identity/auth/decorators/require-permission.decorator';
+import { PermissionsGuard } from '../identity/auth/guards/permissions.guard';
 
 /**
  * Maintenance Request HTTP surface (Sprint 21, docs/domains/
@@ -49,7 +49,7 @@ import { MaintenanceRequestService } from './maintenance-request.service';
  * additionally requires the Owner or Administrator role.
  */
 @Controller('maintenance/requests')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class MaintenanceRequestController {
   constructor(
     private readonly maintenanceRequestService: MaintenanceRequestService,
@@ -58,6 +58,7 @@ export class MaintenanceRequestController {
   ) {}
 
   @Get()
+  @RequirePermission('maintenance.request.view')
   async list(
     @CurrentUser() user: TokenPayload,
     @Query('status') status?: MaintenanceRequestStatus,
@@ -73,6 +74,7 @@ export class MaintenanceRequestController {
   }
 
   @Get(':id')
+  @RequirePermission('maintenance.request.view')
   getOne(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     return this.maintenanceRequestService.getById(user.organisationId, id);
   }
@@ -126,8 +128,7 @@ export class MaintenanceRequestController {
   }
 
   @Post(':id/approve')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('maintenance.request.manage')
   approve(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
     return this.handleTransition(
       id,
@@ -139,8 +140,7 @@ export class MaintenanceRequestController {
   }
 
   @Post(':id/reject')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('maintenance.request.manage')
   reject(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(rejectMaintenanceRequestSchema))
@@ -169,8 +169,7 @@ export class MaintenanceRequestController {
   }
 
   @Post(':id/convert')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('maintenance.request.manage')
   async convert(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(convertMaintenanceRequestSchema))
@@ -196,6 +195,7 @@ export class MaintenanceRequestController {
   }
 
   @Get(':id/documents')
+  @RequirePermission('maintenance.request.view')
   async listDocuments(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const items = await this.maintenanceDocumentService.list(user.organisationId, 'REQUEST', id);
     return { items };

@@ -16,10 +16,8 @@ import { AuditService } from '../identity/audit/audit.service';
 import { ZodValidationPipe } from '../identity/auth/common/zod-validation.pipe';
 import { CurrentUser } from '../identity/auth/decorators/current-user.decorator';
 import { RequirePermission } from '../identity/auth/decorators/require-permission.decorator';
-import { Roles } from '../identity/auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../identity/auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../identity/auth/guards/permissions.guard';
-import { RolesGuard } from '../identity/auth/guards/roles.guard';
 import { TokenPayload } from '../identity/auth/ports/token.port';
 import { ProductionMaterialIssueWithItems } from './production-material-issue.repository';
 import { ProductionOrderWithRelations } from './production-order.repository';
@@ -38,7 +36,7 @@ import { PRODUCTION_AUDIT_ACTIONS } from './production-audit-actions';
  * doesn't apply here.
  */
 @Controller('production/orders')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class ProductionOrderController {
   constructor(
     private readonly productionOrderService: ProductionOrderService,
@@ -46,6 +44,7 @@ export class ProductionOrderController {
   ) {}
 
   @Get()
+  @RequirePermission('production.order.view')
   async list(
     @CurrentUser() user: TokenPayload,
     @Query('status') status?: ProductionOrderStatus,
@@ -61,14 +60,14 @@ export class ProductionOrderController {
   }
 
   @Get(':id')
+  @RequirePermission('production.order.view')
   async getById(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const order = await this.productionOrderService.getById(user.organisationId, id);
     return toOrderResponse(order);
   }
 
   @Post()
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('production.order.create')
   async create(
     @Body(new ZodValidationPipe(createProductionOrderSchema)) body: CreateProductionOrderInput,
     @CurrentUser() user: TokenPayload,
@@ -95,8 +94,7 @@ export class ProductionOrderController {
   }
 
   @Patch(':id')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('production.order.edit')
   async update(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(updateProductionOrderSchema)) body: UpdateProductionOrderInput,
@@ -120,14 +118,14 @@ export class ProductionOrderController {
   }
 
   @Get(':id/availability')
+  @RequirePermission('production.order.view')
   async getAvailability(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const items = await this.productionOrderService.getAvailability(user.organisationId, id);
     return { items };
   }
 
   @Post(':id/plan')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('production.order.edit')
   async plan(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
     const order = await this.productionOrderService.plan(user.organisationId, id, user.sub);
 
@@ -146,8 +144,7 @@ export class ProductionOrderController {
   }
 
   @Post(':id/cancel')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('production.order.cancel')
   async cancel(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
     const order = await this.productionOrderService.cancel(user.organisationId, id, user.sub);
 
@@ -166,6 +163,7 @@ export class ProductionOrderController {
   }
 
   @Get(':id/material-issues')
+  @RequirePermission('production.order.view')
   async listMaterialIssues(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const issues = await this.productionOrderService.listMaterialIssues(user.organisationId, id);
     return { items: issues.map(toMaterialIssueResponse) };
@@ -174,6 +172,7 @@ export class ProductionOrderController {
   /** Added Sprint 9 — read-only accounting summary (brief §14/§15), see
    *  `ProductionOrderService.getAccountingSummary`. */
   @Get(':id/accounting')
+  @RequirePermission('production.order.view')
   getAccountingSummary(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     return this.productionOrderService.getAccountingSummary(user.organisationId, id);
   }
@@ -246,6 +245,7 @@ export class ProductionOrderController {
   }
 
   @Get(':id/production-run')
+  @RequirePermission('production.order.view')
   async getProductionRun(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     return this.productionOrderService.getProductionRun(user.organisationId, id);
   }

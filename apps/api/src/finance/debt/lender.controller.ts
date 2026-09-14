@@ -11,18 +11,18 @@ import { Request } from 'express';
 import { AuditService } from '../../identity/audit/audit.service';
 import { ZodValidationPipe } from '../../identity/auth/common/zod-validation.pipe';
 import { CurrentUser } from '../../identity/auth/decorators/current-user.decorator';
-import { Roles } from '../../identity/auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../identity/auth/guards/jwt-auth.guard';
-import { RolesGuard } from '../../identity/auth/guards/roles.guard';
 import { TokenPayload } from '../../identity/auth/ports/token.port';
 import { DEBT_AUDIT_ACTIONS } from '../debt-audit-actions';
 import { LenderService } from './lender.service';
+import { RequirePermission } from '../../identity/auth/decorators/require-permission.decorator';
+import { PermissionsGuard } from '../../identity/auth/guards/permissions.guard';
 
 /** Lender HTTP surface (Sprint 17, docs/domains/debt-management.md §7). `GET`
  *  requires only authentication; every write additionally requires the
  *  Owner or Administrator role. */
 @Controller('finance/debt/lenders')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class LenderController {
   constructor(
     private readonly lenderService: LenderService,
@@ -30,20 +30,21 @@ export class LenderController {
   ) {}
 
   @Get()
+  @RequirePermission('finance.debt.manage')
   async list(@CurrentUser() user: TokenPayload, @Query('status') status?: LenderStatus) {
     const items = await this.lenderService.list(user.organisationId, { status });
     return { items: items.map(toLenderResponse) };
   }
 
   @Get(':id')
+  @RequirePermission('finance.debt.manage')
   async getOne(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const lender = await this.lenderService.getById(user.organisationId, id);
     return toLenderResponse(lender);
   }
 
   @Post()
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.debt.manage')
   async create(
     @Body(new ZodValidationPipe(createLenderSchema)) body: CreateLenderInput,
     @CurrentUser() user: TokenPayload,
@@ -72,8 +73,7 @@ export class LenderController {
   }
 
   @Patch(':id')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.debt.manage')
   async update(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(updateLenderSchema)) body: UpdateLenderInput,

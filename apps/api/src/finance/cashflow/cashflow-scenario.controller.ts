@@ -11,12 +11,12 @@ import { Request } from 'express';
 import { AuditService } from '../../identity/audit/audit.service';
 import { ZodValidationPipe } from '../../identity/auth/common/zod-validation.pipe';
 import { CurrentUser } from '../../identity/auth/decorators/current-user.decorator';
-import { Roles } from '../../identity/auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../identity/auth/guards/jwt-auth.guard';
-import { RolesGuard } from '../../identity/auth/guards/roles.guard';
 import { TokenPayload } from '../../identity/auth/ports/token.port';
 import { CASHFLOW_AUDIT_ACTIONS } from '../cashflow-audit-actions';
 import { CashflowScenarioService } from './cashflow-scenario.service';
+import { RequirePermission } from '../../identity/auth/decorators/require-permission.decorator';
+import { PermissionsGuard } from '../../identity/auth/guards/permissions.guard';
 
 /**
  * Cashflow Scenario HTTP surface (Sprint 15, docs/domains/cashflow.md §7). `GET`
@@ -24,7 +24,7 @@ import { CashflowScenarioService } from './cashflow-scenario.service';
  * Administrator role.
  */
 @Controller('finance/cashflow/scenarios')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class CashflowScenarioController {
   constructor(
     private readonly cashflowScenarioService: CashflowScenarioService,
@@ -32,20 +32,21 @@ export class CashflowScenarioController {
   ) {}
 
   @Get()
+  @RequirePermission('finance.budget.view')
   async list(@CurrentUser() user: TokenPayload, @Query('status') status?: CashflowItemStatus) {
     const scenarios = await this.cashflowScenarioService.list(user.organisationId, { status });
     return { items: scenarios.map(toCashflowScenarioResponse) };
   }
 
   @Get(':id')
+  @RequirePermission('finance.budget.view')
   async getOne(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const scenario = await this.cashflowScenarioService.getById(user.organisationId, id);
     return toCashflowScenarioResponse(scenario);
   }
 
   @Post()
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.cashflow.manage')
   async create(
     @Body(new ZodValidationPipe(createCashflowScenarioSchema)) body: CreateCashflowScenarioInput,
     @CurrentUser() user: TokenPayload,
@@ -74,8 +75,7 @@ export class CashflowScenarioController {
   }
 
   @Patch(':id')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.cashflow.manage')
   async update(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(updateCashflowScenarioSchema)) body: UpdateCashflowScenarioInput,
@@ -104,8 +104,7 @@ export class CashflowScenarioController {
   }
 
   @Post(':id/deactivate')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.cashflow.manage')
   async deactivate(
     @Param('id') id: string,
     @CurrentUser() user: TokenPayload,

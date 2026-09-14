@@ -10,12 +10,12 @@ import { Request } from 'express';
 import { AuditService } from '../identity/audit/audit.service';
 import { ZodValidationPipe } from '../identity/auth/common/zod-validation.pipe';
 import { CurrentUser } from '../identity/auth/decorators/current-user.decorator';
-import { Roles } from '../identity/auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../identity/auth/guards/jwt-auth.guard';
-import { RolesGuard } from '../identity/auth/guards/roles.guard';
 import { TokenPayload } from '../identity/auth/ports/token.port';
 import { AssetDowntimeService } from './asset-downtime.service';
 import { MAINTENANCE_AUDIT_ACTIONS } from './maintenance-audit-actions';
+import { RequirePermission } from '../identity/auth/decorators/require-permission.decorator';
+import { PermissionsGuard } from '../identity/auth/guards/permissions.guard';
 
 /**
  * Asset Downtime HTTP surface (Sprint 21, docs/domains/maintenance.md).
@@ -23,7 +23,7 @@ import { MAINTENANCE_AUDIT_ACTIONS } from './maintenance-audit-actions';
  * the Owner or Administrator role.
  */
 @Controller('maintenance/downtime')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class AssetDowntimeController {
   constructor(
     private readonly assetDowntimeService: AssetDowntimeService,
@@ -31,6 +31,7 @@ export class AssetDowntimeController {
   ) {}
 
   @Get()
+  @RequirePermission('maintenance.work_order.view')
   async list(
     @CurrentUser() user: TokenPayload,
     @Query('assetId') assetId?: string,
@@ -48,8 +49,7 @@ export class AssetDowntimeController {
   }
 
   @Post()
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('maintenance.work_order.manage')
   async record(
     @Body(new ZodValidationPipe(recordDowntimeSchema)) body: RecordDowntimeInput,
     @CurrentUser() user: TokenPayload,
@@ -76,8 +76,7 @@ export class AssetDowntimeController {
   }
 
   @Post(':id/end')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('maintenance.work_order.manage')
   async end(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(endDowntimeSchema)) body: EndDowntimeInput,

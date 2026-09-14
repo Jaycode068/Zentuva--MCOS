@@ -39,15 +39,15 @@ import { Request } from 'express';
 import { AuditService } from '../identity/audit/audit.service';
 import { ZodValidationPipe } from '../identity/auth/common/zod-validation.pipe';
 import { CurrentUser } from '../identity/auth/decorators/current-user.decorator';
-import { Roles } from '../identity/auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../identity/auth/guards/jwt-auth.guard';
-import { RolesGuard } from '../identity/auth/guards/roles.guard';
 import { TokenPayload } from '../identity/auth/ports/token.port';
 import { assertValidImageFile } from '../identity/common/image-upload-validation';
 import { ASSET_AUDIT_ACTIONS } from './asset-audit-actions';
 import { AssetDocumentService } from './asset-document.service';
 import { AssetMeterService } from './asset-meter.service';
 import { AssetService } from './asset.service';
+import { RequirePermission } from '../identity/auth/decorators/require-permission.decorator';
+import { PermissionsGuard } from '../identity/auth/guards/permissions.guard';
 
 /**
  * Asset HTTP surface (Sprint 20, docs/domains/assets.md). `GET` (including
@@ -55,7 +55,7 @@ import { AssetService } from './asset.service';
  * write additionally requires the Owner or Administrator role.
  */
 @Controller('assets')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class AssetController {
   constructor(
     private readonly assetService: AssetService,
@@ -66,6 +66,7 @@ export class AssetController {
   ) {}
 
   @Get()
+  @RequirePermission('assets.asset.view')
   async list(
     @CurrentUser() user: TokenPayload,
     @Query('status') status?: AssetStatus,
@@ -89,6 +90,7 @@ export class AssetController {
   }
 
   @Get('custodians')
+  @RequirePermission('assets.asset.view')
   async listCustodians(@CurrentUser() user: TokenPayload) {
     const items = await this.assetService.listCustodianCandidates(user.organisationId);
     return {
@@ -102,30 +104,33 @@ export class AssetController {
   }
 
   @Get(':id')
+  @RequirePermission('assets.asset.view')
   getOne(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     return this.assetService.getById(user.organisationId, id);
   }
 
   @Get(':id/children')
+  @RequirePermission('assets.asset.view')
   async getChildren(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const items = await this.assetService.getChildren(user.organisationId, id);
     return { items };
   }
 
   @Get(':id/tree')
+  @RequirePermission('assets.asset.view')
   getTree(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     return this.assetService.getTree(user.organisationId, id);
   }
 
   @Get(':id/movements')
+  @RequirePermission('assets.asset.view')
   async listMovements(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const items = await this.assetService.listMovements(user.organisationId, id);
     return { items };
   }
 
   @Post()
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('assets.asset.manage')
   async create(
     @Body(new ZodValidationPipe(createAssetSchema)) body: CreateAssetInput,
     @CurrentUser() user: TokenPayload,
@@ -152,8 +157,7 @@ export class AssetController {
   }
 
   @Patch(':id')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('assets.asset.manage')
   async update(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(updateAssetSchema)) body: UpdateAssetInput,
@@ -174,8 +178,7 @@ export class AssetController {
   }
 
   @Post(':id/activate')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('assets.asset.manage')
   activate(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
     return this.handleTransition(
       id,
@@ -187,8 +190,7 @@ export class AssetController {
   }
 
   @Post(':id/commission')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('assets.asset.manage')
   commission(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
     return this.handleTransition(
       id,
@@ -200,8 +202,7 @@ export class AssetController {
   }
 
   @Post(':id/start-maintenance')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('assets.asset.manage')
   startMaintenance(
     @Param('id') id: string,
     @CurrentUser() user: TokenPayload,
@@ -217,8 +218,7 @@ export class AssetController {
   }
 
   @Post(':id/resume-service')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('assets.asset.manage')
   resumeService(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
     return this.handleTransition(
       id,
@@ -230,8 +230,7 @@ export class AssetController {
   }
 
   @Post(':id/take-out-of-service')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('assets.asset.manage')
   takeOutOfService(
     @Param('id') id: string,
     @CurrentUser() user: TokenPayload,
@@ -247,8 +246,7 @@ export class AssetController {
   }
 
   @Post(':id/return-to-service')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('assets.asset.manage')
   returnToService(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
     return this.handleTransition(
       id,
@@ -260,8 +258,7 @@ export class AssetController {
   }
 
   @Post(':id/dispose')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('assets.asset.manage')
   dispose(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
     return this.handleTransition(
       id,
@@ -273,8 +270,7 @@ export class AssetController {
   }
 
   @Post(':id/retire')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('assets.asset.manage')
   retire(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
     return this.handleTransition(
       id,
@@ -286,8 +282,7 @@ export class AssetController {
   }
 
   @Post(':id/transfer')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('assets.asset.manage')
   async transfer(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(transferAssetSchema)) body: TransferAssetInput,
@@ -316,8 +311,7 @@ export class AssetController {
   }
 
   @Post(':id/image')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('assets.asset.manage')
   @UseInterceptors(FileInterceptor('file'))
   async uploadImage(
     @Param('id') id: string,
@@ -352,8 +346,7 @@ export class AssetController {
   }
 
   @Delete(':id/image')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('assets.asset.manage')
   async deleteImage(
     @Param('id') id: string,
     @CurrentUser() user: TokenPayload,
@@ -375,14 +368,14 @@ export class AssetController {
   }
 
   @Get(':id/documents')
+  @RequirePermission('assets.asset.view')
   async listDocuments(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const items = await this.assetDocumentService.list(user.organisationId, id);
     return { items };
   }
 
   @Post(':id/documents')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('assets.asset.manage')
   @UseInterceptors(FileInterceptor('file'))
   async addDocument(
     @Param('id') id: string,
@@ -419,8 +412,7 @@ export class AssetController {
   }
 
   @Delete(':id/documents/:documentId')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('assets.asset.manage')
   async removeDocument(
     @Param('id') id: string,
     @Param('documentId') documentId: string,
@@ -444,14 +436,14 @@ export class AssetController {
   }
 
   @Get(':id/meters')
+  @RequirePermission('assets.asset.view')
   async listMeters(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const items = await this.assetMeterService.list(user.organisationId, id);
     return { items };
   }
 
   @Post(':id/meters')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('assets.asset.manage')
   async addMeter(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(createAssetMeterSchema)) body: CreateAssetMeterInput,
@@ -475,14 +467,14 @@ export class AssetController {
   }
 
   @Get(':id/meters/:meterId/readings')
+  @RequirePermission('assets.asset.view')
   async listMeterReadings(@CurrentUser() user: TokenPayload, @Param('meterId') meterId: string) {
     const items = await this.assetMeterService.listReadings(user.organisationId, meterId);
     return { items };
   }
 
   @Post(':id/meters/:meterId/readings')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('assets.asset.manage')
   async recordMeterReading(
     @Param('id') id: string,
     @Param('meterId') meterId: string,
@@ -516,6 +508,7 @@ export class AssetController {
   /** Read-only composition over the existing `AuditLog` table — the exact
    *  pattern `DecisionAnalysisController` established (Sprint 19). */
   @Get(':id/audit')
+  @RequirePermission('assets.asset.view')
   async getAuditHistory(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const events = await this.auditService.listByOrganisation(user.organisationId, {
       entityType: 'Asset',

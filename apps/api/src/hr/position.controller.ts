@@ -11,16 +11,16 @@ import { Request } from 'express';
 import { AuditService } from '../identity/audit/audit.service';
 import { ZodValidationPipe } from '../identity/auth/common/zod-validation.pipe';
 import { CurrentUser } from '../identity/auth/decorators/current-user.decorator';
-import { Roles } from '../identity/auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../identity/auth/guards/jwt-auth.guard';
-import { RolesGuard } from '../identity/auth/guards/roles.guard';
 import { TokenPayload } from '../identity/auth/ports/token.port';
 import { EmployeeService } from './employee.service';
 import { HR_AUDIT_ACTIONS } from './hr-audit-actions';
 import { PositionService } from './position.service';
+import { RequirePermission } from '../identity/auth/decorators/require-permission.decorator';
+import { PermissionsGuard } from '../identity/auth/guards/permissions.guard';
 
 @Controller('hr/positions')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class PositionController {
   constructor(
     private readonly positionService: PositionService,
@@ -29,6 +29,7 @@ export class PositionController {
   ) {}
 
   @Get()
+  @RequirePermission('hr.organisation_structure.view')
   async list(
     @CurrentUser() user: TokenPayload,
     @Query('status') status?: PositionStatus,
@@ -45,6 +46,7 @@ export class PositionController {
   }
 
   @Get(':id')
+  @RequirePermission('hr.organisation_structure.view')
   async getOne(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const position = await this.positionService.getById(user.organisationId, id);
     const employeeCount = await this.positionService.countEmployees(user.organisationId, id);
@@ -52,6 +54,7 @@ export class PositionController {
   }
 
   @Get(':id/employees')
+  @RequirePermission('hr.organisation_structure.view')
   async listEmployees(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     await this.positionService.getById(user.organisationId, id);
     const result = await this.employeeService.list(user.organisationId, {
@@ -63,8 +66,7 @@ export class PositionController {
   }
 
   @Post()
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('hr.organisation_structure.manage')
   async create(
     @Body(new ZodValidationPipe(createPositionSchema)) body: CreatePositionInput,
     @CurrentUser() user: TokenPayload,
@@ -91,8 +93,7 @@ export class PositionController {
   }
 
   @Patch(':id')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('hr.organisation_structure.manage')
   async update(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(updatePositionSchema)) body: UpdatePositionInput,
@@ -113,8 +114,7 @@ export class PositionController {
   }
 
   @Post(':id/activate')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('hr.organisation_structure.manage')
   async activate(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
     const updated = await this.positionService.activate(user.organisationId, id);
     await this.auditService.record({
@@ -130,8 +130,7 @@ export class PositionController {
   }
 
   @Post(':id/deactivate')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('hr.organisation_structure.manage')
   async deactivate(
     @Param('id') id: string,
     @CurrentUser() user: TokenPayload,

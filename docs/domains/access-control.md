@@ -1,5 +1,17 @@
 # Access Control — Configurable Roles, Permissions & Organisational Structure Integration
 
+> **Sprint 25.1 update:** application-wide authorization coverage — endpoint
+> inventory, legacy `RolesGuard` migration (261 → 0 remaining), new
+> `OWN_TEAM`/`OWN_RECORDS` scope enforcement, and 33 new permission-catalogue
+> entries (88 → 121) — is documented in full in
+> [docs/architecture/authorization-coverage.md](../architecture/authorization-coverage.md).
+> This document still describes the foundational model Sprint 25 built; it is
+> updated in place only where Sprint 25.1 corrected an inaccuracy (§12) or
+> extended something already described here (§6). For "what changed this
+> sprint and why," read the coverage doc and
+> [docs/sprint-25.1-completion-report.md](../sprint-25.1-completion-report.md)
+> first.
+
 Sprint 25. This domain finally wires up the `Role`/`Permission`/`RolePermission`/
 `UserRole` tables that Identity's Sprint 1A design ([identity.md §6](identity.md))
 described and Sprint 1B.1 seeded but that no guard anywhere in the app actually read —
@@ -61,9 +73,13 @@ read.
 
 ### The catalogue
 
-`apps/api/src/identity/authorization/permission-catalogue.ts` — **88 permissions**
-across 12 modules (Identity, Access Control, Finance, Procurement, Inventory,
-Production, Sales, Distribution, Assets, Maintenance, HR-admin, HR-self-service). This
+`apps/api/src/identity/authorization/permission-catalogue.ts` — **121 permissions**
+(88 at Sprint 25 launch; +33 in Sprint 25.1 closing genuine gaps for actions the app
+already had but the original catalogue hadn't caught up to yet — full list and
+rationale in [authorization-coverage.md §7](../architecture/authorization-coverage.md#7-permission-mapping-rules-applied-this-sprint))
+across 14 modules (Identity, Access Control, Finance, Procurement, Inventory,
+Production, Product Catalogue, Sales, Distribution, Retail Network, Assets,
+Maintenance, HR-admin, HR-self-service). This
 is a deliberately curated MVP set, not an exhaustive one — it covers every domain that
 exists as of Sprint 25's most consequential actions (every mutation endpoint listed in
 §10), plus the read permissions needed for the Effective Access Preview to be
@@ -167,26 +183,44 @@ lines 120–132).
 ### Honest enforcement — only where genuinely provable
 
 **The scope engine does not pretend to enforce a scope it cannot prove from
-server-side data.** Two categories exist in this codebase as of Sprint 25:
+server-side data.** Three categories exist in this codebase as of Sprint 25.1
+(full detail: [authorization-coverage.md §9](../architecture/authorization-coverage.md#9-scope-model--semantics-preserved-enforcement-extended)):
 
-1. **Genuinely filtered** — `hr.employee.view`'s `OWN_TEAM`/`DEPARTMENT` scopes, real
-   server-side `WHERE` filtering via the pre-existing `managerEmployeeId`/
-   `departmentId` columns (`EmployeeController.list()`, using `ScopeEvaluator` +
-   `EmployeeRepository`'s new `managerEmployeeId` filter parameter). Self-service
-   `OWN_RECORDS` scopes (attendance/schedule/training/policy self-view) are
-   inherently self-filtered — the self-service endpoints already resolve
-   `getByUserId(callerId)` rather than taking an arbitrary employee id, so
-   `OWN_RECORDS` requires no additional filter logic to be true by construction.
+1. **Genuinely filtered** — `hr.employee.view`'s `OWN_TEAM`/`DEPARTMENT` scopes
+   (Sprint 25), real server-side `WHERE` filtering via the pre-existing
+   `managerEmployeeId`/`departmentId` columns. **Extended in Sprint 25.1** to
+   `hr.attendance.view` (same `managerEmployeeId`/`departmentId` mechanism) and
+   `sales.order.view` (`OWN_TEAM` via the caller's direct reports' linked
+   `User.id`s; `OWN_RECORDS` via the existing `salesAgentId` column). Precedence
+   when a caller's union of roles grants more than one scope for the same
+   permission: broadest-satisfiable-scope-wins — `ORGANISATION` > `OWN_TEAM` >
+   `OWN_RECORDS`/`DEPARTMENT` > deny. Self-service `OWN_RECORDS` scopes
+   (attendance/schedule/training/policy self-view) remain inherently
+   self-filtered by construction, unchanged.
 2. **Recorded and previewable, not yet mechanically filtered** — `ASSIGNED_TERRITORY`
-   (Sales), `ASSIGNED_ASSETS` (Maintenance), `ASSIGNED_RECORDS` generally. These
-   scopes are real `AccessScope` enum values, assignable on any `SCOPABLE`
-   permission, stored, and shown accurately in the Effective Access Preview ("granted
-   at: Assigned Territory") — but no controller in this codebase yet applies a
-   `WHERE salesAgentId = :callerId`-style filter keyed off them. **This is a
-   documented, deliberate limitation, not a silent overclaim**: the UI never says
-   "Assigned Territory (enforced)" or implies filtering that doesn't happen; it
-   states the grant exactly as recorded. Wiring the actual filter is a
-   domain-by-domain follow-up (§16).
+   (Sales), `ASSIGNED_ASSETS` (Maintenance), `ASSIGNED_RECORDS` generally
+   (except `sales.order.view`'s `OWN_RECORDS`, now implemented — see above).
+   These scopes are real `AccessScope` enum values, assignable on any
+   `SCOPABLE` permission, stored, and shown accurately in the Effective
+   Access Preview ("granted at: Assigned Territory") — but no controller in
+   this codebase yet applies a `WHERE`-style filter keyed off them, because no
+   server-side relationship exists yet to prove them from (no `User`↔`Territory`
+   or `User`↔`Asset` assignment table). **This is a documented, deliberate
+   limitation, not a silent overclaim**: the UI never says "Assigned
+   Territory (enforced)" or implies filtering that doesn't happen; a caller
+   whose only granted scope is one of these gets an empty result set, never
+   unrestricted access. Wiring the actual filter needs a new explicit
+   assignment relationship first — deliberately out of scope for a hardening
+   sprint (authorization-coverage.md §9).
+3. **A real bug Sprint 25.1 found and fixed**: two `ledger.controller.ts` GET
+   routes (`trial-balance`, `accounts/:id/activity`) were briefly mis-mapped
+   to `finance.journal.view` during migration instead of
+   `finance.trial_balance.view` during this sprint's own bulk migration pass
+   — caught by live-testing Finance Staff's own seeded role description
+   against the actual routes, not by inspection. Documented in
+   authorization-coverage.md §8 as a reminder that "recorded doesn't mean
+   correct" applies to the migration work itself, not just to unimplemented
+   scopes.
 
 ## 7. Default Denial & Tenant Isolation
 
@@ -405,7 +439,7 @@ tabs (`AccessTabs`, the exact `HrTabs`/`MaintenanceTabs` shared-sub-nav conventi
   role, users with multiple roles. No persisted snapshot, the
   `HrOverviewService`/`MaintenanceOverviewService` pattern.
 - **Roles** — the full role table (name, status, user count, permission count) plus a
-  detail page per role: the entire 88-entry catalogue grouped by module, each
+  detail page per role: the entire 121-entry catalogue grouped by module, each
   permission a checkbox, each `SCOPABLE`-and-checked permission an adjacent scope
   `<select>` (the eight `AccessScope` options spelled out in full, e.g. "No Access
   (scoped to nothing)" rather than the raw enum value `NONE` — the brief's explicit
@@ -434,16 +468,25 @@ Every access-control mutation calls the pre-existing, insert-only `AuditService.
 same table and the same "controller records after success" convention every other
 domain follows:
 
-| Action                         | Recorded on                                                    |
-| ------------------------------ | -------------------------------------------------------------- |
-| `access.user_role.assigned`    | `POST /access/users/:userId/roles`                             |
-| `access.user_role.removed`     | `DELETE /access/users/:userId/roles/:roleId`                   |
-| `access.common_policy.updated` | `PATCH /access/common-policy` (full `before`/`after` snapshot) |
+| Action                            | Recorded on                                                    |
+| --------------------------------- | -------------------------------------------------------------- |
+| `access.role.created`             | `POST /access/roles`                                           |
+| `access.role.updated`             | `PATCH /access/roles/:id`                                      |
+| `access.role.permissions_updated` | `POST /access/roles/:id/permissions`                           |
+| `access.role.archived`            | `POST /access/roles/:id/archive`                               |
+| `access.role.restored`            | `POST /access/roles/:id/restore`                               |
+| `access.role.duplicated`          | `POST /access/roles/:id/duplicate`                             |
+| `access.user_role.assigned`       | `POST /access/users/:userId/roles`                             |
+| `access.user_role.removed`        | `DELETE /access/users/:userId/roles/:roleId`                   |
+| `access.common_policy.updated`    | `PATCH /access/common-policy` (full `before`/`after` snapshot) |
 
-(Role CRUD — create/edit/permission-set/archive/restore/duplicate — is implemented in
-`AccessRoleController` but does not yet call `AuditService.record()`; see §16's
-deferred list. Role assignment/removal and Common Employee Access changes, the two
-categories exercised in live verification, are fully covered.)
+**Correction (Sprint 25.1):** this table previously claimed role CRUD (create/edit/
+permission-set/archive/restore/duplicate) did not yet call `AuditService.record()`.
+That was inaccurate — `AccessRoleController` already called it for every one of these
+actions since Sprint 25 shipped; the claim was a documentation error, not a code gap.
+Live-verified in Sprint 25.1 (§17): a full create → update → set-permissions →
+archive → restore → duplicate cycle produced exactly the 6 expected audit rows, each
+with the correct actor, entity id, and metadata.
 
 Never logs a credential, token, or password — every recorded `metadata` payload is
 either a role id, a capability-flag before/after diff, or (for the pre-existing
@@ -497,9 +540,12 @@ non-destructive. For Boby Bites:
   Sprint 23 Sales Team Lead) additionally receives Employee Self-Service, producing
   a second, non-contrived 3-role user (**Member + Employee Self-Service + Sales
   Team Lead**) without a 4th demo account.
-- Final counts (verified live, §17): 13 roles, 88 permissions, 167 role-permission
-  grants, 12 user-role assignments across 6 users (0 users without any role, 4 users
-  with multiple roles).
+- Final counts at Sprint 25 launch (verified live, §17): 13 roles, 88 permissions, 167
+  role-permission grants, 12 user-role assignments across 6 users (0 users without any
+  role, 4 users with multiple roles). **Sprint 25.1** grew this to 121 permissions and
+  188 role-permission grants (companion `.view` permissions added to several seed
+  roles so a newly-guarded `GET` never silently took away access a role already had —
+  authorization-coverage.md §8) without changing the role/user/assignment counts.
 
 ## 14. Schema, Migration & Implementation Notes
 
@@ -560,15 +606,15 @@ but every component here was designed to be reused, not rebuilt, when they arriv
 - **Scope filtering for `ASSIGNED_TERRITORY`/`ASSIGNED_ASSETS`/general
   `ASSIGNED_RECORDS`** — recorded and previewable, not mechanically enforced (§6.2).
 - **Interface/channel restriction per permission** — not built (§4).
-- **Role CRUD audit events** (`access.role.created`/`.updated`/`.permissions_set`/
-  `.archived`/`.restored`/`.duplicated`) — the role mutation endpoints work fully but
-  do not yet call `AuditService.record()`; only role-assignment and common-policy
-  changes are currently audited (§12).
+- ~~Role CRUD audit events not yet implemented~~ — **corrected in Sprint 25.1**: they
+  were already complete (§12).
 - **Most of the codebase's mutation endpoints remain on the old `@Roles`/`RolesGuard`
   check** — this sprint migrated the highest-risk surfaces (§10's table), not every
-  domain. Sales, most of Procurement/Inventory/Production/Finance/Maintenance beyond
-  that table, Assets, Distribution, Retail Network, and Suppliers still gate on role
-  name.
+  domain. See
+  [docs/architecture/authorization-coverage.md](../architecture/authorization-coverage.md)
+  for the full picture — **Sprint 25.1 has since migrated essentially all of this**
+  (95%+ of the application's endpoints), superseding this line; kept here only as a
+  historical record of Sprint 25's own honest self-assessment at the time.
 - **Several read/list endpoints check neither system** (§10.3) — e.g.
   `GET /finance/trial-balance`, `GET /sales/orders` — any authenticated organisation
   member can call them today, unchanged from before this sprint.

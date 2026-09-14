@@ -4,17 +4,20 @@ import { CurrentUser } from '../../identity/auth/decorators/current-user.decorat
 import { JwtAuthGuard } from '../../identity/auth/guards/jwt-auth.guard';
 import { TokenPayload } from '../../identity/auth/ports/token.port';
 import { DashboardService } from './dashboard.service';
+import { RequirePermission } from '../../identity/auth/decorators/require-permission.decorator';
+import { PermissionsGuard } from '../../identity/auth/guards/permissions.guard';
 
 /**
  * Management Dashboard HTTP surface (Sprint 13, docs/domains/accounting.md §16.5).
  * Entirely read-only — auth-only, no `RolesGuard`.
  */
 @Controller('finance/reports')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class DashboardController {
   constructor(private readonly dashboardService: DashboardService) {}
 
   @Get('dashboard')
+  @RequirePermission('finance.reports.view')
   async getDashboard(
     @CurrentUser() user: TokenPayload,
     @Query('from') from?: string,

@@ -15,13 +15,13 @@ import { Request } from 'express';
 import { AuditService } from '../identity/audit/audit.service';
 import { ZodValidationPipe } from '../identity/auth/common/zod-validation.pipe';
 import { CurrentUser } from '../identity/auth/decorators/current-user.decorator';
-import { Roles } from '../identity/auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../identity/auth/guards/jwt-auth.guard';
-import { RolesGuard } from '../identity/auth/guards/roles.guard';
 import { TokenPayload } from '../identity/auth/ports/token.port';
 import { ACCOUNTS_PAYABLE_AUDIT_ACTIONS } from './accounts-payable-audit-actions';
 import { SupplierInvoiceWithRelations } from './supplier-invoice.repository';
 import { SupplierInvoiceService } from './supplier-invoice.service';
+import { RequirePermission } from '../identity/auth/decorators/require-permission.decorator';
+import { PermissionsGuard } from '../identity/auth/guards/permissions.guard';
 
 /**
  * Supplier Invoice HTTP surface (Sprint 12, docs/domains/finance.md "Accounts
@@ -33,7 +33,7 @@ import { SupplierInvoiceService } from './supplier-invoice.service';
  * together.
  */
 @Controller('finance/supplier-invoices')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class SupplierInvoiceController {
   constructor(
     private readonly supplierInvoiceService: SupplierInvoiceService,
@@ -41,6 +41,7 @@ export class SupplierInvoiceController {
   ) {}
 
   @Get()
+  @RequirePermission('finance.supplier_invoice.view')
   async list(
     @CurrentUser() user: TokenPayload,
     @Query('status') status?: SupplierInvoiceStatus,
@@ -58,14 +59,14 @@ export class SupplierInvoiceController {
   }
 
   @Get(':id')
+  @RequirePermission('finance.supplier_invoice.view')
   async getOne(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const invoice = await this.supplierInvoiceService.getById(user.organisationId, id);
     return toSupplierInvoiceResponse(invoice);
   }
 
   @Post()
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.supplier_invoice.manage')
   async create(
     @Body(new ZodValidationPipe(createSupplierInvoiceSchema)) body: CreateSupplierInvoiceInput,
     @CurrentUser() user: TokenPayload,
@@ -98,8 +99,7 @@ export class SupplierInvoiceController {
   }
 
   @Patch(':id')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.supplier_invoice.manage')
   async update(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(updateSupplierInvoiceSchema)) body: UpdateSupplierInvoiceInput,
@@ -131,8 +131,7 @@ export class SupplierInvoiceController {
    *  events when `wasCreated === true` — a replayed idempotent request must not
    *  double-record history. */
   @Post(':id/post')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.supplier_invoice.manage')
   async post(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(postSupplierInvoiceSchema)) body: PostSupplierInvoiceInput,
@@ -198,8 +197,7 @@ export class SupplierInvoiceController {
   }
 
   @Post(':id/acknowledge-discrepancy')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.supplier_invoice.manage')
   async acknowledgeDiscrepancy(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(acknowledgeSupplierInvoiceDiscrepancySchema))
@@ -229,8 +227,7 @@ export class SupplierInvoiceController {
   }
 
   @Post(':id/void')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.supplier_invoice.manage')
   async void(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
     const updated = await this.supplierInvoiceService.void(user.organisationId, id, user.sub);
 

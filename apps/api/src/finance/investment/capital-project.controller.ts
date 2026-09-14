@@ -26,12 +26,12 @@ import { Request } from 'express';
 import { AuditService } from '../../identity/audit/audit.service';
 import { ZodValidationPipe } from '../../identity/auth/common/zod-validation.pipe';
 import { CurrentUser } from '../../identity/auth/decorators/current-user.decorator';
-import { Roles } from '../../identity/auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../identity/auth/guards/jwt-auth.guard';
-import { RolesGuard } from '../../identity/auth/guards/roles.guard';
 import { TokenPayload } from '../../identity/auth/ports/token.port';
 import { CAPITAL_PROJECT_AUDIT_ACTIONS } from '../capital-project-audit-actions';
 import { CapitalProjectService } from './capital-project.service';
+import { RequirePermission } from '../../identity/auth/decorators/require-permission.decorator';
+import { PermissionsGuard } from '../../identity/auth/guards/permissions.guard';
 
 /**
  * Capital Project HTTP surface (Sprint 18, docs/domains/
@@ -39,7 +39,7 @@ import { CapitalProjectService } from './capital-project.service';
  * additionally requires the Owner or Administrator role.
  */
 @Controller('finance/investment/projects')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class CapitalProjectController {
   constructor(
     private readonly capitalProjectService: CapitalProjectService,
@@ -47,41 +47,46 @@ export class CapitalProjectController {
   ) {}
 
   @Get()
+  @RequirePermission('finance.investment.manage')
   async list(@CurrentUser() user: TokenPayload, @Query('status') status?: CapitalProjectStatus) {
     const items = await this.capitalProjectService.list(user.organisationId, { status });
     return { items };
   }
 
   @Get(':id')
+  @RequirePermission('finance.investment.manage')
   getOne(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     return this.capitalProjectService.getById(user.organisationId, id);
   }
 
   @Get(':id/budget-allocation')
+  @RequirePermission('finance.investment.manage')
   getBudgetAllocation(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     return this.capitalProjectService.getBudgetAllocation(user.organisationId, id);
   }
 
   @Get(':id/spending')
+  @RequirePermission('finance.investment.manage')
   getSpending(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     return this.capitalProjectService.getSpending(user.organisationId, id);
   }
 
   @Get(':id/cost-lines')
+  @RequirePermission('finance.investment.manage')
   async listCostLines(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const items = await this.capitalProjectService.listCostLines(user.organisationId, id);
     return { items };
   }
 
   @Get(':id/funding')
+  @RequirePermission('finance.investment.manage')
   async listFunding(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const items = await this.capitalProjectService.listFunding(user.organisationId, id);
     return { items };
   }
 
   @Post()
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.investment.manage')
   async create(
     @Body(new ZodValidationPipe(createCapitalProjectSchema)) body: CreateCapitalProjectInput,
     @CurrentUser() user: TokenPayload,
@@ -108,8 +113,7 @@ export class CapitalProjectController {
   }
 
   @Patch(':id')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.investment.manage')
   async update(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(updateCapitalProjectSchema)) body: UpdateCapitalProjectInput,
@@ -130,8 +134,7 @@ export class CapitalProjectController {
   }
 
   @Post(':id/submit')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.investment.manage')
   async submit(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
     return this.handleTransition(
       id,
@@ -143,8 +146,7 @@ export class CapitalProjectController {
   }
 
   @Post(':id/start-review')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.investment.manage')
   async startReview(
     @Param('id') id: string,
     @CurrentUser() user: TokenPayload,
@@ -160,8 +162,7 @@ export class CapitalProjectController {
   }
 
   @Post(':id/approve')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.investment.manage')
   async approve(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
     return this.handleTransition(
       id,
@@ -173,8 +174,7 @@ export class CapitalProjectController {
   }
 
   @Post(':id/reject')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.investment.manage')
   async reject(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
     return this.handleTransition(
       id,
@@ -186,8 +186,7 @@ export class CapitalProjectController {
   }
 
   @Post(':id/activate')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.investment.manage')
   async activate(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
     return this.handleTransition(
       id,
@@ -199,8 +198,7 @@ export class CapitalProjectController {
   }
 
   @Post(':id/hold')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.investment.manage')
   async hold(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
     return this.handleTransition(
       id,
@@ -212,8 +210,7 @@ export class CapitalProjectController {
   }
 
   @Post(':id/resume')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.investment.manage')
   async resume(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
     return this.handleTransition(
       id,
@@ -225,8 +222,7 @@ export class CapitalProjectController {
   }
 
   @Post(':id/complete')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.investment.manage')
   async complete(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
     return this.handleTransition(
       id,
@@ -238,8 +234,7 @@ export class CapitalProjectController {
   }
 
   @Post(':id/cancel')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.investment.manage')
   async cancel(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
     return this.handleTransition(
       id,
@@ -251,8 +246,7 @@ export class CapitalProjectController {
   }
 
   @Post(':id/cost-lines')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.investment.manage')
   async addCostLine(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(createCapitalProjectCostLineSchema))
@@ -280,8 +274,7 @@ export class CapitalProjectController {
   }
 
   @Delete(':id/cost-lines/:costLineId')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.investment.manage')
   async removeCostLine(
     @Param('id') id: string,
     @Param('costLineId') costLineId: string,
@@ -303,8 +296,7 @@ export class CapitalProjectController {
   }
 
   @Post(':id/funding')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.investment.manage')
   async addFunding(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(createCapitalProjectFundingSchema))
@@ -338,8 +330,7 @@ export class CapitalProjectController {
   }
 
   @Delete(':id/funding/:fundingId')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.investment.manage')
   async removeFunding(
     @Param('id') id: string,
     @Param('fundingId') fundingId: string,

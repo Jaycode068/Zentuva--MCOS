@@ -12,12 +12,12 @@ import { Request } from 'express';
 import { AuditService } from '../identity/audit/audit.service';
 import { ZodValidationPipe } from '../identity/auth/common/zod-validation.pipe';
 import { CurrentUser } from '../identity/auth/decorators/current-user.decorator';
-import { Roles } from '../identity/auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../identity/auth/guards/jwt-auth.guard';
-import { RolesGuard } from '../identity/auth/guards/roles.guard';
 import { TokenPayload } from '../identity/auth/ports/token.port';
 import { MAINTENANCE_AUDIT_ACTIONS } from './maintenance-audit-actions';
 import { MaintenancePartUsageService } from './maintenance-part-usage.service';
+import { RequirePermission } from '../identity/auth/decorators/require-permission.decorator';
+import { PermissionsGuard } from '../identity/auth/guards/permissions.guard';
 
 /**
  * Maintenance Part Usage HTTP surface (Sprint 21, docs/domains/
@@ -26,7 +26,7 @@ import { MaintenancePartUsageService } from './maintenance-part-usage.service';
  * foundation only, proven by `maintenance-independence.spec.ts`.
  */
 @Controller('maintenance/parts')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class MaintenancePartUsageController {
   constructor(
     private readonly maintenancePartUsageService: MaintenancePartUsageService,
@@ -34,14 +34,14 @@ export class MaintenancePartUsageController {
   ) {}
 
   @Get()
+  @RequirePermission('maintenance.work_order.view')
   async list(@CurrentUser() user: TokenPayload, @Query('workOrderId') workOrderId: string) {
     const items = await this.maintenancePartUsageService.list(user.organisationId, workOrderId);
     return { items };
   }
 
   @Post()
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('maintenance.work_order.manage')
   async record(
     @Body(new ZodValidationPipe(recordPartUsageSchema)) body: RecordPartUsageInput,
     @CurrentUser() user: TokenPayload,
@@ -72,8 +72,7 @@ export class MaintenancePartUsageController {
    *  comment (docs/domains/maintenance-integration.md "Inventory
    *  Integration"). */
   @Post(':id/issue')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('maintenance.work_order.manage')
   async issue(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(issuePartUsageSchema)) body: IssuePartUsageInput,
@@ -109,8 +108,7 @@ export class MaintenancePartUsageController {
   }
 
   @Post(':id/cancel')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('maintenance.work_order.manage')
   async cancel(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(cancelPartUsageSchema)) body: CancelPartUsageInput,

@@ -27,9 +27,7 @@ import { Request } from 'express';
 import { AuditService } from '../identity/audit/audit.service';
 import { ZodValidationPipe } from '../identity/auth/common/zod-validation.pipe';
 import { CurrentUser } from '../identity/auth/decorators/current-user.decorator';
-import { Roles } from '../identity/auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../identity/auth/guards/jwt-auth.guard';
-import { RolesGuard } from '../identity/auth/guards/roles.guard';
 import { TokenPayload } from '../identity/auth/ports/token.port';
 import { assertValidImageFile } from '../identity/common/image-upload-validation';
 import { DISTRIBUTION_AUDIT_ACTIONS } from './distribution-audit-actions';
@@ -37,18 +35,20 @@ import { DeliveryService } from './delivery.service';
 import { DeliveryWithItems } from './delivery.repository';
 import { DispatchService } from './dispatch.service';
 import { DispatchWithRelations } from './dispatch.repository';
+import { RequirePermission } from '../identity/auth/decorators/require-permission.decorator';
+import { PermissionsGuard } from '../identity/auth/guards/permissions.guard';
 
 /**
- * Distribution HTTP surface (Sprint 5, docs/domains/distribution.md). `GET` requires
- * only authentication — Member has read-only access; every write additionally requires
- * the Owner or Administrator role (`RolesGuard`), same convention as
- * `SalesOrderController`.
+ * Distribution HTTP surface (Sprint 5, docs/domains/distribution.md; migrated to the
+ * central permission system in Sprint 25.1, docs/architecture/authorization-coverage.md).
+ * Every route requires a `distribution.dispatch.*`/`distribution.delivery.*`
+ * permission via `PermissionsGuard`.
  *
  * Tenant isolation: every method resolves the target dispatch/delivery by
  * `(id, organisationId)` together, same convention as every other domain controller.
  */
 @Controller('distribution')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class DispatchController {
   constructor(
     private readonly dispatchService: DispatchService,
@@ -61,6 +61,7 @@ export class DispatchController {
    *  Never gates `create()`; purely informational. Declared before the `:id` routes so
    *  Nest's router doesn't try to match `fulfilments` as a dispatch id. */
   @Get('fulfilments/:salesFulfilmentId/dispatch-availability')
+  @RequirePermission('distribution.dispatch.view')
   async getDispatchAvailability(
     @CurrentUser() user: TokenPayload,
     @Param('salesFulfilmentId') salesFulfilmentId: string,
@@ -75,8 +76,7 @@ export class DispatchController {
   /** `POST /deliveries/:deliveryId/photo` — proof-of-delivery capture. Declared before
    *  the `:id` routes for the same routing reason as above. */
   @Post('deliveries/:deliveryId/photo')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('distribution.delivery.complete')
   @UseInterceptors(FileInterceptor('file'))
   async uploadDeliveryPhoto(
     @Param('deliveryId') deliveryId: string,
@@ -109,6 +109,7 @@ export class DispatchController {
   }
 
   @Get()
+  @RequirePermission('distribution.dispatch.view')
   async list(
     @CurrentUser() user: TokenPayload,
     @Query('status') status?: DispatchStatus,
@@ -126,14 +127,14 @@ export class DispatchController {
   }
 
   @Get(':id')
+  @RequirePermission('distribution.dispatch.view')
   async getOne(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const dispatch = await this.dispatchService.getById(user.organisationId, id);
     return toDispatchResponse(dispatch);
   }
 
   @Post()
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('distribution.dispatch.create')
   async create(
     @Body(new ZodValidationPipe(createDispatchSchema)) body: CreateDispatchInput,
     @CurrentUser() user: TokenPayload,
@@ -166,8 +167,7 @@ export class DispatchController {
   }
 
   @Post(':id/dispatch')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('distribution.dispatch.manage')
   async dispatchOut(
     @Param('id') id: string,
     @CurrentUser() user: TokenPayload,
@@ -189,8 +189,7 @@ export class DispatchController {
   }
 
   @Post(':id/in-transit')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('distribution.dispatch.manage')
   async markInTransit(
     @Param('id') id: string,
     @CurrentUser() user: TokenPayload,
@@ -212,8 +211,7 @@ export class DispatchController {
   }
 
   @Post(':id/cancel')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('distribution.dispatch.manage')
   async cancel(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
     const updated = await this.dispatchService.cancel(user.organisationId, id, user.sub);
 
@@ -231,8 +229,7 @@ export class DispatchController {
   }
 
   @Post(':id/fail')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('distribution.dispatch.manage')
   async fail(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(failDispatchSchema)) body: FailDispatchInput,
@@ -256,6 +253,7 @@ export class DispatchController {
   }
 
   @Get(':id/deliveries')
+  @RequirePermission('distribution.dispatch.view')
   async listDeliveries(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const items = await this.deliveryService.listByDispatch(user.organisationId, id);
     return { items: items.map(toDeliveryResponse) };
@@ -265,8 +263,7 @@ export class DispatchController {
    *  a second inventory deduction. Only emits an audit event when `wasCreated === true`
    *  — a replayed idempotent request must not double-record history. */
   @Post(':id/deliveries')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('distribution.delivery.complete')
   async createDelivery(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(createDeliverySchema)) body: CreateDeliveryInput,

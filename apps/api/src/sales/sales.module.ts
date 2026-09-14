@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 
 import { ProductModule } from '../catalogue/product/product.module';
+import { HrModule } from '../hr/hr.module';
 import { AuthModule } from '../identity/auth/auth.module';
 import { IdentityModule } from '../identity/identity.module';
 import { FileStorageModule } from '../identity/organisation/infrastructure/file-storage.module';
@@ -38,6 +39,13 @@ import { SalesOrderService } from './sales-order.service';
  * Sales Order/Fulfilment; it never creates or mutates one) via ADR-002's "consume
  * another domain only through its exported repository" convention — same shape as
  * `InventoryModule`/`ProductModule` already exporting their own repositories.
+ *
+ * `HrModule` (Sprint 25.1, docs/architecture/authorization-coverage.md) — a deliberate,
+ * narrow, read-only exception for `sales.order.view`'s `OWN_TEAM` scope: `SalesOrderController`
+ * injects `EmployeeService` directly (never a repository) to resolve the caller's direct
+ * reports' linked `User.id`s, the same "read-only HR import" pattern `AccessControlModule`
+ * already established. `SalesOrderService` itself still has zero HR imports — enforced by
+ * `direct-sales-independence.spec.ts`'s existing structural guards.
  */
 @Module({
   imports: [
@@ -48,6 +56,7 @@ import { SalesOrderService } from './sales-order.service';
     ProductModule,
     InventoryModule,
     FileStorageModule,
+    HrModule,
   ],
   controllers: [SalesOrderController, CustomerReturnController],
   providers: [

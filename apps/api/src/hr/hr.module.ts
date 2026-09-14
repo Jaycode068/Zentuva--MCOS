@@ -58,6 +58,14 @@ import { WorkScheduleService } from './work-schedule.service';
  * manager/status display). It writes nothing to any `hr_*` table — every
  * write still goes exclusively through this module's own repositories,
  * proven executably by `hr-independence.spec.ts`.
+ *
+ * Sprint 25.1 adds a second, equally narrow, equally read-only exception:
+ * `SalesModule` imports this module so `SalesOrderController` can inject
+ * `EmployeeService` directly to resolve a manager's direct reports for
+ * `sales.order.view`'s `OWN_TEAM` scope filter (authorization-coverage.md
+ * §9) — never a repository, and `SalesOrderService` itself still has zero
+ * HR imports (unchanged, `direct-sales-independence.spec.ts`'s existing
+ * structural guards).
  */
 @Module({
   imports: [IdentityModule, AuthModule, FileStorageModule],

@@ -11,15 +11,15 @@ import { Request } from 'express';
 import { AuditService } from '../identity/audit/audit.service';
 import { ZodValidationPipe } from '../identity/auth/common/zod-validation.pipe';
 import { CurrentUser } from '../identity/auth/decorators/current-user.decorator';
-import { Roles } from '../identity/auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../identity/auth/guards/jwt-auth.guard';
-import { RolesGuard } from '../identity/auth/guards/roles.guard';
 import { TokenPayload } from '../identity/auth/ports/token.port';
 import { HR_AUDIT_ACTIONS } from './hr-audit-actions';
 import { WorkScheduleService } from './work-schedule.service';
+import { RequirePermission } from '../identity/auth/decorators/require-permission.decorator';
+import { PermissionsGuard } from '../identity/auth/guards/permissions.guard';
 
 @Controller('hr/work-schedules')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class WorkScheduleController {
   constructor(
     private readonly workScheduleService: WorkScheduleService,
@@ -27,19 +27,20 @@ export class WorkScheduleController {
   ) {}
 
   @Get()
+  @RequirePermission('hr.organisation_structure.view')
   async list(@CurrentUser() user: TokenPayload, @Query('status') status?: WorkScheduleStatus) {
     const items = await this.workScheduleService.list(user.organisationId, { status });
     return { items };
   }
 
   @Get(':id')
+  @RequirePermission('hr.organisation_structure.view')
   getOne(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     return this.workScheduleService.getById(user.organisationId, id);
   }
 
   @Post()
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('hr.schedule.manage')
   async create(
     @Body(new ZodValidationPipe(createWorkScheduleSchema)) body: CreateWorkScheduleInput,
     @CurrentUser() user: TokenPayload,
@@ -65,8 +66,7 @@ export class WorkScheduleController {
   }
 
   @Patch(':id')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('hr.schedule.manage')
   async update(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(updateWorkScheduleSchema)) body: UpdateWorkScheduleInput,
@@ -87,8 +87,7 @@ export class WorkScheduleController {
   }
 
   @Post(':id/activate')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('hr.schedule.manage')
   async activate(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
     const updated = await this.workScheduleService.activate(user.organisationId, id);
     await this.auditService.record({
@@ -104,8 +103,7 @@ export class WorkScheduleController {
   }
 
   @Post(':id/deactivate')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('hr.schedule.manage')
   async deactivate(
     @Param('id') id: string,
     @CurrentUser() user: TokenPayload,

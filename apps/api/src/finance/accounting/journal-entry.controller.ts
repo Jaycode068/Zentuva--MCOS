@@ -7,10 +7,8 @@ import { AuditService } from '../../identity/audit/audit.service';
 import { ZodValidationPipe } from '../../identity/auth/common/zod-validation.pipe';
 import { CurrentUser } from '../../identity/auth/decorators/current-user.decorator';
 import { RequirePermission } from '../../identity/auth/decorators/require-permission.decorator';
-import { Roles } from '../../identity/auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../identity/auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../identity/auth/guards/permissions.guard';
-import { RolesGuard } from '../../identity/auth/guards/roles.guard';
 import { TokenPayload } from '../../identity/auth/ports/token.port';
 import { ACCOUNTING_AUDIT_ACTIONS } from './accounting-audit-actions';
 import { JournalEntryWithRelations } from './journal-entry.repository';
@@ -22,7 +20,7 @@ import { JournalEntryService } from './journal-entry.service';
  * Owner or Administrator.
  */
 @Controller('finance/journal-entries')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class JournalEntryController {
   constructor(
     private readonly journalEntryService: JournalEntryService,
@@ -30,6 +28,7 @@ export class JournalEntryController {
   ) {}
 
   @Get()
+  @RequirePermission('finance.journal.view')
   async list(
     @CurrentUser() user: TokenPayload,
     @Query('status') status?: JournalEntryStatus,
@@ -45,14 +44,14 @@ export class JournalEntryController {
   }
 
   @Get(':id')
+  @RequirePermission('finance.journal.view')
   async getOne(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const entry = await this.journalEntryService.getById(user.organisationId, id);
     return toJournalEntryResponse(entry);
   }
 
   @Post()
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.journal.create')
   async create(
     @Body(new ZodValidationPipe(createJournalEntrySchema)) body: CreateJournalEntryInput,
     @CurrentUser() user: TokenPayload,
@@ -95,8 +94,7 @@ export class JournalEntryController {
   }
 
   @Post(':id/void')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.journal.void')
   async void(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
     const updated = await this.journalEntryService.void(user.organisationId, id, user.sub);
 

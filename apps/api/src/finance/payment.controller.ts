@@ -20,7 +20,7 @@ import { PaymentService } from './payment.service';
  * replayed idempotent request must not double-record history.
  */
 @Controller('finance/payments')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class PaymentController {
   constructor(
     private readonly paymentService: PaymentService,
@@ -28,6 +28,7 @@ export class PaymentController {
   ) {}
 
   @Get()
+  @RequirePermission('finance.payment.view')
   async list(
     @CurrentUser() user: TokenPayload,
     @Query('customerId') customerId?: string,
@@ -38,6 +39,7 @@ export class PaymentController {
   }
 
   @Get(':id')
+  @RequirePermission('finance.payment.view')
   async getOne(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const payment = await this.paymentService.getById(user.organisationId, id);
     return toPaymentResponse(payment);

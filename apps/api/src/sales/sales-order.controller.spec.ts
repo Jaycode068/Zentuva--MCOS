@@ -1,7 +1,10 @@
 import { Request } from 'express';
 
+import { EmployeeService } from '../hr/employee.service';
 import { AuditService } from '../identity/audit/audit.service';
 import { TokenPayload } from '../identity/auth/ports/token.port';
+import { EffectiveAccessResolver } from '../identity/authorization/effective-access-resolver';
+import { ScopeEvaluator } from '../identity/authorization/scope-evaluator';
 import { SALES_AUDIT_ACTIONS } from './sales-audit-actions';
 import { SalesFulfilmentService } from './sales-fulfilment.service';
 import { SalesOrderWithRelations } from './sales-order.repository';
@@ -52,9 +55,12 @@ describe('SalesOrderController', () => {
     ],
   };
 
-  function makeController() {
+  function makeController(
+    grantedScopes: string[] = ['ORGANISATION'],
+    directReports: { id: string; user: { id: string } | null }[] = [],
+  ) {
     const salesOrderService = {
-      list: jest.fn(),
+      list: jest.fn().mockResolvedValue([]),
       getById: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
@@ -68,16 +74,106 @@ describe('SalesOrderController', () => {
       fulfil: jest.fn(),
     } as unknown as jest.Mocked<SalesFulfilmentService>;
     const auditService = { record: jest.fn() } as unknown as jest.Mocked<AuditService>;
+    const effectiveAccessResolver = {
+      resolve: jest.fn().mockResolvedValue({}),
+    } as unknown as jest.Mocked<EffectiveAccessResolver>;
+    const scopeEvaluator = {
+      grantedScopes: jest.fn().mockReturnValue(grantedScopes),
+    } as unknown as jest.Mocked<ScopeEvaluator>;
+    const employeeService = {
+      getByUserId: jest.fn().mockResolvedValue({ id: 'employee-1' }),
+      list: jest.fn().mockResolvedValue({ items: directReports, total: directReports.length }),
+    } as unknown as jest.Mocked<EmployeeService>;
 
     const controller = new SalesOrderController(
       salesOrderService,
       salesFulfilmentService,
       auditService,
+      effectiveAccessResolver,
+      scopeEvaluator,
+      employeeService,
     );
-    return { controller, salesOrderService, salesFulfilmentService, auditService };
+    return {
+      controller,
+      salesOrderService,
+      salesFulfilmentService,
+      auditService,
+      effectiveAccessResolver,
+      scopeEvaluator,
+      employeeService,
+    };
   }
 
   const req = { ip: '127.0.0.1', headers: { 'user-agent': 'jest' } } as unknown as Request;
+
+  describe('list (Sprint 25.1 scope enforcement)', () => {
+    it('applies no salesAgentId filter when granted ORGANISATION scope', async () => {
+      const { controller, salesOrderService } = makeController(['ORGANISATION']);
+
+      await controller.list(tokenUser, undefined, undefined, undefined, undefined);
+
+      expect(salesOrderService.list).toHaveBeenCalledWith(
+        'org-1',
+        expect.objectContaining({ salesAgentId: undefined }),
+      );
+    });
+
+    it('filters to the caller when granted only OWN_RECORDS scope', async () => {
+      const { controller, salesOrderService } = makeController(['OWN_RECORDS']);
+
+      await controller.list(tokenUser, undefined, undefined, undefined, undefined);
+
+      expect(salesOrderService.list).toHaveBeenCalledWith(
+        'org-1',
+        expect.objectContaining({ salesAgentId: 'user-1' }),
+      );
+    });
+
+    it("filters to direct reports' linked user ids when granted only OWN_TEAM", async () => {
+      const { controller, salesOrderService } = makeController(
+        ['OWN_TEAM'],
+        [
+          { id: 'report-1', user: { id: 'report-user-1' } },
+          { id: 'report-2', user: { id: 'report-user-2' } },
+          { id: 'report-3', user: null }, // unlinked Employee — excluded, never crashes
+        ],
+      );
+
+      await controller.list(tokenUser, undefined, undefined, undefined, undefined);
+
+      expect(salesOrderService.list).toHaveBeenCalledWith(
+        'org-1',
+        expect.objectContaining({ salesAgentIds: ['report-user-1', 'report-user-2'] }),
+      );
+    });
+
+    it('returns an empty page when granted OWN_TEAM but the caller has no direct reports', async () => {
+      const { controller, salesOrderService } = makeController(['OWN_TEAM'], []);
+
+      const result = await controller.list(tokenUser, undefined, undefined, undefined, undefined);
+
+      expect(result).toEqual({ items: [] });
+      expect(salesOrderService.list).not.toHaveBeenCalled();
+    });
+
+    it('returns an empty page — never unrestricted access — when the only granted scope cannot be proven server-side (e.g. ASSIGNED_TERRITORY)', async () => {
+      const { controller, salesOrderService } = makeController(['ASSIGNED_TERRITORY']);
+
+      const result = await controller.list(tokenUser, undefined, undefined, undefined, undefined);
+
+      expect(result).toEqual({ items: [] });
+      expect(salesOrderService.list).not.toHaveBeenCalled();
+    });
+
+    it('returns an empty page when no scope is granted at all', async () => {
+      const { controller, salesOrderService } = makeController([]);
+
+      const result = await controller.list(tokenUser, undefined, undefined, undefined, undefined);
+
+      expect(result).toEqual({ items: [] });
+      expect(salesOrderService.list).not.toHaveBeenCalled();
+    });
+  });
 
   describe('create', () => {
     it('creates the order and records an audit entry', async () => {

@@ -15,15 +15,17 @@ import { Request } from 'express';
 import { AuditService } from '../identity/audit/audit.service';
 import { ZodValidationPipe } from '../identity/auth/common/zod-validation.pipe';
 import { CurrentUser } from '../identity/auth/decorators/current-user.decorator';
-import { Roles } from '../identity/auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../identity/auth/guards/jwt-auth.guard';
-import { RolesGuard } from '../identity/auth/guards/roles.guard';
 import { TokenPayload } from '../identity/auth/ports/token.port';
 import { HR_AUDIT_ACTIONS } from './hr-audit-actions';
 import { PolicyService } from './policy.service';
+import { RequirePermission } from '../identity/auth/decorators/require-permission.decorator';
+import { RequireCommonAccess } from '../identity/auth/decorators/require-common-access.decorator';
+import { PermissionsGuard } from '../identity/auth/guards/permissions.guard';
+import { CommonAccessGuard } from '../identity/auth/guards/common-access.guard';
 
 @Controller('hr/policies')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class PolicyController {
   constructor(
     private readonly policyService: PolicyService,
@@ -31,19 +33,20 @@ export class PolicyController {
   ) {}
 
   @Get()
+  @RequirePermission('hr.policy.view')
   async list(@CurrentUser() user: TokenPayload, @Query('status') status?: PolicyStatus) {
     const items = await this.policyService.list(user.organisationId, { status });
     return { items };
   }
 
   @Get(':id')
+  @RequirePermission('hr.policy.view')
   getOne(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     return this.policyService.getById(user.organisationId, id);
   }
 
   @Post()
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('hr.policy.manage')
   async create(
     @Body(new ZodValidationPipe(createPolicySchema)) body: CreatePolicyInput,
     @CurrentUser() user: TokenPayload,
@@ -66,8 +69,7 @@ export class PolicyController {
   }
 
   @Patch(':id')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('hr.policy.manage')
   async update(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(updatePolicySchema)) body: UpdatePolicyInput,
@@ -88,8 +90,7 @@ export class PolicyController {
   }
 
   @Post(':id/archive')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('hr.policy.manage')
   async archive(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
     const updated = await this.policyService.archive(user.organisationId, id);
     await this.auditService.record({
@@ -107,14 +108,14 @@ export class PolicyController {
   // --- Versions -----------------------------------------------------------
 
   @Get(':id/versions')
+  @RequirePermission('hr.policy.view')
   async listVersions(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const items = await this.policyService.listVersions(user.organisationId, id);
     return { items };
   }
 
   @Post(':id/versions')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('hr.policy.manage')
   async createVersion(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(createPolicyVersionSchema)) body: CreatePolicyVersionInput,
@@ -136,8 +137,7 @@ export class PolicyController {
   }
 
   @Post(':id/versions/:versionId/publish')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('hr.policy.manage')
   async publishVersion(
     @Param('id') id: string,
     @Param('versionId') versionId: string,
@@ -164,6 +164,9 @@ export class PolicyController {
   }
 
   @Post(':id/versions/:versionId/acknowledge')
+  @UseGuards(CommonAccessGuard)
+  @RequirePermission('hr.policy.self_acknowledge')
+  @RequireCommonAccess('acknowledgePolicies')
   async acknowledge(
     @Param('id') id: string,
     @Param('versionId') versionId: string,

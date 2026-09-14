@@ -36,8 +36,11 @@ import { CommonAccessGuard } from '../identity/auth/guards/common-access.guard';
 import { JwtAuthGuard } from '../identity/auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../identity/auth/guards/permissions.guard';
 import { TokenPayload } from '../identity/auth/ports/token.port';
+import { EffectiveAccessResolver } from '../identity/authorization/effective-access-resolver';
+import { ScopeEvaluator } from '../identity/authorization/scope-evaluator';
 import { AttendanceCorrectionService } from './attendance-correction.service';
 import { AttendanceService } from './attendance.service';
+import { EmployeeService } from './employee.service';
 import { HR_AUDIT_ACTIONS } from './hr-audit-actions';
 
 function parseDateOrDefault(raw: string | undefined, fallback: Date): Date {
@@ -56,6 +59,9 @@ export class AttendanceController {
     private readonly attendanceService: AttendanceService,
     private readonly correctionService: AttendanceCorrectionService,
     private readonly auditService: AuditService,
+    private readonly employeeService: EmployeeService,
+    private readonly effectiveAccessResolver: EffectiveAccessResolver,
+    private readonly scopeEvaluator: ScopeEvaluator,
   ) {}
 
   // --- Self-service ---------------------------------------------------------
@@ -162,6 +168,12 @@ export class AttendanceController {
 
   // --- Administration ---------------------------------------------------------
 
+  /** Sprint 25.1 (docs/architecture/authorization-coverage.md) — `hr.attendance.view`'s
+   *  real, server-enforced scope, the exact `EmployeeController.list()` pattern Sprint
+   *  25 established: `ORGANISATION` sees every employee's attendance, `DEPARTMENT` is
+   *  forced to the caller's own department, `OWN_TEAM` is forced to the caller's own
+   *  direct reports (via `managerEmployeeId`), and no usable scope returns an empty
+   *  page rather than silently falling back to unrestricted access. */
   @Get()
   @UseGuards(PermissionsGuard)
   @RequirePermission('hr.attendance.view')
@@ -177,11 +189,30 @@ export class AttendanceController {
     @Query('reviewStatus') reviewStatus?: AttendanceReviewStatus,
   ) {
     const { page, pageSize } = paginationSchema.parse({ page: pageRaw, pageSize: pageSizeRaw });
+
+    const access = await this.effectiveAccessResolver.resolve(user.organisationId, user.sub);
+    const grantedScopes = this.scopeEvaluator.grantedScopes(access, 'hr.attendance.view');
+
+    let scopeFilter: { departmentId?: string; managerEmployeeId?: string } = {};
+    if (!grantedScopes.includes('ORGANISATION')) {
+      const callerEmployee = await this.employeeService.getByUserId(user.organisationId, user.sub);
+      if (grantedScopes.includes('DEPARTMENT') && callerEmployee?.departmentId) {
+        scopeFilter = { departmentId: callerEmployee.departmentId };
+      } else if (grantedScopes.includes('OWN_TEAM') && callerEmployee) {
+        scopeFilter = { managerEmployeeId: callerEmployee.id };
+      } else {
+        // No usable scope proven from server-side data — deny by default, never fall
+        // back to unrestricted access (access-control.md §5).
+        return { items: [], total: 0, page, pageSize };
+      }
+    }
+
     const result = await this.attendanceService.list(user.organisationId, {
       page,
       pageSize,
       employeeId: employeeId || undefined,
-      departmentId: departmentId || undefined,
+      departmentId: departmentId || scopeFilter.departmentId || undefined,
+      managerEmployeeId: scopeFilter.managerEmployeeId,
       dateFrom: dateFromRaw ? parseDateOrDefault(dateFromRaw, new Date()) : undefined,
       dateTo: dateToRaw ? parseDateOrDefault(dateToRaw, new Date()) : undefined,
       status: status || undefined,

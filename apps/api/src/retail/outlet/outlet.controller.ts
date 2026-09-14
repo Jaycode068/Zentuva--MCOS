@@ -30,14 +30,14 @@ import { Request } from 'express';
 import { AuditService } from '../../identity/audit/audit.service';
 import { ZodValidationPipe } from '../../identity/auth/common/zod-validation.pipe';
 import { CurrentUser } from '../../identity/auth/decorators/current-user.decorator';
-import { Roles } from '../../identity/auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../identity/auth/guards/jwt-auth.guard';
-import { RolesGuard } from '../../identity/auth/guards/roles.guard';
 import { TokenPayload } from '../../identity/auth/ports/token.port';
 import { assertValidImageFile } from '../../identity/common/image-upload-validation';
 import { OUTLET_AUDIT_ACTIONS } from './outlet-audit-actions';
 import { OutletWithRelations } from './outlet.repository';
 import { OutletService } from './outlet.service';
+import { RequirePermission } from '../../identity/auth/decorators/require-permission.decorator';
+import { PermissionsGuard } from '../../identity/auth/guards/permissions.guard';
 
 const MAX_PHOTOS_PER_REQUEST = 6;
 
@@ -54,7 +54,7 @@ const MAX_PHOTOS_PER_REQUEST = 6;
  * together, same convention as every other domain controller.
  */
 @Controller('retail/outlets')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class OutletController {
   constructor(
     private readonly outletService: OutletService,
@@ -63,6 +63,7 @@ export class OutletController {
   ) {}
 
   @Get()
+  @RequirePermission('sales.customer.view')
   async list(
     @CurrentUser() user: TokenPayload,
     @Query('status') status?: OutletStatus,
@@ -82,6 +83,7 @@ export class OutletController {
   }
 
   @Get(':id')
+  @RequirePermission('sales.customer.view')
   async getOne(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const outlet = await this.outletService.getById(user.organisationId, id);
     if (!outlet) {
@@ -91,8 +93,7 @@ export class OutletController {
   }
 
   @Post()
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('sales.customer.manage')
   async create(
     @Body(new ZodValidationPipe(createOutletSchema)) body: CreateOutletInput,
     @CurrentUser() user: TokenPayload,
@@ -119,8 +120,7 @@ export class OutletController {
   }
 
   @Patch(':id')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('sales.customer.manage')
   async update(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(updateOutletSchema)) body: UpdateOutletInput,
@@ -144,8 +144,7 @@ export class OutletController {
   }
 
   @Post(':id/activate')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('sales.customer.manage')
   async activate(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
     const updated = await this.outletService.activate(user.organisationId, id, user.sub);
 
@@ -163,8 +162,7 @@ export class OutletController {
   }
 
   @Post(':id/deactivate')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('sales.customer.manage')
   async deactivate(
     @Param('id') id: string,
     @CurrentUser() user: TokenPayload,
@@ -186,8 +184,7 @@ export class OutletController {
   }
 
   @Post(':id/photos')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('sales.customer.manage')
   @UseInterceptors(FilesInterceptor('files', MAX_PHOTOS_PER_REQUEST))
   async addPhotos(
     @Param('id') id: string,
@@ -226,8 +223,7 @@ export class OutletController {
   }
 
   @Delete(':id/photos/:photoId')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('sales.customer.manage')
   async removePhoto(
     @Param('id') id: string,
     @Param('photoId') photoId: string,

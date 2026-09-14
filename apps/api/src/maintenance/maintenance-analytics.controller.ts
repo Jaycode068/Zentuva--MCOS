@@ -3,6 +3,8 @@ import { BadRequestException, Controller, Get, Query, UseGuards } from '@nestjs/
 import { CurrentUser } from '../identity/auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../identity/auth/guards/jwt-auth.guard';
 import { TokenPayload } from '../identity/auth/ports/token.port';
+import { RequirePermission } from '../identity/auth/decorators/require-permission.decorator';
+import { PermissionsGuard } from '../identity/auth/guards/permissions.guard';
 import {
   CostCentreNotFoundError,
   MaintenanceAnalyticsService,
@@ -26,11 +28,12 @@ function parseDateRange(from?: string, to?: string): { from: Date; to: Date } {
  * convention `MaintenanceOverviewController` already uses.
  */
 @Controller('maintenance/analytics')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class MaintenanceAnalyticsController {
   constructor(private readonly maintenanceAnalyticsService: MaintenanceAnalyticsService) {}
 
   @Get('cost-vs-budget')
+  @RequirePermission('maintenance.analytics.view')
   async getCostVsBudget(
     @CurrentUser() user: TokenPayload,
     @Query('costCentreId') costCentreId: string,
@@ -57,6 +60,7 @@ export class MaintenanceAnalyticsController {
   }
 
   @Get('cost-breakdown')
+  @RequirePermission('maintenance.analytics.view')
   getCostBreakdown(
     @CurrentUser() user: TokenPayload,
     @Query('from') from?: string,
@@ -67,6 +71,7 @@ export class MaintenanceAnalyticsController {
   }
 
   @Get('operational-metrics')
+  @RequirePermission('maintenance.analytics.view')
   getOperationalMetrics(
     @CurrentUser() user: TokenPayload,
     @Query('from') from?: string,
@@ -77,6 +82,7 @@ export class MaintenanceAnalyticsController {
   }
 
   @Get('risk-signals')
+  @RequirePermission('maintenance.analytics.view')
   async getRiskSignals(@CurrentUser() user: TokenPayload) {
     const items = await this.maintenanceAnalyticsService.getRiskSignals(user.organisationId);
     return { items };

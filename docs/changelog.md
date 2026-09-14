@@ -7,6 +7,41 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 25.1 Authorization Coverage & Scope Enforcement] - 2026-09-14
+
+**A hardening pass over Sprint 25's access-control foundation, not a
+redesign.** Inventoried every API endpoint (534 routes, 83 controllers),
+eliminated the legacy `RolesGuard`/`@Roles` mechanism entirely (261 → 0
+remaining), and extended `PermissionsGuard`/`@RequirePermission` from 21 to
+509 protected routes (95.3% of the application) — including every
+previously-unguarded sensitive read (financial statements, trial balance,
+invoices, payments, purchase orders, inventory, production, maintenance work
+orders, employee records, and more). Added 33 new permission-catalogue
+entries (88 → 121) closing genuine gaps the original catalogue hadn't
+reached yet. Implemented real, server-enforced `OWN_TEAM`/`OWN_RECORDS`
+scope filtering for Sales orders and extended it to HR Attendance, using
+only existing relationships (`Employee.managerEmployeeId`,
+`SalesOrder.salesAgentId`) — `ASSIGNED_TERRITORY`/`ASSIGNED_ASSETS` remain
+honestly unenforced since no server-side data proves them yet. Completed the
+deferred access-administration audit review (found, live-verified, and
+corrected a Sprint 25 documentation error: role CRUD audit events were
+already fully implemented, contrary to what Sprint 25's own docs claimed).
+Found and fixed four real bugs via live verification against real tokens and
+the real database: two orphaned-permission gaps where a catalogue
+permission existed but was never wired to its route; one permission
+mis-mapping (`GET /finance/trial-balance` briefly pointed at the wrong
+permission key during this sprint's own migration); one over-broad
+`.manage`-only permission that would have blocked a least-privilege role's
+legitimate reads; and one 400-vs-404 tenant-isolation convention bug.
+Reviewed frontend integration — confirmed the backend remains authoritative
+(a denied action is denied regardless of UI visibility) and confirmed the
+Access Control admin pages already refresh effective access on mutation, but
+found and documented (not fixed, per the brief's own "don't redesign
+navigation unless necessary") that the sidebar does not yet filter modules
+by permission. Full detail: `docs/architecture/authorization-coverage.md`
+and `docs/sprint-25.1-completion-report.md`. 176 suites / 1485 tests
+passing (174/1471 baseline + 12 new).
+
 ## [Sprint 25 Configurable Access Control & Organisational Structure] - 2026-09-14
 
 **Finally wires up the `Role`/`Permission`/`RolePermission`/`UserRole` tables

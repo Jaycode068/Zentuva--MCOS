@@ -27,10 +27,8 @@ import { AuditService } from '../identity/audit/audit.service';
 import { ZodValidationPipe } from '../identity/auth/common/zod-validation.pipe';
 import { CurrentUser } from '../identity/auth/decorators/current-user.decorator';
 import { RequirePermission } from '../identity/auth/decorators/require-permission.decorator';
-import { Roles } from '../identity/auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../identity/auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../identity/auth/guards/permissions.guard';
-import { RolesGuard } from '../identity/auth/guards/roles.guard';
 import { TokenPayload } from '../identity/auth/ports/token.port';
 import { GoodsReceiptWithRelations } from './goods-receipt.repository';
 import {
@@ -65,7 +63,7 @@ import { SupplierReturnService } from './supplier-return.service';
  * touches the discrepancy-resolution fields, never what was actually received.
  */
 @Controller('inventory')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class InventoryController {
   constructor(
     private readonly inventoryService: InventoryService,
@@ -74,6 +72,7 @@ export class InventoryController {
   ) {}
 
   @Get()
+  @RequirePermission('inventory.stock.view')
   async list(
     @CurrentUser() user: TokenPayload,
     @Query('search') search?: string,
@@ -91,14 +90,14 @@ export class InventoryController {
   }
 
   @Get('locations')
+  @RequirePermission('inventory.stock.view')
   async listLocations(@CurrentUser() user: TokenPayload) {
     const locations = await this.inventoryService.listLocations(user.organisationId);
     return { items: locations };
   }
 
   @Post('locations')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('inventory.location.manage')
   async createLocation(
     @Body(new ZodValidationPipe(createInventoryLocationSchema)) body: CreateInventoryLocationInput,
     @CurrentUser() user: TokenPayload,
@@ -125,8 +124,7 @@ export class InventoryController {
   }
 
   @Patch('locations/:id')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('inventory.location.manage')
   async updateLocation(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(updateInventoryLocationSchema)) body: UpdateInventoryLocationInput,
@@ -158,8 +156,7 @@ export class InventoryController {
   }
 
   @Post('adjustments')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('inventory.adjustment.create')
   async createAdjustment(
     @Body(new ZodValidationPipe(createInventoryAdjustmentSchema))
     body: CreateInventoryAdjustmentInput,
@@ -192,6 +189,7 @@ export class InventoryController {
   }
 
   @Get('transactions')
+  @RequirePermission('inventory.stock.view')
   async listTransactions(
     @CurrentUser() user: TokenPayload,
     @Query('productId') productId?: string,
@@ -205,6 +203,7 @@ export class InventoryController {
   }
 
   @Get('goods-receipts')
+  @RequirePermission('inventory.stock.view')
   async listGoodsReceipts(
     @CurrentUser() user: TokenPayload,
     @Query('search') search?: string,
@@ -223,6 +222,7 @@ export class InventoryController {
   }
 
   @Get('goods-receipts/:id')
+  @RequirePermission('inventory.stock.view')
   async getGoodsReceipt(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const goodsReceipt = await this.inventoryService.getGoodsReceiptById(user.organisationId, id);
     return { ...toGoodsReceiptResponse(goodsReceipt), journalEntry: goodsReceipt.journalEntry };
@@ -346,8 +346,7 @@ export class InventoryController {
   }
 
   @Patch('goods-receipts/:id/discrepancy')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('inventory.goods_receipt.create')
   async updateDiscrepancy(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(updateGoodsReceiptDiscrepancySchema))
@@ -379,6 +378,7 @@ export class InventoryController {
   }
 
   @Get('purchase-orders/:purchaseOrderId/receiving')
+  @RequirePermission('inventory.stock.view')
   async getPurchaseOrderReceivingSummary(
     @CurrentUser() user: TokenPayload,
     @Param('purchaseOrderId') purchaseOrderId: string,
@@ -391,6 +391,7 @@ export class InventoryController {
   }
 
   @Get('supplier-returns')
+  @RequirePermission('inventory.stock.view')
   async listSupplierReturns(
     @CurrentUser() user: TokenPayload,
     @Query('supplierId') supplierId?: string,
@@ -408,6 +409,7 @@ export class InventoryController {
   }
 
   @Get('supplier-returns/:id')
+  @RequirePermission('inventory.stock.view')
   async getSupplierReturn(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const supplierReturn = await this.supplierReturnService.getById(user.organisationId, id);
     return toSupplierReturnResponse(supplierReturn);
@@ -416,8 +418,7 @@ export class InventoryController {
   /** `POST /supplier-returns` (Sprint 11, brief §15-19) — a single atomic write: no
    *  separate request/receive phase, unlike Customer Returns. */
   @Post('supplier-returns')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('inventory.supplier_return.create')
   async createSupplierReturn(
     @Body(new ZodValidationPipe(createSupplierReturnSchema)) body: CreateSupplierReturnInput,
     @CurrentUser() user: TokenPayload,
@@ -468,6 +469,7 @@ export class InventoryController {
 
   /** Wildcard route — must stay last (see class doc comment). */
   @Get(':productId')
+  @RequirePermission('inventory.stock.view')
   async getByProduct(@CurrentUser() user: TokenPayload, @Param('productId') productId: string) {
     const stock = await this.inventoryService.getStockByProduct(user.organisationId, productId);
     return toStockResponse(stock);

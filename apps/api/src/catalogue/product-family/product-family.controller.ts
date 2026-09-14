@@ -22,12 +22,12 @@ import { Request } from 'express';
 import { AuditService } from '../../identity/audit/audit.service';
 import { ZodValidationPipe } from '../../identity/auth/common/zod-validation.pipe';
 import { CurrentUser } from '../../identity/auth/decorators/current-user.decorator';
-import { Roles } from '../../identity/auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../identity/auth/guards/jwt-auth.guard';
-import { RolesGuard } from '../../identity/auth/guards/roles.guard';
 import { TokenPayload } from '../../identity/auth/ports/token.port';
 import { PRODUCT_FAMILY_AUDIT_ACTIONS } from './product-family-audit-actions';
 import { ProductFamilyService } from './product-family.service';
+import { RequirePermission } from '../../identity/auth/decorators/require-permission.decorator';
+import { PermissionsGuard } from '../../identity/auth/guards/permissions.guard';
 
 /**
  * Product Family HTTP surface (Sprint 4.7 brief, docs/domains/catalogue.md). `GET`
@@ -39,7 +39,7 @@ import { ProductFamilyService } from './product-family.service';
  * together, same convention as `ProductController`.
  */
 @Controller('product-families')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class ProductFamilyController {
   constructor(
     private readonly productFamilyService: ProductFamilyService,
@@ -47,6 +47,7 @@ export class ProductFamilyController {
   ) {}
 
   @Get()
+  @RequirePermission('catalogue.product.view')
   async list(
     @CurrentUser() user: TokenPayload,
     @Query('search') search?: string,
@@ -60,6 +61,7 @@ export class ProductFamilyController {
   }
 
   @Get(':id')
+  @RequirePermission('catalogue.product.view')
   async getOne(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const family = await this.productFamilyService.getById(user.organisationId, id);
     if (!family) {
@@ -69,8 +71,7 @@ export class ProductFamilyController {
   }
 
   @Post()
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('catalogue.product.manage')
   async create(
     @Body(new ZodValidationPipe(createProductFamilySchema)) body: CreateProductFamilyInput,
     @CurrentUser() user: TokenPayload,
@@ -93,8 +94,7 @@ export class ProductFamilyController {
   }
 
   @Patch(':id')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('catalogue.product.manage')
   async update(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(updateProductFamilySchema)) body: UpdateProductFamilyInput,

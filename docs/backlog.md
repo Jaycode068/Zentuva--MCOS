@@ -860,6 +860,7 @@ REJECTED}`) optionally linking an existing `CapitalProject`/
 - ✓ Sprint 23 — HR Employee Lifecycle Foundation
 - ✓ Sprint 24 — HR Attendance, Training & People Operations
 - ✓ Sprint 25 — Configurable Access Control & Organisational Structure
+- ✓ Sprint 25.1 — Authorization Coverage & Scope Enforcement
 
 **Current focus:** The Finance MVP (Sprints 6-19) is considered
 functionally complete. Epic 14 (Asset & Maintenance Management) is fully
@@ -881,13 +882,23 @@ catalogue, an `AccessScope` model, tenant-configurable roles, a
 codebase's highest-risk mutation endpoints, an organisation-wide Common
 Employee Access self-service policy, and a `/settings/access` admin UI
 — see [`docs/domains/access-control.md`](domains/access-control.md).
+Sprint 25.1 ("Authorization Coverage & Scope Enforcement") is a hardening
+pass over that same foundation, not a redesign: a full 534-route endpoint
+inventory, the legacy `RolesGuard` mechanism eliminated entirely (261 → 0),
+`PermissionsGuard` extended from 21 to 509 protected routes (95.3% of the
+application), 33 new permission-catalogue entries closing genuine gaps,
+real `OWN_TEAM`/`OWN_RECORDS` scope enforcement for Sales orders and HR
+Attendance, and four real bugs found and fixed via live verification — see
+[`docs/architecture/authorization-coverage.md`](architecture/authorization-coverage.md)
+and [`docs/sprint-25.1-completion-report.md`](sprint-25.1-completion-report.md).
 Deliberately still not started: payroll, leave management, recruitment
 automation, performance/KPI engines, an LMS, a workflow/notification
-engine, and a Technician RBAC role (from Sprint 22) — Sprint 25 built
-the access-control foundation those will need, but did not implement
-Workflow or Notifications themselves, per its own brief. Next sprint:
-Sprint 26 (Workflow & Approval Engine) and Sprint 27 (Notification +
-Business Activity Engine) are subsequent.
+engine, a Technician RBAC role (from Sprint 22), `ASSIGNED_TERRITORY`/
+`ASSIGNED_ASSETS` scope enforcement (no server-side assignment
+relationship exists yet to prove them from), and permission-aware
+frontend navigation filtering. Next sprint: Sprint 26 (Workflow &
+Approval Engine) and Sprint 27 (Notification + Business Activity Engine)
+are subsequent.
 
 ## 6. Future Ideas (Not Prioritised Yet)
 

@@ -397,6 +397,27 @@ ASSIGNED → IN_PROGRESS ⇄ ON_HOLD → COMPLETED`/`CANCELLED`, both
       desktop-first `/settings/access` admin UI. Not Workflow,
       Notifications, or a policy-as-code engine — see
       [`docs/domains/access-control.md`](domains/access-control.md)
+- [x] Authorization Coverage & Scope Enforcement — shipped Sprint 25.1.
+      A hardening pass, not a redesign: a full endpoint inventory (534
+      routes across 83 controllers, every one explicitly classified);
+      the legacy `RolesGuard`/`@Roles` mechanism eliminated entirely
+      (261 → 0 routes remaining); `PermissionsGuard`/`@RequirePermission`
+      now protects 509/534 routes (up from 21 at Sprint 25 launch),
+      including every previously-unguarded sensitive `GET` (financial
+      statements, trial balance, invoices, payments, purchase orders,
+      inventory, production, maintenance work orders, employee records,
+      and more); 33 new permission-catalogue entries (88 → 121) closing
+      genuine gaps rather than inventing broad new ones; real `OWN_TEAM`/
+      `OWN_RECORDS` scope enforcement added for Sales orders and HR
+      Attendance (extending Sprint 25's HR employee-list pattern);
+      `ASSIGNED_TERRITORY`/`ASSIGNED_ASSETS` honestly left unenforced —
+      no server-side data proves them yet — never silently granted;
+      four real bugs found and fixed via live verification (an
+      orphaned-permission gap, a permission mis-mapping, an
+      over-broad `.manage`-only permission blocking a least-privilege
+      role's reads, and a 400-vs-404 tenant-isolation convention bug).
+      See [`docs/architecture/authorization-coverage.md`](architecture/authorization-coverage.md)
+      and [`docs/sprint-25.1-completion-report.md`](sprint-25.1-completion-report.md)
 - [ ] Workflow & Approval Engine (Sprint 26 — subsequent, not yet
       started)
 - [ ] Notification + Business Activity Engine (Sprint 27 — subsequent,

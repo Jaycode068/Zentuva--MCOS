@@ -15,15 +15,15 @@ import { Request } from 'express';
 import { AuditService } from '../../identity/audit/audit.service';
 import { ZodValidationPipe } from '../../identity/auth/common/zod-validation.pipe';
 import { CurrentUser } from '../../identity/auth/decorators/current-user.decorator';
-import { Roles } from '../../identity/auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../identity/auth/guards/jwt-auth.guard';
-import { RolesGuard } from '../../identity/auth/guards/roles.guard';
 import { TokenPayload } from '../../identity/auth/ports/token.port';
 import { DEBT_AUDIT_ACTIONS } from '../debt-audit-actions';
 import { DebtAnalysisService } from './debt-analysis.service';
 import { DebtDrawdownService } from './debt-drawdown.service';
 import { DebtFacilityService } from './debt-facility.service';
 import { DebtRepaymentService } from './debt-repayment.service';
+import { RequirePermission } from '../../identity/auth/decorators/require-permission.decorator';
+import { PermissionsGuard } from '../../identity/auth/guards/permissions.guard';
 
 /**
  * Debt Facility HTTP surface (Sprint 17, docs/domains/debt-management.md
@@ -33,7 +33,7 @@ import { DebtRepaymentService } from './debt-repayment.service';
  * matching the `BudgetController`'s own nested-lines convention.
  */
 @Controller('finance/debt/facilities')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class DebtFacilityController {
   constructor(
     private readonly debtFacilityService: DebtFacilityService,
@@ -44,12 +44,14 @@ export class DebtFacilityController {
   ) {}
 
   @Get()
+  @RequirePermission('finance.debt.manage')
   async list(@CurrentUser() user: TokenPayload, @Query('status') status?: DebtFacilityStatus) {
     const items = await this.debtFacilityService.list(user.organisationId, { status });
     return { items: items.map(toDebtFacilityResponse) };
   }
 
   @Get(':id')
+  @RequirePermission('finance.debt.manage')
   async getOne(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const facility = await this.debtFacilityService.getById(user.organisationId, id);
     const balance = await this.debtFacilityService.getBalance(user.organisationId, id);
@@ -57,12 +59,14 @@ export class DebtFacilityController {
   }
 
   @Get(':id/schedule')
+  @RequirePermission('finance.debt.manage')
   async schedule(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const schedule = await this.debtFacilityService.getSchedule(user.organisationId, id);
     return { items: schedule.map(toScheduleResponse) };
   }
 
   @Get(':id/preview-impact')
+  @RequirePermission('finance.debt.manage')
   async previewImpact(
     @CurrentUser() user: TokenPayload,
     @Param('id') id: string,
@@ -74,8 +78,7 @@ export class DebtFacilityController {
   }
 
   @Post()
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.debt.manage')
   async create(
     @Body(new ZodValidationPipe(createDebtFacilitySchema)) body: CreateDebtFacilityInput,
     @CurrentUser() user: TokenPayload,
@@ -107,8 +110,7 @@ export class DebtFacilityController {
   }
 
   @Patch(':id')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.debt.manage')
   async update(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(updateDebtFacilitySchema)) body: UpdateDebtFacilityInput,
@@ -119,8 +121,7 @@ export class DebtFacilityController {
   }
 
   @Post(':id/approve')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.debt.manage')
   async approve(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
     const updated = await this.debtFacilityService.approve(user.organisationId, id, user.sub);
     await this.auditService.record({
@@ -136,8 +137,7 @@ export class DebtFacilityController {
   }
 
   @Post(':id/cancel')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.debt.manage')
   async cancel(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
     const updated = await this.debtFacilityService.cancel(user.organisationId, id);
     await this.auditService.record({
@@ -153,8 +153,7 @@ export class DebtFacilityController {
   }
 
   @Post(':id/mark-defaulted')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.debt.manage')
   async markDefaulted(
     @Param('id') id: string,
     @CurrentUser() user: TokenPayload,
@@ -174,8 +173,7 @@ export class DebtFacilityController {
   }
 
   @Post(':id/drawdowns')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.debt.manage')
   async createDrawdown(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(createDebtDrawdownSchema)) body: CreateDebtDrawdownInput,
@@ -226,8 +224,7 @@ export class DebtFacilityController {
   }
 
   @Post(':id/repayments')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.debt.manage')
   async createRepayment(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(createDebtRepaymentSchema)) body: CreateDebtRepaymentInput,

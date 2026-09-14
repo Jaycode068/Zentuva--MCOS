@@ -10,12 +10,12 @@ import { Request } from 'express';
 import { AuditService } from '../identity/audit/audit.service';
 import { ZodValidationPipe } from '../identity/auth/common/zod-validation.pipe';
 import { CurrentUser } from '../identity/auth/decorators/current-user.decorator';
-import { Roles } from '../identity/auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../identity/auth/guards/jwt-auth.guard';
-import { RolesGuard } from '../identity/auth/guards/roles.guard';
 import { TokenPayload } from '../identity/auth/ports/token.port';
 import { MAINTENANCE_AUDIT_ACTIONS } from './maintenance-audit-actions';
 import { MaintenanceProcurementService } from './maintenance-procurement.service';
+import { RequirePermission } from '../identity/auth/decorators/require-permission.decorator';
+import { PermissionsGuard } from '../identity/auth/guards/permissions.guard';
 
 /**
  * Maintenance Procurement Requirement HTTP surface (Sprint 22,
@@ -26,7 +26,7 @@ import { MaintenanceProcurementService } from './maintenance-procurement.service
  * Procurement's own UI, links its id back here.
  */
 @Controller('maintenance/work-orders/:workOrderId/procurement')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class MaintenanceProcurementController {
   constructor(
     private readonly maintenanceProcurementService: MaintenanceProcurementService,
@@ -34,14 +34,14 @@ export class MaintenanceProcurementController {
   ) {}
 
   @Get()
+  @RequirePermission('maintenance.work_order.view')
   async list(@CurrentUser() user: TokenPayload, @Param('workOrderId') workOrderId: string) {
     const items = await this.maintenanceProcurementService.list(user.organisationId, workOrderId);
     return { items };
   }
 
   @Post()
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('maintenance.work_order.manage')
   async create(
     @Param('workOrderId') workOrderId: string,
     @Body(new ZodValidationPipe(createProcurementRequirementSchema))
@@ -71,8 +71,7 @@ export class MaintenanceProcurementController {
   }
 
   @Post(':id/link')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('maintenance.work_order.manage')
   async link(
     @Param('workOrderId') workOrderId: string,
     @Param('id') id: string,
@@ -102,8 +101,7 @@ export class MaintenanceProcurementController {
   }
 
   @Post(':id/cancel')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('maintenance.work_order.manage')
   async cancel(
     @Param('workOrderId') workOrderId: string,
     @Param('id') id: string,
@@ -128,6 +126,7 @@ export class MaintenanceProcurementController {
   }
 
   @Get(':id/ap-summary')
+  @RequirePermission('maintenance.work_order.view')
   async getApSummary(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     return this.maintenanceProcurementService.getApSummary(user.organisationId, id);
   }

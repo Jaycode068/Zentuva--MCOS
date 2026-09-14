@@ -25,9 +25,9 @@ import { Request } from 'express';
 import { AuditService } from '../audit/audit.service';
 import { ZodValidationPipe } from '../auth/common/zod-validation.pipe';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
-import { Roles } from '../auth/decorators/roles.decorator';
+import { RequirePermission } from '../auth/decorators/require-permission.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { RolesGuard } from '../auth/guards/roles.guard';
+import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { TokenPayload } from '../auth/ports/token.port';
 import { assertValidImageFile } from '../common/image-upload-validation';
 import {
@@ -42,15 +42,16 @@ const LOGO_VARIANTS = new Set(['light', 'dark']);
 type LogoVariant = 'light' | 'dark';
 
 /**
- * The Workspace Configuration HTTP surface (Sprint 3.4 brief): `GET`/`PATCH
- * /api/settings/workspace` and `POST`/`DELETE /api/settings/logo`. `GET` requires only
- * authentication (any role may view the workspace's branding/settings — matches
- * `OrganisationController`'s `GET /me` precedent, Sprint 2.1); every write requires Owner
- * or Administrator (`RolesGuard`), same as that controller's `PATCH /me`. Reuses
- * `OrganisationService` throughout — no new repository.
+ * The Workspace Configuration HTTP surface (Sprint 3.4 brief; migrated to the central
+ * permission system in Sprint 25.1, docs/architecture/authorization-coverage.md):
+ * `GET`/`PATCH /api/settings/workspace` and `POST`/`DELETE /api/settings/logo`. `GET`
+ * requires only authentication (any role may view the workspace's branding/settings —
+ * matches `OrganisationController`'s `GET /me` precedent, Sprint 2.1); every write
+ * requires `identity.organisation.manage`. Reuses `OrganisationService` throughout —
+ * no new repository.
  */
 @Controller('settings')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class SettingsController {
   constructor(
     private readonly organisationService: OrganisationService,
@@ -68,8 +69,7 @@ export class SettingsController {
   }
 
   @Patch('workspace')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('identity.organisation.manage')
   async updateWorkspace(
     @Body(new ZodValidationPipe(updateWorkspaceSettingsSchema)) body: UpdateWorkspaceSettingsInput,
     @CurrentUser() user: TokenPayload,
@@ -95,8 +95,7 @@ export class SettingsController {
   }
 
   @Post('logo')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('identity.organisation.manage')
   @UseInterceptors(FileInterceptor('file'))
   async uploadLogo(
     @UploadedFile() file: Express.Multer.File | undefined,
@@ -130,8 +129,7 @@ export class SettingsController {
   }
 
   @Delete('logo')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('identity.organisation.manage')
   async deleteLogo(
     @Query('variant') variantRaw: string | undefined,
     @CurrentUser() user: TokenPayload,

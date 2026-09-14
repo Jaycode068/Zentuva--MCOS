@@ -6744,6 +6744,21 @@ async function seedAccessControlFixtures(
     { key: 'finance.debt.manage' },
     { key: 'finance.investment.manage' },
     { key: 'finance.decision_analysis.view' },
+    // Sprint 25.1 — these actions existed before but were Owner/Administrator-only via
+    // the old RolesGuard (no role could be granted them); now that they're real,
+    // grantable permissions, Head of Finance's own "Full Finance access" description
+    // is honoured rather than left silently incomplete.
+    { key: 'finance.journal.create' },
+    { key: 'finance.journal.void' },
+    { key: 'finance.credit_note.view', scope: 'ORGANISATION' },
+    { key: 'finance.credit_note.manage' },
+    { key: 'finance.supplier_invoice.manage' },
+    { key: 'finance.supplier_payment.cancel' },
+    { key: 'finance.cash_account.view' },
+    { key: 'finance.cash_account.manage' },
+    { key: 'finance.cash_transaction.cancel' },
+    { key: 'finance.cashflow.manage' },
+    { key: 'finance.decision_analysis.manage' },
   ]);
 
   const financeStaff = await upsertCustomRole(
@@ -6770,6 +6785,10 @@ async function seedAccessControlFixtures(
   await grantRolePermissions(cashOfficer.id, permissionByKey, [
     { key: 'finance.cash_transaction.view', scope: 'ASSIGNED_RECORDS' },
     { key: 'finance.cash_transaction.create', scope: 'ASSIGNED_RECORDS' },
+    // Sprint 25.1 — a Cash Officer needs to see the cash account they transact
+    // against, but never to create/edit/activate/deactivate one (that stays
+    // Head-of-Finance-only via the separate `.manage` permission).
+    { key: 'finance.cash_account.view' },
   ]);
 
   const bankReconciliationOfficer = await upsertCustomRole(
@@ -6792,9 +6811,17 @@ async function seedAccessControlFixtures(
   await grantRolePermissions(productionManager.id, permissionByKey, [
     { key: 'production.order.view', scope: 'ORGANISATION' },
     { key: 'production.order.create' },
+    { key: 'production.order.edit' },
+    { key: 'production.order.cancel' },
     { key: 'production.order.complete' },
     { key: 'production.material_issue.create' },
+    // Sprint 25.1 — companion read permission; `.manage` alone no longer covers
+    // browsing the BOM list now that GET is centrally guarded too.
+    { key: 'production.bill_of_material.view' },
     { key: 'production.bill_of_material.manage' },
+    // A production order/BOM always references a product; browsing the catalogue
+    // while building either is part of this role's existing workflow.
+    { key: 'catalogue.product.view' },
   ]);
 
   const maintenanceManager = await upsertCustomRole(
@@ -6806,11 +6833,22 @@ async function seedAccessControlFixtures(
     { key: 'maintenance.work_order.view', scope: 'ORGANISATION' },
     { key: 'maintenance.work_order.create' },
     { key: 'maintenance.work_order.assign' },
+    // Sprint 25.1 — the general work-order edit/lifecycle-transition permission (start/
+    // hold/resume/cancel/tasks/documents), previously Owner/Administrator-only via the
+    // old RolesGuard and therefore never actually usable by this role either.
+    { key: 'maintenance.work_order.manage' },
     { key: 'maintenance.work_order.complete', scope: 'ORGANISATION' },
     { key: 'maintenance.request.view' },
+    { key: 'maintenance.request.manage' },
+    // Companion read permission; `.manage` alone no longer covers browsing plans/
+    // schedules/types now that their GETs are centrally guarded too.
+    { key: 'maintenance.plan.view' },
     { key: 'maintenance.plan.manage' },
     { key: 'maintenance.analytics.view' },
     { key: 'assets.asset.view' },
+    // Recording maintenance parts usage references a product; browsing the catalogue
+    // is part of this role's existing workflow.
+    { key: 'catalogue.product.view' },
   ]);
 
   // --- Sales role ladder — Field Sales Agent (assigned-only) → Sales Team Lead (own
@@ -6823,9 +6861,17 @@ async function seedAccessControlFixtures(
   await grantRolePermissions(salesManager.id, permissionByKey, [
     { key: 'sales.order.view', scope: 'ORGANISATION' },
     { key: 'sales.order.create', scope: 'ORGANISATION' },
+    { key: 'sales.order.edit' },
+    { key: 'sales.order.confirm' },
     { key: 'sales.order.cancel' },
     { key: 'sales.dashboard.view', scope: 'ORGANISATION' },
+    // Sprint 25.1 — companion read permission; `.manage` alone no longer covers
+    // browsing the customer/outlet list now that GET is centrally guarded too.
+    { key: 'sales.customer.view', scope: 'ORGANISATION' },
     { key: 'sales.customer.manage', scope: 'ORGANISATION' },
+    // A sales order always references a product; browsing the catalogue while
+    // building one is part of this role's existing workflow.
+    { key: 'catalogue.product.view' },
   ]);
 
   const salesTeamLead = await upsertCustomRole(
@@ -6837,6 +6883,11 @@ async function seedAccessControlFixtures(
     { key: 'sales.order.view', scope: 'OWN_TEAM' },
     { key: 'sales.dashboard.view', scope: 'OWN_TEAM' },
     { key: 'sales.order.create', scope: 'ASSIGNED_TERRITORY' },
+    // Sprint 25.1 — a team lead placing/reviewing orders needs to browse the
+    // customers/outlets their team serves; companion read permission for the newly
+    // centrally-guarded GET routes.
+    { key: 'sales.customer.view', scope: 'OWN_TEAM' },
+    { key: 'catalogue.product.view' },
   ]);
   // Tunde Bakare (EMP-000006) is literally the seeded Sales Team Lead — a real,
   // pre-existing multi-role demonstration once combined with Employee Self-Service.
@@ -6850,7 +6901,12 @@ async function seedAccessControlFixtures(
   await grantRolePermissions(fieldSalesAgent.id, permissionByKey, [
     { key: 'sales.order.view', scope: 'ASSIGNED_RECORDS' },
     { key: 'sales.order.create', scope: 'ASSIGNED_TERRITORY' },
+    // Sprint 25.1 — a field agent needs to browse existing customers/outlets before
+    // creating an order or a new one; companion read permission for the newly
+    // centrally-guarded GET routes.
+    { key: 'sales.customer.view', scope: 'ASSIGNED_TERRITORY' },
     { key: 'sales.customer.manage', scope: 'ASSIGNED_TERRITORY' },
+    { key: 'catalogue.product.view' },
   ]);
 
   // --- Demo users: a combined-role Production+Maintenance manager, and a

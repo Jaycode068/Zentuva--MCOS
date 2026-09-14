@@ -11,13 +11,13 @@ import { Request } from 'express';
 import { AuditService } from '../identity/audit/audit.service';
 import { ZodValidationPipe } from '../identity/auth/common/zod-validation.pipe';
 import { CurrentUser } from '../identity/auth/decorators/current-user.decorator';
-import { Roles } from '../identity/auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../identity/auth/guards/jwt-auth.guard';
-import { RolesGuard } from '../identity/auth/guards/roles.guard';
 import { TokenPayload } from '../identity/auth/ports/token.port';
 import { BillOfMaterialService } from './bill-of-material.service';
 import { BillOfMaterialWithRelations } from './bill-of-material.repository';
 import { PRODUCTION_AUDIT_ACTIONS } from './production-audit-actions';
+import { RequirePermission } from '../identity/auth/decorators/require-permission.decorator';
+import { PermissionsGuard } from '../identity/auth/guards/permissions.guard';
 
 /**
  * Bill of Materials HTTP surface (Sprint 4.6 brief, docs/domains/production.md). `GET`
@@ -31,7 +31,7 @@ import { PRODUCTION_AUDIT_ACTIONS } from './production-audit-actions';
  * other domain controller.
  */
 @Controller('production/boms')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class BillOfMaterialController {
   constructor(
     private readonly billOfMaterialService: BillOfMaterialService,
@@ -39,6 +39,7 @@ export class BillOfMaterialController {
   ) {}
 
   @Get()
+  @RequirePermission('production.bill_of_material.view')
   async list(
     @CurrentUser() user: TokenPayload,
     @Query('productId') productId?: string,
@@ -54,14 +55,14 @@ export class BillOfMaterialController {
   }
 
   @Get(':id')
+  @RequirePermission('production.bill_of_material.view')
   async getById(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const bom = await this.billOfMaterialService.getById(user.organisationId, id);
     return toBomResponse(bom);
   }
 
   @Post()
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('production.bill_of_material.manage')
   async create(
     @Body(new ZodValidationPipe(createBillOfMaterialSchema)) body: CreateBillOfMaterialInput,
     @CurrentUser() user: TokenPayload,
@@ -88,8 +89,7 @@ export class BillOfMaterialController {
   }
 
   @Patch(':id')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('production.bill_of_material.manage')
   async update(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(updateBillOfMaterialSchema)) body: UpdateBillOfMaterialInput,
@@ -113,8 +113,7 @@ export class BillOfMaterialController {
   }
 
   @Post(':id/activate')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('production.bill_of_material.manage')
   async activate(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
     const bom = await this.billOfMaterialService.activate(user.organisationId, id, user.sub);
 
@@ -133,8 +132,7 @@ export class BillOfMaterialController {
   }
 
   @Post(':id/deactivate')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('production.bill_of_material.manage')
   async deactivate(
     @Param('id') id: string,
     @CurrentUser() user: TokenPayload,

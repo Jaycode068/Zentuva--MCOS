@@ -22,12 +22,12 @@ import { Request } from 'express';
 import { AuditService } from '../../identity/audit/audit.service';
 import { ZodValidationPipe } from '../../identity/auth/common/zod-validation.pipe';
 import { CurrentUser } from '../../identity/auth/decorators/current-user.decorator';
-import { Roles } from '../../identity/auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../identity/auth/guards/jwt-auth.guard';
-import { RolesGuard } from '../../identity/auth/guards/roles.guard';
 import { TokenPayload } from '../../identity/auth/ports/token.port';
 import { TERRITORY_AUDIT_ACTIONS } from './territory-audit-actions';
 import { TerritoryService } from './territory.service';
+import { RequirePermission } from '../../identity/auth/decorators/require-permission.decorator';
+import { PermissionsGuard } from '../../identity/auth/guards/permissions.guard';
 
 /**
  * Territory HTTP surface (Sprint 4.8, docs/domains/territories.md). `GET` requires only
@@ -38,7 +38,7 @@ import { TerritoryService } from './territory.service';
  * together, same convention as every other domain controller.
  */
 @Controller('retail/territories')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class TerritoryController {
   constructor(
     private readonly territoryService: TerritoryService,
@@ -46,6 +46,7 @@ export class TerritoryController {
   ) {}
 
   @Get()
+  @RequirePermission('retail.territory.view')
   async list(
     @CurrentUser() user: TokenPayload,
     @Query('status') status?: TerritoryStatus,
@@ -61,6 +62,7 @@ export class TerritoryController {
   }
 
   @Get(':id')
+  @RequirePermission('retail.territory.view')
   async getOne(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const territory = await this.territoryService.getById(user.organisationId, id);
     if (!territory) {
@@ -70,8 +72,7 @@ export class TerritoryController {
   }
 
   @Post()
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('retail.territory.manage')
   async create(
     @Body(new ZodValidationPipe(createTerritorySchema)) body: CreateTerritoryInput,
     @CurrentUser() user: TokenPayload,
@@ -94,8 +95,7 @@ export class TerritoryController {
   }
 
   @Patch(':id')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('retail.territory.manage')
   async update(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(updateTerritorySchema)) body: UpdateTerritoryInput,
@@ -119,8 +119,7 @@ export class TerritoryController {
   }
 
   @Post(':id/activate')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('retail.territory.manage')
   async activate(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
     const updated = await this.territoryService.activate(user.organisationId, id, user.sub);
 
@@ -138,8 +137,7 @@ export class TerritoryController {
   }
 
   @Post(':id/deactivate')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('retail.territory.manage')
   async deactivate(
     @Param('id') id: string,
     @CurrentUser() user: TokenPayload,

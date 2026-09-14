@@ -18,12 +18,12 @@ import { Request } from 'express';
 import { AuditService } from '../../identity/audit/audit.service';
 import { ZodValidationPipe } from '../../identity/auth/common/zod-validation.pipe';
 import { CurrentUser } from '../../identity/auth/decorators/current-user.decorator';
-import { Roles } from '../../identity/auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../identity/auth/guards/jwt-auth.guard';
-import { RolesGuard } from '../../identity/auth/guards/roles.guard';
 import { TokenPayload } from '../../identity/auth/ports/token.port';
 import { CASHFLOW_AUDIT_ACTIONS } from '../cashflow-audit-actions';
 import { CashflowAdjustmentService } from './cashflow-adjustment.service';
+import { RequirePermission } from '../../identity/auth/decorators/require-permission.decorator';
+import { PermissionsGuard } from '../../identity/auth/guards/permissions.guard';
 
 /**
  * Cashflow Forecast Adjustment HTTP surface (Sprint 15, docs/domains/cashflow.md
@@ -32,7 +32,7 @@ import { CashflowAdjustmentService } from './cashflow-adjustment.service';
  * `SupplierInvoice` row is never touched (see `cashflow-independence.spec.ts`).
  */
 @Controller('finance/cashflow/adjustments')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class CashflowAdjustmentController {
   constructor(
     private readonly cashflowAdjustmentService: CashflowAdjustmentService,
@@ -40,12 +40,14 @@ export class CashflowAdjustmentController {
   ) {}
 
   @Get()
+  @RequirePermission('finance.budget.view')
   async list(@CurrentUser() user: TokenPayload) {
     const items = await this.cashflowAdjustmentService.list(user.organisationId);
     return { items: items.map(toCashflowForecastAdjustmentResponse) };
   }
 
   @Get(':sourceType/:sourceId')
+  @RequirePermission('finance.budget.view')
   async getOne(
     @CurrentUser() user: TokenPayload,
     @Param('sourceType') sourceType: CashflowForecastSourceType,
@@ -63,8 +65,7 @@ export class CashflowAdjustmentController {
   }
 
   @Put()
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @RequirePermission('finance.cashflow.manage')
   async upsert(
     @Body(new ZodValidationPipe(upsertCashflowForecastAdjustmentSchema))
     body: UpsertCashflowForecastAdjustmentInput,

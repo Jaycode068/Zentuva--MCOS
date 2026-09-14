@@ -1,8 +1,8 @@
 import {
-  BadRequestException,
   Body,
   Controller,
   Get,
+  NotFoundException,
   Param,
   Patch,
   Post,
@@ -195,7 +195,11 @@ export class AccessRoleController {
   private async assertFound(organisationId: string, id: string) {
     const role = await this.roleService.getById(organisationId, id);
     if (!role) {
-      throw new BadRequestException('Role not found in this organisation');
+      // Sprint 25.1 fix (docs/architecture/authorization-coverage.md) — was
+      // `BadRequestException` (400), inconsistent with this codebase's 404
+      // convention for "doesn't exist / cross-tenant id" everywhere else, and
+      // discovered by live tenant-isolation verification.
+      throw new NotFoundException('Role not found');
     }
     return role;
   }

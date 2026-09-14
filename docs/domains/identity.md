@@ -468,19 +468,22 @@ is valid (issue a new access token, rotate to a new refresh token, mark the old 
 
 ## 6. Authorisation Design
 
-> **Update (Sprint 25):** the permission-key evaluation engine this section
-> describes (and which Sprints 2.1/2.2 deliberately deferred, per the note below) is
-> now built — see [access-control.md](access-control.md) for the full design as
-> implemented, including an `AccessScope` model this original design did not
-> anticipate, a `Role.status` (archive/restore) lifecycle, and an organisation-level
-> Common Employee Access policy layered on top of role-based grants. The naming
-> convention, default system roles, `Owner` bypass, and "no permission inheritance"
-> decisions below were all implemented as originally specified. `RolesGuard`
-> (Sprints 2.1/2.2) was **not** replaced — it coexists with the new
-> `PermissionsGuard`, and most of this codebase's endpoints (including the ones
-> Sprints 2.1/2.2 themselves added, `PATCH /organisation/me`/`POST /users`/
-> `PATCH /users/:id`) still use the role-name check, not the permission engine —
-> see access-control.md §10 for the exhaustive current split.
+> **Update (Sprint 25, corrected Sprint 25.1):** the permission-key evaluation
+> engine this section describes (and which Sprints 2.1/2.2 deliberately deferred,
+> per the note below) is now built — see [access-control.md](access-control.md) for
+> the full design as implemented, including an `AccessScope` model this original
+> design did not anticipate, a `Role.status` (archive/restore) lifecycle, and an
+> organisation-level Common Employee Access policy layered on top of role-based
+> grants. The naming convention, default system roles, `Owner` bypass, and "no
+> permission inheritance" decisions below were all implemented as originally
+> specified. `RolesGuard` (Sprints 2.1/2.2) coexists with `PermissionsGuard` for
+> platform-level purposes documented in
+> [authorization-coverage.md](../architecture/authorization-coverage.md), but as of
+> Sprint 25.1 it no longer protects any live endpoint (0 routes remaining on
+> `LEGACY_RBAC_GUARDED`, down from 261) — including this domain's own `PATCH
+/organisation/me`, `POST /users`, and `PATCH /users/:id`, all migrated to
+> `identity.organisation.manage`/`identity.users.update` this sprint. See
+> authorization-coverage.md for the exhaustive current split.
 
 ### RBAC strategy
 
