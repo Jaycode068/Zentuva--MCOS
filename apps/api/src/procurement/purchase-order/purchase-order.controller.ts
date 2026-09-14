@@ -22,8 +22,10 @@ import { Request } from 'express';
 import { AuditService } from '../../identity/audit/audit.service';
 import { ZodValidationPipe } from '../../identity/auth/common/zod-validation.pipe';
 import { CurrentUser } from '../../identity/auth/decorators/current-user.decorator';
+import { RequirePermission } from '../../identity/auth/decorators/require-permission.decorator';
 import { Roles } from '../../identity/auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../identity/auth/guards/jwt-auth.guard';
+import { PermissionsGuard } from '../../identity/auth/guards/permissions.guard';
 import { RolesGuard } from '../../identity/auth/guards/roles.guard';
 import { TokenPayload } from '../../identity/auth/ports/token.port';
 import { PURCHASE_ORDER_AUDIT_ACTIONS } from './purchase-order-audit-actions';
@@ -78,8 +80,8 @@ export class PurchaseOrderController {
   }
 
   @Post()
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @UseGuards(PermissionsGuard)
+  @RequirePermission('procurement.purchase_order.create')
   async create(
     @Body(new ZodValidationPipe(createPurchaseOrderSchema)) body: CreatePurchaseOrderInput,
     @CurrentUser() user: TokenPayload,
@@ -131,8 +133,8 @@ export class PurchaseOrderController {
   }
 
   @Post(':id/cancel')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @UseGuards(PermissionsGuard)
+  @RequirePermission('procurement.purchase_order.cancel')
   async cancel(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
     const updated = await this.purchaseOrderService.cancel(user.organisationId, id, user.sub);
 

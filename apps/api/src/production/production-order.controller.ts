@@ -15,8 +15,10 @@ import { Request } from 'express';
 import { AuditService } from '../identity/audit/audit.service';
 import { ZodValidationPipe } from '../identity/auth/common/zod-validation.pipe';
 import { CurrentUser } from '../identity/auth/decorators/current-user.decorator';
+import { RequirePermission } from '../identity/auth/decorators/require-permission.decorator';
 import { Roles } from '../identity/auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../identity/auth/guards/jwt-auth.guard';
+import { PermissionsGuard } from '../identity/auth/guards/permissions.guard';
 import { RolesGuard } from '../identity/auth/guards/roles.guard';
 import { TokenPayload } from '../identity/auth/ports/token.port';
 import { ProductionMaterialIssueWithItems } from './production-material-issue.repository';
@@ -177,8 +179,8 @@ export class ProductionOrderController {
   }
 
   @Post(':id/material-issues')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @UseGuards(PermissionsGuard)
+  @RequirePermission('production.material_issue.create')
   async issueMaterial(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(createMaterialIssueSchema)) body: CreateMaterialIssueInput,
@@ -249,8 +251,8 @@ export class ProductionOrderController {
   }
 
   @Post(':id/complete')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @UseGuards(PermissionsGuard)
+  @RequirePermission('production.order.complete')
   async complete(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(completeProductionOrderSchema)) body: CompleteProductionOrderInput,

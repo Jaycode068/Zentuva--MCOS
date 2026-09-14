@@ -30,9 +30,11 @@ import { Request } from 'express';
 import { AuditService } from '../identity/audit/audit.service';
 import { ZodValidationPipe } from '../identity/auth/common/zod-validation.pipe';
 import { CurrentUser } from '../identity/auth/decorators/current-user.decorator';
-import { Roles } from '../identity/auth/decorators/roles.decorator';
+import { RequireCommonAccess } from '../identity/auth/decorators/require-common-access.decorator';
+import { RequirePermission } from '../identity/auth/decorators/require-permission.decorator';
+import { CommonAccessGuard } from '../identity/auth/guards/common-access.guard';
 import { JwtAuthGuard } from '../identity/auth/guards/jwt-auth.guard';
-import { RolesGuard } from '../identity/auth/guards/roles.guard';
+import { PermissionsGuard } from '../identity/auth/guards/permissions.guard';
 import { TokenPayload } from '../identity/auth/ports/token.port';
 import { AttendanceCorrectionService } from './attendance-correction.service';
 import { AttendanceService } from './attendance.service';
@@ -59,6 +61,8 @@ export class AttendanceController {
   // --- Self-service ---------------------------------------------------------
 
   @Get('me')
+  @UseGuards(PermissionsGuard)
+  @RequirePermission('hr.attendance.self_view')
   getMyAttendance(
     @CurrentUser() user: TokenPayload,
     @Query('dateFrom') dateFromRaw?: string,
@@ -71,6 +75,9 @@ export class AttendanceController {
   }
 
   @Post('sign-in')
+  @UseGuards(PermissionsGuard, CommonAccessGuard)
+  @RequirePermission('hr.attendance.self_sign_in')
+  @RequireCommonAccess('selfSignIn')
   async signIn(
     @Body(new ZodValidationPipe(signInSchema)) body: SignInInput,
     @CurrentUser() user: TokenPayload,
@@ -96,6 +103,9 @@ export class AttendanceController {
   }
 
   @Post('sign-out')
+  @UseGuards(PermissionsGuard, CommonAccessGuard)
+  @RequirePermission('hr.attendance.self_sign_out')
+  @RequireCommonAccess('selfSignOut')
   async signOut(
     @Body(new ZodValidationPipe(signOutSchema)) body: SignOutInput,
     @CurrentUser() user: TokenPayload,
@@ -121,6 +131,9 @@ export class AttendanceController {
   }
 
   @Post(':id/corrections')
+  @UseGuards(PermissionsGuard, CommonAccessGuard)
+  @RequirePermission('hr.attendance.correction_submit')
+  @RequireCommonAccess('submitAttendanceCorrection')
   async requestCorrection(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(requestAttendanceCorrectionSchema))
@@ -150,8 +163,8 @@ export class AttendanceController {
   // --- Administration ---------------------------------------------------------
 
   @Get()
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @UseGuards(PermissionsGuard)
+  @RequirePermission('hr.attendance.view')
   async list(
     @CurrentUser() user: TokenPayload,
     @Query('page') pageRaw?: string,
@@ -178,15 +191,15 @@ export class AttendanceController {
   }
 
   @Get(':id')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @UseGuards(PermissionsGuard)
+  @RequirePermission('hr.attendance.view')
   getOne(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     return this.attendanceService.getById(user.organisationId, id);
   }
 
   @Post('administrative')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @UseGuards(PermissionsGuard)
+  @RequirePermission('hr.attendance.manage')
   async administrativeEntry(
     @Body(new ZodValidationPipe(administrativeAttendanceSchema))
     body: AdministrativeAttendanceInput,
@@ -208,8 +221,8 @@ export class AttendanceController {
   }
 
   @Post(':id/review')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @UseGuards(PermissionsGuard)
+  @RequirePermission('hr.attendance.manage')
   async review(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(reviewAttendanceSchema)) body: ReviewAttendanceInput,
@@ -231,16 +244,16 @@ export class AttendanceController {
   }
 
   @Get(':id/corrections')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @UseGuards(PermissionsGuard)
+  @RequirePermission('hr.attendance.view')
   async listCorrections(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
     const items = await this.correctionService.listForAttendanceRecord(user.organisationId, id);
     return { items };
   }
 
   @Post('corrections/:id/review')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @UseGuards(PermissionsGuard)
+  @RequirePermission('hr.attendance.review_correction')
   async reviewCorrection(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(reviewAttendanceCorrectionSchema))

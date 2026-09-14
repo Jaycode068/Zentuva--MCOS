@@ -46,10 +46,14 @@ import { Request } from 'express';
 import { AuditService } from '../identity/audit/audit.service';
 import { ZodValidationPipe } from '../identity/auth/common/zod-validation.pipe';
 import { CurrentUser } from '../identity/auth/decorators/current-user.decorator';
+import { RequirePermission } from '../identity/auth/decorators/require-permission.decorator';
 import { Roles } from '../identity/auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../identity/auth/guards/jwt-auth.guard';
+import { PermissionsGuard } from '../identity/auth/guards/permissions.guard';
 import { RolesGuard } from '../identity/auth/guards/roles.guard';
 import { TokenPayload } from '../identity/auth/ports/token.port';
+import { EffectiveAccessResolver } from '../identity/authorization/effective-access-resolver';
+import { ScopeEvaluator } from '../identity/authorization/scope-evaluator';
 import { AttendanceService } from './attendance.service';
 import { EmployeeDocumentService } from './employee-document.service';
 import { EmployeeOnboardingService } from './employee-onboarding.service';
@@ -69,9 +73,20 @@ export class EmployeeController {
     private readonly policyService: PolicyService,
     private readonly employeeTrainingService: EmployeeTrainingService,
     private readonly auditService: AuditService,
+    private readonly effectiveAccessResolver: EffectiveAccessResolver,
+    private readonly scopeEvaluator: ScopeEvaluator,
   ) {}
 
+  /** Sprint 25 (docs/domains/access-control.md §8) — `hr.employee.view` real,
+   *  server-enforced scope: `ORGANISATION` sees everyone, `DEPARTMENT` is forced to the
+   *  caller's own department, `OWN_TEAM` is forced to the caller's own direct reports
+   *  (via the existing `managerEmployeeId` relationship), and no usable scope returns an
+   *  empty page rather than silently falling back to unrestricted access. This was
+   *  previously an entirely unguarded endpoint — any authenticated user could list the
+   *  whole employee directory regardless of role. */
   @Get()
+  @UseGuards(PermissionsGuard)
+  @RequirePermission('hr.employee.view')
   async list(
     @CurrentUser() user: TokenPayload,
     @Query('page') pageRaw?: string,
@@ -84,11 +99,30 @@ export class EmployeeController {
     @Query('unlinkedOnly') unlinkedOnlyRaw?: string,
   ) {
     const { page, pageSize } = paginationSchema.parse({ page: pageRaw, pageSize: pageSizeRaw });
+
+    const access = await this.effectiveAccessResolver.resolve(user.organisationId, user.sub);
+    const grantedScopes = this.scopeEvaluator.grantedScopes(access, 'hr.employee.view');
+
+    let scopeFilter: { departmentId?: string; managerEmployeeId?: string } = {};
+    if (!grantedScopes.includes('ORGANISATION')) {
+      const callerEmployee = await this.employeeService.getByUserId(user.organisationId, user.sub);
+      if (grantedScopes.includes('DEPARTMENT') && callerEmployee?.departmentId) {
+        scopeFilter = { departmentId: callerEmployee.departmentId };
+      } else if (grantedScopes.includes('OWN_TEAM') && callerEmployee) {
+        scopeFilter = { managerEmployeeId: callerEmployee.id };
+      } else {
+        // No usable scope proven from server-side data — deny by default, never fall
+        // back to unrestricted access (access-control.md §5).
+        return { items: [], total: 0, page, pageSize };
+      }
+    }
+
     const result = await this.employeeService.list(user.organisationId, {
       page,
       pageSize,
       search: search || undefined,
-      departmentId: departmentId || undefined,
+      departmentId: departmentId || scopeFilter.departmentId || undefined,
+      managerEmployeeId: scopeFilter.managerEmployeeId,
       positionId: positionId || undefined,
       employmentType: employmentType || undefined,
       employmentStatus: employmentStatus || undefined,
@@ -345,8 +379,8 @@ export class EmployeeController {
   }
 
   @Post(':id/separate')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @UseGuards(PermissionsGuard)
+  @RequirePermission('hr.employee.separate')
   separate(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(separateEmployeeSchema)) body: SeparateEmployeeInput,

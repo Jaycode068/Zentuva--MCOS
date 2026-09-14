@@ -240,6 +240,18 @@ would need (Sprint 24, §12).
 
 ## 9. Access-Control Preparation (for Sprint 25)
 
+> **Update (Sprint 25):** the fine-grained permission engine anticipated below now
+> exists — see [access-control.md](access-control.md). HR's own permission keys
+> ended up namespaced `hr.<resource>.<action>` (e.g. `hr.employee.view`,
+> `hr.employee.separate`), not the flat `HR_VIEW`/`HR_MANAGE_EMPLOYEES` style
+> sketched here — the eventual three-level `module.resource.action` convention is
+> more granular and consistent with every other domain's catalogue entries. Only
+> `hr.employee.view` (with real `OWN_TEAM`/`DEPARTMENT` scope filtering) and
+> `hr.employee.separate` were migrated onto the new `@RequirePermission` guard this
+> sprint; every other HR mutation endpoint (department/position CRUD, onboarding,
+> documents) remains on the `RolesGuard`/`@Roles` check described below — see
+> access-control.md §10 for the exhaustive list.
+
 This sprint reuses the codebase's existing, sole authorization
 convention — `@UseGuards(RolesGuard)` + `@Roles('Owner', 'Administrator')`
 on every HR write endpoint, `@UseGuards(JwtAuthGuard)` (auth only) on
@@ -667,6 +679,16 @@ displayed. No absenteeism rate, productivity score, or engagement metric
 is computed — none has a defensible denominator yet.
 
 ## 19. Access-Control Preparation (unchanged from Sprint 23, extended)
+
+> **Update (Sprint 25):** the Attendance self-service endpoints
+> (sign-in/sign-out/submit-correction) were migrated onto the new
+> `@RequirePermission`/`@RequireCommonAccess` guards this sprint — `hr.attendance.self_sign_in`
+> etc., each additionally gated by the new organisation-wide Common Employee Access
+> policy (access-control.md §8), so an administrator can disable self-service sign-in
+> for everyone even though the individual permission grants remain unchanged. The
+> admin-side attendance endpoints (`hr.attendance.view`/`.manage`/`.review_correction`)
+> were also migrated. Work schedule, policy, and training-course CRUD remain on the
+> `@Roles` check below — not yet migrated.
 
 Every new Sprint 24 mutation endpoint follows §9's existing convention
 exactly: `@Roles('Owner', 'Administrator')` for management actions

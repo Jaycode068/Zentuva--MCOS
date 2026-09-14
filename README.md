@@ -62,8 +62,20 @@ feature is built configurably so it can be reused by future tenants without code
 > dedicated self-service mobile surface at `/attendance`, kept separate from Field Sales
 > and Field Maintenance by the same reasoning that already separated those two. Still
 > zero accounting/inventory/procurement/production/sales/distribution/asset/maintenance
-> integration and no new permission engine, by construction. See
-> [docs/domains/README.md](docs/domains/README.md) for the current status of every domain and
+> integration and no new permission engine, by construction. Most recently, a
+> Configurable Access Control sprint finally wired up the `Role`/`Permission`/
+> `RolePermission`/`UserRole` tables Identity had seeded since its very first
+> implementation sprint but that no guard had ever read — an 88-entry
+> `module.resource.action` permission catalogue, an `AccessScope` model where an
+> absent or `NONE` scope is never treated as unrestricted access, tenant-configurable
+> roles layered on top of the protected system roles, a live-checked
+> `EffectiveAccessResolver` so revoking access takes effect on the very next request
+> even against an already-issued token, and a `PermissionsGuard` migrated onto 21 of
+> the codebase's highest-risk mutation endpoints — with an exhaustive, honest account
+> of exactly which domains remain on the older role-name check or no check at all,
+> rather than a blanket "authorization added" claim. Deliberately not Workflow,
+> Notifications, or a policy-as-code engine — those are explicitly the next two
+> sprints. See [docs/domains/README.md](docs/domains/README.md) for the current status of every domain and
 > [docs/roadmap.md](docs/roadmap.md) for the full build order.
 
 ## Repository Structure

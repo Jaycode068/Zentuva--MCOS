@@ -13,6 +13,12 @@ export interface ListEmployeesParams {
   employmentType?: EmploymentType;
   employmentStatus?: EmploymentStatus;
   unlinkedOnly?: boolean;
+  /** Sprint 25 (docs/domains/access-control.md §8) — real, server-enforced `OWN_TEAM`
+   *  scope: restricts the list to this manager's direct reports. Set by
+   *  `EmployeeController.list()` when the caller's effective `hr.employee.view` grant
+   *  is scoped to `OWN_TEAM` rather than `ORGANISATION`/`DEPARTMENT`, using the
+   *  already-existing `managerEmployeeId` relationship — no new data, no new model. */
+  managerEmployeeId?: string;
 }
 
 export interface ListEmployeesResult {
@@ -108,6 +114,7 @@ export class EmployeeRepository {
     return {
       organisationId,
       ...(params.departmentId ? { departmentId: params.departmentId } : {}),
+      ...(params.managerEmployeeId ? { managerEmployeeId: params.managerEmployeeId } : {}),
       ...(params.positionId ? { positionId: params.positionId } : {}),
       ...(params.employmentType ? { employmentType: params.employmentType } : {}),
       ...(params.employmentStatus ? { employmentStatus: params.employmentStatus } : {}),

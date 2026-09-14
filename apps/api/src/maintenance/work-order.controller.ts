@@ -43,8 +43,10 @@ import { Request } from 'express';
 import { AuditService } from '../identity/audit/audit.service';
 import { ZodValidationPipe } from '../identity/auth/common/zod-validation.pipe';
 import { CurrentUser } from '../identity/auth/decorators/current-user.decorator';
+import { RequirePermission } from '../identity/auth/decorators/require-permission.decorator';
 import { Roles } from '../identity/auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../identity/auth/guards/jwt-auth.guard';
+import { PermissionsGuard } from '../identity/auth/guards/permissions.guard';
 import { RolesGuard } from '../identity/auth/guards/roles.guard';
 import { TokenPayload } from '../identity/auth/ports/token.port';
 import { MAINTENANCE_AUDIT_ACTIONS } from './maintenance-audit-actions';
@@ -228,8 +230,8 @@ export class WorkOrderController {
   }
 
   @Post(':id/complete')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @UseGuards(PermissionsGuard)
+  @RequirePermission('maintenance.work_order.complete')
   async complete(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(completeWorkOrderSchema)) body: CompleteWorkOrderInput,

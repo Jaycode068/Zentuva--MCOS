@@ -296,17 +296,23 @@ model User {
 }
 
 /// A named, organisation-scoped bundle of permissions. Three system roles (Owner,
-/// Administrator, Member) are seeded per-organisation; see identity.md §6.
+/// Administrator, Member) are seeded per-organisation; see identity.md §6. Extended
+/// Sprint 25 (docs/domains/access-control.md) with `status` so a role can be archived
+/// (its grants stop being effective) without losing assignment/audit history.
 model Role {
-  id             String   @id @default(cuid())
+  id             String     @id @default(cuid())
   organisationId String
   name           String
   description    String?
   /// System roles (Owner/Administrator/Member) cannot be renamed or deleted — enforced at
   /// the application layer (RoleRepository/RoleService), not the database.
-  isSystem       Boolean  @default(false)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  isSystem       Boolean    @default(false)
+  /// Added Sprint 25. `EffectiveAccessResolver` skips `ARCHIVED` roles entirely — an
+  /// archived role's `RolePermission` grants stop being effective immediately for every
+  /// user still assigned it, without deleting the role or its `UserRole` rows.
+  status         RoleStatus @default(ACTIVE)
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
 
   organisation    Organisation     @relation(fields: [organisationId], references: [id], onDelete: Cascade)
   userRoles       UserRole[]
@@ -318,19 +324,62 @@ model Role {
   @@map("roles")
 }
 
-/// A single granular capability (e.g. "identity.users.invite"). The only genuinely
-/// global (non-tenant-scoped) table in the domain — see identity.md §7.
+enum RoleStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+/// A single granular capability (e.g. "finance.journal.post"). The only genuinely
+/// global (non-tenant-scoped) table in the domain — see identity.md §7. Extended Sprint
+/// 25 (docs/domains/access-control.md §3) with `resource`/`action` (the same
+/// `module.resource.action` shape `key` already encoded, now queryable/groupable
+/// directly for the Roles admin UI without string-splitting `key` everywhere) and
+/// `scopeType`, which tells the UI/`EffectiveAccessResolver` whether a grant of this
+/// permission needs an explicit `RolePermission.scope` (`SCOPABLE`) or is inherently
+/// organisation-wide the moment it's granted (`NONE` — e.g. `finance.journal.post`,
+/// `hr.employee.separate`, every administrative/global action).
 model Permission {
-  id          String   @id @default(cuid())
-  key         String   @unique
+  id          String             @id @default(cuid())
+  key         String             @unique
+  /// Kept as `domain` (not renamed to `module`) for backward compatibility with the 7
+  /// permissions seeded since Sprint 1B.1 — semantically identical to "module."
   domain      String
+  resource    String
+  action      String
+  scopeType   PermissionScopeType @default(NONE)
   description String?
-  createdAt   DateTime @default(now())
+  createdAt   DateTime           @default(now())
 
   rolePermissions RolePermission[]
 
   @@index([domain])
   @@map("permissions")
+}
+
+enum PermissionScopeType {
+  /// Granting this permission is organisation-wide by definition — no scope concept
+  /// applies (administrative/global actions, e.g. `identity.roles.manage`).
+  NONE
+  /// Granting this permission requires an explicit `RolePermission.scope` — an absent
+  /// scope on a `SCOPABLE` permission grant is never interpreted as unrestricted access
+  /// (docs/domains/access-control.md §5); `EffectiveAccessResolver` treats it as no
+  /// access at all for that permission until a scope is explicitly configured.
+  SCOPABLE
+}
+
+/// The scope a `SCOPABLE` permission grant is restricted to — access-control.md §5.
+/// `NONE` here is a deliberately *explicit* "granted, but scoped to nothing" value
+/// (e.g. Finance Staff's `finance.payment.create`), distinct from the permission simply
+/// not being granted at all.
+enum AccessScope {
+  ORGANISATION
+  OWN_RECORDS
+  OWN_TEAM
+  DEPARTMENT
+  ASSIGNED_RECORDS
+  ASSIGNED_TERRITORY
+  ASSIGNED_ASSETS
+  NONE
 }
 
 /// Join: "this user has this role." `organisationId` is denormalised (derivable via
@@ -354,12 +403,15 @@ model UserRole {
 }
 
 /// Join: "this role grants this capability." Not applicable to the `Owner` role, which
-/// bypasses this table entirely — see identity.md §6.
+/// bypasses this table entirely — see identity.md §6. `scope` is meaningful only when
+/// `Permission.scopeType === SCOPABLE`; ignored (organisation-wide) for `NONE`-scoped
+/// permissions — access-control.md §5.
 model RolePermission {
-  id           String   @id @default(cuid())
+  id           String       @id @default(cuid())
   roleId       String
   permissionId String
-  createdAt    DateTime @default(now())
+  scope        AccessScope?
+  createdAt    DateTime     @default(now())
 
   role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
   permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)

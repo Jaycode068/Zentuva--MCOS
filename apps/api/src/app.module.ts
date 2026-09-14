@@ -9,6 +9,7 @@ import configuration from './config/configuration';
 import { validateEnv } from './config/env.validation';
 import { AccountModule } from './identity/account/account.module';
 import { AuthModule } from './identity/auth/auth.module';
+import { AccessControlModule } from './access-control/access-control.module';
 import { HealthModule } from './health/health.module';
 import { HrModule } from './hr/hr.module';
 import { IdentityModule } from './identity/identity.module';
@@ -61,6 +62,7 @@ import { SupplierModule } from './suppliers/supplier/supplier.module';
     AssetsModule,
     MaintenanceModule,
     HrModule,
+    AccessControlModule,
   ],
 })
 export class AppModule {}

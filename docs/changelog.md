@@ -7,6 +7,75 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 25 Configurable Access Control & Organisational Structure] - 2026-09-14
+
+**Finally wires up the `Role`/`Permission`/`RolePermission`/`UserRole` tables
+Identity seeded in Sprint 1B.1 but that no guard in the codebase had ever read —
+a real, fine-grained, tenant-isolated, deny-by-default authorization system,
+built without touching Workflow or Notifications (both explicitly out of scope,
+deferred to Sprints 26/27).**
+
+### Added
+
+- **Permission catalogue** — 88 `module.resource.action` permissions across 12
+  modules (`identity/authorization/permission-catalogue.ts`), each with a
+  `scopeType` of `NONE` (organisation-wide the instant granted) or `SCOPABLE`
+  (requires an explicit scope).
+- **Scope model** — new `AccessScope` enum (`ORGANISATION`/`OWN_RECORDS`/
+  `OWN_TEAM`/`DEPARTMENT`/`ASSIGNED_RECORDS`/`ASSIGNED_TERRITORY`/
+  `ASSIGNED_ASSETS`/`NONE`) on `RolePermission.scope`. `NONE` is a real,
+  meaningful value — "granted, but scoped to nothing" — never conflated with an
+  absent scope, which is always treated as no access.
+- **Configurable roles** — `Role.status` (`ACTIVE`/`ARCHIVED`, reversible
+  archive). System roles (`Owner`/`Administrator`/`Member`) protected from
+  edit/archive/rename; unlimited tenant-configurable custom roles with full
+  create/edit/permission-set/duplicate/archive/restore.
+- **`EffectiveAccessResolver`** — the single union-of-active-roles resolution
+  engine (multiple roles per user, `Owner` bypass, live `User.status` gating so
+  a suspension or role removal takes effect on the very next request even
+  against an already-issued, unexpired token) — reused by both REST enforcement
+  and the admin UI's Effective Access Preview.
+- **`PermissionsGuard`/`@RequirePermission`** — migrated onto 21 of the
+  codebase's highest-risk mutation endpoints: journal posting, invoice issue/
+  cancel, payment create/cancel, purchase order create/cancel, goods receipt,
+  production material issue/complete, maintenance work-order completion,
+  employee separation, and every access-control admin action itself.
+- **Common Employee Access** — an organisation-wide, configurable self-service
+  policy (10 capabilities: sign-in/out, view schedule/attendance/training/
+  policies, submit corrections, acknowledge policies, view own profile),
+  enforced by a new, independent `CommonAccessGuard`/`@RequireCommonAccess`,
+  layered on top of (never instead of) role-based permission grants.
+- **Admin UI** — `/settings/access` (Overview, Roles + permission-grid editor,
+  User Access + Effective Access Preview, Common Employee Access, and Access
+  Review — a new read-only audit-trail viewer, added after live verification
+  surfaced that the `identity.audit-logs.read` permission had existed since it
+  was first written but nothing served it).
+- **Seed data** — 13 roles, 88 permissions, 167 grants, 12 assignments across 6
+  Boby Bites users, including a combined-role demonstration (Production
+  Manager + Maintenance Manager + Employee Self-Service) and a restricted
+  Finance user (Finance Staff: view-only + payment recording, explicitly no
+  journal posting or invoice issuance).
+
+### Fixed
+
+- `OrganisationService.updateWorkspaceSettings` was silently discarding every
+  other `Organisation.settings` key (logo, and now the new Common Employee
+  Access policy) whenever a theme/preferences patch was applied — it now
+  merges instead of replacing.
+
+### Documented (honestly, not silently)
+
+- An exhaustive, living list of exactly which endpoints are protected by the
+  new permission system, which remain on the pre-existing role-name check, and
+  which (several `GET`/list endpoints, discovered during live verification —
+  e.g. `finance/trial-balance`, `sales/orders`) check neither — see
+  [`docs/domains/access-control.md`](domains/access-control.md) §10.
+- Scope enforcement is genuinely filtered only where provable from existing
+  data (HR's `OWN_TEAM`/`DEPARTMENT`, self-service `OWN_RECORDS`); territory/
+  asset-assignment scopes are recorded and previewable but not yet
+  mechanically filtered — marked as such everywhere they appear, never
+  overclaimed.
+
 ## [Sprint 24 HR Attendance, Training & People Operations] - 2026-09-13
 
 **Extends the Sprint 23 HR foundation into basic daily people operations

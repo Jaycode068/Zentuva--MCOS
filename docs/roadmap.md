@@ -348,8 +348,8 @@ ASSIGNED → IN_PROGRESS ⇄ ON_HOLD → COMPLETED`/`CANCELLED`, both
       `AssetService.transition()` generic guard; a shared cycle-detection
       utility guards Department/Position/Employee-manager hierarchies
       alike. Reuses Identity's `UserService`/`AuditService`/guards
-      unchanged — no fine-grained permission key introduced (deferred to
-      Sprint 25). Zero accounting/inventory/procurement/production/
+      unchanged — no fine-grained permission key introduced this sprint
+      (built in Sprint 25). Zero accounting/inventory/procurement/production/
       sales/distribution/asset/maintenance integration, by construction,
       proven by `hr-independence.spec.ts`. Explicitly not payroll,
       attendance, recruitment, performance, or workflow — see
@@ -369,15 +369,34 @@ ASSIGNED → IN_PROGRESS ⇄ ON_HOLD → COMPLETED`/`CANCELLED`, both
       explicitly not an LMS) — plus a new dedicated self-service mobile
       surface at `/attendance`, separate from Field Sales/Field
       Maintenance by the same reasoning that already separated those
-      two. No fine-grained permission key introduced (still deferred to
-      Sprint 25); zero accounting/inventory/procurement/production/
+      two. No fine-grained permission key introduced this sprint (built
+      in Sprint 25); zero accounting/inventory/procurement/production/
       sales/distribution/asset/maintenance integration, by construction,
       proven by `hr-independence.spec.ts`. Explicitly still not payroll,
       leave management, recruitment, performance, an LMS, or a
       workflow/notification engine — see
       [`docs/domains/hr.md`](domains/hr.md)
-- [ ] Access Control + Organisational Structure (Sprint 25 — next, not
-      yet started)
+- [x] Access Control + Organisational Structure — shipped Sprint 25.
+      Finally wires up the `Role`/`Permission`/`RolePermission`/
+      `UserRole` tables Identity seeded in Sprint 1B.1 but that no guard
+      had ever read: an 88-entry `module.resource.action` permission
+      catalogue; an `AccessScope` model where an absent/`NONE` scope is
+      never interpreted as unrestricted access; tenant-configurable
+      roles (system roles Owner/Administrator/Member protected, full
+      custom-role CRUD/duplicate/archive-restore); `EffectiveAccessResolver`
+      (union-of-active-roles, `Owner` bypass, live `User.status` gating
+      so revocation takes effect on the very next request against an
+      already-issued token); `PermissionsGuard`/`CommonAccessGuard`
+      migrated onto 21 of the codebase's highest-risk mutation endpoints
+      (journal posting, invoice issue/cancel, payment create/cancel, PO
+      create/cancel, goods receipt, production material issue/complete,
+      maintenance work-order complete, employee separation) with an
+      exhaustive, honest list of every domain still on the old role-name
+      check or no check at all; an organisation-wide Common Employee
+      Access self-service policy layered on top of role grants; a
+      desktop-first `/settings/access` admin UI. Not Workflow,
+      Notifications, or a policy-as-code engine — see
+      [`docs/domains/access-control.md`](domains/access-control.md)
 - [ ] Workflow & Approval Engine (Sprint 26 — subsequent, not yet
       started)
 - [ ] Notification + Business Activity Engine (Sprint 27 — subsequent,

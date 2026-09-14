@@ -1,3 +1,4 @@
+export * from './access-control';
 export * from './accounting';
 export * from './accounts-payable';
 export * from './assets';

@@ -14,6 +14,7 @@ describe('UserService', () => {
     name: 'Administrator',
     description: null,
     isSystem: true,
+    status: 'ACTIVE' as const,
     createdAt: new Date('2026-01-01'),
     updatedAt: new Date('2026-01-01'),
   };

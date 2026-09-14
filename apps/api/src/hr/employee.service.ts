@@ -52,11 +52,19 @@ export class EmployeeService {
       pageSize: params.pageSize ?? 20,
       search: params.search,
       departmentId: params.departmentId,
+      managerEmployeeId: params.managerEmployeeId,
       positionId: params.positionId,
       employmentType: params.employmentType,
       employmentStatus: params.employmentStatus,
       unlinkedOnly: params.unlinkedOnly,
     });
+  }
+
+  /** The caller's own Employee record, resolved from their `User` id — Sprint 25's
+   *  `OWN_TEAM`/`DEPARTMENT` scope enforcement needs to know who "own team"/"my
+   *  department" refers to. `null` if the caller has no linked Employee. */
+  getByUserId(organisationId: string, userId: string): Promise<Employee | null> {
+    return this.employeeRepository.findByUserId(organisationId, userId);
   }
 
   async create(
@@ -319,7 +327,38 @@ export class EmployeeService {
     if (!updated) {
       throw new NotFoundException('Employee not found');
     }
+
+    await this.syncLinkedUserStatus(organisationId, updated, toStatus);
+
     return { employee: updated, transitioned: true };
+  }
+
+  /** Sprint 25 (docs/domains/access-control.md §8) — closes the Sprint 23 §6
+   *  documented gap: suspending or separating an employee now also locks their linked
+   *  `User` account (`SUSPENDED`/`DEACTIVATED` respectively), so `EffectiveAccessResolver`
+   *  immediately stops granting that user anything. The correct dependency direction —
+   *  HR already legitimately depends on `UserService` (Employee↔User link validation) —
+   *  never the reverse.
+   *
+   *  Deliberately **not** symmetric: reactivating an employee does not automatically
+   *  reactivate their `User`. An administrator may have suspended that account for a
+   *  reason unrelated to employment status (a security concern, for instance); silently
+   *  restoring access because HR flipped `employmentStatus` back to `ACTIVE` would be
+   *  surprising and unsafe. Restoring the `User` after an employee is reactivated is a
+   *  separate, explicit User Management action. */
+  private async syncLinkedUserStatus(
+    organisationId: string,
+    employee: Employee,
+    toStatus: EmploymentStatus,
+  ): Promise<void> {
+    if (!employee.userId) {
+      return;
+    }
+    if (toStatus === 'SUSPENDED') {
+      await this.userService.updateStatus(organisationId, employee.userId, 'SUSPENDED');
+    } else if (toStatus === 'SEPARATED') {
+      await this.userService.updateStatus(organisationId, employee.userId, 'DEACTIVATED');
+    }
   }
 
   private async assertDepartmentExists(

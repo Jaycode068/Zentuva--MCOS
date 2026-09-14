@@ -39,22 +39,25 @@ import { WorkScheduleService } from './work-schedule.service';
 
 /**
  * HR domain module (Sprint 23 Employee Lifecycle Foundation + Sprint 24
- * Attendance, Training & People Operations, docs/domains/hr.md) — the
- * `assets/`/`maintenance/` "one umbrella module per top-level directory"
- * convention.
+ * Attendance, Training & People Operations + Sprint 25 Access Control
+ * integration, docs/domains/hr.md) — the `assets/`/`maintenance/` "one
+ * umbrella module per top-level directory" convention.
  *
  * Imports `IdentityModule` (universal — `AuditService`, `OrganisationService`
  * for `timeZone`-based attendance-date bucketing added Sprint 24, and
  * `UserService` for Employee↔User link validation), `AuthModule` (guards),
  * and `FileStorageModule` (employee document uploads). No other domain
  * module is imported — HR does not read or write Accounting, Inventory,
- * Procurement, Production, Sales, Distribution, Asset, or Maintenance data,
- * and none of those domains import HR either.
+ * Procurement, Production, Sales, Distribution, Asset, or Maintenance data.
  *
- * Every `hr_*`-mapped table is owned and written exclusively by this
- * module's own repositories — proven executably by
- * `hr-independence.spec.ts`/`hr-attendance-independence.spec.ts`, not just
- * documented here.
+ * `EmployeeService`/`DepartmentService`/`PositionService` are exported —
+ * Sprint 25's one deliberate exception to "no other domain imports HR"
+ * (docs/domains/access-control.md §8): the new `AccessControlModule`
+ * imports this module read-only, for its administration UI's
+ * organisational-structure integration (employee/department/position/
+ * manager/status display). It writes nothing to any `hr_*` table — every
+ * write still goes exclusively through this module's own repositories,
+ * proven executably by `hr-independence.spec.ts`.
  */
 @Module({
   imports: [IdentityModule, AuthModule, FileStorageModule],
@@ -95,5 +98,6 @@ import { WorkScheduleService } from './work-schedule.service';
     EmployeeTrainingRepository,
     EmployeeTrainingService,
   ],
+  exports: [EmployeeService, DepartmentService, PositionService],
 })
 export class HrModule {}

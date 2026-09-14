@@ -11,6 +11,7 @@ import {
   FileTextIcon,
   GridIcon,
   HelpCircleIcon,
+  KeyIcon,
   RotateCcwIcon,
   SendIcon,
   ShieldIcon,
@@ -87,6 +88,7 @@ export const WORKSPACE_NAV_GROUPS: WorkspaceNavGroup[] = [
     items: [
       { label: 'Organisation', href: '/settings/organisation', icon: BuildingIcon },
       { label: 'Users', href: '/settings/users', icon: UsersIcon },
+      { label: 'Access Control', href: '/settings/access', icon: KeyIcon },
       { label: 'My Profile', href: '/account/profile', icon: UserIcon },
       {
         label: 'Workspace Settings',

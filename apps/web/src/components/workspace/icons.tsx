@@ -199,6 +199,13 @@ export const ClockIcon = icon(
   </>,
 );
 
+export const KeyIcon = icon(
+  <>
+    <circle cx="8" cy="15" r="4" />
+    <path d="M11 12 20 3M17 6l2.5 2.5M14 9l2 2" />
+  </>,
+);
+
 export const MenuIcon = icon(<path d="M3 6h18M3 12h18M3 18h18" />);
 
 export const CloseIcon = icon(<path d="M6 6l12 12M18 6 6 18" />);

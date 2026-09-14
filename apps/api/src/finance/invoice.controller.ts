@@ -11,9 +11,9 @@ import { Request } from 'express';
 import { AuditService } from '../identity/audit/audit.service';
 import { ZodValidationPipe } from '../identity/auth/common/zod-validation.pipe';
 import { CurrentUser } from '../identity/auth/decorators/current-user.decorator';
-import { Roles } from '../identity/auth/decorators/roles.decorator';
+import { RequirePermission } from '../identity/auth/decorators/require-permission.decorator';
 import { JwtAuthGuard } from '../identity/auth/guards/jwt-auth.guard';
-import { RolesGuard } from '../identity/auth/guards/roles.guard';
+import { PermissionsGuard } from '../identity/auth/guards/permissions.guard';
 import { TokenPayload } from '../identity/auth/ports/token.port';
 import { SalesOrderWithRelations } from '../sales/sales-order.repository';
 import { toCreditNoteResponse } from './credit-note.controller';
@@ -26,8 +26,9 @@ import { PaymentService } from './payment.service';
 
 /**
  * Invoice HTTP surface (Sprint 6, docs/domains/finance.md). `GET` requires only
- * authentication — Member has read-only access; every write additionally requires the
- * Owner or Administrator role (`RolesGuard`), same convention as every other domain.
+ * authentication — Member has read-only access; `create`/`issue`/`void` require the
+ * fine-grained `finance.invoice.*` permissions (Sprint 25, `PermissionsGuard` —
+ * docs/domains/access-control.md §10), migrated off the older role-name check.
  *
  * Tenant isolation: every method resolves the target invoice by `(id, organisationId)`
  * together, same convention as every other domain controller.
@@ -88,8 +89,8 @@ export class InvoiceController {
   }
 
   @Post('invoices')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @UseGuards(PermissionsGuard)
+  @RequirePermission('finance.invoice.create')
   async create(
     @Body(new ZodValidationPipe(createInvoiceSchema)) body: CreateInvoiceInput,
     @CurrentUser() user: TokenPayload,
@@ -117,8 +118,8 @@ export class InvoiceController {
   }
 
   @Post('invoices/:id/issue')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @UseGuards(PermissionsGuard)
+  @RequirePermission('finance.invoice.issue')
   async issue(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
     const updated = await this.invoiceService.issue(user.organisationId, id, user.sub);
 
@@ -137,8 +138,8 @@ export class InvoiceController {
   }
 
   @Post('invoices/:id/void')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @UseGuards(PermissionsGuard)
+  @RequirePermission('finance.invoice.cancel')
   async void(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(voidInvoiceSchema)) body: VoidInvoiceInput,

@@ -6,8 +6,10 @@ import { Request } from 'express';
 import { AuditService } from '../../identity/audit/audit.service';
 import { ZodValidationPipe } from '../../identity/auth/common/zod-validation.pipe';
 import { CurrentUser } from '../../identity/auth/decorators/current-user.decorator';
+import { RequirePermission } from '../../identity/auth/decorators/require-permission.decorator';
 import { Roles } from '../../identity/auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../identity/auth/guards/jwt-auth.guard';
+import { PermissionsGuard } from '../../identity/auth/guards/permissions.guard';
 import { RolesGuard } from '../../identity/auth/guards/roles.guard';
 import { TokenPayload } from '../../identity/auth/ports/token.port';
 import { ACCOUNTING_AUDIT_ACTIONS } from './accounting-audit-actions';
@@ -73,8 +75,8 @@ export class JournalEntryController {
   }
 
   @Post(':id/post')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @UseGuards(PermissionsGuard)
+  @RequirePermission('finance.journal.post')
   async post(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
     const updated = await this.journalEntryService.post(user.organisationId, id, user.sub);
 

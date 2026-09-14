@@ -2,6 +2,10 @@ import { ConflictException, Inject, Injectable, NotFoundException } from '@nestj
 import { Organisation, Prisma } from '@prisma/client';
 import { RegisterOrganisationInput } from '@zentuva/validation';
 
+import {
+  CommonEmployeeAccessPolicy,
+  withCommonEmployeeAccessPolicy,
+} from '../authorization/common-access-policy';
 import { UserService } from '../user/user.service';
 import { FILE_STORAGE, FileStorage } from './ports/file-storage.port';
 import { OrganisationRepository, RegisterTenantResult } from './organisation.repository';
@@ -125,7 +129,15 @@ export class OrganisationService {
     if (theme !== undefined || preferences !== undefined) {
       const current = await this.getByIdOrThrow(id);
       const merged = mergeWorkspaceSettings(current.settings);
+      const currentSettings =
+        current.settings && typeof current.settings === 'object' ? current.settings : {};
       const next = {
+        // Sprint 25 fix: spread every existing top-level `settings` key first (e.g.
+        // `logoKey`/`darkLogoKey`, `commonEmployeeAccess`) — this branch previously
+        // overwrote the whole JSON column with only `{theme, preferences}`, silently
+        // discarding anything else stored there. Preserved keys are then overridden by
+        // this patch's own theme/preferences, exactly as before.
+        ...currentSettings,
         theme: theme ?? merged.theme,
         preferences: { ...merged.preferences, ...(preferences ?? {}) },
       };
@@ -188,6 +200,22 @@ export class OrganisationService {
       await this.fileStorage.delete(key).catch(() => undefined);
     }
     return updated;
+  }
+
+  /** Sprint 25 (docs/domains/access-control.md §6) — the same read-modify-write,
+   *  preserve-every-other-key pattern `setLogo`/`removeLogo` already established for
+   *  their own `settings` sub-key, applied to `commonEmployeeAccess`. Kept as its own
+   *  purpose-built method (not a generic "set any settings key" escape hatch) so this
+   *  file stays the one place that knows the full shape of `Organisation.settings`. */
+  async updateCommonEmployeeAccessPolicy(
+    id: string,
+    policy: CommonEmployeeAccessPolicy,
+  ): Promise<Organisation> {
+    const organisation = await this.getByIdOrThrow(id);
+    const nextSettings = withCommonEmployeeAccessPolicy(organisation.settings, policy);
+    return this.organisationRepository.updateProfile(id, {
+      settings: nextSettings as Prisma.InputJsonValue,
+    });
   }
 
   private async getByIdOrThrow(id: string): Promise<Organisation> {

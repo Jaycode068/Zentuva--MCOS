@@ -26,8 +26,10 @@ import { Request } from 'express';
 import { AuditService } from '../identity/audit/audit.service';
 import { ZodValidationPipe } from '../identity/auth/common/zod-validation.pipe';
 import { CurrentUser } from '../identity/auth/decorators/current-user.decorator';
+import { RequirePermission } from '../identity/auth/decorators/require-permission.decorator';
 import { Roles } from '../identity/auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../identity/auth/guards/jwt-auth.guard';
+import { PermissionsGuard } from '../identity/auth/guards/permissions.guard';
 import { RolesGuard } from '../identity/auth/guards/roles.guard';
 import { TokenPayload } from '../identity/auth/ports/token.port';
 import { GoodsReceiptWithRelations } from './goods-receipt.repository';
@@ -227,8 +229,8 @@ export class InventoryController {
   }
 
   @Post('goods-receipts')
-  @UseGuards(RolesGuard)
-  @Roles('Owner', 'Administrator')
+  @UseGuards(PermissionsGuard)
+  @RequirePermission('inventory.goods_receipt.create')
   async createGoodsReceipt(
     @Body(new ZodValidationPipe(createGoodsReceiptSchema)) body: CreateGoodsReceiptInput,
     @CurrentUser() user: TokenPayload,

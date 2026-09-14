@@ -4,7 +4,9 @@ import { JwtModule } from '@nestjs/jwt';
 import { IdentityModule } from '../identity.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { CommonAccessGuard } from './guards/common-access.guard';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { PermissionsGuard } from './guards/permissions.guard';
 import { RolesGuard } from './guards/roles.guard';
 import { DatabaseSessionStore } from './infrastructure/database-session-store';
 import { JwtTokenService } from './infrastructure/jwt-token.service';
@@ -21,12 +23,22 @@ import { TOKEN_SERVICE } from './ports/token.port';
  * an explicit `secret` per call (access vs. refresh), so there's nothing for a module-wide
  * default to do.
  *
- * `JwtAuthGuard`/`RolesGuard` are exported (Sprint 2.1) so other domain modules
- * (OrganisationModule) can `@UseGuards(...)` them. `TOKEN_SERVICE` is also exported:
- * Nest resolves a `@UseGuards(SomeGuard)` class reference by instantiating it fresh within
- * the *consuming* controller's own module scope, not by reusing AuthModule's instance —
- * so that fresh instantiation needs `TOKEN_SERVICE` reachable from wherever the guard is
- * used, not just from AuthModule itself.
+ * `JwtAuthGuard`/`RolesGuard`/`PermissionsGuard`/`CommonAccessGuard` are exported
+ * (Sprint 2.1, extended Sprint 25) so other domain modules (OrganisationModule,
+ * Finance, ...) can `@UseGuards(...)` them; `TOKEN_SERVICE` is also exported for
+ * `JwtAuthGuard`'s sake. A guard's own constructor dependencies (e.g.
+ * `PermissionsGuard`'s `EffectiveAccessResolver`) are resolved from **this module's own
+ * container** when Nest instantiates the guard — not from whichever module actually
+ * uses `@UseGuards(PermissionsGuard)` — because this is the guard's home module (where
+ * it's declared as a provider). Since this module already imports `IdentityModule`
+ * (which exports `EffectiveAccessResolver`/`ScopeEvaluator`), that resolution just
+ * works without either of them needing to be re-exported here too — attempting to
+ * export a provider this module doesn't itself declare is a NestJS error ("Nest cannot
+ * export a provider/module that is not part of the currently processed module"), not a
+ * silent no-op, which is how this misunderstanding first got caught. A *controller*
+ * that wants to inject `EffectiveAccessResolver` directly (not via a guard) still needs
+ * its own module to import `IdentityModule` itself — see `HrModule`/
+ * `AccessControlModule`, both of which already do.
  */
 @Module({
   imports: [IdentityModule, JwtModule.register({})],
@@ -37,9 +49,18 @@ import { TOKEN_SERVICE } from './ports/token.port';
     { provide: SESSION_STORE, useClass: DatabaseSessionStore },
     JwtAuthGuard,
     RolesGuard,
+    PermissionsGuard,
+    CommonAccessGuard,
   ],
   // AuthService exported Sprint 3.3 so AccountModule can reuse it (change-password,
   // session listing/revocation) rather than duplicating that orchestration.
-  exports: [AuthService, TOKEN_SERVICE, JwtAuthGuard, RolesGuard],
+  exports: [
+    AuthService,
+    TOKEN_SERVICE,
+    JwtAuthGuard,
+    RolesGuard,
+    PermissionsGuard,
+    CommonAccessGuard,
+  ],
 })
 export class AuthModule {}

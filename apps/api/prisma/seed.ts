@@ -27,7 +27,9 @@
 import { createHash } from 'crypto';
 
 import * as bcrypt from 'bcrypt';
-import { PrismaClient } from '@prisma/client';
+import { AccessScope, PrismaClient } from '@prisma/client';
+
+import { PERMISSION_CATALOGUE } from '../src/identity/authorization/permission-catalogue';
 
 const BCRYPT_SALT_ROUNDS = parseInt(process.env.BCRYPT_SALT_ROUNDS ?? '12', 10);
 
@@ -37,40 +39,6 @@ const BOBY_BITES_SLUG = 'boby-bites';
 const BOBY_BITES_ORGANISATION_CODE = 'BBT-0001';
 
 /** Permission catalog — identity.md §6 "Permission naming convention" examples. */
-const IDENTITY_PERMISSIONS = [
-  { key: 'identity.users.read', domain: 'identity', description: 'View users in the organisation' },
-  {
-    key: 'identity.users.update',
-    domain: 'identity',
-    description: "Edit a user's profile / suspend / reactivate",
-  },
-  {
-    key: 'identity.invitations.create',
-    domain: 'identity',
-    description: 'Invite a new user',
-  },
-  {
-    key: 'identity.invitations.revoke',
-    domain: 'identity',
-    description: 'Cancel a pending invitation',
-  },
-  {
-    key: 'identity.roles.manage',
-    domain: 'identity',
-    description: 'Create/edit/delete non-system roles',
-  },
-  {
-    key: 'identity.roles.assign',
-    domain: 'identity',
-    description: 'Assign/unassign roles on users',
-  },
-  {
-    key: 'identity.audit-logs.read',
-    domain: 'identity',
-    description: "View the organisation's audit log",
-  },
-] as const;
-
 function requireEnv(name: string): string {
   const value = process.env[name];
   if (!value) {
@@ -6603,21 +6571,364 @@ async function seedHrFixtures(
   });
 }
 
+// ---------------------------------------------------------------------------
+// Sprint 25 — Configurable Access Control & Organisational Structure
+// ---------------------------------------------------------------------------
+
+interface PermissionGrantSeed {
+  key: string;
+  scope?: AccessScope;
+}
+
+async function grantRolePermissions(
+  roleId: string,
+  permissionByKey: Map<string, { id: string }>,
+  grants: PermissionGrantSeed[],
+): Promise<void> {
+  await prisma.rolePermission.createMany({
+    data: grants.map((grant) => ({
+      roleId,
+      permissionId: permissionByKey.get(grant.key)!.id,
+      scope: grant.scope,
+    })),
+    skipDuplicates: true,
+  });
+}
+
+async function upsertCustomRole(
+  organisationId: string,
+  name: string,
+  description: string,
+): Promise<{ id: string; name: string }> {
+  return prisma.role.upsert({
+    where: { organisationId_name: { organisationId, name } },
+    update: { description },
+    create: { organisationId, name, description, isSystem: false },
+  });
+}
+
+/** Links an existing (already-seeded, Sprint 23) unlinked Employee to a brand-new demo
+ *  User — collision-safe (upserts by email; skips re-linking if the employee already
+ *  has a user). Fixed local-dev demo password, not gated behind an env var: these are
+ *  purely illustrative Sprint 25 access-control demo accounts, not the three "real"
+ *  Owner/Administrator/Member accounts `seedUser` provisions from `.env`. */
+async function seedDemoEmployeeUser(params: {
+  organisationId: string;
+  employeeCode: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+}): Promise<{ id: string } | null> {
+  const employee = await prisma.employee.findFirst({
+    where: { organisationId: params.organisationId, employeeCode: params.employeeCode },
+  });
+  if (!employee) {
+    return null;
+  }
+  if (employee.userId) {
+    return prisma.user.findUnique({ where: { id: employee.userId } });
+  }
+
+  const passwordHash = await bcrypt.hash('local-dev-only-not-a-real-password', BCRYPT_SALT_ROUNDS);
+  const user = await prisma.user.upsert({
+    where: { email: params.email },
+    update: {},
+    create: {
+      organisationId: params.organisationId,
+      email: params.email,
+      firstName: params.firstName,
+      lastName: params.lastName,
+      passwordHash,
+      status: 'ACTIVE',
+      emailVerifiedAt: new Date(),
+    },
+  });
+  await prisma.employee.update({ where: { id: employee.id }, data: { userId: user.id } });
+  return user;
+}
+
+async function assignRoleIfMissing(
+  organisationId: string,
+  userId: string,
+  roleId: string,
+): Promise<void> {
+  await prisma.userRole.upsert({
+    where: { userId_roleId: { userId, roleId } },
+    update: {},
+    create: { organisationId, userId, roleId },
+  });
+}
+
+/** Seeds tenant-configurable Access Roles (docs/domains/access-control.md §6/§12) and
+ *  demonstrates: a combined-role user (Production Manager + Maintenance Manager), a
+ *  restricted Finance user (Finance Staff — view-only, no journal posting/payment
+ *  approval/invoice issuing), the Sales role ladder (Field Sales Agent → Sales Team
+ *  Lead → Sales Manager, each with a deliberately different scope), and common employee
+ *  self-service (the `Employee Self-Service` role). Idempotent — every role/grant/
+ *  assignment is upserted or `skipDuplicates`d, never re-created on a second run. */
+async function seedAccessControlFixtures(
+  organisationId: string,
+  administratorUserId: string,
+  memberUserId: string,
+  permissionByKey: Map<string, { id: string }>,
+): Promise<void> {
+  const existing = await prisma.role.findFirst({
+    where: { organisationId, name: 'Employee Self-Service' },
+  });
+  if (existing) {
+    console.log('  Skipping Sprint 25 Access Control fixtures — already seeded.');
+    return;
+  }
+
+  console.log('Seeding Sprint 25 Configurable Access Control fixtures...');
+
+  // --- Employee Self-Service — the common-capability role every linked employee
+  // should hold, per docs/domains/access-control.md §6. All NONE-scopeType (no scope
+  // concept applies to a self-service action — it is inherently about "me").
+  const employeeSelfService = await upsertCustomRole(
+    organisationId,
+    'Employee Self-Service',
+    'Common self-service capabilities every linked employee gets: sign in/out, view your own schedule/attendance, request a correction, view/complete assigned training, view/acknowledge policies, view your own profile.',
+  );
+  await grantRolePermissions(employeeSelfService.id, permissionByKey, [
+    { key: 'hr.attendance.self_view' },
+    { key: 'hr.attendance.self_sign_in' },
+    { key: 'hr.attendance.self_sign_out' },
+    { key: 'hr.attendance.correction_submit' },
+    { key: 'hr.schedule.self_view' },
+    { key: 'hr.training.self_view' },
+    { key: 'hr.policy.self_view' },
+    { key: 'hr.policy.self_acknowledge' },
+    { key: 'hr.employee.self_view' },
+  ]);
+  // Every seeded, linked user gets it — Member (linked to Tunde Bakare) here; the new
+  // demo users below get it too. Owner/Administrator don't strictly need it (Owner
+  // bypasses everything; Administrator already holds the full catalogue), but nothing
+  // is harmed by every linked user having the baseline self-service role in principle
+  // — deliberately not assigned to Owner/Administrator here to keep their audit trail
+  // focused on the roles that actually matter for them.
+  await assignRoleIfMissing(organisationId, memberUserId, employeeSelfService.id);
+
+  // --- Finance roles — least-privilege example (access-control.md §12): Head of
+  // Finance gets broad organisation-wide Finance access; Finance Staff is
+  // deliberately restricted to viewing (no invoice issue/cancel, no journal posting,
+  // no payment creation/approval); Cash Officer and Bank Reconciliation Officer are
+  // each scoped to one narrow slice of Finance.
+  const headOfFinance = await upsertCustomRole(
+    organisationId,
+    'Head of Finance',
+    'Full Finance access: view, create, edit, approve, reconcile, and administer Finance records. No access to Production, Procurement, Inventory, or Maintenance unless separately assigned.',
+  );
+  await grantRolePermissions(headOfFinance.id, permissionByKey, [
+    { key: 'finance.invoice.view', scope: 'ORGANISATION' },
+    { key: 'finance.invoice.create' },
+    { key: 'finance.invoice.issue' },
+    { key: 'finance.invoice.cancel' },
+    { key: 'finance.payment.view', scope: 'ORGANISATION' },
+    { key: 'finance.payment.create', scope: 'ORGANISATION' },
+    { key: 'finance.payment.cancel' },
+    { key: 'finance.supplier_invoice.view', scope: 'ORGANISATION' },
+    { key: 'finance.supplier_payment.view', scope: 'ORGANISATION' },
+    { key: 'finance.supplier_payment.create', scope: 'ORGANISATION' },
+    { key: 'finance.journal.view' },
+    { key: 'finance.journal.post' },
+    { key: 'finance.trial_balance.view' },
+    { key: 'finance.reports.view' },
+    { key: 'finance.chart_of_accounts.manage' },
+    { key: 'finance.cash_transaction.view', scope: 'ORGANISATION' },
+    { key: 'finance.cash_transaction.create', scope: 'ORGANISATION' },
+    { key: 'finance.bank_reconciliation.view' },
+    { key: 'finance.bank_reconciliation.perform' },
+    { key: 'finance.budget.view' },
+    { key: 'finance.budget.manage' },
+    { key: 'finance.debt.manage' },
+    { key: 'finance.investment.manage' },
+    { key: 'finance.decision_analysis.view' },
+  ]);
+
+  const financeStaff = await upsertCustomRole(
+    organisationId,
+    'Finance Staff',
+    'Trial Balance, account activity, and selected financial reports. No invoice cancellation, no journal posting, no payment approval, no access to unrelated Finance pages.',
+  );
+  await grantRolePermissions(financeStaff.id, permissionByKey, [
+    { key: 'finance.trial_balance.view' },
+    { key: 'finance.reports.view' },
+    { key: 'finance.invoice.view', scope: 'ORGANISATION' },
+    { key: 'finance.payment.view', scope: 'ORGANISATION' },
+    // Deliberately granted with scope NONE — the row exists (so the Roles UI shows
+    // Finance Staff "has" payment.create) but it grants nothing, matching the brief's
+    // own "NONE or assigned scope" example exactly.
+    { key: 'finance.payment.create', scope: 'NONE' },
+  ]);
+
+  const cashOfficer = await upsertCustomRole(
+    organisationId,
+    'Cash Officer',
+    'Cash transactions for an assigned cash account. No bank reconciliation.',
+  );
+  await grantRolePermissions(cashOfficer.id, permissionByKey, [
+    { key: 'finance.cash_transaction.view', scope: 'ASSIGNED_RECORDS' },
+    { key: 'finance.cash_transaction.create', scope: 'ASSIGNED_RECORDS' },
+  ]);
+
+  const bankReconciliationOfficer = await upsertCustomRole(
+    organisationId,
+    'Bank Reconciliation Officer',
+    'Bank statements and bank reconciliation. No supplier payment approval.',
+  );
+  await grantRolePermissions(bankReconciliationOfficer.id, permissionByKey, [
+    { key: 'finance.bank_reconciliation.view' },
+    { key: 'finance.bank_reconciliation.perform' },
+  ]);
+
+  // --- Production + Maintenance — the combined-role example (access-control.md §12):
+  // one person can hold both; removing one role removes only that module's access.
+  const productionManager = await upsertCustomRole(
+    organisationId,
+    'Production Manager',
+    'Production orders, material issues, and bills of materials.',
+  );
+  await grantRolePermissions(productionManager.id, permissionByKey, [
+    { key: 'production.order.view', scope: 'ORGANISATION' },
+    { key: 'production.order.create' },
+    { key: 'production.order.complete' },
+    { key: 'production.material_issue.create' },
+    { key: 'production.bill_of_material.manage' },
+  ]);
+
+  const maintenanceManager = await upsertCustomRole(
+    organisationId,
+    'Maintenance Manager',
+    'Maintenance work orders, requests, plans, and analytics.',
+  );
+  await grantRolePermissions(maintenanceManager.id, permissionByKey, [
+    { key: 'maintenance.work_order.view', scope: 'ORGANISATION' },
+    { key: 'maintenance.work_order.create' },
+    { key: 'maintenance.work_order.assign' },
+    { key: 'maintenance.work_order.complete', scope: 'ORGANISATION' },
+    { key: 'maintenance.request.view' },
+    { key: 'maintenance.plan.manage' },
+    { key: 'maintenance.analytics.view' },
+    { key: 'assets.asset.view' },
+  ]);
+
+  // --- Sales role ladder — Field Sales Agent (assigned-only) → Sales Team Lead (own
+  // team) → Sales Manager (organisation-wide) — access-control.md §12.
+  const salesManager = await upsertCustomRole(
+    organisationId,
+    'Sales Manager',
+    'Sales dashboards, sales administration, and broader sales visibility. No Finance access unless explicitly assigned.',
+  );
+  await grantRolePermissions(salesManager.id, permissionByKey, [
+    { key: 'sales.order.view', scope: 'ORGANISATION' },
+    { key: 'sales.order.create', scope: 'ORGANISATION' },
+    { key: 'sales.order.cancel' },
+    { key: 'sales.dashboard.view', scope: 'ORGANISATION' },
+    { key: 'sales.customer.manage', scope: 'ORGANISATION' },
+  ]);
+
+  const salesTeamLead = await upsertCustomRole(
+    organisationId,
+    'Sales Team Lead',
+    'Field Sales access, a team dashboard, and visibility into assigned team activity.',
+  );
+  await grantRolePermissions(salesTeamLead.id, permissionByKey, [
+    { key: 'sales.order.view', scope: 'OWN_TEAM' },
+    { key: 'sales.dashboard.view', scope: 'OWN_TEAM' },
+    { key: 'sales.order.create', scope: 'ASSIGNED_TERRITORY' },
+  ]);
+  // Tunde Bakare (EMP-000006) is literally the seeded Sales Team Lead — a real,
+  // pre-existing multi-role demonstration once combined with Employee Self-Service.
+  await assignRoleIfMissing(organisationId, memberUserId, salesTeamLead.id);
+
+  const fieldSalesAgent = await upsertCustomRole(
+    organisationId,
+    'Field Sales Agent',
+    'Mobile Field Sales workspace: create customers, outlets, sales orders, and delivery activities within assigned scope. No administrative sales dashboards, no sales configuration.',
+  );
+  await grantRolePermissions(fieldSalesAgent.id, permissionByKey, [
+    { key: 'sales.order.view', scope: 'ASSIGNED_RECORDS' },
+    { key: 'sales.order.create', scope: 'ASSIGNED_TERRITORY' },
+    { key: 'sales.customer.manage', scope: 'ASSIGNED_TERRITORY' },
+  ]);
+
+  // --- Demo users: a combined-role Production+Maintenance manager, and a
+  // least-privilege Finance Staff member, and a Field Sales Agent — each linking an
+  // already-seeded (Sprint 23), previously-unlinked Employee to a brand-new demo User.
+  const combinedManagerUser = await seedDemoEmployeeUser({
+    organisationId,
+    employeeCode: 'EMP-000003', // Folake Adewale, Production Manager
+    email: 'folake.adewale.demo@bobybites.local',
+    firstName: 'Folake',
+    lastName: 'Adewale',
+  });
+  if (combinedManagerUser) {
+    await assignRoleIfMissing(organisationId, combinedManagerUser.id, productionManager.id);
+    await assignRoleIfMissing(organisationId, combinedManagerUser.id, maintenanceManager.id);
+    await assignRoleIfMissing(organisationId, combinedManagerUser.id, employeeSelfService.id);
+  }
+
+  const financeStaffUser = await seedDemoEmployeeUser({
+    organisationId,
+    employeeCode: 'EMP-000008', // Emeka Nwachukwu, Finance Officer
+    email: 'emeka.nwachukwu.demo@bobybites.local',
+    firstName: 'Emeka',
+    lastName: 'Nwachukwu',
+  });
+  if (financeStaffUser) {
+    await assignRoleIfMissing(organisationId, financeStaffUser.id, financeStaff.id);
+    await assignRoleIfMissing(organisationId, financeStaffUser.id, employeeSelfService.id);
+  }
+
+  const fieldSalesAgentUser = await seedDemoEmployeeUser({
+    organisationId,
+    employeeCode: 'EMP-000007', // Ngozi Eze, Field Sales Representative
+    email: 'ngozi.eze.demo@bobybites.local',
+    firstName: 'Ngozi',
+    lastName: 'Eze',
+  });
+  if (fieldSalesAgentUser) {
+    await assignRoleIfMissing(organisationId, fieldSalesAgentUser.id, fieldSalesAgent.id);
+    await assignRoleIfMissing(organisationId, fieldSalesAgentUser.id, employeeSelfService.id);
+  }
+
+  // Silence unused-variable lint for roles created purely for the Roles catalogue
+  // (Cash Officer / Bank Reconciliation Officer / Sales Manager have no seeded user
+  // assignment — they exist to populate the Roles admin page with realistic examples,
+  // per the brief's own seed list, without over-assigning them to demo users).
+  void cashOfficer;
+  void bankReconciliationOfficer;
+  void salesManager;
+  void administratorUserId;
+}
+
 async function main(): Promise<void> {
   // Read early (rather than inside `seedUser`) because the organisation's `businessEmail`
   // needs it before any user is created.
   const adminEmail = requireEnv('SEED_ADMIN_EMAIL');
 
+  // Sprint 25 — the full MVP permission catalogue (docs/domains/access-control.md §3),
+  // centrally defined in `PERMISSION_CATALOGUE` rather than duplicated here. Extends
+  // the 7 identity permissions seeded since Sprint 1B.1 with the rest of the
+  // currently-implemented domains.
   console.log('Seeding permission catalog...');
   const permissions = await Promise.all(
-    IDENTITY_PERMISSIONS.map((permission) =>
+    PERMISSION_CATALOGUE.map((permission) =>
       prisma.permission.upsert({
         where: { key: permission.key },
-        update: { domain: permission.domain, description: permission.description },
+        update: {
+          domain: permission.domain,
+          resource: permission.resource,
+          action: permission.action,
+          scopeType: permission.scopeType,
+          description: permission.description,
+        },
         create: permission,
       }),
     ),
   );
+  const permissionByKey = new Map(permissions.map((p) => [p.key, p]));
 
   console.log('Seeding organisation "Boby Bites"...');
   const organisation = await prisma.organisation.upsert({
@@ -6673,12 +6984,17 @@ async function main(): Promise<void> {
 
   // Owner deliberately gets no explicit RolePermission rows — it bypasses the catalog
   // entirely at authorization-evaluation time (identity.md §6). Administrator gets every
-  // seeded permission, matching its "day-to-day organisation management" scope.
+  // seeded permission, matching its "day-to-day organisation management" scope —
+  // Sprint 25: a `SCOPABLE` permission needs an explicit scope to be effective at all
+  // (an absent scope is never unrestricted access), so every `SCOPABLE` grant here gets
+  // `ORGANISATION` — the broadest scope, matching Administrator's existing org-wide
+  // behaviour before this sprint introduced scope at all.
   console.log('Granting the permission catalog to the Administrator role...');
   await prisma.rolePermission.createMany({
     data: permissions.map((permission) => ({
       roleId: administratorRole.id,
       permissionId: permission.id,
+      scope: permission.scopeType === 'SCOPABLE' ? ('ORGANISATION' as AccessScope) : undefined,
     })),
     skipDuplicates: true,
   });
@@ -6818,6 +7134,12 @@ async function main(): Promise<void> {
   await seedMaintenanceFixtures(organisation.id, ownerUser.id, administratorUser.id);
   await seedMaintenanceEcosystemFixtures(organisation.id, ownerUser.id, administratorUser.id);
   await seedHrFixtures(organisation.id, ownerUser.id, administratorUser.id, memberUser.id);
+  await seedAccessControlFixtures(
+    organisation.id,
+    administratorUser.id,
+    memberUser.id,
+    permissionByKey,
+  );
 
   console.log('Recording an audit log entry for this seed run...');
   await prisma.auditLog.create({

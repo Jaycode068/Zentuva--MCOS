@@ -102,6 +102,7 @@ function makeService(options?: {
       const u = users[id];
       return u && u.organisationId === org ? u : null;
     }),
+    updateStatus: jest.fn(async () => undefined),
   };
 
   const service = new EmployeeService(
@@ -308,5 +309,47 @@ describe('EmployeeService — tenant isolation', () => {
   it('linkUser() cannot reach an employee belonging to another organisation', async () => {
     const { service } = makeService();
     await expect(service.linkUser(OTHER_ORG, 'emp-1', 'user-1')).rejects.toThrow(NotFoundException);
+  });
+});
+
+describe('EmployeeService — Sprint 25 linked-User status sync', () => {
+  it('suspend() suspends the linked User account', async () => {
+    const { service, userService } = makeService({
+      employees: { 'emp-1': makeEmployee({ userId: 'user-1' }) },
+    });
+    await service.suspend(ORG, 'emp-1');
+    expect(userService.updateStatus).toHaveBeenCalledWith(ORG, 'user-1', 'SUSPENDED');
+  });
+
+  it('separate() deactivates the linked User account', async () => {
+    const { service, userService } = makeService({
+      employees: { 'emp-1': makeEmployee({ userId: 'user-1' }) },
+    });
+    await service.separate(ORG, 'emp-1', { separationDate: new Date() });
+    expect(userService.updateStatus).toHaveBeenCalledWith(ORG, 'user-1', 'DEACTIVATED');
+  });
+
+  it('suspend() on an employee with no linked User never calls updateStatus', async () => {
+    const { service, userService } = makeService({
+      employees: { 'emp-1': makeEmployee({ userId: null }) },
+    });
+    await service.suspend(ORG, 'emp-1');
+    expect(userService.updateStatus).not.toHaveBeenCalled();
+  });
+
+  it('reactivate() does NOT automatically restore the linked User — a deliberate asymmetry', async () => {
+    const { service, userService } = makeService({
+      employees: { 'emp-1': makeEmployee({ userId: 'user-1', employmentStatus: 'SUSPENDED' }) },
+    });
+    await service.reactivate(ORG, 'emp-1');
+    expect(userService.updateStatus).not.toHaveBeenCalled();
+  });
+
+  it('a soft-idempotent no-op transition (already at target status) never calls updateStatus', async () => {
+    const { service, userService } = makeService({
+      employees: { 'emp-1': makeEmployee({ userId: 'user-1', employmentStatus: 'SUSPENDED' }) },
+    });
+    await service.suspend(ORG, 'emp-1');
+    expect(userService.updateStatus).not.toHaveBeenCalled();
   });
 });

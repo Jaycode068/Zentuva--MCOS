@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 
 import { AuditRepository } from './audit/audit.repository';
 import { AuditService } from './audit/audit.service';
+import { EffectiveAccessResolver } from './authorization/effective-access-resolver';
+import { ScopeEvaluator } from './authorization/scope-evaluator';
 import { CryptoModule } from './crypto/crypto.module';
 import { InvitationRepository } from './invitation/invitation.repository';
 import { InvitationService } from './invitation/invitation.service';
@@ -42,6 +44,8 @@ import { UserService } from './user/user.service';
     AuditService,
     PasswordResetRepository,
     PasswordResetService,
+    EffectiveAccessResolver,
+    ScopeEvaluator,
   ],
   exports: [
     OrganisationService,
@@ -51,6 +55,13 @@ import { UserService } from './user/user.service';
     SessionService,
     AuditService,
     PasswordResetService,
+    // Sprint 25 (docs/domains/access-control.md §9) — exported so AuthModule can
+    // re-export them for PermissionsGuard's sake (the same reason TOKEN_SERVICE is
+    // re-exported below), and so any domain service that needs an effective-access
+    // check outside a guard (e.g. HR's OWN_TEAM/DEPARTMENT employee-list scoping) can
+    // inject them directly.
+    EffectiveAccessResolver,
+    ScopeEvaluator,
     // SessionRepository is exported (unlike the other repositories) because AuthModule's
     // DatabaseSessionStore (Sprint 1B.2) needs token-material methods (issueRefreshToken,
     // rotateRefreshToken, ...) that deliberately don't exist on SessionService — see

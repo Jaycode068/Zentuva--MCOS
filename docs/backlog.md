@@ -801,8 +801,9 @@ REJECTED}`) optionally linking an existing `CapitalProject`/
   `TrainingCourse`/`EmployeeTraining` (explicitly not an LMS) — plus a
   new dedicated self-service mobile surface at `/attendance`. Reuses
   Identity's `UserService`/`OrganisationService`/`AuditService`/guards
-  unchanged — no fine-grained permission key was introduced, since none
-  is evaluated anywhere in the app yet (deferred to Sprint 25). Zero
+  unchanged — no fine-grained permission key was introduced in either
+  sprint (built in Sprint 25 — see `docs/domains/access-control.md`).
+  Zero
   accounting/inventory/procurement/production/sales/distribution/asset/
   maintenance integration in either sprint, by construction, proven by
   `hr-independence.spec.ts`. See
@@ -858,6 +859,7 @@ REJECTED}`) optionally linking an existing `CapitalProject`/
 - ✓ Sprint 22 — Maintenance Ecosystem Integration
 - ✓ Sprint 23 — HR Employee Lifecycle Foundation
 - ✓ Sprint 24 — HR Attendance, Training & People Operations
+- ✓ Sprint 25 — Configurable Access Control & Organisational Structure
 
 **Current focus:** The Finance MVP (Sprints 6-19) is considered
 functionally complete. Epic 14 (Asset & Maintenance Management) is fully
@@ -870,12 +872,22 @@ workspace) and Sprint 24 (work schedules, attendance sign-in/out with
 corrections and review, a policy catalogue with versioning and
 acknowledgement, a lightweight training catalogue, an extended People
 Operations overview, and a new self-service `/attendance` mobile
-surface). Deliberately still not started: payroll, leave management,
-recruitment automation, performance/KPI engines, an LMS, a workflow/
-notification engine, and a Technician RBAC role (from Sprint 22). Next
-sprint: Sprint 25 (Access Control + Organisational Structure); Sprint 26
-(Workflow & Approval Engine) and Sprint 27 (Notification + Business
-Activity Engine) are subsequent.
+surface). Sprint 25 ("Configurable Access Control & Organisational
+Structure") finally wires up the `Role`/`Permission`/`RolePermission`/
+`UserRole` tables Identity seeded back in Sprint 1B.1 but that no guard
+had ever read: an 88-entry `module.resource.action` permission
+catalogue, an `AccessScope` model, tenant-configurable roles, a
+`PermissionsGuard`/`CommonAccessGuard` pair migrated onto 21 of the
+codebase's highest-risk mutation endpoints, an organisation-wide Common
+Employee Access self-service policy, and a `/settings/access` admin UI
+— see [`docs/domains/access-control.md`](domains/access-control.md).
+Deliberately still not started: payroll, leave management, recruitment
+automation, performance/KPI engines, an LMS, a workflow/notification
+engine, and a Technician RBAC role (from Sprint 22) — Sprint 25 built
+the access-control foundation those will need, but did not implement
+Workflow or Notifications themselves, per its own brief. Next sprint:
+Sprint 26 (Workflow & Approval Engine) and Sprint 27 (Notification +
+Business Activity Engine) are subsequent.
 
 ## 6. Future Ideas (Not Prioritised Yet)
 
