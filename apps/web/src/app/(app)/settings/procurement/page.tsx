@@ -7,6 +7,7 @@ import { Badge, Button, Input, Select } from '@zentuva/ui';
 import { CartIcon } from '@/components/workspace/icons';
 import { ApiError } from '@/lib/api-client';
 
+import { createWorkflowInstance, submitWorkflowInstance } from '../workflows/api';
 import { listSuppliers } from '../suppliers/api';
 import { cancelPurchaseOrder, listPurchaseOrders, type PurchaseOrder } from './api';
 import { EDITABLE_STATUSES, formatCurrency, STATUS_LABELS, STATUS_VARIANT } from './labels';
@@ -32,6 +33,22 @@ export default function ProcurementSettingsPage() {
 
   const cancelMutation = useMutation({
     mutationFn: (id: string) => cancelPurchaseOrder(id),
+    onSuccess: invalidate,
+  });
+
+  /** Sprint 26 (docs/domains/workflow.md §8) — creates and immediately submits a
+   *  `PURCHASE_ORDER_APPROVAL` workflow instance for this DRAFT order. Fails
+   *  gracefully (surfaces the error inline) if the organisation has no ACTIVE
+   *  `PURCHASE_ORDER_APPROVAL` workflow definition configured. */
+  const submitForApprovalMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const instance = await createWorkflowInstance({
+        workflowDefinitionCode: 'PURCHASE_ORDER_APPROVAL',
+        subjectType: 'PURCHASE_ORDER',
+        subjectId: id,
+      });
+      return submitWorkflowInstance(instance.id);
+    },
     onSuccess: invalidate,
   });
 
@@ -85,6 +102,13 @@ export default function ProcurementSettingsPage() {
           {cancelMutation.error instanceof ApiError
             ? cancelMutation.error.message
             : 'Failed to cancel purchase order.'}
+        </p>
+      )}
+      {submitForApprovalMutation.isError && (
+        <p className="mb-4 text-sm text-destructive">
+          {submitForApprovalMutation.error instanceof ApiError
+            ? submitForApprovalMutation.error.message
+            : 'Failed to submit purchase order for approval.'}
         </p>
       )}
 
@@ -172,6 +196,15 @@ export default function ProcurementSettingsPage() {
                           <Button variant="outline" size="sm" onClick={() => setEditingOrder(po)}>
                             {editable ? 'Edit' : 'View'}
                           </Button>
+                          {po.status === 'DRAFT' && (
+                            <Button
+                              size="sm"
+                              disabled={submitForApprovalMutation.isPending}
+                              onClick={() => submitForApprovalMutation.mutate(po.id)}
+                            >
+                              Submit for Approval
+                            </Button>
+                          )}
                           {editable && (
                             <Button
                               variant="outline"

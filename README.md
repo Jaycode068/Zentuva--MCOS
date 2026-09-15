@@ -73,10 +73,22 @@ feature is built configurably so it can be reused by future tenants without code
 > even against an already-issued token, and a `PermissionsGuard` migrated onto 21 of
 > the codebase's highest-risk mutation endpoints — with an exhaustive, honest account
 > of exactly which domains remain on the older role-name check or no check at all,
-> rather than a blanket "authorization added" claim. Deliberately not Workflow,
-> Notifications, or a policy-as-code engine — those are explicitly the next two
-> sprints. See [docs/domains/README.md](docs/domains/README.md) for the current status of every domain and
-> [docs/roadmap.md](docs/roadmap.md) for the full build order.
+> rather than a blanket "authorization added" claim. A hardening sprint then reviewed
+> and classified all 534 API routes, eliminated the legacy role-name guard entirely
+> (0 routes left on it, down from 261), and extended `PermissionsGuard` to 509 of them
+> — including every previously-unguarded sensitive read — growing the permission
+> catalogue to 121 entries and adding real, provable scope filtering (`OWN_TEAM`/
+> `OWN_RECORDS`) wherever the underlying data could actually support it, honestly
+> leaving the rest documented rather than pretended. Most recently, a Workflow &
+> Approval Foundation sprint built a reusable, tenant-configurable sequential
+> approval engine on top of that same Access Control layer — zero new authorization
+> primitives, eligibility resolved entirely through the existing
+> `EffectiveAccessResolver`/`ScopeEvaluator` — with Purchase Order as its first live
+> integration, reusing `PurchaseOrderStatus`'s own pre-existing, previously-unreachable
+> `PENDING`/`APPROVED` states with zero schema changes to that domain. Deliberately not
+> Notifications or a policy-as-code engine — those remain explicitly future work. See
+> [docs/domains/README.md](docs/domains/README.md) for the current status of every
+> domain and [docs/roadmap.md](docs/roadmap.md) for the full build order.
 
 ## Repository Structure
 

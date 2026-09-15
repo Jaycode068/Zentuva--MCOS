@@ -230,6 +230,9 @@ model Organisation {
   hrPolicyAcknowledgements           PolicyAcknowledgement[]
   hrTrainingCourses                  TrainingCourse[]
   hrEmployeeTrainings                EmployeeTraining[]
+  /// Added Sprint 26 — Workflow & Approval Foundation (docs/domains/workflow.md).
+  workflowDefinitions                WorkflowDefinition[]
+  workflowInstances                  WorkflowInstance[]
 
   @@map("organisations")
 }
@@ -6093,4 +6096,225 @@ enum EmployeeTrainingStatus {
   COMPLETED
   OVERDUE
   CANCELLED
+}
+
+/// Sprint 26 — Workflow & Approval Foundation (docs/domains/workflow.md). A reusable,
+/// tenant-configurable sequential approval engine that sits ALONGSIDE Access Control,
+/// never inside it: Access Control (Sprint 25/25.1) answers "is this user allowed to
+/// perform this action at all"; Workflow answers "is an approval currently required,
+/// and whose turn is it" — see workflow.md §1 for the full boundary. Eligibility is
+/// resolved entirely through the existing `EffectiveAccessResolver`/`ScopeEvaluator`;
+/// this domain introduces zero new authorization primitives (no workflow-specific
+/// roles, no `user.position === "X"` checks — workflow.md §2).
+enum WorkflowDefinitionStatus {
+  ACTIVE
+  INACTIVE
+}
+
+/// workflow.md §4. `DRAFT` (created, not yet submitted) → `SUBMITTED` (submission
+/// recorded, first step about to activate) → `IN_PROGRESS` (one step currently
+/// active) → `APPROVED` (every step approved) | `REJECTED` | `RETURNED` | `CANCELLED`
+/// (all three terminal-for-this-instance, see workflow.md §4's restart/resume rule)
+/// → `COMPLETED` (the owning domain has consumed the `APPROVED` outcome — set by the
+/// subject handler, not automatically).
+enum WorkflowInstanceStatus {
+  DRAFT
+  SUBMITTED
+  IN_PROGRESS
+  APPROVED
+  REJECTED
+  RETURNED
+  CANCELLED
+  COMPLETED
+}
+
+/// A step instance's own lifecycle within its parent `WorkflowInstance`. Only one step
+/// instance is ever `ACTIVE` at a time (sequential MVP — workflow.md §5).
+enum WorkflowStepInstanceStatus {
+  PENDING
+  ACTIVE
+  APPROVED
+  REJECTED
+  RETURNED
+  CANCELLED
+}
+
+/// Sprint 26 §3.6 — immutable once created; no `WorkflowDecision` row is ever updated
+/// or deleted (workflow.md §12 "Workflow decisions must be immutable").
+enum WorkflowDecisionType {
+  APPROVE
+  REJECT
+  RETURN
+  CANCEL
+}
+
+/// A tenant-scoped, versionable description of an approval process — e.g.
+/// `PURCHASE_ORDER_APPROVAL`. NOT hardcoded to any organisation's job titles or
+/// department names (workflow.md §2.1); every organisation configures its own via
+/// `/settings/workflows`. `code` is this organisation's stable identifier for the
+/// process (what a domain integration references, e.g.
+/// `PurchaseOrderWorkflowHandler`'s `WORKFLOW_DEFINITION_CODE`), while `id` is what
+/// `WorkflowInstance` actually foreign-keys to.
+model WorkflowDefinition {
+  id             String                   @id @default(cuid())
+  organisationId String
+  name           String
+  /// Stable, organisation-chosen identifier (e.g. `PURCHASE_ORDER_APPROVAL`) — the
+  /// handle a domain integration submits against. Unique per organisation, not
+  /// globally, so two tenants may each define their own `PURCHASE_ORDER_APPROVAL`.
+  code           String
+  description    String?
+  /// The domain subject this definition applies to (e.g. `PURCHASE_ORDER`) — see
+  /// `WorkflowInstance.subjectType`. One definition serves exactly one subject type;
+  /// an organisation with multiple approval processes for the same subject type would
+  /// define multiple `WorkflowDefinition` rows with different `code`s.
+  subjectType    String
+  status         WorkflowDefinitionStatus @default(INACTIVE)
+  /// Bumped on every edit to an already-`ACTIVE` definition's steps (workflow.md §3.5) —
+  /// `WorkflowStepInstance` snapshots this at instance-creation time specifically so a
+  /// later configuration edit never silently rewrites an in-progress approval.
+  version        Int                      @default(1)
+  /// Sprint 26 §5 — "do not silently allow self-approval." `false` (requester cannot
+  /// approve their own request) is the safer MVP default, explicit and
+  /// organisation-configurable rather than hardcoded in application code.
+  allowSelfApproval Boolean               @default(false)
+  createdById    String?
+  updatedById    String?
+  createdAt      DateTime                 @default(now())
+  updatedAt      DateTime                 @updatedAt
+
+  organisation Organisation       @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  steps        WorkflowStep[]
+  instances    WorkflowInstance[]
+
+  @@unique([organisationId, code])
+  @@index([organisationId])
+  @@index([organisationId, subjectType])
+  @@map("workflow_definitions")
+}
+
+/// A configured step within a `WorkflowDefinition` — workflow.md §3.2/§3.3. Sequential
+/// MVP only: `sequence` is a strict total order, one step active at a time. Eligibility
+/// is `requiredPermission` (+ optional `requiredScope`) evaluated through the existing
+/// `EffectiveAccessResolver`/`ScopeEvaluator` — never a department or position name.
+/// `assignedUserId`, if set, additionally narrows eligibility to that one specific
+/// User (still subject to the same permission/scope check — an explicit assignment
+/// never bypasses Access Control, workflow.md §3.3).
+model WorkflowStep {
+  id                   String       @id @default(cuid())
+  workflowDefinitionId String
+  name                 String
+  code                 String
+  sequence             Int
+  /// A `Permission.key` from the existing catalogue (e.g.
+  /// `procurement.purchase_order.approve`) — validated against the live catalogue at
+  /// create/update time, never a new workflow-specific permission concept.
+  requiredPermission   String
+  /// Optional: when set, eligibility requires the candidate hold `requiredPermission`
+  /// at (at least) this specific `AccessScope`, not merely "granted at all" —
+  /// workflow.md §6.
+  requiredScope        AccessScope?
+  /// Optional explicit approver — must belong to the same organisation (validated at
+  /// write time) and still separately pass the permission/scope check at approval
+  /// time (workflow.md §3.3, §6).
+  assignedUserId       String?
+  active               Boolean      @default(true)
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+
+  workflowDefinition WorkflowDefinition     @relation(fields: [workflowDefinitionId], references: [id], onDelete: Cascade)
+  stepInstances      WorkflowStepInstance[]
+
+  @@unique([workflowDefinitionId, code])
+  @@unique([workflowDefinitionId, sequence])
+  @@map("workflow_steps")
+}
+
+/// A runtime execution of a `WorkflowDefinition` against one business record —
+/// workflow.md §3.4. `(subjectType, subjectId)` references an existing domain record
+/// through the controlled `WorkflowSubjectHandler` registry (workflow.md §7) — never
+/// arbitrary dynamic table access. Tenant safety: every handler call re-verifies the
+/// subject belongs to `organisationId` before touching it.
+model WorkflowInstance {
+  id                       String                 @id @default(cuid())
+  organisationId           String
+  workflowDefinitionId     String
+  /// Snapshot of `WorkflowDefinition.version` at creation time — informational; the
+  /// authoritative snapshot each step actually enforces lives on
+  /// `WorkflowStepInstance` itself.
+  workflowDefinitionVersion Int
+  subjectType              String
+  subjectId                String
+  status                   WorkflowInstanceStatus @default(DRAFT)
+  requestedById            String
+  submittedAt              DateTime?
+  completedAt              DateTime?
+  cancelledAt              DateTime?
+  metadata                 Json?
+  createdAt                DateTime               @default(now())
+  updatedAt                DateTime               @updatedAt
+
+  organisation       Organisation           @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  workflowDefinition WorkflowDefinition     @relation(fields: [workflowDefinitionId], references: [id], onDelete: Restrict)
+  stepInstances      WorkflowStepInstance[]
+  decisions          WorkflowDecision[]
+
+  @@index([organisationId])
+  @@index([organisationId, subjectType, subjectId])
+  @@index([organisationId, status])
+  @@index([workflowDefinitionId])
+  @@map("workflow_instances")
+}
+
+/// A runtime copy of one `WorkflowStep`, snapshotted at `WorkflowInstance` creation so
+/// a later edit to the (still-`ACTIVE`) `WorkflowDefinition` never silently rewrites an
+/// in-progress approval — workflow.md §3.5. `definitionStepId` is kept for traceability
+/// only; every enforcement decision reads the snapshot columns, never the live
+/// `WorkflowStep` row.
+model WorkflowStepInstance {
+  id                        String                     @id @default(cuid())
+  workflowInstanceId        String
+  /// `SetNull`, not `Restrict` — deleting a step from its definition (rare; steps are
+  /// normally deactivated, not deleted) must never block or corrupt a historical
+  /// instance's own immutable snapshot.
+  definitionStepId          String?
+  stepNameSnapshot          String
+  sequence                  Int
+  requiredPermissionSnapshot String
+  requiredScopeSnapshot     AccessScope?
+  assignedUserIdSnapshot    String?
+  status                    WorkflowStepInstanceStatus @default(PENDING)
+  startedAt                 DateTime?
+  completedAt               DateTime?
+  createdAt                 DateTime                   @default(now())
+  updatedAt                 DateTime                   @updatedAt
+
+  workflowInstance WorkflowInstance @relation(fields: [workflowInstanceId], references: [id], onDelete: Cascade)
+  definitionStep   WorkflowStep?    @relation(fields: [definitionStepId], references: [id], onDelete: SetNull)
+  decisions        WorkflowDecision[]
+
+  @@unique([workflowInstanceId, sequence])
+  @@index([workflowInstanceId])
+  @@map("workflow_step_instances")
+}
+
+/// An immutable record of one action taken on a `WorkflowStepInstance` — workflow.md
+/// §3.6, §12. Never updated or deleted after creation; the full approval history is
+/// this table's insert order, same "audit trail is authoritative, not editable"
+/// convention `AuditLog` already establishes elsewhere in this codebase.
+model WorkflowDecision {
+  id                     String               @id @default(cuid())
+  workflowInstanceId     String
+  workflowStepInstanceId String
+  actorUserId            String
+  decision               WorkflowDecisionType
+  comment                String?
+  createdAt              DateTime             @default(now())
+
+  workflowInstance     WorkflowInstance     @relation(fields: [workflowInstanceId], references: [id], onDelete: Cascade)
+  workflowStepInstance WorkflowStepInstance @relation(fields: [workflowStepInstanceId], references: [id], onDelete: Cascade)
+
+  @@index([workflowInstanceId])
+  @@index([workflowStepInstanceId])
+  @@map("workflow_decisions")
 }

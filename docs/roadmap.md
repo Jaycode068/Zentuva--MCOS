@@ -418,8 +418,28 @@ ASSIGNED → IN_PROGRESS ⇄ ON_HOLD → COMPLETED`/`CANCELLED`, both
       role's reads, and a 400-vs-404 tenant-isolation convention bug).
       See [`docs/architecture/authorization-coverage.md`](architecture/authorization-coverage.md)
       and [`docs/sprint-25.1-completion-report.md`](sprint-25.1-completion-report.md)
-- [ ] Workflow & Approval Engine (Sprint 26 — subsequent, not yet
-      started)
+- [x] Workflow & Approval Foundation — shipped Sprint 26. A reusable,
+      tenant-configurable sequential approval engine
+      (`WorkflowDefinition`/`WorkflowStep`/`WorkflowInstance`/
+      `WorkflowStepInstance`/`WorkflowDecision`), kept architecturally
+      separate from Access Control: Access Control answers "is this
+      user allowed at all," Workflow answers "is an approval required
+      right now, and whose turn is it." Eligibility resolved entirely
+      through Sprint 25's `EffectiveAccessResolver`/`ScopeEvaluator` —
+      zero new authorization primitives, no role-name/position/
+      department string comparisons anywhere in the engine. One domain
+      integration — Purchase Order — reusing `PurchaseOrderStatus`'s
+      pre-existing, previously-unreachable `PENDING`/`APPROVED` states
+      and `approvedById` column with zero schema changes to that
+      domain; a `WorkflowSubjectHandler` registry keeps the
+      integration one-directional. Concurrency-safe (conditional
+      `updateMany` transitions, live-verified: concurrent approval/
+      submission attempts produce exactly one success and one `409`).
+      A desktop-first `/settings/workflows` admin UI (Overview/
+      Definitions/Instances/My Approvals — the last one backend-
+      filtered). Not Notifications, not parallel/branching approval,
+      not escalation/SLA/delegation — see
+      [`docs/domains/workflow.md`](domains/workflow.md)
 - [ ] Notification + Business Activity Engine (Sprint 27 — subsequent,
       not yet started)
 - [ ] Retail Portal (mobile)

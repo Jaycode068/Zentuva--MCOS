@@ -861,6 +861,7 @@ REJECTED}`) optionally linking an existing `CapitalProject`/
 - ✓ Sprint 24 — HR Attendance, Training & People Operations
 - ✓ Sprint 25 — Configurable Access Control & Organisational Structure
 - ✓ Sprint 25.1 — Authorization Coverage & Scope Enforcement
+- ✓ Sprint 26 — Workflow & Approval Foundation
 
 **Current focus:** The Finance MVP (Sprints 6-19) is considered
 functionally complete. Epic 14 (Asset & Maintenance Management) is fully
@@ -891,14 +892,28 @@ real `OWN_TEAM`/`OWN_RECORDS` scope enforcement for Sales orders and HR
 Attendance, and four real bugs found and fixed via live verification — see
 [`docs/architecture/authorization-coverage.md`](architecture/authorization-coverage.md)
 and [`docs/sprint-25.1-completion-report.md`](sprint-25.1-completion-report.md).
+Sprint 26 ("Workflow & Approval Foundation") builds a reusable,
+tenant-configurable sequential approval engine on top of that same Access
+Control layer — `WorkflowDefinition`/`WorkflowStep`/`WorkflowInstance`/
+`WorkflowStepInstance`/`WorkflowDecision`, eligibility resolved entirely
+through `EffectiveAccessResolver`/`ScopeEvaluator` (zero new authorization
+primitives), Purchase Order as the one live domain integration (reusing
+`PurchaseOrderStatus`'s pre-existing, previously-unreachable `PENDING`/
+`APPROVED` states with zero schema changes to that domain), a
+`WorkflowSubjectHandler` registry keeping the integration one-directional,
+concurrency-safe conditional-`updateMany` transitions, and a
+`/settings/workflows` admin UI — see
+[`docs/domains/workflow.md`](domains/workflow.md) and
+[`docs/sprint-26-completion-report.md`](sprint-26-completion-report.md).
 Deliberately still not started: payroll, leave management, recruitment
-automation, performance/KPI engines, an LMS, a workflow/notification
-engine, a Technician RBAC role (from Sprint 22), `ASSIGNED_TERRITORY`/
-`ASSIGNED_ASSETS` scope enforcement (no server-side assignment
-relationship exists yet to prove them from), and permission-aware
-frontend navigation filtering. Next sprint: Sprint 26 (Workflow &
-Approval Engine) and Sprint 27 (Notification + Business Activity Engine)
-are subsequent.
+automation, performance/KPI engines, an LMS, Notifications (Workflow's own
+`workflow-events.ts` is the boundary left for it), a Technician RBAC role
+(from Sprint 22), `ASSIGNED_TERRITORY`/`ASSIGNED_ASSETS` scope enforcement
+(no server-side assignment relationship exists yet to prove them from),
+permission-aware frontend navigation filtering, parallel/branching
+approval, escalation/SLA/delegation, and a second Workflow domain
+integration (Supplier Payment, Sales Order, ...). Next sprint: Sprint 27
+(Notification + Business Activity Engine) is subsequent.
 
 ## 6. Future Ideas (Not Prioritised Yet)
 

@@ -206,6 +206,15 @@ export const KeyIcon = icon(
   </>,
 );
 
+export const WorkflowIcon = icon(
+  <>
+    <rect x="3" y="4" width="7" height="7" rx="1.5" />
+    <rect x="14" y="13" width="7" height="7" rx="1.5" />
+    <path d="M6.5 11v3a2 2 0 0 0 2 2h2M17.5 13v-2a2 2 0 0 0-2-2h-2" />
+    <path d="m14.5 10.5 2-1.5-2-1.5" />
+  </>,
+);
+
 export const MenuIcon = icon(<path d="M3 6h18M3 12h18M3 18h18" />);
 
 export const CloseIcon = icon(<path d="M6 6l12 12M18 6 6 18" />);

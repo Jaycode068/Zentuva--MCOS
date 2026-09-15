@@ -21,6 +21,7 @@ import {
   TruckIcon,
   UserIcon,
   UsersIcon,
+  WorkflowIcon,
   WrenchIcon,
   type WorkspaceIcon,
 } from './icons';
@@ -89,6 +90,7 @@ export const WORKSPACE_NAV_GROUPS: WorkspaceNavGroup[] = [
       { label: 'Organisation', href: '/settings/organisation', icon: BuildingIcon },
       { label: 'Users', href: '/settings/users', icon: UsersIcon },
       { label: 'Access Control', href: '/settings/access', icon: KeyIcon },
+      { label: 'Workflow & Approval', href: '/settings/workflows', icon: WorkflowIcon },
       { label: 'My Profile', href: '/account/profile', icon: UserIcon },
       {
         label: 'Workspace Settings',

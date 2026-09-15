@@ -137,6 +137,15 @@ export const PERMISSION_CATALOGUE: PermissionCatalogueEntry[] = [
   entry('procurement.purchase_order.create', 'NONE', 'Create a purchase order'),
   entry('procurement.purchase_order.edit', 'NONE', 'Edit a draft purchase order'),
   entry('procurement.purchase_order.cancel', 'NONE', 'Cancel a purchase order'),
+  // Sprint 26 — the Workflow engine's first domain integration reuses this existing
+  // permission naming convention rather than inventing a workflow-specific one; a
+  // WorkflowStep's `requiredPermission` is always an ordinary catalogue permission
+  // (docs/domains/workflow.md §2.2).
+  entry(
+    'procurement.purchase_order.approve',
+    'SCOPABLE',
+    'Approve a purchase order submitted for approval',
+  ),
   entry('procurement.supplier.view', 'NONE', 'View supplier records'),
   entry('procurement.supplier.manage', 'NONE', 'Create/edit supplier records'),
 
@@ -265,6 +274,36 @@ export const PERMISSION_CATALOGUE: PermissionCatalogueEntry[] = [
     'NONE',
     'Create/edit/deactivate customer-outlet network relationships',
   ),
+
+  // --- Workflow (Sprint 26 — docs/domains/workflow.md §10). A generic, coarse gate on
+  // the workflow ENGINE's own endpoints — separate from, and layered underneath, the
+  // per-step `requiredPermission` a WorkflowStep configures (e.g.
+  // `procurement.purchase_order.approve` above). Holding `workflow.approval.approve`
+  // only means "may use the approval system at all"; whether a specific step is
+  // actually approvable is a dynamic per-step check the engine performs itself via
+  // `EffectiveAccessResolver`, never expressible as a single static permission. ---
+  entry('workflow.definition.view', 'NONE', 'View workflow definitions and their steps'),
+  entry(
+    'workflow.definition.manage',
+    'NONE',
+    'Create/edit/activate/deactivate workflow definitions and their steps',
+  ),
+  entry('workflow.instance.view', 'NONE', 'View all workflow instances in the organisation'),
+  entry(
+    'workflow.instance.submit',
+    'NONE',
+    'Create and submit a workflow instance for an eligible subject',
+  ),
+  entry('workflow.instance.cancel', 'NONE', 'Cancel a workflow instance'),
+  entry(
+    'workflow.approval.view',
+    'NONE',
+    'View the workflow steps the caller is personally eligible to act on ("My Approvals")',
+  ),
+  entry('workflow.approval.approve', 'NONE', 'Approve an eligible workflow step'),
+  entry('workflow.approval.reject', 'NONE', 'Reject an eligible workflow step'),
+  entry('workflow.approval.return', 'NONE', 'Return an eligible workflow step for correction'),
+  entry('workflow.audit.view', 'NONE', "View a workflow instance's decision history"),
 
   // --- Access Control (Sprint 25's own administration surface) ---
   entry('access.role.manage', 'NONE', 'Create/edit/archive roles and their permission grants'),

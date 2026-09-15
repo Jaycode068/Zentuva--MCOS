@@ -7,6 +7,60 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 26 Workflow & Approval Foundation] - 2026-09-15
+
+**A reusable, tenant-configurable sequential approval engine, built on top of
+Sprint 25's Access Control layer rather than beside it.** New tables —
+`WorkflowDefinition`/`WorkflowStep`/`WorkflowInstance`/`WorkflowStepInstance`/
+`WorkflowDecision` — none hardcoding a job title, department name, or
+organisation-specific approval chain anywhere. Eligibility for a step is
+resolved entirely through the existing `EffectiveAccessResolver`/
+`ScopeEvaluator` (self-approval blocked by default and organisation-
+configurable; explicit-approver assignment layered on top of, never
+instead of, the permission/scope check) — zero new authorization
+primitives, verified structurally by `workflow-independence.spec.ts`'s "no
+role-name/position/department string comparison" guard. Ten new permission-
+catalogue entries (121 → 132), split between nine coarse engine-level gates
+and one genuinely new domain permission (`procurement.purchase_order.approve`).
+Implemented the one domain integration this sprint scoped — Purchase Order
+— reusing `PurchaseOrderStatus`'s pre-existing, previously-unreachable
+`PENDING`/`APPROVED` enum values and the `approvedById` column Sprint 4.3
+had reserved but never populated, with **zero schema changes to
+`PurchaseOrder` itself**; a `WorkflowSubjectHandler` registry keeps the
+integration one-directional (Workflow imports Procurement, never the
+reverse), the same shape Access Control's own read-only `HrModule` import
+already established. Concurrency-safe throughout via this codebase's
+existing conditional-`updateMany` idiom — live-verified: two concurrent
+approval requests against the same step produced exactly one success and
+one `409 Conflict`, with exactly one `WorkflowDecision` row written; the
+same pattern verified for double-submission. Live-verified end to end
+against real tokens and the real database: a full two-step sequential
+approval reaching `APPROVED` with the Purchase Order correctly
+transitioning `DRAFT → PENDING → APPROVED`; an ineligible direct API call
+denied; a second decision on an already-decided step denied; My Approvals
+correctly filtered per user (including correctly excluding the requester);
+reject and return both correctly reverting the Purchase Order to `DRAFT`;
+a suspended approver denied using an already-valid token; a role removal
+immediately revoking eligibility using the same still-valid token;
+cross-tenant access denied at every tested surface (direct instance
+access, approval attempt, list, and cross-tenant subject/definition-code
+lookup). A desktop-first admin UI at `/settings/workflows` (Overview /
+Workflow Definitions / Workflow Instances / My Approvals — the last one
+backend-filtered, never a hidden-button trick), plus a "Submit for
+Approval" action added to the existing Procurement page. 55 new tests
+across 5 new suites (181 suites / 1540 tests passing overall, up from the
+176/1485 Sprint 25.1 baseline); zero new lint warnings. Deliberately not
+built: Notifications (an event-catalog boundary, `workflow-events.ts`,
+follows the exact no-emitter `maintenance-events.ts` convention already
+established), parallel/branching approval, a conditional-expression
+engine, escalation/SLA timers, delegation, a second domain integration,
+or record-level proof for non-`ORGANISATION` scope requirements (the
+engine proves the candidate holds the scope, not that this specific
+record falls within it — the same honesty convention Sprint 25.1
+established for `ASSIGNED_TERRITORY`). See
+[`docs/domains/workflow.md`](domains/workflow.md) and
+[`docs/sprint-26-completion-report.md`](sprint-26-completion-report.md).
+
 ## [Sprint 25.1 Authorization Coverage & Scope Enforcement] - 2026-09-14
 
 **A hardening pass over Sprint 25's access-control foundation, not a

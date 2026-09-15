@@ -585,21 +585,30 @@ for Common Employee Access's durability, so fixed rather than deferred.
 
 ## 15. Future Workflow & Notification Integration Points
 
-Per the brief, Workflow and Notifications are explicitly out of scope this sprint —
-but every component here was designed to be reused, not rebuilt, when they arrive:
+Per the brief, Workflow and Notifications were explicitly out of scope for Sprint 25 —
+every component here was designed to be reused, not rebuilt, when they arrived. **Sprint
+26 confirms this held exactly as predicted** — see [Workflow & Approval](workflow.md):
 
-- **`EffectiveAccessResolver.resolve(organisationId, userId)`** is the natural check
-  for "is this user eligible to be an approver at this workflow step" — a future
-  Workflow engine can call it directly rather than re-querying `RolePermission`.
-- **`ScopeEvaluator`** generalizes to "does this approver's scope cover this specific
-  record" for scoped approval routing (e.g. only a manager whose `OWN_TEAM` scope
-  covers the requester can approve).
-- **The permission catalogue** is the natural place to register future
-  workflow-specific permissions (e.g. `hr.leave_request.approve`) once Workflow
-  exists — no changes to `EffectiveAccessResolver`/`PermissionsGuard` needed, they
-  already generalize to any key.
-- **Audit events** (§12) are already the shape a Notification engine would consume
-  to decide who to notify about an access change.
+- **`EffectiveAccessResolver.resolve(organisationId, userId)`** — used directly,
+  unmodified, by `WorkflowEligibilityService.checkStepEligibility()` as "is this user
+  eligible to be an approver at this workflow step." Zero changes to this method were
+  needed for Workflow to consume it.
+- **`ScopeEvaluator`** — used directly for "does this approver hold the step's required
+  scope." Workflow's own honesty note (workflow.md §6) is worth restating here: holding
+  a scope and a specific record actually falling within that scope are two different
+  claims, and `ScopeEvaluator` only ever proves the former — Workflow inherits that
+  same honest limitation rather than overclaiming record-level scope enforcement it
+  cannot prove.
+- **The permission catalogue** — Workflow added 10 new entries (9 engine-level +
+  `procurement.purchase_order.approve`) the same way every other domain always has;
+  `EffectiveAccessResolver`/`PermissionsGuard` needed zero changes to support them.
+- **Audit events** (§12) — Workflow's own audit trail (workflow.md §11) follows the
+  identical `AuditService.record()` call-after-the-fact convention; a future
+  Notification engine consuming either domain's audit trail sees the same shape.
+
+Notifications themselves remain unbuilt — Workflow's own `workflow-events.ts` (the
+`maintenance-events.ts` convention) is the equivalent forward-looking boundary on that
+side, still with no `EventEmitter` anywhere in this codebase.
 
 ## 16. Known Deferred Capabilities (honest limitations, not oversights)
 

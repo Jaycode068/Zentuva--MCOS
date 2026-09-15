@@ -6956,7 +6956,134 @@ async function seedAccessControlFixtures(
   void cashOfficer;
   void bankReconciliationOfficer;
   void salesManager;
-  void administratorUserId;
+}
+
+/**
+ * Sprint 26 — Workflow & Approval Foundation (docs/domains/workflow.md §17). Seeds one
+ * realistic, ACTIVE, sequential Purchase Order approval workflow with two steps,
+ * demonstrating both eligibility mechanisms the definition model supports:
+ *
+ * 1. "Procurement Review" — permission + scope only (`procurement.purchase_order.approve`
+ *    @ `ORGANISATION`), no explicit assignee. Anyone holding the "Purchase Order
+ *    Approver" role is eligible.
+ * 2. "Final Approval" — the SAME permission + scope, PLUS an explicit `assignedUserId`
+ *    (the seeded Administrator, who already holds this permission via Administrator's
+ *    existing full-catalogue grant — using them here demonstrates explicit-approver
+ *    narrowing without granting them anything new, honouring "do not seed broad
+ *    approval authority unnecessarily").
+ *
+ * Ibrahim Musa (EMP-000004, Procurement Officer, PROC department — already seeded
+ * Sprint 23, never linked to a User until now) becomes the submitter; Grace Effiong
+ * (EMP-000005, Warehouse Supervisor — also unlinked since Sprint 23) becomes the
+ * "Purchase Order Approver" who handles step 1. Neither is granted the OTHER'S
+ * permissions — Ibrahim cannot approve (no `procurement.purchase_order.approve` grant
+ * at all, so self-approval is structurally impossible, not merely policy-blocked), and
+ * Grace cannot act on step 2 (not the explicit assignee).
+ */
+async function seedWorkflowFixtures(
+  organisationId: string,
+  administratorUserId: string,
+  permissionByKey: Map<string, { id: string }>,
+): Promise<void> {
+  const existing = await prisma.workflowDefinition.findFirst({
+    where: { organisationId, code: 'PURCHASE_ORDER_APPROVAL' },
+  });
+  if (existing) {
+    console.log('  Skipping Sprint 26 Workflow fixtures — already seeded.');
+    return;
+  }
+
+  console.log('Seeding Sprint 26 Workflow & Approval fixtures...');
+
+  const procurementOfficer = await upsertCustomRole(
+    organisationId,
+    'Procurement Officer',
+    'Create and edit draft purchase orders, and submit them for approval. Cannot approve any purchase order, including their own.',
+  );
+  await grantRolePermissions(procurementOfficer.id, permissionByKey, [
+    { key: 'procurement.purchase_order.view', scope: 'ORGANISATION' },
+    { key: 'procurement.purchase_order.create' },
+    { key: 'procurement.purchase_order.edit' },
+    { key: 'procurement.supplier.view' },
+    { key: 'catalogue.product.view' },
+    { key: 'inventory.stock.view', scope: 'ORGANISATION' },
+    { key: 'workflow.instance.view' },
+    { key: 'workflow.instance.submit' },
+    { key: 'workflow.instance.cancel' },
+  ]);
+
+  const purchaseOrderApprover = await upsertCustomRole(
+    organisationId,
+    'Purchase Order Approver',
+    'Reviews and approves purchase orders submitted for approval. No procurement configuration access.',
+  );
+  await grantRolePermissions(purchaseOrderApprover.id, permissionByKey, [
+    { key: 'procurement.purchase_order.view', scope: 'ORGANISATION' },
+    { key: 'procurement.purchase_order.approve', scope: 'ORGANISATION' },
+    { key: 'workflow.instance.view' },
+    { key: 'workflow.approval.view' },
+    { key: 'workflow.approval.approve' },
+    { key: 'workflow.approval.reject' },
+    { key: 'workflow.approval.return' },
+    { key: 'workflow.audit.view' },
+  ]);
+
+  const procurementOfficerUser = await seedDemoEmployeeUser({
+    organisationId,
+    employeeCode: 'EMP-000004', // Ibrahim Musa, Procurement Officer
+    email: 'ibrahim.musa.demo@bobybites.local',
+    firstName: 'Ibrahim',
+    lastName: 'Musa',
+  });
+  if (procurementOfficerUser) {
+    await assignRoleIfMissing(organisationId, procurementOfficerUser.id, procurementOfficer.id);
+  }
+
+  const approverUser = await seedDemoEmployeeUser({
+    organisationId,
+    employeeCode: 'EMP-000005', // Grace Effiong, Warehouse Supervisor
+    email: 'grace.effiong.demo@bobybites.local',
+    firstName: 'Grace',
+    lastName: 'Effiong',
+  });
+  if (approverUser) {
+    await assignRoleIfMissing(organisationId, approverUser.id, purchaseOrderApprover.id);
+  }
+
+  const definition = await prisma.workflowDefinition.create({
+    data: {
+      organisationId,
+      name: 'Purchase Order Approval',
+      code: 'PURCHASE_ORDER_APPROVAL',
+      description:
+        'Sequential two-step approval: Procurement Review, then Final Approval. Applies to purchase orders submitted from DRAFT.',
+      subjectType: 'PURCHASE_ORDER',
+      status: 'ACTIVE',
+      allowSelfApproval: false,
+      createdById: administratorUserId,
+      updatedById: administratorUserId,
+      steps: {
+        create: [
+          {
+            name: 'Procurement Review',
+            code: 'PROCUREMENT_REVIEW',
+            sequence: 1,
+            requiredPermission: 'procurement.purchase_order.approve',
+            requiredScope: 'ORGANISATION',
+          },
+          {
+            name: 'Final Approval',
+            code: 'FINAL_APPROVAL',
+            sequence: 2,
+            requiredPermission: 'procurement.purchase_order.approve',
+            requiredScope: 'ORGANISATION',
+            assignedUserId: administratorUserId,
+          },
+        ],
+      },
+    },
+  });
+  void definition;
 }
 
 async function main(): Promise<void> {
@@ -7196,6 +7323,7 @@ async function main(): Promise<void> {
     memberUser.id,
     permissionByKey,
   );
+  await seedWorkflowFixtures(organisation.id, administratorUser.id, permissionByKey);
 
   console.log('Recording an audit log entry for this seed run...');
   await prisma.auditLog.create({

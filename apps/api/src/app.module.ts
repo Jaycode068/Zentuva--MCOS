@@ -29,6 +29,7 @@ import { OutletModule } from './retail/outlet/outlet.module';
 import { TerritoryModule } from './retail/territory/territory.module';
 import { SalesModule } from './sales/sales.module';
 import { SupplierModule } from './suppliers/supplier/supplier.module';
+import { WorkflowModule } from './workflow/workflow.module';
 
 @Module({
   imports: [
@@ -63,6 +64,7 @@ import { SupplierModule } from './suppliers/supplier/supplier.module';
     MaintenanceModule,
     HrModule,
     AccessControlModule,
+    WorkflowModule,
   ],
 })
 export class AppModule {}

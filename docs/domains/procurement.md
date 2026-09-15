@@ -2,8 +2,9 @@
 
 - **Status:** Purchase Order management implemented — Sprint 4.3 ("Procurement (Purchase
   Orders)"); status lifecycle extended Sprint 4.4.1 with `PARTIALLY_RECEIVED` and
-  receiving-driven edit/cancel restrictions.
-- **Sprint:** 4.3, 4.4.1
+  receiving-driven edit/cancel restrictions; approval routing to `APPROVED` added —
+  Sprint 26 (see below).
+- **Sprint:** 4.3, 4.4.1, 26
 - **Depends on:** [Identity](identity.md) (tenant boundary, authentication, `RolesGuard`),
   [Supplier Management](suppliers.md) (every Purchase Order belongs to a Supplier),
   [Product Catalogue](catalogue.md) (every Purchase Order line references a Product),
@@ -12,7 +13,23 @@
 - **See also:** [Sprint 4.3 Completion Report](../sprint-4.3-completion-report.md),
   [Sprint 4.4.1 Completion Report](../sprint-4.4.1-completion-report.md),
   [Inventory](inventory.md) (owns the receiving workflow that now drives this domain's
-  `PARTIALLY_RECEIVED`/`RECEIVED` transitions).
+  `PARTIALLY_RECEIVED`/`RECEIVED` transitions), [Workflow & Approval](workflow.md) §8
+  (the Sprint 26 integration described below).
+
+## Sprint 26 update: `PENDING`/`APPROVED` are now reachable
+
+This document's "Known Limitations" section (§10) originally noted that `APPROVED`
+existed in the `PurchaseOrderStatus` enum but was unreachable by any endpoint, and that
+reaching `PENDING` had "no dedicated 'Issue' UI action." Sprint 26's
+[Workflow & Approval Foundation](workflow.md) closes both gaps — `POST
+/workflows/instances` + `/submit` now drives `DRAFT → PENDING`, and a full sequential
+approval (`POST /workflows/instances/:id/approve`, called until every configured step
+is done) drives `PENDING → APPROVED`, finally populating the `approvedById` column this
+document's §2 always reserved for it. **Zero changes to `PurchaseOrder`'s own schema,
+service, or controller** were required — see workflow.md §8 for the full integration
+design, including the one honestly-documented gap it deliberately left alone (the
+generic `PATCH .../:id` endpoint can still set `status: "PENDING"` directly, bypassing
+Workflow entirely — unchanged Sprint 4.3 behaviour, not tightened this sprint).
 
 ## 1. Business Purpose
 
