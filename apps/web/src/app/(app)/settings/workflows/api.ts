@@ -29,6 +29,7 @@ export type WorkflowInstanceStatus =
   | 'REJECTED'
   | 'RETURNED'
   | 'CANCELLED'
+  | 'EXPIRED'
   | 'COMPLETED';
 export type WorkflowStepInstanceStatus =
   'PENDING' | 'ACTIVE' | 'APPROVED' | 'REJECTED' | 'RETURNED' | 'CANCELLED';
@@ -91,9 +92,29 @@ export interface WorkflowInstance {
   submittedAt: string | null;
   completedAt: string | null;
   cancelledAt: string | null;
+  dueAt: string | null;
+  expiredAt: string | null;
+  resubmittedAt: string | null;
+  resubmissionCount: number;
+  previousInstanceId: string | null;
+  /** Sprint 26.1 — computed server-side at read time, never persisted; `true` only
+   *  when `dueAt` has passed AND the instance is still non-terminal. */
+  isOverdue: boolean;
   createdAt: string;
   updatedAt: string;
   stepInstances: WorkflowStepInstance[];
+}
+
+export interface WorkflowEventRecord {
+  id: string;
+  workflowInstanceId: string;
+  eventType: string;
+  actorUserId: string | null;
+  targetUserId: string | null;
+  workflowStepInstanceId: string | null;
+  correlationId: string;
+  summary: Record<string, unknown> | null;
+  occurredAt: string;
 }
 
 export interface MyApprovalItem extends WorkflowStepInstance {
@@ -186,10 +207,12 @@ export function deactivateWorkflowDefinition(id: string) {
 export function listWorkflowInstances(params?: {
   status?: WorkflowInstanceStatus;
   subjectType?: string;
+  overdue?: boolean;
 }) {
   const qs = new URLSearchParams();
   if (params?.status) qs.set('status', params.status);
   if (params?.subjectType) qs.set('subjectType', params.subjectType);
+  if (params?.overdue) qs.set('overdue', 'true');
   const suffix = qs.toString() ? `?${qs.toString()}` : '';
   return apiFetch<{ items: WorkflowInstance[] }>(`/workflows/instances${suffix}`);
 }
@@ -202,6 +225,10 @@ export function getWorkflowInstanceHistory(id: string) {
   return apiFetch<{ items: WorkflowDecisionRecord[] }>(`/workflows/instances/${id}/history`);
 }
 
+export function getWorkflowInstanceEvents(id: string) {
+  return apiFetch<{ items: WorkflowEventRecord[] }>(`/workflows/instances/${id}/events`);
+}
+
 export function getEligibleApprovers(id: string) {
   return apiFetch<{ items: EligibleApprover[] }>(`/workflows/instances/${id}/eligible-approvers`);
 }
@@ -210,6 +237,7 @@ export function createWorkflowInstance(payload: {
   workflowDefinitionCode: string;
   subjectType: string;
   subjectId: string;
+  dueAt?: string;
 }) {
   return apiFetch<WorkflowInstance>('/workflows/instances', {
     method: 'POST',
@@ -228,14 +256,18 @@ export function approveWorkflowInstance(id: string, comment?: string) {
   });
 }
 
-export function rejectWorkflowInstance(id: string, comment?: string) {
+/** Sprint 26.1 — `comment` is mandatory server-side; the caller (the decision dialog)
+ *  is responsible for not submitting an empty one. */
+export function rejectWorkflowInstance(id: string, comment: string) {
   return apiFetch<WorkflowInstance>(`/workflows/instances/${id}/reject`, {
     method: 'POST',
     body: JSON.stringify({ comment }),
   });
 }
 
-export function returnWorkflowInstance(id: string, comment?: string) {
+/** Sprint 26.1 — `comment` is mandatory server-side; the caller (the decision dialog)
+ *  is responsible for not submitting an empty one. */
+export function returnWorkflowInstance(id: string, comment: string) {
   return apiFetch<WorkflowInstance>(`/workflows/instances/${id}/return`, {
     method: 'POST',
     body: JSON.stringify({ comment }),
@@ -244,6 +276,18 @@ export function returnWorkflowInstance(id: string, comment?: string) {
 
 export function cancelWorkflowInstance(id: string) {
   return apiFetch<WorkflowInstance>(`/workflows/instances/${id}/cancel`, { method: 'POST' });
+}
+
+/** Sprint 26.1 §3 — resubmits a `RETURNED` instance as a new, linked instance
+ *  (`previousInstanceId`), restarting the approval chain from step 1. */
+export function resubmitWorkflowInstance(id: string) {
+  return apiFetch<WorkflowInstance>(`/workflows/instances/${id}/resubmit`, { method: 'POST' });
+}
+
+/** Sprint 26.1 §9 — manually triggers the `EXPIRED` transition; only succeeds once
+ *  `dueAt` has passed. No scheduled job calls this yet (deliberately out of scope). */
+export function expireWorkflowInstance(id: string) {
+  return apiFetch<WorkflowInstance>(`/workflows/instances/${id}/expire`, { method: 'POST' });
 }
 
 // ---------------------------------------------------------------------------

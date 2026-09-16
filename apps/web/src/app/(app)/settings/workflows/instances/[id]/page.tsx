@@ -6,21 +6,33 @@ import { Badge, Button } from '@zentuva/ui';
 
 import { ApiError } from '@/lib/api-client';
 
-import { cancelWorkflowInstance, getWorkflowInstance, getWorkflowInstanceHistory } from '../../api';
 import {
+  cancelWorkflowInstance,
+  getWorkflowInstance,
+  getWorkflowInstanceHistory,
+  resubmitWorkflowInstance,
+} from '../../api';
+import {
+  NON_TERMINAL_INSTANCE_STATUSES,
   WORKFLOW_INSTANCE_STATUS_LABELS,
   WORKFLOW_INSTANCE_STATUS_VARIANT,
   WORKFLOW_STEP_STATUS_LABELS,
 } from '../../labels';
 
-const NON_TERMINAL = new Set(['DRAFT', 'SUBMITTED', 'IN_PROGRESS']);
+const NON_TERMINAL = new Set(NON_TERMINAL_INSTANCE_STATUSES);
 
 export default function WorkflowInstanceDetailPage() {
   const params = useParams<{ id: string }>();
   const id = params.id;
   const queryClient = useQueryClient();
 
-  const { data: instance, isLoading } = useQuery({
+  const {
+    data: instance,
+    isLoading,
+    isError,
+    error,
+    refetch,
+  } = useQuery({
     queryKey: ['workflow-instance', id],
     queryFn: () => getWorkflowInstance(id),
   });
@@ -34,10 +46,33 @@ export default function WorkflowInstanceDetailPage() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['workflow-instance', id] }),
   });
 
+  const resubmitMutation = useMutation({
+    mutationFn: () => resubmitWorkflowInstance(id),
+    onSuccess: (newInstance) => {
+      queryClient.invalidateQueries({ queryKey: ['workflow-instance', id] });
+      window.location.href = `/settings/workflows/instances/${newInstance.id}`;
+    },
+  });
+
   if (isLoading || !instance) {
     return (
       <main className="mx-auto max-w-4xl px-4 py-10 sm:px-6">
         <p className="text-center text-sm text-muted-foreground">Loading workflow instance…</p>
+      </main>
+    );
+  }
+
+  if (isError) {
+    return (
+      <main className="mx-auto max-w-4xl px-4 py-10 sm:px-6">
+        <div className="flex flex-col items-center gap-3 py-10 text-center">
+          <p className="text-sm text-destructive">
+            {error instanceof ApiError ? error.message : 'Failed to load this workflow instance.'}
+          </p>
+          <Button variant="outline" size="sm" onClick={() => refetch()}>
+            Retry
+          </Button>
+        </div>
       </main>
     );
   }
@@ -51,24 +86,37 @@ export default function WorkflowInstanceDetailPage() {
         ← Back to Workflow Instances
       </a>
 
-      <div className="mt-4 flex items-center justify-between">
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">
             {instance.subjectType} — {instance.subjectId}
           </h1>
           <p className="mt-1 text-xs text-muted-foreground">
-            Requested by <span className="font-mono">{instance.requestedById}</span>
+            Requested by <span className="font-mono">{instance.requestedById}</span> · definition v
+            {instance.workflowDefinitionVersion}
             {instance.submittedAt &&
               ` · submitted ${new Date(instance.submittedAt).toLocaleString()}`}
+            {instance.resubmissionCount > 0 && ` · resubmission #${instance.resubmissionCount}`}
           </p>
+          {instance.previousInstanceId && (
+            <a
+              href={`/settings/workflows/instances/${instance.previousInstanceId}`}
+              className="mt-1 inline-block text-xs text-muted-foreground hover:underline"
+            >
+              ← Resubmitted from a previous, returned instance
+            </a>
+          )}
         </div>
-        <Badge variant={WORKFLOW_INSTANCE_STATUS_VARIANT[instance.status]}>
-          {WORKFLOW_INSTANCE_STATUS_LABELS[instance.status]}
-        </Badge>
+        <div className="flex items-center gap-2">
+          {instance.isOverdue && <Badge variant="destructive">Overdue</Badge>}
+          <Badge variant={WORKFLOW_INSTANCE_STATUS_VARIANT[instance.status]}>
+            {WORKFLOW_INSTANCE_STATUS_LABELS[instance.status]}
+          </Badge>
+        </div>
       </div>
 
-      {NON_TERMINAL.has(instance.status) && (
-        <div className="mt-4">
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        {NON_TERMINAL.has(instance.status) && (
           <Button
             size="sm"
             variant="outline"
@@ -77,14 +125,36 @@ export default function WorkflowInstanceDetailPage() {
           >
             Cancel Workflow
           </Button>
-          {cancelMutation.isError && (
-            <p className="mt-2 text-sm text-destructive">
-              {cancelMutation.error instanceof ApiError
-                ? cancelMutation.error.message
-                : 'Failed to cancel.'}
-            </p>
-          )}
-        </div>
+        )}
+        {instance.status === 'RETURNED' && !instance.resubmittedAt && (
+          <Button
+            size="sm"
+            disabled={resubmitMutation.isPending}
+            onClick={() => resubmitMutation.mutate()}
+          >
+            {resubmitMutation.isPending ? 'Resubmitting…' : 'Resubmit'}
+          </Button>
+        )}
+      </div>
+      {cancelMutation.isError && (
+        <p className="mt-2 text-sm text-destructive">
+          {cancelMutation.error instanceof ApiError
+            ? cancelMutation.error.message
+            : 'Failed to cancel.'}
+        </p>
+      )}
+      {resubmitMutation.isError && (
+        <p className="mt-2 text-sm text-destructive">
+          {resubmitMutation.error instanceof ApiError
+            ? resubmitMutation.error.message
+            : 'Failed to resubmit.'}
+        </p>
+      )}
+      {instance.status === 'RETURNED' && !instance.resubmittedAt && (
+        <p className="mt-2 text-xs text-muted-foreground">
+          This workflow was returned for correction. Edit the source record, then resubmit — a new
+          linked workflow instance will restart approval from step 1.
+        </p>
       )}
 
       <div className="mt-6 rounded-lg border border-border p-4">

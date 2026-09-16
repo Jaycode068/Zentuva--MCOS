@@ -8,6 +8,7 @@ import { WorkflowDefinitionController } from './workflow-definition.controller';
 import { WorkflowDefinitionRepository } from './workflow-definition.repository';
 import { WorkflowDefinitionService } from './workflow-definition.service';
 import { WorkflowEligibilityService } from './workflow-eligibility.service';
+import { WorkflowEventRepository } from './workflow-event.repository';
 import { WorkflowInstanceController } from './workflow-instance.controller';
 import { WorkflowInstanceRepository } from './workflow-instance.repository';
 import { WorkflowInstanceService } from './workflow-instance.service';
@@ -42,6 +43,7 @@ import { WORKFLOW_SUBJECT_HANDLERS } from './workflow-subject-handler';
     WorkflowInstanceRepository,
     WorkflowInstanceService,
     WorkflowEligibilityService,
+    WorkflowEventRepository,
     PurchaseOrderWorkflowHandler,
     {
       provide: WORKFLOW_SUBJECT_HANDLERS,

@@ -17,4 +17,7 @@ export const WORKFLOW_AUDIT_ACTIONS = {
   INSTANCE_CANCELLED: 'workflow.instance.cancelled',
   INSTANCE_COMPLETED: 'workflow.instance.completed',
   APPROVAL_DENIED: 'workflow.approval.denied',
+  /** Sprint 26.1. */
+  INSTANCE_RESUBMITTED: 'workflow.instance.resubmitted',
+  INSTANCE_EXPIRED: 'workflow.instance.expired',
 } as const;

@@ -79,16 +79,28 @@ feature is built configurably so it can be reused by future tenants without code
 > — including every previously-unguarded sensitive read — growing the permission
 > catalogue to 121 entries and adding real, provable scope filtering (`OWN_TEAM`/
 > `OWN_RECORDS`) wherever the underlying data could actually support it, honestly
-> leaving the rest documented rather than pretended. Most recently, a Workflow &
+> leaving the rest documented rather than pretended. Then, a Workflow &
 > Approval Foundation sprint built a reusable, tenant-configurable sequential
 > approval engine on top of that same Access Control layer — zero new authorization
 > primitives, eligibility resolved entirely through the existing
 > `EffectiveAccessResolver`/`ScopeEvaluator` — with Purchase Order as its first live
 > integration, reusing `PurchaseOrderStatus`'s own pre-existing, previously-unreachable
-> `PENDING`/`APPROVED` states with zero schema changes to that domain. Deliberately not
-> Notifications or a policy-as-code engine — those remain explicitly future work. See
-> [docs/domains/README.md](docs/domains/README.md) for the current status of every
-> domain and [docs/roadmap.md](docs/roadmap.md) for the full build order.
+> `PENDING`/`APPROVED` states with zero schema changes to that domain. Most recently, a
+> Workflow Hardening sprint completed that engine's lifecycle before Notifications
+> arrives: a dedicated resubmission path for a returned request (a new, linked
+> `WorkflowInstance` restarting approval from step 1, never a rewind of the original —
+> its full decision history stays immutable), a fixed domain-integration-atomicity bug
+> (a workflow could previously be marked approved even when the underlying record's own
+> update failed, with a safe retry path added), mandatory reject/return comments, a
+> deliberate `EXPIRED` transition plus a read-time-only overdue computation with no
+> background job, a database-level index closing a genuine concurrent-submission race
+> found during the sprint's own audit, and — the sprint's central deliverable — a
+> durable, idempotent workflow event log that a future Notifications sprint can consume
+> without ever touching the workflow engine's internals. Deliberately still not
+> Notifications, a second domain integration, or a policy-as-code engine — those remain
+> explicitly future work. See [docs/domains/README.md](docs/domains/README.md) for the
+> current status of every domain and [docs/roadmap.md](docs/roadmap.md) for the full
+> build order.
 
 ## Repository Structure
 

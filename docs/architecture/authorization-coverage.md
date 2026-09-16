@@ -425,6 +425,34 @@ Unchanged from Sprint 25's own list, still accurate:
   Workflow ships, so a workflow approval step's UI doesn't have the same
   "shown but non-functional" problem this sprint found in Finance.
 
+### 14a. Addendum — Workflow shipped (Sprint 26, hardened Sprint 26.1)
+
+This document predates Workflow entirely (it is a Sprint 25.1-era snapshot, generated
+before that domain's controllers existed) and was never refreshed when Workflow
+shipped — an honest gap, not silently patched into the numeric tables above (§1, §3,
+§15), which remain that original snapshot rather than a re-run extraction. This short
+addendum records what actually happened instead of a full 534-route regeneration,
+which is out of scope for a Workflow-focused hardening sprint:
+
+- `WorkflowDefinitionController` and `WorkflowInstanceController` are both
+  `CENTRAL_PERMISSION_GUARDED` end to end — every route carries `JwtAuthGuard` +
+  `PermissionsGuard` + `@RequirePermission`, exactly the pattern this document
+  describes as the intended end-state (§2). Zero routes on the legacy RBAC guard or
+  `AUTHENTICATED_ONLY`.
+- This confirms the prediction §14's first bullet made: Workflow consumes
+  `EffectiveAccessResolver`/`PermissionsGuard` directly rather than re-deriving
+  authorization — see [workflow.md §2](../domains/workflow.md#2-access-control-integration)
+  for the full accounting of how, including the two-layer (coarse gate +
+  dynamic eligibility) pattern this domain adds on top, which is itself now a
+  documented, reusable architectural pattern for any future domain with
+  configuration-dependent authorization.
+- Sprint 26.1 added three more Workflow routes (`resubmit`, `expire`,
+  `:id/events`) — all `CENTRAL_PERMISSION_GUARDED`, all reusing existing catalogue
+  permissions rather than adding new ones (workflow.md §10's rationale for each).
+- The permission catalogue grew from 121 (this document's baseline) to 132 across
+  Sprint 26 (11 new Workflow-related rows) and stayed at 132 through Sprint 26.1 (zero
+  new rows — every Sprint 26.1 addition deliberately reused an existing permission).
+
 ---
 
 ## 15. Full endpoint inventory, by domain

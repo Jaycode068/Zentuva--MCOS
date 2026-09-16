@@ -7,6 +7,45 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 26.1 Workflow Hardening, Lifecycle Completion & Domain Readiness] - 2026-09-15
+
+**Completes the Sprint 26 workflow engine's lifecycle ahead of Notifications — a
+hardening pass, not a redesign.** Return-for-correction now has a real resubmission
+path: `POST /workflows/instances/:id/resubmit` creates a new `WorkflowInstance` linked
+to its `RETURNED` predecessor (`previousInstanceId`/`resubmissionCount`), restarting
+approval from step 1 against the currently-active `WorkflowDefinition` version, with
+the original instance's full decision history left completely untouched — chosen over
+reusing/rewinding the same instance because `WorkflowStepInstance` rows are immutable,
+uniquely-sequenced snapshots that a second submission cycle cannot safely reuse without
+either destroying history or violating a database constraint (full rationale in
+[docs/domains/workflow.md](domains/workflow.md) §5.2).
+
+A genuine correctness bug found during this sprint's own audit is fixed: `approve()`
+previously marked a `WorkflowInstance` `APPROVED` _before_ calling the subject
+handler's domain-side transition, so a domain-integration failure could leave the
+workflow falsely claiming success while the underlying Purchase Order was never
+actually updated. The handler now runs first; a failure leaves the instance honestly
+`IN_PROGRESS`, and a documented recovery path lets a later `approve()` call safely
+retry only the domain callback + finalization, never a second decision. A narrower,
+parallel ordering issue in `submit()` was fixed the same way.
+
+Also: reject/return now require a non-empty comment (enforced at both the Zod schema
+and service layers); a deliberate, explicit `EXPIRED` transition plus a read-time-only
+`isOverdue` computation (`dueAt` in the past, never persisted, never inferred by a
+background job — automatic escalation remains explicitly out of scope); a
+database-level partial unique index closing a genuine concurrent-submission race this
+sprint's audit found in Sprint 26's own check-then-act logic; and — the sprint's
+central deliverable — a durable, idempotent `WorkflowEvent` table, written
+transactionally alongside every state transition with a deterministic, unique
+idempotency key, giving a future Notifications sprint a queryable event log it can
+consume without understanding any workflow business logic at all.
+
+19 new tests (74 workflow tests total, 1559 across the whole API). No second domain
+integration (Purchase Requisition/Supplier Invoice/Capital Project were inspected; none
+had a clean draft/submission boundary as ready as Purchase Order's) and no automatic
+escalation — both explicitly out of scope, per
+[docs/sprint-26.1-completion-report.md](sprint-26.1-completion-report.md).
+
 ## [Sprint 26 Workflow & Approval Foundation] - 2026-09-15
 
 **A reusable, tenant-configurable sequential approval engine, built on top of

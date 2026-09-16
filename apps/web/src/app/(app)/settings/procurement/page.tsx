@@ -7,7 +7,12 @@ import { Badge, Button, Input, Select } from '@zentuva/ui';
 import { CartIcon } from '@/components/workspace/icons';
 import { ApiError } from '@/lib/api-client';
 
-import { createWorkflowInstance, submitWorkflowInstance } from '../workflows/api';
+import {
+  createWorkflowInstance,
+  listWorkflowInstances,
+  resubmitWorkflowInstance,
+  submitWorkflowInstance,
+} from '../workflows/api';
 import { listSuppliers } from '../suppliers/api';
 import { cancelPurchaseOrder, listPurchaseOrders, type PurchaseOrder } from './api';
 import { EDITABLE_STATUSES, formatCurrency, STATUS_LABELS, STATUS_VARIANT } from './labels';
@@ -23,13 +28,31 @@ export default function ProcurementSettingsPage() {
     queryKey: ['suppliers'],
     queryFn: () => listSuppliers(),
   });
+  /** Sprint 26.1 §3 — a DRAFT purchase order that came back from a `RETURNED`
+   *  workflow needs `resubmit()` (preserving the linked history), not a brand-new,
+   *  unlinked `create()+submit()` — this map lets the row-level button below tell the
+   *  two cases apart. */
+  const { data: returnedWorkflowsData } = useQuery({
+    queryKey: ['workflow-instances', 'RETURNED', 'PURCHASE_ORDER'],
+    queryFn: () => listWorkflowInstances({ status: 'RETURNED', subjectType: 'PURCHASE_ORDER' }),
+  });
+  const returnedInstanceBySubjectId = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const instance of returnedWorkflowsData?.items ?? []) {
+      map.set(instance.subjectId, instance.id);
+    }
+    return map;
+  }, [returnedWorkflowsData]);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'' | PurchaseOrder['status']>('');
   const [supplierFilter, setSupplierFilter] = useState('');
   const [createOpen, setCreateOpen] = useState(false);
   const [editingOrder, setEditingOrder] = useState<PurchaseOrder | null>(null);
 
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: ['purchase-orders'] });
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ['purchase-orders'] });
+    queryClient.invalidateQueries({ queryKey: ['workflow-instances'] });
+  };
 
   const cancelMutation = useMutation({
     mutationFn: (id: string) => cancelPurchaseOrder(id),
@@ -49,6 +72,13 @@ export default function ProcurementSettingsPage() {
       });
       return submitWorkflowInstance(instance.id);
     },
+    onSuccess: invalidate,
+  });
+
+  /** Sprint 26.1 §3 — resubmits the linked `RETURNED` workflow instance rather than
+   *  starting a brand-new, unlinked one; see `returnedInstanceBySubjectId` above. */
+  const resubmitForApprovalMutation = useMutation({
+    mutationFn: (returnedInstanceId: string) => resubmitWorkflowInstance(returnedInstanceId),
     onSuccess: invalidate,
   });
 
@@ -109,6 +139,13 @@ export default function ProcurementSettingsPage() {
           {submitForApprovalMutation.error instanceof ApiError
             ? submitForApprovalMutation.error.message
             : 'Failed to submit purchase order for approval.'}
+        </p>
+      )}
+      {resubmitForApprovalMutation.isError && (
+        <p className="mb-4 text-sm text-destructive">
+          {resubmitForApprovalMutation.error instanceof ApiError
+            ? resubmitForApprovalMutation.error.message
+            : 'Failed to resubmit purchase order for approval.'}
         </p>
       )}
 
@@ -196,15 +233,28 @@ export default function ProcurementSettingsPage() {
                           <Button variant="outline" size="sm" onClick={() => setEditingOrder(po)}>
                             {editable ? 'Edit' : 'View'}
                           </Button>
-                          {po.status === 'DRAFT' && (
-                            <Button
-                              size="sm"
-                              disabled={submitForApprovalMutation.isPending}
-                              onClick={() => submitForApprovalMutation.mutate(po.id)}
-                            >
-                              Submit for Approval
-                            </Button>
-                          )}
+                          {po.status === 'DRAFT' &&
+                            (returnedInstanceBySubjectId.has(po.id) ? (
+                              <Button
+                                size="sm"
+                                disabled={resubmitForApprovalMutation.isPending}
+                                onClick={() =>
+                                  resubmitForApprovalMutation.mutate(
+                                    returnedInstanceBySubjectId.get(po.id) as string,
+                                  )
+                                }
+                              >
+                                Resubmit for Approval
+                              </Button>
+                            ) : (
+                              <Button
+                                size="sm"
+                                disabled={submitForApprovalMutation.isPending}
+                                onClick={() => submitForApprovalMutation.mutate(po.id)}
+                              >
+                                Submit for Approval
+                              </Button>
+                            ))}
                           {editable && (
                             <Button
                               variant="outline"

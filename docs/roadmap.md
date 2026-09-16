@@ -440,6 +440,28 @@ ASSIGNED → IN_PROGRESS ⇄ ON_HOLD → COMPLETED`/`CANCELLED`, both
       filtered). Not Notifications, not parallel/branching approval,
       not escalation/SLA/delegation — see
       [`docs/domains/workflow.md`](domains/workflow.md)
+- [x] Workflow Hardening, Lifecycle Completion & Domain Readiness —
+      shipped Sprint 26.1. Completes the Sprint 26 engine ahead of
+      Notifications: a dedicated `resubmit()` operation for a `RETURNED`
+      instance (a new, linked `WorkflowInstance` restarting from step 1,
+      never a rewind — its full decision history stays immutable and
+      untouched); a fixed domain-integration-atomicity bug found during
+      this sprint's own audit (a workflow could previously be marked
+      `APPROVED` even when the underlying Purchase Order update failed —
+      the domain callback now runs first, with a safe retry path for a
+      transient failure); mandatory reject/return comments; an explicit
+      `EXPIRED` transition plus a read-time-only `isOverdue` computation
+      (`dueAt` in the past, never a background job — automatic
+      escalation stays explicitly out of scope); a database-level
+      partial unique index closing a genuine concurrent-submission race
+      the audit found in Sprint 26's own check-then-act logic; and a
+      durable, idempotent `WorkflowEvent` table — transactionally
+      written alongside every state transition — that a future
+      Notifications sprint can consume without touching the engine's
+      internals. 19 new tests (74 workflow tests total, 1559 overall).
+      No second domain integration and no automatic escalation — see
+      [`docs/domains/workflow.md`](domains/workflow.md) and
+      [`docs/sprint-26.1-completion-report.md`](sprint-26.1-completion-report.md)
 - [ ] Notification + Business Activity Engine (Sprint 27 — subsequent,
       not yet started)
 - [ ] Retail Portal (mobile)

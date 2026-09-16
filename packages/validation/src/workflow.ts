@@ -42,10 +42,23 @@ export const createWorkflowInstanceSchema = z.object({
   workflowDefinitionCode: z.string().trim().min(1),
   subjectType: z.string().trim().min(1),
   subjectId: z.string().trim().min(1),
+  /// Sprint 26.1 §9 — optional; the server never invents a due date, and an absent
+  /// `dueAt` never counts as overdue.
+  dueAt: z.coerce.date().optional(),
 });
 export type CreateWorkflowInstanceInput = z.infer<typeof createWorkflowInstanceSchema>;
 
+/** Approve/cancel: a comment is a courtesy, never mandatory. */
 export const workflowDecisionInputSchema = z.object({
   comment: z.string().trim().max(2000).optional(),
 });
 export type WorkflowDecisionInput = z.infer<typeof workflowDecisionInputSchema>;
+
+/** Reject/return: Sprint 26.1 §2 "Return comment rules" — a comment explaining why is
+ *  mandatory, not optional, for both. Enforced here AND, defensively, again in
+ *  `WorkflowInstanceService` itself (server-authoritative — never trust only the
+ *  validation-pipe layer for a business rule). */
+export const workflowRequiredCommentInputSchema = z.object({
+  comment: z.string().trim().min(1, 'A comment is required').max(2000),
+});
+export type WorkflowRequiredCommentInput = z.infer<typeof workflowRequiredCommentInputSchema>;

@@ -3,8 +3,10 @@ import { WorkflowInstanceStatus } from '@prisma/client';
 import {
   CreateWorkflowInstanceInput,
   WorkflowDecisionInput,
+  WorkflowRequiredCommentInput,
   createWorkflowInstanceSchema,
   workflowDecisionInputSchema,
+  workflowRequiredCommentInputSchema,
 } from '@zentuva/validation';
 import { Request } from 'express';
 
@@ -40,10 +42,12 @@ export class WorkflowInstanceController {
     @CurrentUser() user: TokenPayload,
     @Query('status') status?: WorkflowInstanceStatus,
     @Query('subjectType') subjectType?: string,
+    @Query('overdue') overdue?: string,
   ) {
     const items = await this.workflowInstanceService.list(user.organisationId, {
       status,
       subjectType,
+      overdue: overdue === 'true',
     });
     return { items };
   }
@@ -69,6 +73,16 @@ export class WorkflowInstanceController {
     // reads by `workflowInstanceId` alone), so tenant isolation is enforced here.
     await this.workflowInstanceService.getByIdOrThrow(user.organisationId, id);
     const items = await this.workflowInstanceService.getDecisionHistory(id);
+    return { items };
+  }
+
+  @Get(':id/events')
+  @RequirePermission('workflow.audit.view')
+  async events(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
+    // Same tenant-isolation-via-getByIdOrThrow pattern as `history` above —
+    // `WorkflowEventRepository.findManyByInstance` isn't organisation-scoped itself.
+    await this.workflowInstanceService.getByIdOrThrow(user.organisationId, id);
+    const items = await this.workflowInstanceService.getEvents(id);
     return { items };
   }
 
@@ -147,7 +161,8 @@ export class WorkflowInstanceController {
   @RequirePermission('workflow.approval.reject')
   async reject(
     @Param('id') id: string,
-    @Body(new ZodValidationPipe(workflowDecisionInputSchema)) body: WorkflowDecisionInput,
+    @Body(new ZodValidationPipe(workflowRequiredCommentInputSchema))
+    body: WorkflowRequiredCommentInput,
     @CurrentUser() user: TokenPayload,
     @Req() req: Request,
   ) {
@@ -174,7 +189,8 @@ export class WorkflowInstanceController {
   @RequirePermission('workflow.approval.return')
   async return(
     @Param('id') id: string,
-    @Body(new ZodValidationPipe(workflowDecisionInputSchema)) body: WorkflowDecisionInput,
+    @Body(new ZodValidationPipe(workflowRequiredCommentInputSchema))
+    body: WorkflowRequiredCommentInput,
     @CurrentUser() user: TokenPayload,
     @Req() req: Request,
   ) {
@@ -203,6 +219,47 @@ export class WorkflowInstanceController {
     const instance = await this.workflowInstanceService.cancel(user.organisationId, id, user.sub);
     await this.auditService.record({
       action: WORKFLOW_AUDIT_ACTIONS.INSTANCE_CANCELLED,
+      entityType: 'WorkflowInstance',
+      entityId: instance.id,
+      organisationId: user.organisationId,
+      actorUserId: user.sub,
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+    });
+    return instance;
+  }
+
+  /** Sprint 26.1 §3 — gated by the same `workflow.instance.submit` permission as
+   *  `create`/`submit` above (resubmission IS a submission action; no new permission
+   *  is warranted for it). */
+  @Post(':id/resubmit')
+  @RequirePermission('workflow.instance.submit')
+  async resubmit(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
+    const instance = await this.workflowInstanceService.resubmit(user.organisationId, id, user.sub);
+    await this.auditService.record({
+      action: WORKFLOW_AUDIT_ACTIONS.INSTANCE_RESUBMITTED,
+      entityType: 'WorkflowInstance',
+      entityId: instance.id,
+      organisationId: user.organisationId,
+      actorUserId: user.sub,
+      metadata: { previousInstanceId: instance.previousInstanceId },
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+    });
+    return instance;
+  }
+
+  /** Sprint 26.1 §9 — deliberately reuses `workflow.instance.cancel` rather than
+   *  adding a new permission (workflow.md §9 "Expiry" documents this choice):
+   *  expiring a stuck workflow is the same trust level as cancelling one, and this
+   *  sprint's brief explicitly keeps automatic/scheduled expiry out of scope, so a
+   *  dedicated permission for a manually-triggered interim path would be premature. */
+  @Post(':id/expire')
+  @RequirePermission('workflow.instance.cancel')
+  async expire(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
+    const instance = await this.workflowInstanceService.expire(user.organisationId, id, user.sub);
+    await this.auditService.record({
+      action: WORKFLOW_AUDIT_ACTIONS.INSTANCE_EXPIRED,
       entityType: 'WorkflowInstance',
       entityId: instance.id,
       organisationId: user.organisationId,

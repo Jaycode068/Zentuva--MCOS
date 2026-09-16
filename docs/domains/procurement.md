@@ -3,8 +3,9 @@
 - **Status:** Purchase Order management implemented — Sprint 4.3 ("Procurement (Purchase
   Orders)"); status lifecycle extended Sprint 4.4.1 with `PARTIALLY_RECEIVED` and
   receiving-driven edit/cancel restrictions; approval routing to `APPROVED` added —
-  Sprint 26 (see below).
-- **Sprint:** 4.3, 4.4.1, 26
+  Sprint 26 (see below); return-for-correction/resubmission wired to Workflow's
+  dedicated `resubmit()` operation — Sprint 26.1.
+- **Sprint:** 4.3, 4.4.1, 26, 26.1
 - **Depends on:** [Identity](identity.md) (tenant boundary, authentication, `RolesGuard`),
   [Supplier Management](suppliers.md) (every Purchase Order belongs to a Supplier),
   [Product Catalogue](catalogue.md) (every Purchase Order line references a Product),
@@ -30,6 +31,25 @@ service, or controller** were required — see workflow.md §8 for the full inte
 design, including the one honestly-documented gap it deliberately left alone (the
 generic `PATCH .../:id` endpoint can still set `status: "PENDING"` directly, bypassing
 Workflow entirely — unchanged Sprint 4.3 behaviour, not tightened this sprint).
+`updatePurchaseOrderSchema.status` was re-confirmed (Sprint 26.1) to genuinely exclude
+`APPROVED`/`RECEIVED` — a Purchase Order cannot be pushed into an approved or completed
+state through any endpoint except Workflow's own `approve()` chain.
+
+## Sprint 26.1 update: return-for-correction now has a real resubmission path
+
+Sprint 26's `onWorkflowExited` already reverted a `PENDING` Purchase Order back to
+`DRAFT` on reject/return/cancel — directly editable through the existing `PATCH
+/procurement/purchase-orders/:id` endpoint, no change needed. What was missing was a
+governed way back INTO the approval chain: re-submitting via the generic `POST
+/workflows/instances` + `/submit` path would have created a brand-new, unlinked
+`WorkflowInstance`, losing the connection to the original request entirely. Sprint
+26.1's dedicated `resubmit()` operation (workflow.md §5.2) closes this — the
+Procurement page's "Submit for Approval" button becomes **"Resubmit for Approval"**
+for a `DRAFT` order that has a `RETURNED` workflow instance behind it, calling
+`resubmit()` against that instance so the full history (original submission, the
+return decision and its comment) stays linked and immutable. Zero changes to
+`PurchaseOrder`'s own schema, service, or controller — same "Workflow calls in, the
+domain never calls out" boundary Sprint 26 established.
 
 ## 1. Business Purpose
 

@@ -131,6 +131,16 @@ const DECISION_LABELS: Record<DecisionKind, string> = {
   return: 'Return for Correction',
 };
 
+/** Sprint 26.1 §2 "Return comment rules" — reject/return require a non-empty
+ *  comment; approve's remains optional. Enforced server-side too
+ *  (`workflowRequiredCommentInputSchema` + `WorkflowInstanceService.exitWorkflow`) —
+ *  this client-side check only avoids a round trip for the obvious case. */
+const COMMENT_REQUIRED: Record<DecisionKind, boolean> = {
+  approve: false,
+  reject: true,
+  return: true,
+};
+
 function DecisionDialog({
   target,
   onClose,
@@ -139,14 +149,18 @@ function DecisionDialog({
   onClose: () => void;
 }) {
   const [comment, setComment] = useState('');
+  const [touched, setTouched] = useState(false);
   const queryClient = useQueryClient();
+
+  const commentRequired = COMMENT_REQUIRED[target.kind];
+  const commentMissing = commentRequired && !comment.trim();
 
   const mutation = useMutation({
     mutationFn: () => {
       const id = target.item.workflowInstanceId;
       if (target.kind === 'approve') return approveWorkflowInstance(id, comment || undefined);
-      if (target.kind === 'reject') return rejectWorkflowInstance(id, comment || undefined);
-      return returnWorkflowInstance(id, comment || undefined);
+      if (target.kind === 'reject') return rejectWorkflowInstance(id, comment);
+      return returnWorkflowInstance(id, comment);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['workflow-my-approvals'] });
@@ -163,6 +177,8 @@ function DecisionDialog({
         className="space-y-4"
         onSubmit={(event) => {
           event.preventDefault();
+          setTouched(true);
+          if (commentMissing) return;
           mutation.mutate();
         }}
       >
@@ -170,12 +186,21 @@ function DecisionDialog({
           {target.item.workflowInstance.subjectType} — {target.item.workflowInstance.subjectId} ·{' '}
           {target.item.stepNameSnapshot}
         </p>
-        <Textarea
-          rows={3}
-          value={comment}
-          onChange={(e) => setComment(e.target.value)}
-          placeholder="Optional comment"
-        />
+        <div>
+          <Textarea
+            rows={3}
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+            onBlur={() => setTouched(true)}
+            placeholder={commentRequired ? 'Comment (required)' : 'Optional comment'}
+          />
+          {touched && commentMissing && (
+            <p className="mt-1 text-xs text-destructive">
+              A comment is required to {target.kind === 'reject' ? 'reject' : 'return'} this
+              request.
+            </p>
+          )}
+        </div>
         {mutation.isError && (
           <p className="text-sm text-destructive">
             {mutation.error instanceof ApiError ? mutation.error.message : 'Action failed.'}
@@ -188,7 +213,7 @@ function DecisionDialog({
           <Button
             type="submit"
             variant={target.kind === 'reject' ? 'destructive' : 'default'}
-            disabled={mutation.isPending}
+            disabled={mutation.isPending || (touched && commentMissing)}
           >
             {mutation.isPending ? 'Submitting…' : DECISION_LABELS[target.kind]}
           </Button>

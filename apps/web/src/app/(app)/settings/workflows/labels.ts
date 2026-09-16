@@ -28,6 +28,7 @@ export const WORKFLOW_INSTANCE_STATUS_LABELS: Record<WorkflowInstanceStatus, str
   REJECTED: 'Rejected',
   RETURNED: 'Returned',
   CANCELLED: 'Cancelled',
+  EXPIRED: 'Expired',
   COMPLETED: 'Completed',
 };
 
@@ -42,8 +43,17 @@ export const WORKFLOW_INSTANCE_STATUS_VARIANT: Record<
   REJECTED: 'destructive',
   RETURNED: 'destructive',
   CANCELLED: 'default',
+  EXPIRED: 'destructive',
   COMPLETED: 'success',
 };
+
+/** Sprint 26.1 — non-terminal statuses that a workflow instance chain can still act
+ *  on; used by the instance detail page to decide which lifecycle actions to offer. */
+export const NON_TERMINAL_INSTANCE_STATUSES: WorkflowInstanceStatus[] = [
+  'DRAFT',
+  'SUBMITTED',
+  'IN_PROGRESS',
+];
 
 export const WORKFLOW_STEP_STATUS_LABELS: Record<WorkflowStepInstanceStatus, string> = {
   PENDING: 'Pending',

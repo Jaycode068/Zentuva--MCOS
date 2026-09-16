@@ -1,18 +1,26 @@
 'use client';
 
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Badge, Button } from '@zentuva/ui';
+import { Badge, Button, Select } from '@zentuva/ui';
 
 import { WorkflowTabs } from '@/components/app/workflow-tabs';
 import { ApiError } from '@/lib/api-client';
 
-import { listWorkflowInstances } from '../api';
+import { listWorkflowInstances, WorkflowInstanceStatus } from '../api';
 import { WORKFLOW_INSTANCE_STATUS_LABELS, WORKFLOW_INSTANCE_STATUS_VARIANT } from '../labels';
 
 export default function WorkflowInstancesPage() {
+  const [statusFilter, setStatusFilter] = useState<'' | WorkflowInstanceStatus>('');
+  const [overdueOnly, setOverdueOnly] = useState(false);
+
   const { data, isLoading, isError, error, refetch } = useQuery({
-    queryKey: ['workflow-instances'],
-    queryFn: () => listWorkflowInstances(),
+    queryKey: ['workflow-instances', statusFilter, overdueOnly],
+    queryFn: () =>
+      listWorkflowInstances({
+        status: statusFilter || undefined,
+        overdue: overdueOnly || undefined,
+      }),
   });
 
   const instances = data?.items ?? [];
@@ -27,6 +35,29 @@ export default function WorkflowInstancesPage() {
       </div>
 
       <WorkflowTabs />
+
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <Select
+          value={statusFilter}
+          onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}
+          className="max-w-[12rem]"
+        >
+          <option value="">All statuses</option>
+          {Object.entries(WORKFLOW_INSTANCE_STATUS_LABELS).map(([value, label]) => (
+            <option key={value} value={value}>
+              {label}
+            </option>
+          ))}
+        </Select>
+        <label className="flex items-center gap-2 text-sm text-muted-foreground">
+          <input
+            type="checkbox"
+            checked={overdueOnly}
+            onChange={(event) => setOverdueOnly(event.target.checked)}
+          />
+          Overdue only
+        </label>
+      </div>
 
       {isLoading && (
         <p className="py-10 text-center text-sm text-muted-foreground">Loading instances…</p>
@@ -58,7 +89,7 @@ export default function WorkflowInstancesPage() {
               {instances.length === 0 && (
                 <tr>
                   <td colSpan={5} className="px-4 py-10 text-center text-muted-foreground">
-                    No workflow instances yet.
+                    No workflow instances match this filter.
                   </td>
                 </tr>
               )}
@@ -69,6 +100,11 @@ export default function WorkflowInstancesPage() {
                     <td className="px-4 py-3">
                       <span className="font-mono text-xs">{instance.subjectType}</span>
                       <span className="ml-2 text-muted-foreground">{instance.subjectId}</span>
+                      {instance.resubmissionCount > 0 && (
+                        <span className="ml-2 text-xs text-muted-foreground">
+                          (resubmission #{instance.resubmissionCount})
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-muted-foreground">
                       {currentStep ? currentStep.stepNameSnapshot : '—'}
@@ -79,9 +115,12 @@ export default function WorkflowInstancesPage() {
                         : '—'}
                     </td>
                     <td className="px-4 py-3">
-                      <Badge variant={WORKFLOW_INSTANCE_STATUS_VARIANT[instance.status]}>
-                        {WORKFLOW_INSTANCE_STATUS_LABELS[instance.status]}
-                      </Badge>
+                      <div className="flex items-center gap-2">
+                        {instance.isOverdue && <Badge variant="destructive">Overdue</Badge>}
+                        <Badge variant={WORKFLOW_INSTANCE_STATUS_VARIANT[instance.status]}>
+                          {WORKFLOW_INSTANCE_STATUS_LABELS[instance.status]}
+                        </Badge>
+                      </div>
                     </td>
                     <td className="px-4 py-3 text-right">
                       <Button
