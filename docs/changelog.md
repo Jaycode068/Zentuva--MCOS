@@ -7,6 +7,61 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 27 Notifications & Activity Centre Foundation] - 2026-09-16
+
+**The first reusable in-app notification system, built as a pure downstream
+consumer of Sprint 26.1's `WorkflowEvent` table.** A new `Notification` model
+(`WORKFLOW_APPROVAL_REQUIRED`/`WORKFLOW_STEP_APPROVED`/`WORKFLOW_APPROVED`/
+`WORKFLOW_STEP_REJECTED`/`WORKFLOW_RETURNED`/`WORKFLOW_RESUBMITTED`/
+`WORKFLOW_CANCELLED`/`WORKFLOW_EXPIRED`, `IN_APP` channel only) is produced by a
+new `NotificationEventProcessorService` that reads `WorkflowEvent` rows directly
+via Prisma — never through `WorkflowInstanceService` — and resolves recipients by
+reusing `WorkflowEligibilityService.listEligibleApprovers` unchanged, so a
+suspended or ineligible user is structurally incapable of being notified about
+something they could no longer approve. Idempotency is enforced by a database-level
+unique constraint (`organisationId`+`sourceEventId`+`recipientUserId`+`channel`)
+via `createMany({ skipDuplicates: true })`, not an application-level check —
+replaying an already-processed event, or two concurrent processors racing the
+same event, both converge on exactly one notification row. Every event's
+notification rows and its own `notificationProcessedAt` stamp commit in one
+transaction, so a processing failure never marks an event falsely processed and
+never corrupts the workflow transition that produced it.
+
+Four new processing-state columns were added directly to the existing
+`WorkflowEvent` table (`notificationProcessedAt`/`notificationAttempts`/
+`notificationLastAttemptAt`/`notificationLastError`) rather than a new outbox
+table. No queue/cron infrastructure exists anywhere in this codebase yet, so
+processing is triggered on demand: a 20-second poll from the new header
+notification bell, plus a direct call after every workflow-mutating action
+succeeds (submit/approve/reject/return/cancel/resubmit) — fire-and-forget, so a
+notification-processing hiccup can never surface as a workflow-action failure.
+
+A companion Activity Centre (`GET /notifications/activity`) composes an
+organisation-wide "what happened" feed live from the same `WorkflowEvent` rows —
+no duplicate table, gated by the existing `workflow.audit.view` permission rather
+than a new one. Every other route (`GET/POST /notifications/*`) is self-scoped,
+gated by `JwtAuthGuard` alone (matching `AccountController`'s "my own data"
+precedent), and additionally scoped server-side to the caller's own organisation
+and recipient id — zero new permission-catalogue entries this sprint.
+
+Frontend: a notification bell with an unread badge in the global header
+(`Topbar`, visible on every authenticated page), a dropdown of recent
+notifications, and a full `/notifications` page with pagination, an unread
+filter, mark-read/mark-unread/mark-all-read actions, and loading/error/empty
+states — all mobile-verified at 375px (a real crowding issue found during that
+pass was fixed in the same session: the notification-type badge is now hidden
+below the `sm:` breakpoint).
+
+51 new tests across 6 suites (125 workflow+notifications tests; 187 suites /
+1604 tests overall, all passing). Live-verified end-to-end: submit → approval-required notification →
+mark read → replay processing (zero duplicates) → return (comment included in
+the notification) → resubmit → approve × 2 (exactly one requester notification
+per step, never a duplicate on the final step) → suspended-approver exclusion →
+cross-tenant isolation (404, not information leakage) → mobile rendering.
+
+See [`docs/domains/notifications.md`](domains/notifications.md) and
+[`docs/sprint-27-completion-report.md`](sprint-27-completion-report.md).
+
 ## [Sprint 26.1 Workflow Hardening, Lifecycle Completion & Domain Readiness] - 2026-09-15
 
 **Completes the Sprint 26 workflow engine's lifecycle ahead of Notifications — a

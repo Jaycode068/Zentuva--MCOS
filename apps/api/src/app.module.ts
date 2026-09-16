@@ -27,6 +27,7 @@ import { CustomerModule } from './retail/customer/customer.module';
 import { NetworkRelationshipModule } from './retail/network/network-relationship.module';
 import { OutletModule } from './retail/outlet/outlet.module';
 import { TerritoryModule } from './retail/territory/territory.module';
+import { NotificationsModule } from './notifications/notifications.module';
 import { SalesModule } from './sales/sales.module';
 import { SupplierModule } from './suppliers/supplier/supplier.module';
 import { WorkflowModule } from './workflow/workflow.module';
@@ -65,6 +66,7 @@ import { WorkflowModule } from './workflow/workflow.module';
     HrModule,
     AccessControlModule,
     WorkflowModule,
+    NotificationsModule,
   ],
 })
 export class AppModule {}

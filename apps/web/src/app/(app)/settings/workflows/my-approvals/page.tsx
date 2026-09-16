@@ -6,6 +6,7 @@ import { Button, Dialog, DialogHeader, DialogTitle, Textarea } from '@zentuva/ui
 
 import { WorkflowTabs } from '@/components/app/workflow-tabs';
 import { ApiError } from '@/lib/api-client';
+import { processNotificationEvents } from '@/app/(app)/notifications/api';
 
 import {
   approveWorkflowInstance,
@@ -164,6 +165,8 @@ function DecisionDialog({
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['workflow-my-approvals'] });
+      // Sprint 27 — see instances/[id]/page.tsx's identical comment.
+      processNotificationEvents().catch(() => undefined);
       onClose();
     },
   });

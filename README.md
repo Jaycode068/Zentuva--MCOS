@@ -96,9 +96,18 @@ feature is built configurably so it can be reused by future tenants without code
 > background job, a database-level index closing a genuine concurrent-submission race
 > found during the sprint's own audit, and — the sprint's central deliverable — a
 > durable, idempotent workflow event log that a future Notifications sprint can consume
-> without ever touching the workflow engine's internals. Deliberately still not
-> Notifications, a second domain integration, or a policy-as-code engine — those remain
-> explicitly future work. See [docs/domains/README.md](docs/domains/README.md) for the
+> without ever touching the workflow engine's internals. Most recently, a Notifications
+> & Activity Centre Foundation sprint became that consumer — an in-app notification
+> system built as a pure downstream reader of the workflow event log's own database
+> table, never a service call into the workflow engine, proving the boundary the
+> previous sprint built actually holds. Zero new authorization primitives; every
+> notification is idempotent by a database-level constraint, not an application check;
+> recipient eligibility reuses the workflow engine's own eligibility service unchanged,
+> so a suspended user is structurally incapable of being notified about something they
+> could no longer approve anyway. No queue or cron infrastructure exists yet, so
+> processing is triggered on demand — a documented, deliberate MVP choice. Deliberately
+> still not email, SMS, push, or a second domain integration — those remain explicitly
+> future work. See [docs/domains/README.md](docs/domains/README.md) for the
 > current status of every domain and [docs/roadmap.md](docs/roadmap.md) for the full
 > build order.
 

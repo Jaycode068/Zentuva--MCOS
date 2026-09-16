@@ -1019,17 +1019,23 @@ rendering correctly, zero unexpected console errors.
 - **Notifications** — explicitly out of scope; §17 covers the event boundary this
   sprint hardens into a durable, idempotent record for it.
 
-## 17. Event Boundary for Future Notifications
+## 17. Event Boundary — Now Consumed by Notifications (Sprint 27)
 
 Sprint 26 shipped `workflow-events.ts` as documentation-only — a plain name+shape
 catalog cross-referenced to `AuditLog`, nothing actually persisted in a structured
-form. **Sprint 26.1 makes this real**: every event type is now a durable row in a
+form. Sprint 26.1 made this real: every event type became a durable row in a
 dedicated `WorkflowEvent` table, written transactionally alongside the state change
-that produced it (§12). Still **no** `EventEmitter`/dispatcher/queue/webhook — that
-remains entirely a future Notifications sprint's job; this is the durable, queryable,
-idempotent record that consumer will read from, satisfying the brief's own stated goal
-for this sprint: _"Notifications should be able to consume well-defined workflow
-events without needing to understand or embed workflow business logic."_
+that produced it (§12). **Sprint 27 is the consumer** that boundary was built for —
+see [docs/domains/notifications.md](notifications.md) for the full design. The
+relationship stays exactly one-directional: `NotificationsModule` imports
+`WorkflowModule` read-only (this module now `exports:
+[WorkflowEligibilityService, WorkflowDefinitionService, WORKFLOW_SUBJECT_HANDLERS]`
+for that purpose — the only change Sprint 27 made to any file in this domain);
+`WorkflowModule` itself has zero awareness of Notifications and nothing here was
+redesigned. Still **no** `EventEmitter`/dispatcher/queue — Sprint 27's own consumer
+is triggered on demand (frontend poll + post-mutation calls), not a background
+worker, matching this codebase's continued absence of any queue/cron
+infrastructure.
 
 ### Event types (`WORKFLOW_EVENT_TYPES`, `workflow-events.ts`)
 
@@ -1077,14 +1083,19 @@ without querying `WorkflowStepInstance`/`WorkflowDecision` internals at all.
   caller's organisation before returning anything, the same pattern `history` already
   uses.
 - **Not** an outbox pattern with a separate publish step — there is no "pending →
-  published" state on `WorkflowEvent` rows, because nothing consumes them yet. A future
-  Notifications sprint would either poll this table directly or add its own
-  outbox/cursor mechanism on top; this sprint deliberately does not guess at that
-  design.
+  published" state on `WorkflowEvent` rows themselves. **Sprint 27 update**:
+  Notifications added its OWN processing-state columns directly to this same table
+  (`notificationProcessedAt`/`notificationAttempts`/`notificationLastAttemptAt`/
+  `notificationLastError`) rather than a separate outbox table — see
+  notifications.md §4 "Option B." This domain's own code never reads or writes
+  those columns; they exist purely for Notifications' consumption bookkeeping.
 
-Read access exists today purely for verification, debugging, and the eventual
-Notifications consumer to build against — `WorkflowEventRepository.findManyByInstance`/
-`findManyByOrganisation`, exposed via `GET /workflows/instances/:id/events`
-(`workflow.audit.view`). No UI surfaces this yet (the admin UI's History tab uses
-`WorkflowDecision` directly, which is the human-readable equivalent); this is
-intentionally an API-only, forward-looking surface.
+Read access exists for verification, debugging, and is now also how Notifications'
+`NotificationEventProcessorService` itself reads pending events (directly via
+Prisma, not through `WorkflowEventRepository` or any other Workflow service) —
+`WorkflowEventRepository.findManyByInstance`/`findManyByOrganisation` remains the
+HTTP-facing surface, exposed via `GET /workflows/instances/:id/events`
+(`workflow.audit.view`). No admin UI surfaces raw `WorkflowEvent` rows directly
+(the admin UI's History tab uses `WorkflowDecision`, the human-readable
+equivalent) — the Notifications domain's own UI (notifications.md §13) is the
+first real UI consumer of this event stream.

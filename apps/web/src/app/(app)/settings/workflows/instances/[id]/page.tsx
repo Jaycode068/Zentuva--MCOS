@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Badge, Button } from '@zentuva/ui';
 
 import { ApiError } from '@/lib/api-client';
+import { processNotificationEvents } from '@/app/(app)/notifications/api';
 
 import {
   cancelWorkflowInstance,
@@ -43,13 +44,21 @@ export default function WorkflowInstanceDetailPage() {
 
   const cancelMutation = useMutation({
     mutationFn: () => cancelWorkflowInstance(id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['workflow-instance', id] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['workflow-instance', id] });
+      // Sprint 27 — trigger notification-event processing right after a mutation
+      // succeeds rather than waiting for the bell's own poll (docs/domains/
+      // notifications.md §4). Fire-and-forget: a notification-processing failure
+      // must never surface as if THIS workflow action failed.
+      processNotificationEvents().catch(() => undefined);
+    },
   });
 
   const resubmitMutation = useMutation({
     mutationFn: () => resubmitWorkflowInstance(id),
     onSuccess: (newInstance) => {
       queryClient.invalidateQueries({ queryKey: ['workflow-instance', id] });
+      processNotificationEvents().catch(() => undefined);
       window.location.href = `/settings/workflows/instances/${newInstance.id}`;
     },
   });

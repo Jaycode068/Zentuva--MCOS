@@ -863,6 +863,7 @@ REJECTED}`) optionally linking an existing `CapitalProject`/
 - ✓ Sprint 25.1 — Authorization Coverage & Scope Enforcement
 - ✓ Sprint 26 — Workflow & Approval Foundation
 - ✓ Sprint 26.1 — Workflow Hardening, Lifecycle Completion & Domain Readiness
+- ✓ Sprint 27 — Notifications & Activity Centre Foundation
 
 **Current focus:** The Finance MVP (Sprints 6-19) is considered
 functionally complete. Epic 14 (Asset & Maintenance Management) is fully
@@ -923,18 +924,35 @@ state transition, ready for a future Notifications sprint to consume
 without touching workflow internals. 19 new tests (74 workflow / 1559
 total) — see [`docs/domains/workflow.md`](domains/workflow.md) and
 [`docs/sprint-26.1-completion-report.md`](sprint-26.1-completion-report.md).
+Sprint 27 ("Notifications & Activity Centre Foundation") builds the first
+in-app notification system as a pure downstream consumer of that
+`WorkflowEvent` table — a data boundary, not a service call
+(`NotificationEventProcessorService` reads the table directly via Prisma,
+never `WorkflowInstanceService`, proven by
+`notifications-independence.spec.ts`). Zero new authorization primitives
+and zero new permission-catalogue entries; every self-scoped route uses
+`JwtAuthGuard` alone, scoped server-side to the caller's own organisation
+and recipient id. Idempotent by a database-level unique constraint, not
+an application-level check — live-verified by replaying the processor
+and confirming zero duplicate notifications. Recipient resolution reuses
+`WorkflowEligibilityService.listEligibleApprovers` unchanged, so a
+suspended user structurally cannot be notified (live-verified). A
+companion Activity Centre composes an organisation-wide feed live from
+the same `WorkflowEvent` rows, no duplicate table. No queue/cron
+infrastructure exists yet, so processing is triggered on demand — see
+[`docs/domains/notifications.md`](domains/notifications.md) and
+[`docs/sprint-27-completion-report.md`](sprint-27-completion-report.md).
 Deliberately still not started: payroll, leave management, recruitment
-automation, performance/KPI engines, an LMS, Notifications (Workflow's
-`WorkflowEvent` table is the durable boundary left for it — see
-workflow.md §17), a Technician RBAC role (from Sprint 22),
+automation, performance/KPI engines, an LMS, email/SMS/push/webhook
+notification channels, notification preferences, digests, scheduled
+reminders, a Technician RBAC role (from Sprint 22),
 `ASSIGNED_TERRITORY`/`ASSIGNED_ASSETS` scope enforcement (no server-side
 assignment relationship exists yet to prove them from), permission-aware
 frontend navigation filtering, automatic escalation/SLA/delegation,
 parallel/branching approval, and a second Workflow domain integration
 (Supplier Payment, Sales Order, Purchase Requisition, Capital Project —
 inspected during Sprint 26.1's audit; none had a clean draft/submission/
-approval boundary as ready as Purchase Order's). Next sprint: Sprint 27
-(Notification + Business Activity Engine) is subsequent.
+approval boundary as ready as Purchase Order's).
 
 ## 6. Future Ideas (Not Prioritised Yet)
 

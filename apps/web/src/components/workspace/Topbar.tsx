@@ -21,6 +21,7 @@ import { orgInitialsFor } from '@/lib/org-initials';
 import { getWorkspaceSettings } from '@/lib/settings';
 
 import { MenuIcon } from './icons';
+import { NotificationBell } from './NotificationBell';
 
 /**
  * Top navigation bar for the Workspace shell — the direct successor to Sprint 3.2/3.3/3.4's
@@ -110,45 +111,48 @@ export function Topbar({ onMenuClick }: { onMenuClick: () => void }) {
           )}
         </div>
 
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full bg-brandPurple text-xs font-semibold text-brandPurple-foreground transition-opacity hover:opacity-90"
-            aria-label="Account menu"
-          >
-            {profile?.avatarUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element -- user-uploaded URL
-              <img src={profile.avatarUrl} alt="" className="h-full w-full object-cover" />
-            ) : (
-              initials
-            )}
-          </DropdownMenuTrigger>
-          <DropdownMenuContent>
-            {profile && (
-              <>
-                <DropdownMenuLabel>
-                  <p className="font-medium text-foreground">
-                    {profile.firstName} {profile.lastName}
-                  </p>
-                  <p className="truncate font-normal">{profile.email}</p>
-                </DropdownMenuLabel>
-                <DropdownMenuSeparator />
-              </>
-            )}
-            <DropdownMenuItem onSelect={() => router.push('/account/profile')}>
-              My Profile
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => router.push('/account/security')}>
-              Security
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => router.push('/account/sessions')}>
-              Active Sessions
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onSelect={handleLogout} className="text-destructive">
-              Logout
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <div className="flex items-center gap-1">
+          <NotificationBell />
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full bg-brandPurple text-xs font-semibold text-brandPurple-foreground transition-opacity hover:opacity-90"
+              aria-label="Account menu"
+            >
+              {profile?.avatarUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element -- user-uploaded URL
+                <img src={profile.avatarUrl} alt="" className="h-full w-full object-cover" />
+              ) : (
+                initials
+              )}
+            </DropdownMenuTrigger>
+            <DropdownMenuContent>
+              {profile && (
+                <>
+                  <DropdownMenuLabel>
+                    <p className="font-medium text-foreground">
+                      {profile.firstName} {profile.lastName}
+                    </p>
+                    <p className="truncate font-normal">{profile.email}</p>
+                  </DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                </>
+              )}
+              <DropdownMenuItem onSelect={() => router.push('/account/profile')}>
+                My Profile
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => router.push('/account/security')}>
+                Security
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => router.push('/account/sessions')}>
+                Active Sessions
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={handleLogout} className="text-destructive">
+                Logout
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </Container>
     </header>
   );

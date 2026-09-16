@@ -1,0 +1,43 @@
+import { Module } from '@nestjs/common';
+
+import { AuthModule } from '../identity/auth/auth.module';
+import { IdentityModule } from '../identity/identity.module';
+import { WorkflowModule } from '../workflow/workflow.module';
+import { ActivityService } from './activity.service';
+import { NotificationEventProcessorService } from './notification-event-processor.service';
+import { NotificationMessageBuilder } from './notification-message-builder';
+import { NotificationRecipientResolver } from './notification-recipient-resolver';
+import { NotificationRepository } from './notification.repository';
+import { NotificationService } from './notification.service';
+import { NotificationsController } from './notifications.controller';
+
+/**
+ * Notifications & Activity Centre Foundation (Sprint 27, docs/domains/
+ * notifications.md). Imports `WorkflowModule` read-only — the one-directional
+ * "downstream consumer" pattern documented on `WorkflowModule` itself: this module
+ * reuses `WorkflowEligibilityService`/`WorkflowDefinitionService`/
+ * `WORKFLOW_SUBJECT_HANDLERS` (all now exported from `WorkflowModule`) rather than
+ * duplicating eligibility logic or subject-description logic, and reads the
+ * `WorkflowEvent`/`WorkflowInstance`/`WorkflowStepInstance` TABLES directly via the
+ * globally-registered `PrismaService` — never `WorkflowInstanceService` — so nothing
+ * here can call into or mutate Workflow's own state machine. `WorkflowModule` itself
+ * has no import of, or awareness of, this module.
+ *
+ * `IdentityModule` is imported for the guards/decorators
+ * (`JwtAuthGuard`/`CurrentUser`) the controller uses, matching every other domain
+ * module's own import list.
+ */
+@Module({
+  imports: [IdentityModule, AuthModule, WorkflowModule],
+  controllers: [NotificationsController],
+  providers: [
+    NotificationRepository,
+    NotificationRecipientResolver,
+    NotificationMessageBuilder,
+    NotificationEventProcessorService,
+    NotificationService,
+    ActivityService,
+  ],
+  exports: [NotificationEventProcessorService],
+})
+export class NotificationsModule {}

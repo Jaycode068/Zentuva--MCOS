@@ -235,6 +235,8 @@ model Organisation {
   workflowInstances                  WorkflowInstance[]
   /// Added Sprint 26.1 — Workflow Hardening (docs/domains/workflow.md §7).
   workflowEvents                     WorkflowEvent[]
+  /// Added Sprint 27 — Notifications & Activity Centre Foundation (docs/domains/notifications.md).
+  notifications                      Notification[]
 
   @@map("organisations")
 }
@@ -6328,14 +6330,125 @@ model WorkflowEvent {
   idempotencyKey            String
   summary                   Json?
   occurredAt                DateTime @default(now())
+  /// Sprint 27 §2 "Durable Event Consumption" — processing-state columns added
+  /// directly to the existing event table (Option B: "event consumer with
+  /// processing state") rather than a separate outbox table, since `WorkflowEvent`
+  /// already IS the durable, transactionally-written record Sprint 26.1 built for
+  /// exactly this purpose. `NULL` means "not yet processed into notifications";
+  /// `NotificationEventProcessorService.processPendingEvents` is the only writer.
+  notificationProcessedAt   DateTime?
+  /// Incremented on every processing ATTEMPT (success or failure) — never reset.
+  notificationAttempts      Int       @default(0)
+  notificationLastAttemptAt DateTime?
+  /// Cleared (set back to `null`) on the attempt that finally succeeds — so a
+  /// non-null value always means "the most recent attempt failed," never stale
+  /// history from an attempt that later succeeded.
+  notificationLastError     String?
 
   organisation     Organisation     @relation(fields: [organisationId], references: [id], onDelete: Cascade)
   workflowInstance WorkflowInstance @relation(fields: [workflowInstanceId], references: [id], onDelete: Cascade)
+  notifications    Notification[]
 
   @@unique([organisationId, idempotencyKey])
   @@index([organisationId, workflowInstanceId])
   @@index([organisationId, eventType])
+  /// The processor's own primary query: "give me this organisation's unprocessed
+  /// events, oldest first."
+  @@index([organisationId, notificationProcessedAt])
   @@map("workflow_events")
+}
+
+enum NotificationChannel {
+  /// The only channel implemented this sprint (Sprint 27 §"Initial delivery
+  /// channel"). The enum exists specifically so EMAIL/SMS/PUSH/WEBHOOK can be added
+  /// later as new values without a data-model migration for existing rows — see
+  /// docs/domains/notifications.md §11.
+  IN_APP
+}
+
+/// Sprint 27 §Workstream 1 "Notification status" — deliberately the simplest
+/// lifecycle that satisfies the brief: `UNREAD` → `READ`, with no separate
+/// delivery-state machine (there is nothing to "deliver" for an IN_APP-only
+/// channel beyond the row existing). A future EMAIL/SMS channel would need its own
+/// delivery-status tracking, not modelled here.
+enum NotificationStatus {
+  UNREAD
+  READ
+}
+
+/// Sprint 27 §Workstream 1 "Notification type" — a controlled enum, not an
+/// arbitrary string (docs/domains/notifications.md §2). One value per Workflow
+/// event type that ACTUALLY produces a notification under this sprint's recipient
+/// rules (docs/domains/notifications.md §7) — `SUBMITTED` and `COMPLETED` are real,
+/// emitted `WorkflowEvent` types (workflow.md §7) that deliberately have NO
+/// notification type here: `SUBMITTED` is redundant with `APPROVAL_REQUIRED` (both
+/// fire in the same request), and `COMPLETED` has no reachable caller anywhere in
+/// this codebase (`WorkflowInstanceService.markCompleted` exists but no controller
+/// route or subject handler ever calls it) — see notifications.md §3 "Excluded
+/// event types" for the full reasoning.
+enum NotificationType {
+  WORKFLOW_APPROVAL_REQUIRED
+  WORKFLOW_STEP_APPROVED
+  WORKFLOW_APPROVED
+  WORKFLOW_STEP_REJECTED
+  WORKFLOW_RETURNED
+  WORKFLOW_RESUBMITTED
+  WORKFLOW_CANCELLED
+  WORKFLOW_EXPIRED
+}
+
+/// A single user-facing in-app notification (Sprint 27, docs/domains/notifications.md
+/// §2). Always produced by `NotificationEventProcessorService` from a durable
+/// `WorkflowEvent` — never written directly by a Workflow controller/service, keeping
+/// event PRODUCTION (Workflow's job) and notification DELIVERY (this domain's job)
+/// on opposite sides of a data boundary rather than a service-call boundary
+/// (notifications.md §4).
+model Notification {
+  id              String              @id @default(cuid())
+  organisationId  String
+  /// Deliberately a plain scoped string, not a formal Prisma relation — matching
+  /// this codebase's existing convention for "actor/recipient" user references
+  /// (`WorkflowInstance.requestedById`, `WorkflowDecision.actorUserId`, etc., none
+  /// of which have a reverse relation on `User` either).
+  recipientUserId String
+  type            NotificationType
+  channel         NotificationChannel @default(IN_APP)
+  title           String
+  body            String
+  status          NotificationStatus  @default(UNREAD)
+  readAt          DateTime?
+  /// The `WorkflowEvent` this notification was produced from — the trace-back link
+  /// required by notifications.md §2. Nullable only so the model doesn't preclude a
+  /// future non-event-sourced notification; every row created by this sprint's
+  /// processor always sets it.
+  sourceEventId   String?
+  /// `sourceType`/`sourceId` duplicate the event's own subject reference
+  /// deliberately (notifications.md §2 "avoid fragile URL parsing") — a consumer
+  /// (the frontend list, a future digest) can navigate without joining back to
+  /// `WorkflowEvent`/`WorkflowInstance` at all.
+  sourceType      String
+  sourceId        String
+  /// Precomputed, deterministic navigation target (e.g.
+  /// `/settings/workflows/instances/{id}`) — never parsed or reconstructed by the
+  /// frontend from `sourceType`/`sourceId`.
+  actionUrl       String?
+  metadata        Json?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  organisation Organisation   @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  sourceEvent  WorkflowEvent? @relation(fields: [sourceEventId], references: [id], onDelete: SetNull)
+
+  /// Sprint 27 §Workstream 3 "Idempotency and Deduplication" — the database-level
+  /// invariant: at most one notification per (event, recipient, channel).
+  /// `NotificationEventProcessorService` inserts via `createMany({ skipDuplicates:
+  /// true })` against this exact constraint, so replaying an already-processed
+  /// event, or two concurrent processors racing on the same event, both converge on
+  /// exactly one row per recipient — never a silent application-level check alone.
+  @@unique([organisationId, sourceEventId, recipientUserId, channel])
+  @@index([organisationId, recipientUserId, status])
+  @@index([organisationId, recipientUserId, createdAt])
+  @@map("notifications")
 }
 
 /// A runtime copy of one `WorkflowStep`, snapshotted at `WorkflowInstance` creation so

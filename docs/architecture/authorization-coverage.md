@@ -452,6 +452,19 @@ which is out of scope for a Workflow-focused hardening sprint:
 - The permission catalogue grew from 121 (this document's baseline) to 132 across
   Sprint 26 (11 new Workflow-related rows) and stayed at 132 through Sprint 26.1 (zero
   new rows — every Sprint 26.1 addition deliberately reused an existing permission).
+- **Sprint 27 (Notifications & Activity Centre)**: the catalogue stayed at 132 — zero
+  new rows. `NotificationsController`'s self-scoped routes (`GET /notifications`,
+  `unread-count`, `:id`, `process-events`, `mark-all-read`, `:id/read`,
+  `:id/unread`) use `JwtAuthGuard` alone, matching `AccountController`'s existing
+  "my own data needs no permission beyond being an active authenticated user"
+  precedent — none of them are `CENTRAL_PERMISSION_GUARDED`, and that is correct,
+  not a gap: every query is additionally scoped server-side to the caller's own
+  `organisationId` + `recipientUserId`, never relying on the permission layer to
+  do that job. The one exception, `GET /notifications/activity` (organisation-wide,
+  not self-scoped), reuses the existing `workflow.audit.view` entry rather than
+  adding a new one. See
+  [notifications.md §12](../domains/notifications.md#12-authorization--tenant-isolation)
+  for the full accounting.
 
 ---
 

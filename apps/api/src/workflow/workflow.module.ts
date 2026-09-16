@@ -33,6 +33,18 @@ import { WORKFLOW_SUBJECT_HANDLERS } from './workflow-subject-handler';
  * Sales Order, ...) adds its own handler class and one more entry to this factory's
  * array, importing that domain's module the same way, without touching
  * `WorkflowInstanceService` at all.
+ *
+ * Sprint 27 — `NotificationsModule` imports this module read-only (the same
+ * one-directional pattern as `PurchaseOrderModule` above, just in the other
+ * direction: a downstream CONSUMER of Workflow rather than a domain Workflow
+ * integrates INTO). It reuses `WorkflowEligibilityService`/`WorkflowDefinitionService`
+ * (recipient resolution must ask the exact same "is this user eligible" question
+ * Workflow itself asks — duplicating that logic would be the real violation of "don't
+ * embed workflow business logic elsewhere") and `WORKFLOW_SUBJECT_HANDLERS` (to
+ * produce a human-readable notification body via each handler's existing
+ * `describe()`). `WorkflowModule` itself imports nothing new and has zero awareness
+ * of `NotificationsModule` — the dependency points one way only, exactly like every
+ * other cross-domain boundary in this codebase.
  */
 @Module({
   imports: [IdentityModule, AuthModule, PurchaseOrderModule],
@@ -51,5 +63,6 @@ import { WORKFLOW_SUBJECT_HANDLERS } from './workflow-subject-handler';
       inject: [PurchaseOrderWorkflowHandler],
     },
   ],
+  exports: [WorkflowEligibilityService, WorkflowDefinitionService, WORKFLOW_SUBJECT_HANDLERS],
 })
 export class WorkflowModule {}

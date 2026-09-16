@@ -6,6 +6,7 @@ import { Badge, Button, Input, Select } from '@zentuva/ui';
 
 import { CartIcon } from '@/components/workspace/icons';
 import { ApiError } from '@/lib/api-client';
+import { processNotificationEvents } from '@/app/(app)/notifications/api';
 
 import {
   createWorkflowInstance,
@@ -52,6 +53,9 @@ export default function ProcurementSettingsPage() {
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['purchase-orders'] });
     queryClient.invalidateQueries({ queryKey: ['workflow-instances'] });
+    // Sprint 27 — see instances/[id]/page.tsx's identical comment: trigger
+    // notification processing right after a workflow-mutating action here too.
+    processNotificationEvents().catch(() => undefined);
   };
 
   const cancelMutation = useMutation({

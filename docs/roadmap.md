@@ -462,8 +462,30 @@ ASSIGNED → IN_PROGRESS ⇄ ON_HOLD → COMPLETED`/`CANCELLED`, both
       No second domain integration and no automatic escalation — see
       [`docs/domains/workflow.md`](domains/workflow.md) and
       [`docs/sprint-26.1-completion-report.md`](sprint-26.1-completion-report.md)
-- [ ] Notification + Business Activity Engine (Sprint 27 — subsequent,
-      not yet started)
+- [x] Notifications & Activity Centre Foundation — shipped Sprint 27. The
+      first in-app notification system, built as a pure downstream
+      consumer of Sprint 26.1's `WorkflowEvent` table — a data boundary,
+      not a service call, verified by `notifications-independence.spec.ts`.
+      Zero new authorization primitives and zero new permission-catalogue
+      entries; every self-scoped route uses `JwtAuthGuard` alone, scoped
+      server-side to the caller's own organisation and recipient id.
+      Idempotent by a database-level unique constraint
+      (`organisationId`+`sourceEventId`+`recipientUserId`+`channel`), not
+      an application-level check — live-verified by replaying the
+      processor and confirming zero duplicate notifications. Recipient
+      resolution reuses `WorkflowEligibilityService.listEligibleApprovers`
+      unchanged, so a suspended or ineligible user structurally cannot be
+      notified (live-verified against a suspended approver). A companion
+      Activity Centre composes an organisation-wide feed live from the
+      same `WorkflowEvent` rows, no duplicate table. No queue/cron
+      infrastructure exists yet, so processing is triggered on demand (a
+      frontend poll plus a call after every workflow-mutating action) —
+      a documented, deliberate MVP choice. A notification bell in the
+      global header plus a full `/notifications` page, mobile-verified at
+      375px. 51 new tests (125 workflow+notifications tests, 1604
+      overall). No email/SMS/push, no digests, no escalation — see
+      [`docs/domains/notifications.md`](domains/notifications.md) and
+      [`docs/sprint-27-completion-report.md`](sprint-27-completion-report.md)
 - [ ] Retail Portal (mobile)
 - [ ] Sales Rep mobile workflows
 - [ ] Business Intelligence dashboards
