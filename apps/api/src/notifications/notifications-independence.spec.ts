@@ -31,6 +31,10 @@ describe('Notifications independence (Sprint 27)', () => {
     'notifications.controller.ts',
     'activity.service.ts',
     'subject-label.util.ts',
+    'notification-preference.repository.ts',
+    'notification-preference.service.ts',
+    'notification-category.ts',
+    'notification-processing.constants.ts',
   ];
 
   it('structural guard: no Notifications file IMPORTS WorkflowInstanceService — the boundary is the WorkflowEvent/WorkflowInstance/WorkflowStepInstance TABLES, never a call into the engine itself (doc comments explaining this are fine; an actual import is not)', () => {

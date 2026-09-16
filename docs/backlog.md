@@ -864,6 +864,7 @@ REJECTED}`) optionally linking an existing `CapitalProject`/
 - ✓ Sprint 26 — Workflow & Approval Foundation
 - ✓ Sprint 26.1 — Workflow Hardening, Lifecycle Completion & Domain Readiness
 - ✓ Sprint 27 — Notifications & Activity Centre Foundation
+- ✓ Sprint 27.1 — Notification Reliability, Preferences & Activity Consolidation
 
 **Current focus:** The Finance MVP (Sprints 6-19) is considered
 functionally complete. Epic 14 (Asset & Maintenance Management) is fully
@@ -942,17 +943,39 @@ the same `WorkflowEvent` rows, no duplicate table. No queue/cron
 infrastructure exists yet, so processing is triggered on demand — see
 [`docs/domains/notifications.md`](domains/notifications.md) and
 [`docs/sprint-27-completion-report.md`](sprint-27-completion-report.md).
+Sprint 27.1 ("Notification Reliability, Preferences & Activity
+Consolidation") hardens that foundation without redesigning it: an
+explicit `PENDING`/`PROCESSING`/`PROCESSED`/`FAILED` state machine on
+`WorkflowEvent`, claimed via a per-row conditional `updateMany` (this
+codebase's own established concurrency idiom) — live-verified by firing
+5 simultaneous processing requests at one event and confirming exactly
+one succeeded. A bounded retry policy (3 attempts, `[0, 1min, 5min]`
+backoff, terminal `FAILED` after that) plus stale-lease recovery for a
+crashed processor, both live-verified against manufactured failure/stuck
+scenarios and safely retryable via a new tenant-scoped admin endpoint
+(`notification.processing.view`/`.manage`, auto-granted to
+Administrator through the existing catalogue-seed loop). A tenant-scoped
+`NotificationPreference` model (2 categories, default enabled) whose
+suppression only ever affects future notification creation, never the
+underlying `WorkflowEvent`/audit trail. A new architecture decision
+record
+([`docs/architecture/notification-activity-boundaries.md`](../architecture/notification-activity-boundaries.md))
+formalizing the relationship between `WorkflowEvent`, `WorkflowDecision`,
+`Notification`, `AuditLog`, and the Activity Centre — no duplicate
+record-keeping introduced. See
+[`docs/sprint-27.1-completion-report.md`](sprint-27.1-completion-report.md).
 Deliberately still not started: payroll, leave management, recruitment
 automation, performance/KPI engines, an LMS, email/SMS/push/webhook
-notification channels, notification preferences, digests, scheduled
-reminders, a Technician RBAC role (from Sprint 22),
-`ASSIGNED_TERRITORY`/`ASSIGNED_ASSETS` scope enforcement (no server-side
-assignment relationship exists yet to prove them from), permission-aware
-frontend navigation filtering, automatic escalation/SLA/delegation,
-parallel/branching approval, and a second Workflow domain integration
-(Supplier Payment, Sales Order, Purchase Requisition, Capital Project —
-inspected during Sprint 26.1's audit; none had a clean draft/submission/
-approval boundary as ready as Purchase Order's).
+notification channels, digests, scheduled reminders, a real background
+worker for notification processing, a Technician RBAC role (from Sprint
+22), `ASSIGNED_TERRITORY`/`ASSIGNED_ASSETS` scope enforcement (no
+server-side assignment relationship exists yet to prove them from),
+permission-aware frontend navigation filtering, automatic escalation/
+SLA/delegation, parallel/branching approval, and a second Workflow
+domain integration (Supplier Payment, Sales Order, Purchase
+Requisition, Capital Project — inspected during Sprint 26.1's audit;
+none had a clean draft/submission/approval boundary as ready as
+Purchase Order's).
 
 ## 6. Future Ideas (Not Prioritised Yet)
 

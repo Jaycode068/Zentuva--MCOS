@@ -7,6 +7,68 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 27.1 Notification Reliability, Preferences & Activity Consolidation] - 2026-09-16
+
+**Hardens the Sprint 27 notification foundation without redesigning it.**
+`WorkflowEvent`'s processing state moves from an implicit nullable-timestamp
+model to an explicit `NotificationProcessingStatus` state machine
+(`PENDING`/`PROCESSING`/`PROCESSED`/`FAILED`), claimed via a per-row conditional
+`updateMany` — this codebase's own established concurrency idiom, not a new
+locking primitive. Live-verified: five simultaneous `POST /notifications/
+process-events` calls against a single fresh event produced exactly one
+successful claim and four no-ops, with zero duplicate notifications.
+
+A bounded retry policy (`notification-processing.constants.ts`: 3 attempts,
+`[0, 1min, 5min]` backoff) moves a retryable failure back to `PENDING` with a
+scheduled retry time, and a terminal `FAILED` state after attempts are exhausted
+requires the new administrator retry endpoint. A `PROCESSING` row whose claim
+lease is older than 5 minutes is treated as abandoned (a crashed processor) and
+is automatically reclaimed by the next ordinary processing sweep — no separate
+recovery job needed. Both paths were live-verified against manufactured failure
+and stuck-lease scenarios, including confirming a manual retry preserves the
+full attempt history rather than resetting it.
+
+A new tenant-scoped `NotificationPreference` model lets a user disable either of
+two categories (`WORKFLOW_APPROVALS` — "something needs your action" —
+or `WORKFLOW_STATUS_CHANGES` — everything else) per organisation, default
+enabled. Suppression affects only future notification _creation_: the
+underlying `WorkflowEvent`/audit trail is always fully written regardless,
+live-verified by disabling a category and confirming the workflow event still
+processed successfully for other recipients while the disabled user's own
+notification count stayed unchanged.
+
+A new operational admin surface (`GET/POST /notifications/admin/processing*`,
+gated by two new permissions — `notification.processing.view`/`.manage`, auto-
+granted to the Administrator role through the existing catalogue-seed loop with
+zero manual seed code) lets an authorised administrator inspect failed/stuck
+processing records (event type, attempt count, first/last attempt time, error
+category, next retry time) and retry them, tenant-scoped and 403-gated for
+non-administrators.
+
+A documented recipient contract (docs/domains/notifications.md §6) and explicit
+user-status-change behavior table cover suspension/role-removal/reactivation —
+none of which ever deletes an existing notification, live-verified by
+suspending a user with 13 existing notifications and confirming the count was
+unaffected, then confirming full access returned immediately on reactivation.
+
+A new architecture decision record
+([`docs/architecture/notification-activity-boundaries.md`](architecture/notification-activity-boundaries.md))
+formalizes the relationship between `WorkflowEvent`, `WorkflowDecision`,
+`Notification`, `AuditLog`, and the Activity Centre — confirming no duplicate
+record-keeping was introduced.
+
+Frontend: new `/notifications/preferences` and `/notifications/admin` pages
+(tabs alongside the existing notification list, mirroring the Workflow domain's
+own multi-route-tab convention), both mobile-verified at 375px — one real
+overflow issue found and fixed on the admin status-filter row in the same
+session.
+
+66 notification tests across 7 suites (up from 45 across 6); 188 suites / 1625
+tests overall, all passing.
+
+See [`docs/domains/notifications.md`](domains/notifications.md) and
+[`docs/sprint-27.1-completion-report.md`](sprint-27.1-completion-report.md).
+
 ## [Sprint 27 Notifications & Activity Centre Foundation] - 2026-09-16
 
 **The first reusable in-app notification system, built as a pure downstream

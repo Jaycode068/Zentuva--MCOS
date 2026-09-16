@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Badge, Button } from '@zentuva/ui';
 
 import { ApiError } from '@/lib/api-client';
+import { NotificationTabs } from '@/components/app/notification-tabs';
 
 import {
   listNotifications,
@@ -112,6 +113,8 @@ export default function NotificationsPage() {
           </Button>
         </div>
       </div>
+
+      <NotificationTabs />
 
       <div className="mb-4 flex items-center gap-3">
         <label className="flex items-center gap-2 text-sm text-muted-foreground">

@@ -237,6 +237,8 @@ model Organisation {
   workflowEvents                     WorkflowEvent[]
   /// Added Sprint 27 — Notifications & Activity Centre Foundation (docs/domains/notifications.md).
   notifications                      Notification[]
+  /// Added Sprint 27.1 — Notification Reliability & Preferences.
+  notificationPreferences            NotificationPreference[]
 
   @@map("organisations")
 }
@@ -6334,16 +6336,52 @@ model WorkflowEvent {
   /// directly to the existing event table (Option B: "event consumer with
   /// processing state") rather than a separate outbox table, since `WorkflowEvent`
   /// already IS the durable, transactionally-written record Sprint 26.1 built for
-  /// exactly this purpose. `NULL` means "not yet processed into notifications";
-  /// `NotificationEventProcessorService.processPendingEvents` is the only writer.
+  /// exactly this purpose. `NotificationEventProcessorService` is the only writer
+  /// to every `notification*` column on this table.
+  ///
+  /// Sprint 27.1 §Workstream A — kept as a plain, non-authoritative convenience
+  /// timestamp ("when did this finish") now that `notificationProcessingStatus`
+  /// below is the authoritative state machine; still set only on the attempt that
+  /// transitions the row to `PROCESSED`.
   notificationProcessedAt   DateTime?
-  /// Incremented on every processing ATTEMPT (success or failure) — never reset.
+  /// Incremented on every processing ATTEMPT (success or failure) — never reset,
+  /// even across retries; this is the true lifetime attempt count the retry
+  /// policy (notifications.md §4) compares against `MAX_PROCESSING_ATTEMPTS`.
   notificationAttempts      Int       @default(0)
+  /// Set once, on the FIRST attempt only — never overwritten by a later retry.
+  /// Sprint 27.1 §4.1 "First processing timestamp," so admin triage can answer
+  /// "how long has this event been stuck" without conflating it with
+  /// `notificationLastAttemptAt`.
+  notificationFirstAttemptAt DateTime?
   notificationLastAttemptAt DateTime?
   /// Cleared (set back to `null`) on the attempt that finally succeeds — so a
   /// non-null value always means "the most recent attempt failed," never stale
   /// history from an attempt that later succeeded.
   notificationLastError     String?
+  /// Sprint 27.1 — a coarse classification of `notificationLastError` for admin
+  /// triage (e.g. `PRISMA_P2028`, or an `Error.name`) — never a raw stack trace,
+  /// never shown to a non-administrator. Cleared alongside `notificationLastError`
+  /// on success.
+  notificationLastErrorCategory String?
+  /// Sprint 27.1 §Workstream A "Processing states" — the authoritative state
+  /// machine: `PENDING` → `PROCESSING` (claimed) → `PROCESSED` (terminal, success)
+  /// or back to `PENDING` (retryable failure, more attempts remain) or `FAILED`
+  /// (terminal, attempts exhausted — requires the admin retry endpoint). See
+  /// notifications.md §4 for the full transition table.
+  notificationProcessingStatus  NotificationProcessingStatus @default(PENDING)
+  /// Set to `now()` the instant a processor claims this row (`PENDING`/stale-
+  /// `PROCESSING` → `PROCESSING`); cleared back to `null` on every exit from
+  /// `PROCESSING`. A `PROCESSING` row whose lease is older than
+  /// `PROCESSING_LEASE_MS` (notification-processing.constants.ts) is treated as
+  /// abandoned (a crashed process) and is safely reclaimable by the next sweep —
+  /// notifications.md §4 "Stale-lease recovery."
+  notificationLeaseAt           DateTime?
+  /// Backoff scheduling for a retryable failure — `null`/in-the-past means
+  /// "eligible for the next sweep right now." Set on every retryable failure to
+  /// `now() + RETRY_BACKOFF_MS[attempts]`; a manual admin retry bypasses this
+  /// (sets it to `now()` directly, "Whether manual retry can override the normal
+  /// retry delay" — yes, always).
+  notificationNextRetryAt       DateTime?
 
   organisation     Organisation     @relation(fields: [organisationId], references: [id], onDelete: Cascade)
   workflowInstance WorkflowInstance @relation(fields: [workflowInstanceId], references: [id], onDelete: Cascade)
@@ -6352,10 +6390,21 @@ model WorkflowEvent {
   @@unique([organisationId, idempotencyKey])
   @@index([organisationId, workflowInstanceId])
   @@index([organisationId, eventType])
-  /// The processor's own primary query: "give me this organisation's unprocessed
-  /// events, oldest first."
-  @@index([organisationId, notificationProcessedAt])
+  /// The processor's own primary claim query: "give me this organisation's
+  /// PENDING-and-due, or stale-PROCESSING, events, oldest first" (notifications.md
+  /// §4). Superseded the old `[organisationId, notificationProcessedAt]` index
+  /// this sprint added — the new composite covers every claim-query predicate.
+  @@index([organisationId, notificationProcessingStatus, notificationNextRetryAt])
   @@map("workflow_events")
+}
+
+/// Sprint 27.1 §Workstream A "Processing states" — see `WorkflowEvent.
+/// notificationProcessingStatus` for the full transition table.
+enum NotificationProcessingStatus {
+  PENDING
+  PROCESSING
+  PROCESSED
+  FAILED
 }
 
 enum NotificationChannel {
@@ -6449,6 +6498,53 @@ model Notification {
   @@index([organisationId, recipientUserId, status])
   @@index([organisationId, recipientUserId, createdAt])
   @@map("notifications")
+}
+
+/// Sprint 27.1 §Workstream D "Preference Categories" — a coarse grouping of
+/// `NotificationType`, not a 1:1 mirror of it: every one of the 8 existing types
+/// falls into exactly one of these two categories (notifications.md §6), matching
+/// the only real distinction that exists today — "something needs YOUR action" vs.
+/// "something you already knew about changed status." No speculative third
+/// category (e.g. a "System" grouping) since nothing in this domain produces one.
+enum NotificationCategory {
+  WORKFLOW_APPROVALS
+  WORKFLOW_STATUS_CHANGES
+}
+
+/// One user's in-app delivery preference for one category, in one organisation
+/// (Sprint 27.1 §Workstream D). Absence of a row means "enabled" (the explicit
+/// default, notifications.md §6) — this table only ever stores an override, never
+/// a positive "enabled" row for the common case, keeping it small.
+///
+/// Deliberately NOT an authorization mechanism (Sprint 27.1 §3.2) — disabling a
+/// category only suppresses future `Notification` row CREATION for that
+/// recipient+category (notifications.md §6 "suppression semantics"); it never
+/// touches `WorkflowEvent`, `WorkflowDecision`, or the Activity Centre, all of
+/// which remain complete and unaffected — auditability is never gated by a
+/// user's own delivery preference.
+model NotificationPreference {
+  id             String               @id @default(cuid())
+  organisationId String
+  /// Plain scoped string, matching `Notification.recipientUserId`'s own
+  /// convention — no reverse relation on `User`.
+  userId         String
+  category       NotificationCategory
+  inAppEnabled   Boolean              @default(true)
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+
+  /// A user's preference in one organisation must never affect another — Sprint
+  /// 27.1 §7.1. Since a `User` row already belongs to exactly one `Organisation`
+  /// in this codebase's data model (no multi-org membership), `organisationId` is
+  /// technically derivable from `userId` alone, but is included explicitly anyway
+  /// to match every other tenant-scoped table's own convention (query-scoping
+  /// efficiency and defense-in-depth, never relying on a join to enforce
+  /// isolation).
+  @@unique([organisationId, userId, category])
+  @@index([organisationId, userId])
+  @@map("notification_preferences")
 }
 
 /// A runtime copy of one `WorkflowStep`, snapshotted at `WorkflowInstance` creation so

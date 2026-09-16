@@ -6,6 +6,8 @@ import { WorkflowModule } from '../workflow/workflow.module';
 import { ActivityService } from './activity.service';
 import { NotificationEventProcessorService } from './notification-event-processor.service';
 import { NotificationMessageBuilder } from './notification-message-builder';
+import { NotificationPreferenceRepository } from './notification-preference.repository';
+import { NotificationPreferenceService } from './notification-preference.service';
 import { NotificationRecipientResolver } from './notification-recipient-resolver';
 import { NotificationRepository } from './notification.repository';
 import { NotificationService } from './notification.service';
@@ -37,6 +39,8 @@ import { NotificationsController } from './notifications.controller';
     NotificationEventProcessorService,
     NotificationService,
     ActivityService,
+    NotificationPreferenceRepository,
+    NotificationPreferenceService,
   ],
   exports: [NotificationEventProcessorService],
 })

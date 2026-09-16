@@ -105,9 +105,20 @@ feature is built configurably so it can be reused by future tenants without code
 > recipient eligibility reuses the workflow engine's own eligibility service unchanged,
 > so a suspended user is structurally incapable of being notified about something they
 > could no longer approve anyway. No queue or cron infrastructure exists yet, so
-> processing is triggered on demand — a documented, deliberate MVP choice. Deliberately
-> still not email, SMS, push, or a second domain integration — those remain explicitly
-> future work. See [docs/domains/README.md](docs/domains/README.md) for the
+> processing is triggered on demand — a documented, deliberate MVP choice. Most
+> recently, a Notification Reliability, Preferences & Activity Consolidation sprint
+> hardened that foundation: an explicit, concurrency-safe processing state machine
+> (`PENDING`/`PROCESSING`/`PROCESSED`/`FAILED`) using this codebase's own conditional-
+> update claim idiom — live-verified by firing five simultaneous processing requests
+> at one event and confirming exactly one succeeded — a bounded retry policy with
+> backoff and stale-lease recovery, an operational admin surface to inspect and retry
+> failed processing, and a tenant-scoped notification preference system whose
+> suppression only ever affects future notification CREATION, never the underlying
+> workflow event log or audit trail. Zero new authorization primitives; the two new
+> permissions this sprint needed are auto-granted to the Administrator role through
+> the existing catalogue-seed loop, unchanged. Deliberately still not email, SMS,
+> push, or a second domain integration — those remain explicitly future work. See
+> [docs/domains/README.md](docs/domains/README.md) for the
 > current status of every domain and [docs/roadmap.md](docs/roadmap.md) for the full
 > build order.
 

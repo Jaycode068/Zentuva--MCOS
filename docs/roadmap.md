@@ -486,6 +486,33 @@ ASSIGNED → IN_PROGRESS ⇄ ON_HOLD → COMPLETED`/`CANCELLED`, both
       overall). No email/SMS/push, no digests, no escalation — see
       [`docs/domains/notifications.md`](domains/notifications.md) and
       [`docs/sprint-27-completion-report.md`](sprint-27-completion-report.md)
+- [x] Notification Reliability, Preferences & Activity Consolidation —
+      shipped Sprint 27.1. Hardens the Sprint 27 notification foundation
+      without redesigning it: an explicit `PENDING`/`PROCESSING`/
+      `PROCESSED`/`FAILED` state machine on `WorkflowEvent` replaces the
+      old nullable-timestamp model, claimed via a per-row conditional
+      `updateMany` (this codebase's own established concurrency idiom) —
+      live-verified by firing 5 simultaneous processing requests at one
+      event and confirming exactly one succeeded, zero duplicates. A
+      bounded retry policy (3 attempts, `[0, 1min, 5min]` backoff,
+      terminal `FAILED` after that) plus stale-`PROCESSING`-lease
+      recovery, both live-verified against manufactured failure/stuck
+      scenarios. A documented recipient contract table plus explicit
+      user-status-change behavior (suspension/role-removal/reactivation
+      — none of it deletes an existing notification). A new tenant-
+      scoped `NotificationPreference` model (2 categories, default
+      enabled, suppression affects notification CREATION only — never
+      `WorkflowEvent`/audit/Activity Centre). A new operational admin
+      surface (`notification.processing.view`/`.manage`, auto-granted to
+      Administrator, zero manual seed code) to inspect and retry failed
+      processing. A new architecture decision record
+      ([`docs/architecture/notification-activity-boundaries.md`](../architecture/notification-activity-boundaries.md))
+      formalizing how `WorkflowEvent`/`WorkflowDecision`/`Notification`/
+      `AuditLog`/Activity Centre relate — no duplicate record-keeping
+      introduced. 66 notification tests (up from 45), 188 suites / 1625
+      total, all passing — see
+      [`docs/domains/notifications.md`](domains/notifications.md) and
+      [`docs/sprint-27.1-completion-report.md`](sprint-27.1-completion-report.md)
 - [ ] Retail Portal (mobile)
 - [ ] Sales Rep mobile workflows
 - [ ] Business Intelligence dashboards

@@ -1,23 +1,31 @@
 import {
+  Body,
   Controller,
   Get,
   HttpCode,
   HttpStatus,
   Param,
+  Patch,
   Post,
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { NotificationStatus } from '@prisma/client';
-import { paginationSchema } from '@zentuva/validation';
+import {
+  NotificationCategory,
+  NotificationProcessingStatus,
+  NotificationStatus,
+} from '@prisma/client';
+import { paginationSchema, updateNotificationPreferenceSchema } from '@zentuva/validation';
 
 import { CurrentUser } from '../identity/auth/decorators/current-user.decorator';
 import { RequirePermission } from '../identity/auth/decorators/require-permission.decorator';
+import { ZodValidationPipe } from '../identity/auth/common/zod-validation.pipe';
 import { JwtAuthGuard } from '../identity/auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../identity/auth/guards/permissions.guard';
 import { TokenPayload } from '../identity/auth/ports/token.port';
 import { ActivityService } from './activity.service';
 import { NotificationEventProcessorService } from './notification-event-processor.service';
+import { NotificationPreferenceService } from './notification-preference.service';
 import { NotificationService } from './notification.service';
 
 /**
@@ -28,8 +36,12 @@ import { NotificationService } from './notification.service';
  * to gate "read your own notifications" behind beyond "is an authenticated, active
  * user," and every query is additionally scoped to the caller's own
  * `recipientUserId` server-side regardless (Sprint 27 rule "do not rely on frontend
- * filtering"). No new permission-catalogue entries were added for this controller —
- * see notifications.md §13.
+ * filtering"). `activity` and the `admin/processing/*` routes are the exceptions —
+ * both organisation-wide, both permission-gated (Sprint 27.1 §Workstream F).
+ *
+ * Route declaration order matters here: `preferences`/`admin/processing`/etc. are
+ * all declared before the `:id` wildcard route, matching this controller's existing
+ * `activity`/`unread-count` precedent.
  */
 @Controller('notifications')
 @UseGuards(JwtAuthGuard)
@@ -38,6 +50,7 @@ export class NotificationsController {
     private readonly notificationService: NotificationService,
     private readonly notificationEventProcessorService: NotificationEventProcessorService,
     private readonly activityService: ActivityService,
+    private readonly preferenceService: NotificationPreferenceService,
   ) {}
 
   /** Sprint 27 §Workstream 6 "Activity Centre Foundation" — organisation-wide, NOT
@@ -64,6 +77,67 @@ export class NotificationsController {
       take: pageSize,
     });
     return { items, total, page, pageSize };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Preferences (Sprint 27.1 §Workstream D) — self-scoped, JwtAuthGuard only,
+  // matching every other "my own data" route on this controller.
+  // ---------------------------------------------------------------------------
+
+  @Get('preferences')
+  getPreferences(@CurrentUser() user: TokenPayload) {
+    return this.preferenceService.getForUser(user.organisationId, user.sub);
+  }
+
+  @Patch('preferences/:category')
+  updatePreference(
+    @CurrentUser() user: TokenPayload,
+    @Param('category') category: NotificationCategory,
+    @Body(new ZodValidationPipe(updateNotificationPreferenceSchema))
+    body: { inAppEnabled: boolean },
+  ) {
+    return this.preferenceService.update(
+      user.organisationId,
+      user.sub,
+      category,
+      body.inAppEnabled,
+    );
+  }
+
+  @Post('preferences/reset')
+  @HttpCode(HttpStatus.OK)
+  resetPreferences(@CurrentUser() user: TokenPayload) {
+    return this.preferenceService.resetToDefaults(user.organisationId, user.sub);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Operational administration (Sprint 27.1 §Workstream F) — organisation-wide,
+  // gated by the new notification.processing.view/.manage permissions.
+  // ---------------------------------------------------------------------------
+
+  @Get('admin/processing')
+  @UseGuards(PermissionsGuard)
+  @RequirePermission('notification.processing.view')
+  async listProcessingRecords(
+    @CurrentUser() user: TokenPayload,
+    @Query('status') status?: NotificationProcessingStatus,
+    @Query('page') pageRaw?: string,
+    @Query('pageSize') pageSizeRaw?: string,
+  ) {
+    const { page, pageSize } = paginationSchema.parse({ page: pageRaw, pageSize: pageSizeRaw });
+    const { items, total } = await this.notificationEventProcessorService.listProcessingRecords(
+      user.organisationId,
+      { status, skip: (page - 1) * pageSize, take: pageSize },
+    );
+    return { items, total, page, pageSize };
+  }
+
+  @Post('admin/processing/:eventId/retry')
+  @UseGuards(PermissionsGuard)
+  @RequirePermission('notification.processing.manage')
+  @HttpCode(HttpStatus.OK)
+  retryProcessing(@CurrentUser() user: TokenPayload, @Param('eventId') eventId: string) {
+    return this.notificationEventProcessorService.retryEvent(user.organisationId, eventId);
   }
 
   @Get()

@@ -305,6 +305,24 @@ export const PERMISSION_CATALOGUE: PermissionCatalogueEntry[] = [
   entry('workflow.approval.return', 'NONE', 'Return an eligible workflow step for correction'),
   entry('workflow.audit.view', 'NONE', "View a workflow instance's decision history"),
 
+  // --- Notifications (Sprint 27.1 — operational administration, workstream F) ---
+  // Genuinely new administrative capability, not covered by any existing entry:
+  // inspecting/retrying the notification EVENT PROCESSOR's own internal reliability
+  // state (which WorkflowEvent rows failed to become notifications, and why) is
+  // distinct from `workflow.audit.view` (a workflow instance's own decision
+  // history) — this is about Notifications' own delivery pipeline, not Workflow's
+  // business state.
+  entry(
+    'notification.processing.view',
+    'NONE',
+    'View failed/stuck notification processing records for the organisation',
+  ),
+  entry(
+    'notification.processing.manage',
+    'NONE',
+    'Retry a failed or stuck notification processing record',
+  ),
+
   // --- Access Control (Sprint 25's own administration surface) ---
   entry('access.role.manage', 'NONE', 'Create/edit/archive roles and their permission grants'),
   entry('access.user_access.manage', 'NONE', 'Assign/remove roles on users'),

@@ -54,6 +54,32 @@ export interface ActivityRecord {
   sourceEventId: string;
 }
 
+export type NotificationCategory = 'WORKFLOW_APPROVALS' | 'WORKFLOW_STATUS_CHANGES';
+
+export interface NotificationPreferenceEntry {
+  category: NotificationCategory;
+  inAppEnabled: boolean;
+}
+
+export type NotificationProcessingStatus = 'PENDING' | 'PROCESSING' | 'PROCESSED' | 'FAILED';
+
+export interface ProcessingRecord {
+  id: string;
+  eventType: string;
+  workflowInstanceId: string;
+  subjectType: string;
+  subjectId: string;
+  status: NotificationProcessingStatus;
+  attempts: number;
+  firstAttemptAt: string | null;
+  lastAttemptAt: string | null;
+  processedAt: string | null;
+  nextRetryAt: string | null;
+  lastErrorCategory: string | null;
+  lastError: string | null;
+  occurredAt: string;
+}
+
 // ---------------------------------------------------------------------------
 // Notifications
 // ---------------------------------------------------------------------------
@@ -126,4 +152,54 @@ export function listActivity(params?: {
   return apiFetch<{ items: ActivityRecord[]; total: number; page: number; pageSize: number }>(
     `/notifications/activity${suffix}`,
   );
+}
+
+// ---------------------------------------------------------------------------
+// Preferences (Sprint 27.1 §Workstream D)
+// ---------------------------------------------------------------------------
+
+export function getPreferences() {
+  return apiFetch<NotificationPreferenceEntry[]>('/notifications/preferences');
+}
+
+export function updatePreference(category: NotificationCategory, inAppEnabled: boolean) {
+  return apiFetch<NotificationPreferenceEntry>(`/notifications/preferences/${category}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ inAppEnabled }),
+  });
+}
+
+export function resetPreferences() {
+  return apiFetch<NotificationPreferenceEntry[]>('/notifications/preferences/reset', {
+    method: 'POST',
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Operational administration (Sprint 27.1 §Workstream F) — requires
+// notification.processing.view/.manage; a non-administrator's call 403s, which
+// the admin panel surfaces as a permission-denied state rather than hiding the
+// tab client-side, matching this codebase's existing convention (no client-side
+// permission hook exists anywhere).
+// ---------------------------------------------------------------------------
+
+export function listProcessingRecords(params?: {
+  status?: NotificationProcessingStatus;
+  page?: number;
+  pageSize?: number;
+}) {
+  const qs = new URLSearchParams();
+  if (params?.status) qs.set('status', params.status);
+  if (params?.page) qs.set('page', String(params.page));
+  if (params?.pageSize) qs.set('pageSize', String(params.pageSize));
+  const suffix = qs.toString() ? `?${qs.toString()}` : '';
+  return apiFetch<{ items: ProcessingRecord[]; total: number; page: number; pageSize: number }>(
+    `/notifications/admin/processing${suffix}`,
+  );
+}
+
+export function retryProcessingRecord(eventId: string) {
+  return apiFetch<ProcessingRecord>(`/notifications/admin/processing/${eventId}/retry`, {
+    method: 'POST',
+  });
 }
