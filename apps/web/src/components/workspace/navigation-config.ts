@@ -3,6 +3,7 @@ import {
   AssetIcon,
   BanknoteIcon,
   BarChartIcon,
+  BellIcon,
   BoxIcon,
   BuildingIcon,
   CartIcon,
@@ -53,6 +54,7 @@ export const WORKSPACE_NAV_GROUPS: WorkspaceNavGroup[] = [
     label: 'Workspace',
     items: [
       { label: 'Dashboard', href: '/workspace', icon: GridIcon },
+      { label: 'Notifications', href: '/notifications', icon: BellIcon },
       { label: 'Products', href: '/settings/products', icon: BoxIcon },
       { label: 'Procurement', href: '/settings/procurement', icon: CartIcon },
       { label: 'Suppliers', href: '/settings/suppliers', icon: SupplierIcon },

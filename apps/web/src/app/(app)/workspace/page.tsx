@@ -44,6 +44,7 @@ const MODULE_ACCENTS: ModuleAccent[] = ['purple', 'pink', 'orange', 'teal'];
 
 const MODULE_DESCRIPTIONS: Record<string, string> = {
   '/workspace': 'Your workspace overview and quick links.',
+  '/notifications': 'What needs your attention — approvals, status changes, and preferences.',
   '/settings/products': 'The master catalogue of everything you manufacture or sell.',
   '/settings/procurement': 'Purchase orders for raw materials, packaging, and supplies.',
   '/settings/suppliers': 'The master record of every vendor you buy from.',
