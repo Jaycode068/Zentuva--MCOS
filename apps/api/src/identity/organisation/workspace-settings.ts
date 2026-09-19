@@ -26,9 +26,32 @@ export interface WorkspacePreferences {
   experimentalFeatures: boolean;
 }
 
+/**
+ * Sprint 28 §Workstream H.1 "Organisation Configuration" — the ONLY organisation-
+ * level knob email delivery has this sprint. Deliberately separate from, and
+ * unrelated to, `WorkspacePreferences.emailNotifications` above: that flag
+ * predates the whole Notifications domain (Sprint 3.4), is a generic UI toggle
+ * with NO backend enforcement anywhere in this codebase (verified by inspection
+ * before this sprint — nothing reads it), and repurposing a long-dormant,
+ * ambiguously-named flag for a new, different meaning risked silently changing
+ * behaviour for any organisation that had already touched it. `emailDelivery` is
+ * new, narrowly scoped, and the only thing that actually gates
+ * `EmailEligibilityService` (docs/domains/notifications.md §11).
+ */
+export interface WorkspaceEmailDeliverySettings {
+  /** "Email is disabled unless explicitly enabled" (Sprint 28 §5.2) — the
+   *  organisation-level half of that gate; `NotificationPreference.emailEnabled`
+   *  (per-user, per-category) is the other half. BOTH must be true for a
+   *  delivery to be created. */
+  enabled: boolean;
+  senderName: string | null;
+  senderEmail: string | null;
+}
+
 export interface WorkspaceSettings {
   theme: WorkspaceTheme;
   preferences: WorkspacePreferences;
+  emailDelivery: WorkspaceEmailDeliverySettings;
 }
 
 export const DEFAULT_WORKSPACE_SETTINGS: WorkspaceSettings = {
@@ -43,6 +66,11 @@ export const DEFAULT_WORKSPACE_SETTINGS: WorkspaceSettings = {
     aiFeatures: false,
     experimentalFeatures: false,
   },
+  emailDelivery: {
+    enabled: false,
+    senderName: null,
+    senderEmail: null,
+  },
 };
 
 export function mergeWorkspaceSettings(stored: unknown): WorkspaceSettings {
@@ -55,6 +83,10 @@ export function mergeWorkspaceSettings(stored: unknown): WorkspaceSettings {
     preferences: {
       ...DEFAULT_WORKSPACE_SETTINGS.preferences,
       ...(storedObj.preferences ?? {}),
+    },
+    emailDelivery: {
+      ...DEFAULT_WORKSPACE_SETTINGS.emailDelivery,
+      ...(storedObj.emailDelivery ?? {}),
     },
   };
 }

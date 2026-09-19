@@ -28,4 +28,19 @@ export default () => ({
     // onto InvoiceItem, never recomputed later. Not a tax engine.
     defaultTaxRatePercent: parseFloat(process.env.FINANCE_DEFAULT_TAX_RATE_PERCENT ?? '7.5'),
   },
+  email: {
+    // Sprint 28 — never logged, never returned from any API response as-is; see
+    // docs/architecture/email-delivery.md "Configuration."
+    providerMode: (process.env.EMAIL_PROVIDER_MODE ?? 'local') as 'local' | 'smtp',
+    webPublicUrl: process.env.WEB_PUBLIC_URL ?? 'http://localhost:3000',
+    smtp: {
+      host: process.env.SMTP_HOST,
+      port: process.env.SMTP_PORT ? parseInt(process.env.SMTP_PORT, 10) : undefined,
+      secure: process.env.SMTP_SECURE === 'true',
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS,
+    },
+    fromName: process.env.MAIL_FROM_NAME,
+    fromEmail: process.env.MAIL_FROM_EMAIL,
+  },
 });

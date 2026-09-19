@@ -117,7 +117,25 @@ feature is built configurably so it can be reused by future tenants without code
 > workflow event log or audit trail. Zero new authorization primitives; the two new
 > permissions this sprint needed are auto-granted to the Administrator role through
 > the existing catalogue-seed loop, unchanged. Deliberately still not email, SMS,
-> push, or a second domain integration — those remain explicitly future work. See
+> push, or a second domain integration — those remain explicitly future work. Most
+> recently, an Email Notification Delivery Foundation sprint added a second,
+> genuinely downstream delivery channel — a real, provider-independent transactional
+> email pipeline (a safe in-memory local provider for every automated test, and a
+> real ZeptoMail SMTP adapter behind the exact same interface, selected once at boot
+> and never silently substituted for each other) that consumes already-created
+> in-app notifications, never `WorkflowEvent` or `WorkflowInstanceService` directly —
+> `Workflow` remains completely untouched by this sprint. Its own concurrency-safe
+> claim-based state machine, its own retry/backoff policy (deliberately longer than
+> the in-app processor's, since SMTP failures behave differently), and its own
+> asymmetric preference default (email starts OFF where in-app starts ON) — live-
+> verified end-to-end, including catching and fixing a real starvation bug found
+> during the sprint's own testing (a backlog of ineligible old notifications was
+> silently blocking new ones from ever being emailed) and a real attempted send
+> through ZeptoMail's SMTP endpoint that reached and authenticated against the real
+> provider before being safely, informatively rejected — reported honestly rather
+> than claimed as a success it wasn't. Deliberately still not SMS, push, or a
+> marketing platform — every email traces back to exactly one real workflow event,
+> by construction. See
 > [docs/domains/README.md](docs/domains/README.md) for the
 > current status of every domain and [docs/roadmap.md](docs/roadmap.md) for the full
 > build order.

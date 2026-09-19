@@ -2,7 +2,16 @@
 
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Card, CardContent, CardHeader, CardTitle, Checkbox, Select } from '@zentuva/ui';
+import {
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  Checkbox,
+  Input,
+  Select,
+} from '@zentuva/ui';
 import type { WorkspacePreferencesInput } from '@zentuva/validation';
 
 import { Field } from '@/components/app/settings-field';
@@ -33,12 +42,31 @@ const TOGGLES: { key: keyof WorkspacePreferencesInput; label: string; hint?: str
 export function PreferencesTab({ settings }: { settings: WorkspaceSettings }) {
   const queryClient = useQueryClient();
   const [pendingKey, setPendingKey] = useState<string | null>(null);
+  const [senderName, setSenderName] = useState(settings.emailDelivery.senderName ?? '');
+  const [senderEmail, setSenderEmail] = useState(settings.emailDelivery.senderEmail ?? '');
 
   const mutation = useMutation({
     mutationFn: (preferences: Partial<WorkspacePreferencesInput>) =>
       updateWorkspaceSettings({ preferences }),
     onSuccess: (updated) => {
       queryClient.setQueryData(['settings', 'workspace'], updated);
+    },
+    onSettled: () => setPendingKey(null),
+  });
+
+  /** Sprint 28 §Workstream H.1 — a SEPARATE mutation (own PATCH `emailDelivery`
+   *  key, never merged into `preferences` above) since it writes a different
+   *  `WorkspaceSettings` sub-object entirely. */
+  const emailDeliveryMutation = useMutation({
+    mutationFn: (emailDelivery: {
+      enabled?: boolean;
+      senderName?: string | null;
+      senderEmail?: string | null;
+    }) => updateWorkspaceSettings({ emailDelivery }),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(['settings', 'workspace'], updated);
+      setSenderName(updated.emailDelivery.senderName ?? '');
+      setSenderEmail(updated.emailDelivery.senderEmail ?? '');
     },
     onSettled: () => setPendingKey(null),
   });
@@ -51,6 +79,19 @@ export function PreferencesTab({ settings }: { settings: WorkspaceSettings }) {
   function setDefaultLandingPage(value: 'organisation' | 'users') {
     setPendingKey('defaultLandingPage');
     mutation.mutate({ defaultLandingPage: value });
+  }
+
+  function toggleEmailDeliveryEnabled(value: boolean) {
+    setPendingKey('emailDeliveryEnabled');
+    emailDeliveryMutation.mutate({ enabled: value });
+  }
+
+  function saveSenderIdentity() {
+    setPendingKey('emailDeliverySender');
+    emailDeliveryMutation.mutate({
+      senderName: senderName.trim() || null,
+      senderEmail: senderEmail.trim() || null,
+    });
   }
 
   return (
@@ -98,12 +139,71 @@ export function PreferencesTab({ settings }: { settings: WorkspaceSettings }) {
         </CardContent>
       </Card>
 
-      {mutation.isError && (
+      <Card>
+        <CardHeader>
+          <CardTitle>Transactional Email</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-xs text-muted-foreground">
+            Controls whether Zentuva sends transactional email (approval requests, status changes)
+            to your team on top of in-app notifications. Each user also chooses which categories
+            they receive email for in their own notification preferences.
+          </p>
+          <label className="flex items-start justify-between gap-4">
+            <span>
+              <span className="block text-sm font-medium text-foreground">
+                Enable transactional email
+              </span>
+              <span className="block text-xs text-muted-foreground">
+                Off by default — no email is sent for this organisation until enabled.
+              </span>
+            </span>
+            <Checkbox
+              checked={settings.emailDelivery.enabled}
+              disabled={emailDeliveryMutation.isPending}
+              onChange={(event) => toggleEmailDeliveryEnabled(event.target.checked)}
+            />
+          </label>
+
+          <Field label="Sender Name">
+            <Input
+              value={senderName}
+              onChange={(event) => setSenderName(event.target.value)}
+              placeholder="Zentuva (default)"
+              disabled={emailDeliveryMutation.isPending}
+            />
+            <p className="mt-1 text-xs text-muted-foreground">
+              Shown as the email&apos;s display name, e.g. &quot;Boby Bites&quot;.
+            </p>
+          </Field>
+          <Field label="Sender Email">
+            <Input
+              type="email"
+              value={senderEmail}
+              onChange={(event) => setSenderEmail(event.target.value)}
+              placeholder="noreply@yourcompany.com"
+              disabled={emailDeliveryMutation.isPending}
+            />
+            <p className="mt-1 text-xs text-muted-foreground">
+              Falls back to the platform default if left blank.
+            </p>
+          </Field>
+          <Button size="sm" onClick={saveSenderIdentity} disabled={emailDeliveryMutation.isPending}>
+            Save sender identity
+          </Button>
+        </CardContent>
+      </Card>
+
+      {(mutation.isError || emailDeliveryMutation.isError) && (
         <p className="text-sm text-destructive">
-          {mutation.error instanceof ApiError ? mutation.error.message : 'Failed to save changes.'}
+          {mutation.error instanceof ApiError
+            ? mutation.error.message
+            : emailDeliveryMutation.error instanceof ApiError
+              ? emailDeliveryMutation.error.message
+              : 'Failed to save changes.'}
         </p>
       )}
-      {pendingKey === null && mutation.isSuccess && (
+      {pendingKey === null && (mutation.isSuccess || emailDeliveryMutation.isSuccess) && (
         <p className="text-sm text-primary">Preferences saved.</p>
       )}
     </div>

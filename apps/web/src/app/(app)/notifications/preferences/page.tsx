@@ -21,12 +21,17 @@ const CATEGORY_LABELS: Record<NotificationCategory, { title: string; description
 };
 
 /**
- * Sprint 27.1 §Workstream D "Preference API/UI" (docs/domains/notifications.md §6).
+ * Sprint 27.1 §Workstream D "Preference API/UI", extended Sprint 28
+ * §Workstream H.2 "User Preferences" (docs/domains/notifications.md §6, §12).
  * Self-service only — every read/write is scoped to the caller's own token
- * server-side (`NotificationsController`'s preference routes, `JwtAuthGuard` alone).
- * A missing preference always means enabled; toggling a category off only affects
- * FUTURE notification creation (§6 "suppression semantics") — it never deletes an
- * existing notification, and never touches workflow history/audit/Activity Centre.
+ * server-side (`NotificationsController`'s preference routes, `JwtAuthGuard`
+ * alone). In-app and email are two CLEARLY DISTINCT columns, never a single
+ * merged toggle — their defaults are intentionally opposite (in-app defaults
+ * enabled, email defaults disabled, Sprint 28 §5.2 "email is disabled unless
+ * explicitly enabled") and toggling one never silently changes the other.
+ * Disabling either only affects FUTURE notification/email creation — it never
+ * deletes an existing notification/delivery, and never touches workflow
+ * history/audit/Activity Centre.
  */
 export default function NotificationPreferencesPage() {
   const queryClient = useQueryClient();
@@ -39,11 +44,11 @@ export default function NotificationPreferencesPage() {
   const updateMutation = useMutation({
     mutationFn: ({
       category,
-      inAppEnabled,
+      patch,
     }: {
       category: NotificationCategory;
-      inAppEnabled: boolean;
-    }) => updatePreference(category, inAppEnabled),
+      patch: { inAppEnabled?: boolean; emailEnabled?: boolean };
+    }) => updatePreference(category, patch),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['notifications', 'preferences'] }),
   });
 
@@ -60,7 +65,7 @@ export default function NotificationPreferencesPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Notifications</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Choose which in-app notification categories you want to receive.
+            Choose which notification categories you want to receive, and through which channel.
           </p>
         </div>
         <Button
@@ -92,30 +97,49 @@ export default function NotificationPreferencesPage() {
       {!isLoading && !isError && (
         <div className="space-y-3">
           {preferences.map((pref) => (
-            <label
-              key={pref.category}
-              className="flex items-start justify-between gap-4 rounded-lg border border-border p-4"
-            >
-              <div>
-                <p className="font-medium">{CATEGORY_LABELS[pref.category].title}</p>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  {CATEGORY_LABELS[pref.category].description}
-                </p>
+            <div key={pref.category} className="rounded-lg border border-border p-4">
+              <p className="font-medium">{CATEGORY_LABELS[pref.category].title}</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {CATEGORY_LABELS[pref.category].description}
+              </p>
+              <div className="mt-3 flex flex-wrap gap-x-6 gap-y-2">
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4"
+                    checked={pref.inAppEnabled}
+                    onChange={(event) =>
+                      updateMutation.mutate({
+                        category: pref.category,
+                        patch: { inAppEnabled: event.target.checked },
+                      })
+                    }
+                    aria-label={`${CATEGORY_LABELS[pref.category].title} — in-app notifications`}
+                  />
+                  In-app
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4"
+                    checked={pref.emailEnabled}
+                    onChange={(event) =>
+                      updateMutation.mutate({
+                        category: pref.category,
+                        patch: { emailEnabled: event.target.checked },
+                      })
+                    }
+                    aria-label={`${CATEGORY_LABELS[pref.category].title} — email notifications`}
+                  />
+                  Email
+                </label>
               </div>
-              <input
-                type="checkbox"
-                className="mt-1 h-5 w-5 shrink-0"
-                checked={pref.inAppEnabled}
-                onChange={(event) =>
-                  updateMutation.mutate({
-                    category: pref.category,
-                    inAppEnabled: event.target.checked,
-                  })
-                }
-                aria-label={`${CATEGORY_LABELS[pref.category].title} in-app notifications`}
-              />
-            </label>
+            </div>
           ))}
+          <p className="text-xs text-muted-foreground">
+            Email also requires your organisation to have transactional email enabled — ask an
+            administrator if you&apos;ve turned this on but aren&apos;t receiving email.
+          </p>
         </div>
       )}
     </main>

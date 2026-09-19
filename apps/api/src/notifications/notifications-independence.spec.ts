@@ -35,6 +35,18 @@ describe('Notifications independence (Sprint 27)', () => {
     'notification-preference.service.ts',
     'notification-category.ts',
     'notification-processing.constants.ts',
+    // Sprint 28 — Email Notification Delivery Foundation
+    'email-eligibility.service.ts',
+    'email-delivery-creation.service.ts',
+    'email-delivery-processor.service.ts',
+    'email-delivery.repository.ts',
+    'email-template-renderer.ts',
+    'html-escape.util.ts',
+    'email-delivery-processing.constants.ts',
+    'ports/email-provider.port.ts',
+    'infrastructure/local-email-provider.ts',
+    'infrastructure/smtp-email-provider.ts',
+    'infrastructure/email-provider.module.ts',
   ];
 
   it('structural guard: no Notifications file IMPORTS WorkflowInstanceService — the boundary is the WorkflowEvent/WorkflowInstance/WorkflowStepInstance TABLES, never a call into the engine itself (doc comments explaining this are fine; an actual import is not)', () => {
@@ -62,7 +74,7 @@ describe('Notifications independence (Sprint 27)', () => {
     expect(processorSource).toMatch(/workflowEvent\.update\(/);
   });
 
-  it('structural guard: NotificationsModule imports only IdentityModule/AuthModule/WorkflowModule', () => {
+  it('structural guard: NotificationsModule imports only IdentityModule/AuthModule/WorkflowModule/EmailProviderModule', () => {
     const source = readSource(notificationsDir, 'notifications.module.ts');
     const importsMatch = source.match(/imports:\s*\[([^\]]*)\]/);
     expect(importsMatch).not.toBeNull();
@@ -70,8 +82,12 @@ describe('Notifications independence (Sprint 27)', () => {
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean);
+    // EmailProviderModule (Sprint 28) is Notifications' OWN infrastructure module
+    // (the LocalEmailProvider/SmtpEmailProvider boundary) — not a cross-domain
+    // dependency in the sense this guard cares about, but listed explicitly so
+    // this test stays a real assertion, not a rubber stamp.
     expect(new Set(importedModules)).toEqual(
-      new Set(['IdentityModule', 'AuthModule', 'WorkflowModule']),
+      new Set(['IdentityModule', 'AuthModule', 'WorkflowModule', 'EmailProviderModule']),
     );
   });
 

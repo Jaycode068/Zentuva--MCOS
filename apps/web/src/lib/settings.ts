@@ -52,6 +52,18 @@ export interface WorkspaceSettings {
     aiFeatures: boolean;
     experimentalFeatures: boolean;
   };
+
+  /** Sprint 28 — organisation-level transactional email configuration.
+   *  Deliberately separate from `preferences.emailNotifications` above (that
+   *  flag predates Notifications entirely and has no backend enforcement) — see
+   *  `apps/api/src/identity/organisation/workspace-settings.ts`'s own doc
+   *  comment. Never includes SMTP credentials or provider mode; those are
+   *  environment-only. */
+  emailDelivery: {
+    enabled: boolean;
+    senderName: string | null;
+    senderEmail: string | null;
+  };
 }
 
 export function getWorkspaceSettings(): Promise<WorkspaceSettings> {

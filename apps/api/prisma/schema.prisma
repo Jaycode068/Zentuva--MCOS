@@ -239,6 +239,8 @@ model Organisation {
   notifications                      Notification[]
   /// Added Sprint 27.1 — Notification Reliability & Preferences.
   notificationPreferences            NotificationPreference[]
+  /// Added Sprint 28 — Email Notification Delivery Foundation.
+  emailDeliveries                    EmailDelivery[]
 
   @@map("organisations")
 }
@@ -348,8 +350,8 @@ enum RoleStatus {
 /// organisation-wide the moment it's granted (`NONE` — e.g. `finance.journal.post`,
 /// `hr.employee.separate`, every administrative/global action).
 model Permission {
-  id          String             @id @default(cuid())
-  key         String             @unique
+  id          String              @id @default(cuid())
+  key         String              @unique
   /// Kept as `domain` (not renamed to `module`) for backward compatibility with the 7
   /// permissions seeded since Sprint 1B.1 — semantically identical to "module."
   domain      String
@@ -357,7 +359,7 @@ model Permission {
   action      String
   scopeType   PermissionScopeType @default(NONE)
   description String?
-  createdAt   DateTime           @default(now())
+  createdAt   DateTime            @default(now())
 
   rolePermissions RolePermission[]
 
@@ -5639,20 +5641,20 @@ model Employee {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  organisation      Organisation        @relation(fields: [organisationId], references: [id], onDelete: Cascade)
-  user              User?               @relation(fields: [userId], references: [id])
-  department        Department?         @relation("EmployeeDepartment", fields: [departmentId], references: [id])
-  position          Position?           @relation(fields: [positionId], references: [id])
-  manager           Employee?           @relation("EmployeeManager", fields: [managerEmployeeId], references: [id])
-  directReports     Employee[]          @relation("EmployeeManager")
-  headOfDepartments Department[]        @relation("DepartmentHead")
-  documents         EmployeeDocument[]
-  onboarding        EmployeeOnboarding?
-  workSchedule      WorkSchedule?                 @relation(fields: [workScheduleId], references: [id])
-  attendanceRecords AttendanceRecord[]
-  requestedCorrections AttendanceCorrectionRequest[] @relation("AttendanceCorrectionRequestedByEmployee")
+  organisation           Organisation                  @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  user                   User?                         @relation(fields: [userId], references: [id])
+  department             Department?                   @relation("EmployeeDepartment", fields: [departmentId], references: [id])
+  position               Position?                     @relation(fields: [positionId], references: [id])
+  manager                Employee?                     @relation("EmployeeManager", fields: [managerEmployeeId], references: [id])
+  directReports          Employee[]                    @relation("EmployeeManager")
+  headOfDepartments      Department[]                  @relation("DepartmentHead")
+  documents              EmployeeDocument[]
+  onboarding             EmployeeOnboarding?
+  workSchedule           WorkSchedule?                 @relation(fields: [workScheduleId], references: [id])
+  attendanceRecords      AttendanceRecord[]
+  requestedCorrections   AttendanceCorrectionRequest[] @relation("AttendanceCorrectionRequestedByEmployee")
   policyAcknowledgements PolicyAcknowledgement[]
-  trainingRecords   EmployeeTraining[]
+  trainingRecords        EmployeeTraining[]
 
   @@unique([organisationId, employeeCode])
   @@index([organisationId])
@@ -5713,8 +5715,8 @@ model EmployeeDocument {
   createdAt        DateTime               @default(now())
   updatedAt        DateTime               @updatedAt
 
-  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
-  employee     Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  organisation           Organisation       @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  employee               Employee           @relation(fields: [employeeId], references: [id], onDelete: Cascade)
   /// Added Sprint 24 — a training certificate may optionally reference an
   /// existing EmployeeDocument row rather than a new document system.
   trainingCertificateFor EmployeeTraining[]
@@ -6087,8 +6089,8 @@ model EmployeeTraining {
 
   organisation        Organisation      @relation(fields: [organisationId], references: [id], onDelete: Cascade)
   employee            Employee          @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  trainingCourse       TrainingCourse    @relation(fields: [trainingCourseId], references: [id])
-  certificateDocument  EmployeeDocument? @relation(fields: [certificateDocumentId], references: [id])
+  trainingCourse      TrainingCourse    @relation(fields: [trainingCourseId], references: [id])
+  certificateDocument EmployeeDocument? @relation(fields: [certificateDocumentId], references: [id])
 
   @@index([organisationId])
   @@index([employeeId])
@@ -6169,32 +6171,32 @@ enum WorkflowDecisionType {
 /// `PurchaseOrderWorkflowHandler`'s `WORKFLOW_DEFINITION_CODE`), while `id` is what
 /// `WorkflowInstance` actually foreign-keys to.
 model WorkflowDefinition {
-  id             String                   @id @default(cuid())
-  organisationId String
-  name           String
+  id                String                   @id @default(cuid())
+  organisationId    String
+  name              String
   /// Stable, organisation-chosen identifier (e.g. `PURCHASE_ORDER_APPROVAL`) — the
   /// handle a domain integration submits against. Unique per organisation, not
   /// globally, so two tenants may each define their own `PURCHASE_ORDER_APPROVAL`.
-  code           String
-  description    String?
+  code              String
+  description       String?
   /// The domain subject this definition applies to (e.g. `PURCHASE_ORDER`) — see
   /// `WorkflowInstance.subjectType`. One definition serves exactly one subject type;
   /// an organisation with multiple approval processes for the same subject type would
   /// define multiple `WorkflowDefinition` rows with different `code`s.
-  subjectType    String
-  status         WorkflowDefinitionStatus @default(INACTIVE)
+  subjectType       String
+  status            WorkflowDefinitionStatus @default(INACTIVE)
   /// Bumped on every edit to an already-`ACTIVE` definition's steps (workflow.md §3.5) —
   /// `WorkflowStepInstance` snapshots this at instance-creation time specifically so a
   /// later configuration edit never silently rewrites an in-progress approval.
-  version        Int                      @default(1)
+  version           Int                      @default(1)
   /// Sprint 26 §5 — "do not silently allow self-approval." `false` (requester cannot
   /// approve their own request) is the safer MVP default, explicit and
   /// organisation-configurable rather than hardcoded in application code.
-  allowSelfApproval Boolean               @default(false)
-  createdById    String?
-  updatedById    String?
-  createdAt      DateTime                 @default(now())
-  updatedAt      DateTime                 @updatedAt
+  allowSelfApproval Boolean                  @default(false)
+  createdById       String?
+  updatedById       String?
+  createdAt         DateTime                 @default(now())
+  updatedAt         DateTime                 @updatedAt
 
   organisation Organisation       @relation(fields: [organisationId], references: [id], onDelete: Cascade)
   steps        WorkflowStep[]
@@ -6249,43 +6251,43 @@ model WorkflowStep {
 /// arbitrary dynamic table access. Tenant safety: every handler call re-verifies the
 /// subject belongs to `organisationId` before touching it.
 model WorkflowInstance {
-  id                       String                 @id @default(cuid())
-  organisationId           String
-  workflowDefinitionId     String
+  id                        String                 @id @default(cuid())
+  organisationId            String
+  workflowDefinitionId      String
   /// Snapshot of `WorkflowDefinition.version` at creation time — informational; the
   /// authoritative snapshot each step actually enforces lives on
   /// `WorkflowStepInstance` itself.
   workflowDefinitionVersion Int
-  subjectType              String
-  subjectId                String
-  status                   WorkflowInstanceStatus @default(DRAFT)
-  requestedById            String
-  submittedAt              DateTime?
-  completedAt              DateTime?
-  cancelledAt              DateTime?
+  subjectType               String
+  subjectId                 String
+  status                    WorkflowInstanceStatus @default(DRAFT)
+  requestedById             String
+  submittedAt               DateTime?
+  completedAt               DateTime?
+  cancelledAt               DateTime?
   /// Sprint 26.1 §9 — optional; when set and still in the past while the instance is
   /// non-terminal, the instance is computed as `isOverdue` (read-time only, never
   /// persisted). `null` means "no due date configured" — never treated as overdue.
-  dueAt                    DateTime?
+  dueAt                     DateTime?
   /// Sprint 26.1 §9 — set only by the explicit `expire` transition, never inferred.
-  expiredAt                DateTime?
+  expiredAt                 DateTime?
   /// Sprint 26.1 §3 "Return & Resubmission" — an atomic claim marker: the first
   /// `resubmit` call on a given `RETURNED` instance sets this (conditional
   /// `updateMany ... WHERE resubmittedAt IS NULL`), so a second concurrent resubmit
   /// attempt on the SAME instance always loses. `null` means "not yet resubmitted."
-  resubmittedAt            DateTime?
+  resubmittedAt             DateTime?
   /// How many times this resubmission chain has been resubmitted, counting from the
   /// original instance (0). Copied from `previousInstance.resubmissionCount + 1` at
   /// creation — informational, for UI display only.
-  resubmissionCount        Int                    @default(0)
+  resubmissionCount         Int                    @default(0)
   /// Sprint 26.1 — set only on a NEW instance created via `resubmit()`; points at the
   /// `RETURNED` instance it supersedes. Workflow.md §3 "Return & Resubmission design":
   /// a resubmission creates a new `WorkflowInstance` linked to the prior one rather
   /// than reusing/rewinding it — see that section for the full rationale.
-  previousInstanceId       String?
-  metadata                 Json?
-  createdAt                DateTime               @default(now())
-  updatedAt                DateTime               @updatedAt
+  previousInstanceId        String?
+  metadata                  Json?
+  createdAt                 DateTime               @default(now())
+  updatedAt                 DateTime               @updatedAt
 
   organisation       Organisation           @relation(fields: [organisationId], references: [id], onDelete: Cascade)
   workflowDefinition WorkflowDefinition     @relation(fields: [workflowDefinitionId], references: [id], onDelete: Restrict)
@@ -6313,25 +6315,25 @@ model WorkflowInstance {
 /// Notifications will read from in a future sprint; it does not itself dispatch,
 /// email, or push anything (Sprint 26.1 brief: "Do not implement Notifications").
 model WorkflowEvent {
-  id                        String   @id @default(cuid())
-  organisationId            String
-  workflowInstanceId        String
-  workflowDefinitionId      String
-  workflowDefinitionVersion Int
-  subjectType               String
-  subjectId                 String
-  subjectReference          String?
-  eventType                 String
-  actorUserId               String?
-  targetUserId              String?
-  workflowStepInstanceId    String?
-  correlationId             String
+  id                            String                       @id @default(cuid())
+  organisationId                String
+  workflowInstanceId            String
+  workflowDefinitionId          String
+  workflowDefinitionVersion     Int
+  subjectType                   String
+  subjectId                     String
+  subjectReference              String?
+  eventType                     String
+  actorUserId                   String?
+  targetUserId                  String?
+  workflowStepInstanceId        String?
+  correlationId                 String
   /// Unique per organisation — see the model doc comment. Deterministically derived
   /// from the logical occurrence (e.g. `${stepInstanceId}:APPROVED`), never a random
   /// value, so re-deriving the same key for the same occurrence is always safe.
-  idempotencyKey            String
-  summary                   Json?
-  occurredAt                DateTime @default(now())
+  idempotencyKey                String
+  summary                       Json?
+  occurredAt                    DateTime                     @default(now())
   /// Sprint 27 §2 "Durable Event Consumption" — processing-state columns added
   /// directly to the existing event table (Option B: "event consumer with
   /// processing state") rather than a separate outbox table, since `WorkflowEvent`
@@ -6343,21 +6345,21 @@ model WorkflowEvent {
   /// timestamp ("when did this finish") now that `notificationProcessingStatus`
   /// below is the authoritative state machine; still set only on the attempt that
   /// transitions the row to `PROCESSED`.
-  notificationProcessedAt   DateTime?
+  notificationProcessedAt       DateTime?
   /// Incremented on every processing ATTEMPT (success or failure) — never reset,
   /// even across retries; this is the true lifetime attempt count the retry
   /// policy (notifications.md §4) compares against `MAX_PROCESSING_ATTEMPTS`.
-  notificationAttempts      Int       @default(0)
+  notificationAttempts          Int                          @default(0)
   /// Set once, on the FIRST attempt only — never overwritten by a later retry.
   /// Sprint 27.1 §4.1 "First processing timestamp," so admin triage can answer
   /// "how long has this event been stuck" without conflating it with
   /// `notificationLastAttemptAt`.
-  notificationFirstAttemptAt DateTime?
-  notificationLastAttemptAt DateTime?
+  notificationFirstAttemptAt    DateTime?
+  notificationLastAttemptAt     DateTime?
   /// Cleared (set back to `null`) on the attempt that finally succeeds — so a
   /// non-null value always means "the most recent attempt failed," never stale
   /// history from an attempt that later succeeded.
-  notificationLastError     String?
+  notificationLastError         String?
   /// Sprint 27.1 — a coarse classification of `notificationLastError` for admin
   /// triage (e.g. `PRISMA_P2028`, or an `Error.name`) — never a raw stack trace,
   /// never shown to a non-administrator. Cleared alongside `notificationLastError`
@@ -6408,11 +6410,16 @@ enum NotificationProcessingStatus {
 }
 
 enum NotificationChannel {
-  /// The only channel implemented this sprint (Sprint 27 §"Initial delivery
-  /// channel"). The enum exists specifically so EMAIL/SMS/PUSH/WEBHOOK can be added
-  /// later as new values without a data-model migration for existing rows — see
-  /// docs/domains/notifications.md §11.
+  /// The original channel (Sprint 27 §"Initial delivery channel").
   IN_APP
+  /// Added Sprint 28 — Email Notification Delivery Foundation. Used on
+  /// `EmailDelivery.channel` (always `EMAIL` for that table); kept as an enum
+  /// value here rather than a bare string so the `[organisationId, sourceId,
+  /// recipientUserId, channel]`-shaped uniqueness convention stays consistent
+  /// across every delivery table, present and future (docs/domains/
+  /// notifications.md §11). SMS/PUSH/WEBHOOK remain unimplemented placeholders
+  /// for the same reason IN_APP was added alone in Sprint 27.
+  EMAIL
 }
 
 /// Sprint 27 §Workstream 1 "Notification status" — deliberately the simplest
@@ -6485,8 +6492,14 @@ model Notification {
   createdAt       DateTime            @default(now())
   updatedAt       DateTime            @updatedAt
 
-  organisation Organisation   @relation(fields: [organisationId], references: [id], onDelete: Cascade)
-  sourceEvent  WorkflowEvent? @relation(fields: [sourceEventId], references: [id], onDelete: SetNull)
+  organisation    Organisation    @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  sourceEvent     WorkflowEvent?  @relation(fields: [sourceEventId], references: [id], onDelete: SetNull)
+  /// Added Sprint 28 — Email Notification Delivery Foundation. At most one row per
+  /// channel per the `EmailDelivery` unique constraint; zero rows means "never
+  /// evaluated for email, or evaluated and found ineligible" (both are `null`/
+  /// absent, not distinguished on this side — see `EmailDelivery` itself, or the
+  /// absence of one, for the actual reason).
+  emailDeliveries EmailDelivery[]
 
   /// Sprint 27 §Workstream 3 "Idempotency and Deduplication" — the database-level
   /// invariant: at most one notification per (event, recipient, channel).
@@ -6530,6 +6543,14 @@ model NotificationPreference {
   userId         String
   category       NotificationCategory
   inAppEnabled   Boolean              @default(true)
+  /// Sprint 28 §Workstream B "Email Eligibility and Preference Contract" — the
+  /// "Category → Channel → Enabled" model on the SAME row rather than a second
+  /// preference table (notifications.md §12): one category has one in-app
+  /// setting and one email setting, never two independently-keyed rows to keep
+  /// in sync. Deliberately defaults `false`, the OPPOSITE of `inAppEnabled`'s
+  /// default `true` — "email is disabled unless explicitly enabled" (Sprint 28
+  /// brief §5.2), a documented, intentional asymmetry, not an oversight.
+  emailEnabled   Boolean              @default(false)
   createdAt      DateTime             @default(now())
   updatedAt      DateTime             @updatedAt
 
@@ -6547,31 +6568,143 @@ model NotificationPreference {
   @@map("notification_preferences")
 }
 
+/// Sprint 28 §Workstream A "Email Delivery Data Model" — see `EmailDelivery.status`.
+/// Deliberately the same 4-name shape as `NotificationProcessingStatus` (PENDING/
+/// PROCESSING/.../FAILED) for consistency, but `SENT` replaces `PROCESSED`: it means
+/// "handed off to / accepted by the SMTP provider for relay," NEVER "confirmed
+/// delivered to the recipient's inbox" — neither the local dev provider nor a
+/// standard SMTP relay (ZeptoMail included) gives this codebase real inbox-delivery
+/// confirmation, so this enum does not claim more than it can prove
+/// (docs/architecture/email-delivery.md "Delivery state machine").
+enum EmailDeliveryStatus {
+  PENDING
+  PROCESSING
+  SENT
+  FAILED
+}
+
+/// One email delivery ATTEMPT record for one existing `Notification` (Sprint 28
+/// §Workstream A). Deliberately downstream of, and structurally separate from,
+/// `Notification` itself — this table is never the user-facing notification intent
+/// (that stays `Notification`, unchanged since Sprint 27); it is only "did/will
+/// Zentuva also email this person about it, and what happened when it tried."
+/// `NotificationEventProcessorService`/`WorkflowInstanceService` never read or write
+/// this table — email is a pure downstream consumer of an already-created
+/// `Notification` row (docs/architecture/email-delivery.md).
+model EmailDelivery {
+  id                   String               @id @default(cuid())
+  organisationId       String
+  notificationId       String
+  /// Denormalized from `Notification.recipientUserId` — read once at creation, not
+  /// joined on every query; still used to tenant/user-scope admin queries directly.
+  recipientUserId      String
+  /// Sprint 28 §4.1 "Recipient Address Snapshot" — the LIVE `User.email` at the
+  /// moment this row was created, frozen from that point on. If the user later
+  /// changes their email address, this delivery (and any of its retries) keeps
+  /// targeting the ORIGINAL address — a retry is "try sending THIS email again,"
+  /// never "recompute who this should go to and how." See notifications.md §11 for
+  /// the full status-change behaviour table.
+  recipientEmail       String
+  recipientDisplayName String?
+  /// Resolved and snapshotted at creation time (Sprint 28 §Workstream H.1): the
+  /// organisation's own `emailDelivery.senderEmail`/`senderName` if configured,
+  /// else the environment's `MAIL_FROM_EMAIL`/`MAIL_FROM_NAME` default — same
+  /// "freeze what was actually used" reasoning as `recipientEmail` above. A later
+  /// change to either setting never rewrites an already-created delivery's sender
+  /// identity.
+  fromEmail            String
+  fromName             String
+  /// The `NotificationType` this delivery was rendered for — doubles as the stable
+  /// "template key" (Sprint 28 §Workstream C: the email renderer has no separate
+  /// per-category template catalogue, it reuses the already-built `Notification`
+  /// row this delivery references — see `EmailTemplateRenderer`).
+  templateKey          String
+  /// Denormalized from the notification's category (`notification-category.ts`) —
+  /// lets the admin UI filter by category without joining back to `Notification`.
+  category             NotificationCategory
+  subject              String
+  textBody             String
+  /// `null` is valid (no HTML variant was renderable) — never required.
+  htmlBody             String?
+  status               EmailDeliveryStatus  @default(PENDING)
+  /// Same "incremented on every attempt, success or failure, never reset" contract
+  /// as `WorkflowEvent.notificationAttempts` (Sprint 27.1).
+  attempts             Int                  @default(0)
+  firstAttemptedAt     DateTime?
+  lastAttemptedAt      DateTime?
+  sentAt               DateTime?
+  nextRetryAt          DateTime?
+  /// Same claim-lease mechanism as `WorkflowEvent.notificationLeaseAt` (Sprint
+  /// 27.1 §Workstream A) — a `PROCESSING` row whose lease is stale is reclaimable
+  /// by the next sweep, never trusted to an in-memory lock.
+  leaseAt              DateTime?
+  /// `'local'` or `'smtp'` (`EmailProvider.name` — see email-provider.port.ts) —
+  /// which adapter actually attempted this delivery, for admin triage when
+  /// comparing local-provider test runs against real SMTP attempts.
+  providerName         String?
+  /// The provider's own message/transport id (e.g. SMTP `Message-Id`) when the
+  /// provider returns one — never fabricated, `null` if the provider gave none or
+  /// the attempt never got that far.
+  providerMessageId    String?
+  lastErrorCategory    String?
+  /// Bounded to 2000 chars, same convention as `WorkflowEvent.notificationLastError`
+  /// — never a raw stack trace, never provider credentials (the SMTP provider
+  /// adapter is responsible for never including secrets in a thrown error's
+  /// message — see smtp-email-provider.ts).
+  lastError            String?
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  notification Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+
+  /// Sprint 28 §4.3 "Idempotency" — the database-level invariant: at most one email
+  /// delivery per (notification, channel). `channel` is always `EMAIL` on every row
+  /// this table ever holds, but is still a real column (rather than baking `EMAIL`
+  /// into the constraint literally) so a future second delivery-table-per-channel
+  /// split, or a unified table, can reuse the exact same constraint shape —
+  /// `EmailDeliveryCreationService` inserts via `create()` guarded by a pre-check
+  /// PLUS this constraint as the actual concurrency-safe backstop (mirroring
+  /// `Notification`'s own `createMany({ skipDuplicates: true })` pattern, Sprint 27
+  /// §Workstream 3).
+  channel NotificationChannel @default(EMAIL)
+
+  @@unique([organisationId, notificationId, channel])
+  /// The processor's claim query: "this organisation's due-for-(re)send rows,
+  /// oldest first" — mirrors `WorkflowEvent`'s own
+  /// `[organisationId, notificationProcessingStatus, notificationNextRetryAt]`
+  /// index exactly (Sprint 27.1).
+  @@index([organisationId, status, nextRetryAt])
+  @@index([organisationId, recipientUserId])
+  @@index([organisationId, createdAt])
+  @@map("email_deliveries")
+}
+
 /// A runtime copy of one `WorkflowStep`, snapshotted at `WorkflowInstance` creation so
 /// a later edit to the (still-`ACTIVE`) `WorkflowDefinition` never silently rewrites an
 /// in-progress approval — workflow.md §3.5. `definitionStepId` is kept for traceability
 /// only; every enforcement decision reads the snapshot columns, never the live
 /// `WorkflowStep` row.
 model WorkflowStepInstance {
-  id                        String                     @id @default(cuid())
-  workflowInstanceId        String
+  id                         String                     @id @default(cuid())
+  workflowInstanceId         String
   /// `SetNull`, not `Restrict` — deleting a step from its definition (rare; steps are
   /// normally deactivated, not deleted) must never block or corrupt a historical
   /// instance's own immutable snapshot.
-  definitionStepId          String?
-  stepNameSnapshot          String
-  sequence                  Int
+  definitionStepId           String?
+  stepNameSnapshot           String
+  sequence                   Int
   requiredPermissionSnapshot String
-  requiredScopeSnapshot     AccessScope?
-  assignedUserIdSnapshot    String?
-  status                    WorkflowStepInstanceStatus @default(PENDING)
-  startedAt                 DateTime?
-  completedAt               DateTime?
-  createdAt                 DateTime                   @default(now())
-  updatedAt                 DateTime                   @updatedAt
+  requiredScopeSnapshot      AccessScope?
+  assignedUserIdSnapshot     String?
+  status                     WorkflowStepInstanceStatus @default(PENDING)
+  startedAt                  DateTime?
+  completedAt                DateTime?
+  createdAt                  DateTime                   @default(now())
+  updatedAt                  DateTime                   @updatedAt
 
-  workflowInstance WorkflowInstance @relation(fields: [workflowInstanceId], references: [id], onDelete: Cascade)
-  definitionStep   WorkflowStep?    @relation(fields: [definitionStepId], references: [id], onDelete: SetNull)
+  workflowInstance WorkflowInstance   @relation(fields: [workflowInstanceId], references: [id], onDelete: Cascade)
+  definitionStep   WorkflowStep?      @relation(fields: [definitionStepId], references: [id], onDelete: SetNull)
   decisions        WorkflowDecision[]
 
   @@unique([workflowInstanceId, sequence])

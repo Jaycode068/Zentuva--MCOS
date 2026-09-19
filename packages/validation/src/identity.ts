@@ -111,6 +111,19 @@ export const workspacePreferencesSchema = z.object({
 });
 export type WorkspacePreferencesInput = z.infer<typeof workspacePreferencesSchema>;
 
+/** `emailDelivery` on `PATCH /api/settings/workspace` (Sprint 28 §Workstream H.1).
+ *  Every field optional — a save can flip `enabled` alone without also supplying
+ *  sender fields. `senderEmail` is validated as an email address when provided,
+ *  but may be explicitly cleared with `null`. */
+export const workspaceEmailDeliverySettingsSchema = z.object({
+  enabled: z.boolean().optional(),
+  senderName: z.string().trim().min(1).max(100).nullable().optional(),
+  senderEmail: z.string().trim().email().nullable().optional(),
+});
+export type WorkspaceEmailDeliverySettingsInput = z.infer<
+  typeof workspaceEmailDeliverySettingsSchema
+>;
+
 /**
  * `PATCH /api/settings/workspace` (Sprint 3.4 brief) — extends
  * {@link updateOrganisationProfileSchema} (Sprint 2.1) with the Branding/Regional/
@@ -136,6 +149,8 @@ export const updateWorkspaceSettingsSchema = updateOrganisationProfileSchema.ext
   theme: workspaceThemeSchema.optional(),
   // Preferences
   preferences: workspacePreferencesSchema.optional(),
+  // Email delivery (Sprint 28)
+  emailDelivery: workspaceEmailDeliverySettingsSchema.optional(),
 });
 export type UpdateWorkspaceSettingsInput = z.infer<typeof updateWorkspaceSettingsSchema>;
 

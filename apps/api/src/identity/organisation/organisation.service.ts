@@ -13,6 +13,7 @@ import {
   getLogoStorageKey,
   mergeWorkspaceSettings,
   withLogoStorageKey,
+  WorkspaceEmailDeliverySettings,
   WorkspacePreferences,
   WorkspaceTheme,
 } from './workspace-settings';
@@ -123,10 +124,10 @@ export class OrganisationService {
     id: string,
     input: UpdateWorkspaceSettingsPatch,
   ): Promise<Organisation> {
-    const { theme, preferences, ...columnFields } = input;
+    const { theme, preferences, emailDelivery, ...columnFields } = input;
     const data: Prisma.OrganisationUpdateInput = { ...columnFields };
 
-    if (theme !== undefined || preferences !== undefined) {
+    if (theme !== undefined || preferences !== undefined || emailDelivery !== undefined) {
       const current = await this.getByIdOrThrow(id);
       const merged = mergeWorkspaceSettings(current.settings);
       const currentSettings =
@@ -140,6 +141,9 @@ export class OrganisationService {
         ...currentSettings,
         theme: theme ?? merged.theme,
         preferences: { ...merged.preferences, ...(preferences ?? {}) },
+        // Sprint 28 — same read-modify-write merge as preferences, so e.g. patching
+        // only `{ enabled: true }` never clobbers an already-saved senderName/senderEmail.
+        emailDelivery: { ...merged.emailDelivery, ...(emailDelivery ?? {}) },
       };
       data.settings = next as unknown as Prisma.InputJsonValue;
     }
@@ -311,4 +315,5 @@ export interface UpdateWorkspaceSettingsPatch extends UpdateOrganisationProfileI
   accentColor?: string;
   theme?: WorkspaceTheme;
   preferences?: Partial<WorkspacePreferences>;
+  emailDelivery?: Partial<WorkspaceEmailDeliverySettings>;
 }

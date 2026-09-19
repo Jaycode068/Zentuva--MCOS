@@ -8,7 +8,14 @@ Notification Reliability, Preferences & Activity Consolidation** hardens that
 foundation: an explicit, concurrency-safe processing state machine with bounded
 retry and stale-lease recovery, a documented recipient contract, a tenant-scoped
 preference system, and an operational admin surface for inspecting/retrying failed
-processing — all without redesigning anything Sprint 27 got right.
+processing — all without redesigning anything Sprint 27 got right. **Sprint 28 —
+Email Notification Delivery Foundation** adds email as a second, genuinely
+downstream channel: `EmailDelivery` (§15) is produced from an already-created
+`Notification` (never from `WorkflowEvent` directly), with its own
+provider-independent adapter (§17), its own reliability state machine (§16), and
+its own preference gate (§15.3) — see
+[docs/architecture/email-delivery.md](../architecture/email-delivery.md) for the
+full architecture decision record.
 
 ## 1. Domain Purpose
 
@@ -19,11 +26,13 @@ related but deliberately distinct questions, never conflated (§10). See
 for the full architectural decision record on how these relate to `WorkflowEvent`
 and `AuditLog` too.
 
-Delivers exactly one delivery channel: `IN_APP`. Email, SMS, push, WhatsApp,
-webhooks, digests, scheduled reminders, and automatic escalation are all explicitly
-out of scope — the data model and processing architecture are built so adding a
-channel later means adding a `NotificationChannel` enum value and a new delivery
-path, never redesigning how events become notifications.
+Delivers two channels as of Sprint 28: `IN_APP` (Sprint 27) and `EMAIL` (Sprint 28,
+transactional only — never marketing, see email-delivery.md §7). SMS, push,
+WhatsApp, webhooks, digests, scheduled reminders, and automatic escalation are all
+explicitly out of scope — the data model and processing architecture are built so
+adding a further channel means adding a `NotificationChannel` enum value and a new
+delivery path (a new `*Delivery` table + provider adapter, following `EmailDelivery`
+as the template), never redesigning how events become notifications or deliveries.
 
 ## 2. Four Distinct Concepts — Do Not Confuse Them
 
@@ -647,3 +656,363 @@ during this session; final sweep confirmed 0 non-terminal instances and 0
 - **Preferences have only two categories** — deliberately coarse; a future
   per-type preference system is a documented, additive extension, not a
   redesign.
+
+## 15. Email Delivery (Sprint 28)
+
+Full architecture rationale lives in
+[docs/architecture/email-delivery.md](../architecture/email-delivery.md); this
+section covers the domain-doc essentials.
+
+### 15.1 `EmailDelivery` — a delivery ATTEMPT, not a second notification intent
+
+One row per (notification, channel) — enforced by
+`@@unique([organisationId, notificationId, channel])`, `channel` always `EMAIL`
+on this table. Produced by `EmailDeliveryCreationService`, sent by
+`EmailDeliveryProcessorService` — two independent services, matching the brief's
+"keep responsibilities clearly separated" rule; neither imports the other's
+internals, and NEITHER imports `NotificationEventProcessorService` or anything
+Workflow-specific.
+
+Fields worth calling out:
+
+- `recipientEmail`/`recipientDisplayName`/`fromEmail`/`fromName` — all
+  SNAPSHOTTED at creation from the live `User`/`Organisation` state at that
+  instant, never re-read live on retry (§15.4).
+- `templateKey` = the `Notification.type` this delivery was rendered for — no
+  separate template catalogue exists; see §17.
+- `category` — denormalized from the notification for admin filtering.
+- `status` — `EmailDeliveryStatus`: `PENDING → PROCESSING → SENT | FAILED`
+  (back to `PENDING` on a retryable failure with attempts remaining). `SENT`
+  means "the provider accepted it for relay," never "confirmed delivered to an
+  inbox" — see email-delivery.md §3 for why that distinction matters.
+- `providerName`/`providerMessageId` — which adapter (`local`|`smtp`) handled
+  this attempt, and its own message id when one was returned.
+- `lastErrorCategory`/`lastError` — bounded (100/2000 chars), never a raw
+  provider exception, never credentials.
+
+### 15.2 Email-eligible categories
+
+Only 6 of the 8 `NotificationType` values are ever email-eligible
+(`EmailEligibilityService`'s `EMAIL_ELIGIBLE_TYPES` set):
+
+| Notification type            | Email-eligible? | Why                                                                                           |
+| ---------------------------- | :-------------: | --------------------------------------------------------------------------------------------- |
+| `WORKFLOW_APPROVAL_REQUIRED` |       ✅        | The primary "you need to act" case                                                            |
+| `WORKFLOW_APPROVED`          |       ✅        | Final outcome, requester needs to know                                                        |
+| `WORKFLOW_STEP_REJECTED`     |       ✅        | Terminal outcome, requester needs to know                                                     |
+| `WORKFLOW_RETURNED`          |       ✅        | Requester needs to act (edit + resubmit)                                                      |
+| `WORKFLOW_RESUBMITTED`       |       ✅        | Prior approver/returner needs to know                                                         |
+| `WORKFLOW_EXPIRED`           |       ✅        | Terminal outcome, nobody decided in time                                                      |
+| `WORKFLOW_STEP_APPROVED`     |       ❌        | Mid-chain FYI, almost always followed immediately by another email-eligible event for someone |
+| `WORKFLOW_CANCELLED`         |       ❌        | Self-initiated/administrative; the actor already knows                                        |
+
+### 15.3 Preference contract — "Category → Channel → Enabled"
+
+`NotificationPreference` gained an `emailEnabled` column alongside the existing
+`inAppEnabled` (Sprint 27.1) — same row, same `(organisationId, userId,
+category)` key, not a second table. **Deliberately asymmetric default**:
+`inAppEnabled` defaults `true` (absent row = enabled), `emailEnabled` defaults
+`false` (absent row = disabled) — "email is disabled unless explicitly
+enabled." A delivery is only ever created when BOTH the organisation-level gate
+(§15.5) AND this per-user, per-category preference are true — an AND, not an
+OR.
+
+Suppression semantics, matching Sprint 27.1's own precedent exactly: a disabled
+preference only prevents `EmailDelivery` row CREATION. It never touches
+`WorkflowEvent`, `Notification`, audit, or the Activity Centre — all of those
+stay complete regardless of anyone's email preference. Auditability is never
+gated by delivery preference.
+
+### 15.4 Recipient address snapshot & user-status-change behaviour
+
+`recipientEmail` is frozen at `EmailDelivery` creation time. Documented,
+live-verified behaviour:
+
+| Scenario                                              | Behaviour                                                                                                                                                                                                                                                                                     |
+| ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| User changes their email AFTER a delivery was created | The existing delivery (and any of its retries) keeps targeting the OLD, snapshotted address — a retry is "send THIS email again," never "recompute the recipient." Live-verified (§19).                                                                                                       |
+| User suspended BEFORE the notification is processed   | Never resolved as a recipient at all (`EmailEligibilityService` checks live `User.status`) — excluded upstream, same as the in-app resolver. Live-verified.                                                                                                                                   |
+| User suspended AFTER a delivery was already created   | The existing delivery is untouched (not deleted, not blocked from sending if already `SENT`) — suspension only affects FUTURE eligibility evaluation.                                                                                                                                         |
+| User reactivated                                      | Immediately eligible again for any notification not yet evaluated; does NOT retroactively create a delivery for a notification already evaluated-and-found-ineligible while they were suspended (that notification simply re-enters the "pending evaluation" set — see §15.6's ordering fix). |
+| Historical delivery after any of the above            | Always remains visible in the admin UI — never deleted, no retention policy exists yet (matches `Notification`'s own "retained indefinitely" stance).                                                                                                                                         |
+
+### 15.5 Organisation configuration
+
+`Organisation.settings.emailDelivery: { enabled, senderName, senderEmail }` —
+the SAME deep-merged JSON bucket `WorkspaceSettings` already used for
+theme/preferences (Sprint 3.4 convention), read/written through the EXISTING
+`GET/PATCH /settings/workspace` route and `identity.organisation.manage`
+permission — no new controller, no new permission for configuration itself.
+Defaults `{ enabled: false, senderName: null, senderEmail: null }` — "no
+organisation gets email without explicitly turning it on."
+
+**Deliberately distinct from `preferences.emailNotifications`** (a Sprint
+3.4-era toggle that predates Notifications entirely). Verified by inspection
+before this sprint: nothing in this codebase reads `preferences.
+emailNotifications` — it is a dormant, generic UI toggle with zero backend
+enforcement. Repurposing it for Sprint 28's very different, specific meaning
+risked silently changing behaviour for any organisation that had already
+touched it; `emailDelivery` is new and unambiguous instead.
+
+Sender resolution order (`EmailEligibilityService.evaluate`): organisation
+`senderEmail`/`senderName` if both set, else the environment's
+`MAIL_FROM_EMAIL`/`MAIL_FROM_NAME`. If NEITHER resolves, the notification is
+ineligible (`"No sender email/name configured"`) — never sent from a blank or
+fabricated address.
+
+### 15.6 Delivery creation — scan ordering (a bug found and fixed live this sprint)
+
+`EmailDeliveryCreationService.createPendingDeliveries` scans `Notification`
+rows with no `EmailDelivery` row yet
+(`{ emailDeliveries: { none: {} } }`), bounded by `limit` (default 50).
+
+**Found live during this sprint's own verification**: the first implementation
+ordered this scan oldest-first (`createdAt: 'asc'`), matching every other
+sweep in this domain. Since an INELIGIBLE notification never gets an
+`EmailDelivery` row (there's nothing to create), it stays in the "pending
+evaluation" set forever and is RE-SCANNED on every sweep. With oldest-first
+ordering, a backlog of old ineligible notifications permanently occupied the
+entire `limit` window, starving genuinely eligible NEW notifications from ever
+being reached — reproduced live (a freshly submitted, fully-eligible
+notification silently never got emailed behind ~50 old ineligible ones from
+earlier testing).
+
+**Fixed**: the scan is now newest-first (`createdAt: 'desc'`). A live system's
+actionable backlog is always reachable regardless of how large the
+permanently-ineligible tail grows underneath it; those old rows simply never
+matter again rather than actively blocking anything. Re-verified live
+post-fix: the previously-starved notification was immediately picked up and
+sent on the very next sweep.
+
+## 16. Email Processing Reliability
+
+Deliberately a SEPARATE state machine and constants file from the in-app
+processor (`email-delivery-processing.constants.ts`, not `notification-
+processing.constants.ts`) — per the brief's own "do not reuse the in-app
+retry policy blindly if email provider behaviour differs" instruction.
+
+- **States**: `PENDING → PROCESSING (claimed) → SENT | FAILED` (or back to
+  `PENDING` with a scheduled `nextRetryAt` on a retryable failure).
+- **Claiming**: a per-row conditional `updateMany`
+  (`EmailDeliveryRepository.claimBatch`) — the same idiom every other
+  processor in this codebase uses, no new lock primitive, no Redis.
+- **Retry policy**: `MAX_EMAIL_ATTEMPTS = 3`, backoff `[0, 2min, 10min]` —
+  longer than the in-app processor's `[0, 1min, 5min]` since SMTP transient
+  failures (rate limits, greylisting) typically need more time to clear than
+  an in-process DB hiccup. Every failure is currently treated as retryable
+  UNLESS the provider explicitly classifies it terminal (§17) or attempts are
+  exhausted — a real distinction the in-app processor doesn't have, since
+  provider outcomes carry more signal than a generic exception.
+- **Stale-lease recovery**: `EMAIL_PROCESSING_LEASE_MS = 10 minutes` (longer
+  than the in-app processor's 5, since a real SMTP round-trip is slower than
+  a handful of DB queries) — a `PROCESSING` row whose lease is older is
+  reclaimed by the very next ordinary sweep, no separate recovery job.
+- **Manual retry**: `POST /notifications/admin/email-deliveries/:id/retry` —
+  eligible from `FAILED` or a stuck `PROCESSING` row, bypasses backoff, does
+  NOT reset `attempts` (full history preserved).
+- **Ambiguous provider outcomes** (§8.3 of the brief): the provider call
+  happens OUTSIDE any database transaction (an SMTP round-trip cannot be part
+  of one). A crash between the provider accepting a message and this process
+  persisting `SENT` would cause the next sweep's stale-lease reclaim to send
+  it AGAIN — honest at-least-once delivery, never claimed as exactly-once.
+  `providerMessageId` + the `EmailDelivery.id` (passed as the provider
+  message's `correlationId`) exist specifically so a human can spot a
+  duplicate in the provider's own dashboard after the fact; neither adapter
+  implemented this sprint gives this codebase real provider-side idempotency.
+
+All of the above — successful send, retryable failure with backoff,
+terminal failure (immediate, regardless of attempt count), max-attempts →
+`FAILED`, stale-`PROCESSING` reclaim, and manual retry preserving attempt
+history — were live-verified this sprint (§19), including one case that
+proved THREE things in a single sequence: manual retry preserves attempt
+history, the recipient-address snapshot survives a live email change, and
+attempts-exhausted correctly short-circuits to terminal `FAILED` even on a
+manually-triggered retry.
+
+## 17. Provider Abstraction
+
+`apps/api/src/notifications/ports/email-provider.port.ts` — mirrors the
+established `FileStorage` port pattern (Sprint 3.4) exactly: an `EmailProvider`
+interface + `EMAIL_PROVIDER` DI token, selected once at boot by
+`email-provider.module.ts` based on `EMAIL_PROVIDER_MODE` (`local` | `smtp`,
+default `local`). Nothing downstream of the token knows or cares which
+concrete adapter it's talking to.
+
+- **`LocalEmailProvider`** (`infrastructure/local-email-provider.ts`) — the
+  default. Never sends real email; records every message in memory for
+  assertions; deterministic. Failure simulation via plus-addressing on the
+  recipient (no extra config surface): `...+failretryable@...` →
+  `RETRYABLE_FAILURE`, `...+failterminal@...` → `TERMINAL_FAILURE`, anything
+  else → `ACCEPTED`.
+- **`SmtpEmailProvider`** (`infrastructure/smtp-email-provider.ts`) — real
+  `nodemailer`-based SMTP, compatible with any standards-conforming relay
+  (ZeptoMail's SMTP endpoint specifically, but nothing ZeptoMail-proprietary
+  is used). Maps SMTP/`nodemailer` errors: `EAUTH` → terminal, connection
+  errors (`ECONNECTION`/`ECONNREFUSED`/`ETIMEDOUT`/`ESOCKET`/`EDNS`) →
+  retryable, SMTP response code ≥500 → terminal, ≥400 → retryable,
+  `EENVELOPE`/`EMESSAGE` → terminal, anything unrecognized → retryable
+  (default-safe). Never logs or returns `SMTP_PASS`/`ZEPTOMAIL_API_KEY`;
+  every error surfaced is a short, hand-built string (category + SMTP
+  response code + command name only), never the raw exception.
+- **Fail loud, never silently downgrade**: `EMAIL_PROVIDER_MODE=smtp` with any
+  required SMTP field missing/empty throws `SmtpConfigurationError` at
+  CONSTRUCTION time (app boot), listing which non-secret field names are
+  missing — never falls back to the local provider while reporting success.
+- **`ZEPTOMAIL_API_KEY` is deliberately unread** by the SMTP adapter —
+  reserved for a possible future ZeptoMail REST API adapter; the SMTP
+  transport authenticates with `SMTP_USER`/`SMTP_PASS` only. Documented in
+  `env.validation.ts`'s own comment so this isn't mistaken for an oversight.
+
+## 18. Configuration Reference
+
+All new environment variables (`apps/api/.env.example`, `env.validation.ts`) —
+every SMTP field is `.optional()` so an existing environment boots unchanged:
+
+| Variable              | Required when                                                    | Notes                                                                                                                                         |
+| --------------------- | ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `EMAIL_PROVIDER_MODE` | Never (defaults `local`)                                         | `local` \| `smtp`                                                                                                                             |
+| `WEB_PUBLIC_URL`      | Never (defaults to localhost)                                    | Frontend origin, used to build absolute links in email bodies                                                                                 |
+| `SMTP_HOST`           | `EMAIL_PROVIDER_MODE=smtp`                                       |                                                                                                                                               |
+| `SMTP_PORT`           | `EMAIL_PROVIDER_MODE=smtp`                                       |                                                                                                                                               |
+| `SMTP_SECURE`         | `EMAIL_PROVIDER_MODE=smtp`                                       | Literal `"true"`/`"false"` string, not `z.coerce.boolean()` (which would treat any non-empty string, including the text `"false"`, as `true`) |
+| `SMTP_USER`           | `EMAIL_PROVIDER_MODE=smtp`                                       |                                                                                                                                               |
+| `SMTP_PASS`           | `EMAIL_PROVIDER_MODE=smtp`                                       | Never logged, never returned by any API response                                                                                              |
+| `ZEPTOMAIL_API_KEY`   | Never                                                            | Reserved, unread by the SMTP adapter (§17)                                                                                                    |
+| `MAIL_FROM_NAME`      | `EMAIL_PROVIDER_MODE=smtp` (or as the org-level sender fallback) |                                                                                                                                               |
+| `MAIL_FROM_EMAIL`     | Same as above                                                    |                                                                                                                                               |
+
+## 19. Live Verification (Sprint 28)
+
+Performed against the real local PostgreSQL database and real authenticated
+tokens (Boby Bites tenant: Ibrahim as requester, Grace as approver, Admin for
+org configuration and operational admin routes; the pre-existing rival-tenant
+fixture for cross-tenant checks):
+
+1. Enabled organisation transactional email (`PATCH /settings/workspace`) and
+   Grace's per-category email preference — confirmed both persisted with the
+   correct asymmetric defaults.
+2. Submitted a real Purchase Order end-to-end → confirmed one `EmailDelivery`
+   row created and `SENT` via the local provider, with the correct recipient,
+   subject, rendered body, and deterministic `providerMessageId`.
+3. Replayed processing repeatedly — confirmed zero duplicate delivery rows
+   (verified both via the API and a direct SQL `GROUP BY notificationId
+HAVING COUNT(*) > 1` returning zero rows).
+4. Fired 5 concurrent `process-events` requests immediately after a fresh
+   submission — exactly one call created the in-app notification (the other 4
+   correctly no-opped on the claim), zero duplicate `EmailDelivery` rows
+   resulted.
+5. Simulated a retryable failure (`+failretryable@`) — confirmed `PENDING`
+   with a scheduled `nextRetryAt` (+2 min), then a later automatic retry
+   correctly failed again with backoff `+10 min` (attempt 2→3).
+6. Fast-forwarded `nextRetryAt` to force the 3rd attempt — confirmed terminal
+   `FAILED` at exactly `MAX_EMAIL_ATTEMPTS = 3`.
+7. **Manual retry** on that `FAILED` row, AFTER separately reverting the
+   recipient's live email back to normal — confirmed in one sequence: (a)
+   `attempts` preserved at 3 going into the retry, not reset; (b) the retry
+   still targeted the OLD, snapshotted `+failretryable@` address, proving
+   recipient-snapshot immutability under a live email change; (c) the retry
+   correctly went straight to terminal `FAILED` again (attempts now 4 ≥ max),
+   never silently succeeding.
+8. Simulated a terminal failure (`+failterminal@`) — confirmed `FAILED`
+   immediately on the FIRST attempt (`attempts: 1`), never waiting for 3
+   tries, proving terminal outcomes short-circuit the retry loop.
+9. Manufactured a stale `PROCESSING` row (lease backdated 20 minutes) —
+   confirmed the next ordinary sweep reclaimed it (`attempts` incremented,
+   `lastAttemptedAt` updated) with zero duplicate delivery rows.
+10. Deactivated Grace (`status: INACTIVE`), submitted a fresh PO — confirmed
+    zero `EmailDelivery` rows created for her (excluded upstream at
+    recipient-resolution time, same as the in-app resolver); reactivated her
+    and confirmed no unexpected duplicate delivery was created retroactively.
+11. Cross-tenant: the rival-tenant fixture's admin email-deliveries list
+    returned `total: 0`, and a direct request for a real Boby Bites delivery
+    ID returned `404` (no existence leak).
+12. Authorization: a non-administrator (Ibrahim) received `403` on both
+    `GET /notifications/admin/email-deliveries` and the retry endpoint;
+    Grace attempting to mark IBRAHIM's own notification read received `404`
+    (cross-user isolation, no existence leak).
+13. Confirmed the underlying `WorkflowInstance` (`IN_PROGRESS`, correct step
+    active) and in-app `Notification` rows were completely unaffected by
+    every one of the above email failures/successes — email is a pure,
+    non-blocking downstream concern, proven live, not just by construction.
+14. **Found and fixed live** the scan-ordering starvation bug (§15.6).
+15. **Real ZeptoMail SMTP** — see §20 below; this used the actual environment
+    SMTP configuration, not the local provider, and is reported separately
+    per the brief's own required distinction between automated/local-provider
+    tests and the real-provider live test.
+16. Frontend: the notification preferences page (In-app/Email columns), the
+    new Admin: Email Deliveries page (all 4 status filters, retry action,
+    provider message id display), and the organisation settings
+    "Transactional Email" card (enable toggle + sender name/email fields) were
+    all verified rendering and functioning correctly at both desktop width
+    and 375px mobile width.
+17. Cleanup: reverted the test recipient's email back to normal, reverted
+    `EMAIL_PROVIDER_MODE` back to `local` (the safe default) and restarted
+    the API in that mode, cancelled every leftover non-terminal test workflow
+    instance. Final sweep: 0 non-terminal workflow instances, 0
+    `PROCESSING` email deliveries; 3 `FAILED` deliveries were deliberately
+    left in place as inspectable, documented examples (the two local-provider
+    simulated failures and the one real SMTP rejection below) rather than
+    deleted — consistent with this domain's "nothing deletes rows" convention.
+
+### 19.1 Real ZeptoMail SMTP verification (distinct from the automated/local-provider tests above)
+
+Performed twice, on two different `MAIL_FROM_EMAIL` values — the second attempt
+followed the user's own guidance that the ZeptoMail account is an already-active
+production account for a different project, with `mindcraftlearn.online` as its
+verified sending domain.
+
+**Constant across both attempts**: provider mode `smtp` (temporarily; reverted
+to `local` after each test); SMTP configuration detected (values never printed)
+— host, port, secure mode (`false`), username, password, mail-from name,
+mail-from email all present, confirmed indirectly via `SmtpEmailProvider`
+constructing successfully (it throws `SmtpConfigurationError` at boot if any
+required field is missing) and logging only
+`"SMTP email provider configured (host configured: yes, port configured: yes, secure: false)."`;
+test tenant Boby Bites; test category `WORKFLOW_APPROVAL_REQUIRED` from a real
+Purchase Order submission through the actual pipeline (no bypass/test-only
+endpoint exists); test recipient `ajayijohnson68@gmail.com`, set via a
+temporary, direct database update to an existing seeded user's `email` column
+for the duration of each test only (this codebase's Identity domain makes
+`email` immutable through every application-level endpoint, by design — this
+was a controlled, reverted test fixture, never reachable by any real user
+action), reverted immediately after each test; no secret value was ever
+printed, logged, returned in an API response, or written into any file,
+screenshot, or report at any point.
+
+**Attempt 1** — `MAIL_FROM_EMAIL=no-reply@zentuva.com` (`MAIL_FROM_NAME=Zentuva`):
+
+- Delivery record id: `cmu70c09z000nt1iask0s7jdh`.
+- Provider result: REJECTED — SMTP response code `553` during the `DATA` phase
+  (i.e., AFTER a successful connection and successful `AUTH LOGIN`, ruling out
+  a credentials problem). Classified `TERMINAL_FAILURE`.
+- Final status: `FAILED` (confirmed across the original send and one
+  deliberate manual retry — identical `553` rejection both times).
+- Diagnosis at the time: a `553` at `DATA`, after successful auth, is most
+  consistent with the sending domain/address not being verified/authorized for
+  outbound sending on this ZeptoMail account — an account-configuration
+  matter, not a defect in this codebase's SMTP integration.
+
+**Attempt 2** — `MAIL_FROM_EMAIL=no-reply@mindcraftlearn.online`
+(`MAIL_FROM_NAME=Mindcraft Learn`), at the user's explicit direction, using the
+real production ZeptoMail account's own already-verified sending domain:
+
+- Delivery record id: `cmu73txmy000nvttl92v3lj66`.
+- Provider result: **ACCEPTED** — `providerMessageId:
+<ab0c37c7-bf67-da95-5ebb-026b5d823e76@mindcraftlearn.online>`.
+- Final persisted status: `SENT`, `sentAt: 2026-09-18T15:19:47.178Z`.
+- This confirms attempt 1's diagnosis was correct: the SMTP transport,
+  credentials, and this codebase's provider integration were never the
+  problem — only the specific sending domain was unverified on the account.
+
+**Inbox receipt**: NOT independently confirmed either way — this session has
+no access to the recipient's Gmail inbox. Attempt 2's result is accurately
+reported as _"real email accepted by SMTP provider, but inbox receipt not
+independently confirmed,"_ never as confirmed delivery/receipt.
+
+**Honest summary per the brief's required disclosure**: _Real email accepted
+by the SMTP provider (ZeptoMail) on the second attempt, using a sending domain
+already verified on the user's own production ZeptoMail account; inbox
+receipt was not independently confirmed._ The first attempt's failure was a
+real, informative result in its own right — correctly classified terminal,
+safely surfaced with no secrets exposed, and correctly diagnosed before being
+confirmed by the successful second attempt.

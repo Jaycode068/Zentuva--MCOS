@@ -11,6 +11,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import {
+  EmailDeliveryStatus,
   NotificationCategory,
   NotificationProcessingStatus,
   NotificationStatus,
@@ -24,6 +25,8 @@ import { JwtAuthGuard } from '../identity/auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../identity/auth/guards/permissions.guard';
 import { TokenPayload } from '../identity/auth/ports/token.port';
 import { ActivityService } from './activity.service';
+import { EmailDeliveryCreationService } from './email-delivery-creation.service';
+import { EmailDeliveryProcessorService } from './email-delivery-processor.service';
 import { NotificationEventProcessorService } from './notification-event-processor.service';
 import { NotificationPreferenceService } from './notification-preference.service';
 import { NotificationService } from './notification.service';
@@ -51,6 +54,8 @@ export class NotificationsController {
     private readonly notificationEventProcessorService: NotificationEventProcessorService,
     private readonly activityService: ActivityService,
     private readonly preferenceService: NotificationPreferenceService,
+    private readonly emailDeliveryCreationService: EmailDeliveryCreationService,
+    private readonly emailDeliveryProcessorService: EmailDeliveryProcessorService,
   ) {}
 
   /** Sprint 27 §Workstream 6 "Activity Centre Foundation" — organisation-wide, NOT
@@ -94,14 +99,9 @@ export class NotificationsController {
     @CurrentUser() user: TokenPayload,
     @Param('category') category: NotificationCategory,
     @Body(new ZodValidationPipe(updateNotificationPreferenceSchema))
-    body: { inAppEnabled: boolean },
+    body: { inAppEnabled?: boolean; emailEnabled?: boolean },
   ) {
-    return this.preferenceService.update(
-      user.organisationId,
-      user.sub,
-      category,
-      body.inAppEnabled,
-    );
+    return this.preferenceService.update(user.organisationId, user.sub, category, body);
   }
 
   @Post('preferences/reset')
@@ -140,6 +140,67 @@ export class NotificationsController {
     return this.notificationEventProcessorService.retryEvent(user.organisationId, eventId);
   }
 
+  // ---------------------------------------------------------------------------
+  // Email delivery — operational administration (Sprint 28 §Workstream G).
+  // Organisation-wide, gated by the new notification.email.view/.manage
+  // permissions — a DIFFERENT trust level from notification.processing.* above,
+  // since these routes expose actual recipient email addresses.
+  // ---------------------------------------------------------------------------
+
+  @Get('admin/email-deliveries')
+  @UseGuards(PermissionsGuard)
+  @RequirePermission('notification.email.view')
+  async listEmailDeliveries(
+    @CurrentUser() user: TokenPayload,
+    @Query('status') status?: EmailDeliveryStatus,
+    @Query('page') pageRaw?: string,
+    @Query('pageSize') pageSizeRaw?: string,
+  ) {
+    const { page, pageSize } = paginationSchema.parse({ page: pageRaw, pageSize: pageSizeRaw });
+    const { items, total } = await this.emailDeliveryProcessorService.listForOrganisation(
+      user.organisationId,
+      { status, skip: (page - 1) * pageSize, take: pageSize },
+    );
+    return { items, total, page, pageSize };
+  }
+
+  @Get('admin/email-deliveries/:id')
+  @UseGuards(PermissionsGuard)
+  @RequirePermission('notification.email.view')
+  getEmailDelivery(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
+    return this.emailDeliveryProcessorService.getById(user.organisationId, id);
+  }
+
+  @Post('admin/email-deliveries/:id/retry')
+  @UseGuards(PermissionsGuard)
+  @RequirePermission('notification.email.manage')
+  @HttpCode(HttpStatus.OK)
+  retryEmailDelivery(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
+    return this.emailDeliveryProcessorService.retryDelivery(user.organisationId, id);
+  }
+
+  /** Sprint 28 §Workstream F — the on-demand trigger for the "eligibility
+   *  evaluation → delivery record → send" pipeline, mirroring `process-events`'s
+   *  own reasoning exactly (no queue/worker infrastructure exists; the frontend
+   *  calls this on a poll and right after workflow actions/mark-read). Creation
+   *  runs before processing in the SAME request so a delivery created this call
+   *  doesn't have to wait for a second round-trip before it's attempted.
+   *  `JwtAuthGuard` only — same "no privilege escalation, the caller never
+   *  chooses recipients or content" reasoning as `process-events`; every email's
+   *  recipient/content is derived entirely server-side from an
+   *  already-eligibility-checked `Notification`. */
+  @Post('process-email')
+  @HttpCode(HttpStatus.OK)
+  async processEmail(@CurrentUser() user: TokenPayload) {
+    const created = await this.emailDeliveryCreationService.createPendingDeliveries(
+      user.organisationId,
+    );
+    const processed = await this.emailDeliveryProcessorService.processPendingDeliveries(
+      user.organisationId,
+    );
+    return { created, processed };
+  }
+
   @Get()
   async list(
     @CurrentUser() user: TokenPayload,
@@ -176,11 +237,35 @@ export class NotificationsController {
    *  enforces. A future scheduled job can call
    *  `NotificationEventProcessorService.processPendingEvents` directly and this
    *  endpoint can be removed or left as a manual "process now" affordance, without
-   *  any change to the processing logic itself. */
+   *  any change to the processing logic itself.
+   *
+   *  Sprint 28 — ALSO chains the email pipeline (creation, then send) right after,
+   *  in the same request, so every one of the 5 existing frontend call sites that
+   *  already call this endpoint (the bell's poll, every workflow-mutating action's
+   *  onSuccess, this page's own "Check for new") gets prompt email delivery too,
+   *  with zero frontend changes needed. `email` failing/erroring never affects the
+   *  in-app `processed`/`failed`/`notificationsCreated` result above it — a `try`/
+   *  `catch` here mirrors this domain's own "email failure must not corrupt
+   *  anything upstream" invariant one layer further up than usual, since this is
+   *  the one place both pipelines share an HTTP request. */
   @Post('process-events')
   @HttpCode(HttpStatus.OK)
-  processEvents(@CurrentUser() user: TokenPayload) {
-    return this.notificationEventProcessorService.processPendingEvents(user.organisationId);
+  async processEvents(@CurrentUser() user: TokenPayload) {
+    const inApp = await this.notificationEventProcessorService.processPendingEvents(
+      user.organisationId,
+    );
+    try {
+      const created = await this.emailDeliveryCreationService.createPendingDeliveries(
+        user.organisationId,
+      );
+      const processed = await this.emailDeliveryProcessorService.processPendingDeliveries(
+        user.organisationId,
+      );
+      return { ...inApp, email: { created, processed } };
+    } catch {
+      // Email pipeline errors never mask the in-app result already computed above.
+      return inApp;
+    }
   }
 
   @Post('mark-all-read')

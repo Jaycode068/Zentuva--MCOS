@@ -865,6 +865,7 @@ REJECTED}`) optionally linking an existing `CapitalProject`/
 - ✓ Sprint 26.1 — Workflow Hardening, Lifecycle Completion & Domain Readiness
 - ✓ Sprint 27 — Notifications & Activity Centre Foundation
 - ✓ Sprint 27.1 — Notification Reliability, Preferences & Activity Consolidation
+- ✓ Sprint 28 — Email Notification Delivery Foundation
 
 **Current focus:** The Finance MVP (Sprints 6-19) is considered
 functionally complete. Epic 14 (Asset & Maintenance Management) is fully
@@ -964,11 +965,40 @@ formalizing the relationship between `WorkflowEvent`, `WorkflowDecision`,
 `Notification`, `AuditLog`, and the Activity Centre — no duplicate
 record-keeping introduced. See
 [`docs/sprint-27.1-completion-report.md`](sprint-27.1-completion-report.md).
+Sprint 28 ("Email Notification Delivery Foundation") adds email as a
+second delivery channel, strictly downstream of the already-existing
+`Notification` row — `WorkflowInstanceService` untouched. A new
+`EmailDelivery` model with its own claim-based state machine and its
+own retry policy (3 attempts, `[0, 2min, 10min]` backoff, deliberately
+longer than the in-app processor's), a provider-independent
+`EmailProvider` port (mirroring the Sprint 3.4 `FileStorage` pattern) with
+a safe `LocalEmailProvider` (default, deterministic, never sends real
+mail) and a real `nodemailer`-based `SmtpEmailProvider` (ZeptoMail-
+compatible, maps SMTP errors to retryable/terminal, never logs
+credentials, fails loudly at boot rather than silently falling back to
+local when misconfigured). Recipient-address snapshotting, an
+asymmetric preference default (email OFF unless explicitly enabled),
+and organisation-level sender configuration reusing the existing
+`Organisation.settings` bucket — no new config surface, no new
+permission for configuration. A real starvation bug (a backlog of
+permanently-ineligible old notifications silently blocking new ones
+from ever being scanned for email) was found and fixed live during this
+sprint's own verification. Live-verified end-to-end including
+concurrent processing, retryable/terminal failure simulation,
+stale-lease recovery, manual retry preserving attempt history,
+suspended-user exclusion, cross-tenant/cross-user isolation, and one
+real attempted send through ZeptoMail's SMTP endpoint (connection and
+authentication succeeded; the message was safely rejected at
+submission — reported honestly, not claimed as delivered). See
+[`docs/architecture/email-delivery.md`](architecture/email-delivery.md)
+and
+[`docs/sprint-28-completion-report.md`](sprint-28-completion-report.md).
 Deliberately still not started: payroll, leave management, recruitment
-automation, performance/KPI engines, an LMS, email/SMS/push/webhook
+automation, performance/KPI engines, an LMS, SMS/push/webhook
 notification channels, digests, scheduled reminders, a real background
-worker for notification processing, a Technician RBAC role (from Sprint
-22), `ASSIGNED_TERRITORY`/`ASSIGNED_ASSETS` scope enforcement (no
+worker for notification/email processing, a marketing-email platform of
+any kind, a Technician RBAC role (from Sprint 22),
+`ASSIGNED_TERRITORY`/`ASSIGNED_ASSETS` scope enforcement (no
 server-side assignment relationship exists yet to prove them from),
 permission-aware frontend navigation filtering, automatic escalation/
 SLA/delegation, parallel/branching approval, and a second Workflow

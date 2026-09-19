@@ -193,6 +193,7 @@ function toDomainPatch(dto: UpdateWorkspaceSettingsInput): UpdateWorkspaceSettin
     ...(dto.accentColor !== undefined && { accentColor: dto.accentColor }),
     ...(dto.theme !== undefined && { theme: dto.theme }),
     ...(dto.preferences !== undefined && { preferences: dto.preferences }),
+    ...(dto.emailDelivery !== undefined && { emailDelivery: dto.emailDelivery }),
   };
 }
 
@@ -241,5 +242,11 @@ function toWorkspaceSettingsResponse(org: Organisation) {
 
     // Preferences
     preferences: settings.preferences,
+
+    // Email delivery (Sprint 28) — senderEmail/senderName only, never SMTP
+    // credentials or provider mode (Sprint 28 Add-On §A "do not return provider
+    // credentials from configuration endpoints" — provider mode is environment-
+    // controlled, deliberately not part of this tenant-writable response at all).
+    emailDelivery: settings.emailDelivery,
   };
 }

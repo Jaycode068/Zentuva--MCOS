@@ -19,17 +19,20 @@ export class NotificationPreferenceRepository {
   /** Upsert, scoped to exactly this tenant+user+category via the unique
    *  constraint — a client can never write another user's or tenant's row
    *  because both are always taken from the caller's own token, never the
-   *  request body. */
+   *  request body. `patch` is partial so a save can update `inAppEnabled` alone,
+   *  `emailEnabled` alone, or both — any field NOT supplied on a fresh `create`
+   *  falls through to the column's own schema default (`inAppEnabled` → `true`,
+   *  `emailEnabled` → `false`, Sprint 28), never hand-duplicated here. */
   upsert(
     organisationId: string,
     userId: string,
     category: NotificationCategory,
-    inAppEnabled: boolean,
+    patch: { inAppEnabled?: boolean; emailEnabled?: boolean },
   ): Promise<NotificationPreference> {
     return this.prisma.notificationPreference.upsert({
       where: { organisationId_userId_category: { organisationId, userId, category } },
-      create: { organisationId, userId, category, inAppEnabled },
-      update: { inAppEnabled },
+      create: { organisationId, userId, category, ...patch },
+      update: { ...patch },
     });
   }
 
@@ -38,7 +41,9 @@ export class NotificationPreferenceRepository {
   }
 
   /** Bulk-fetch for the processor's own preference-filtering step (§Workstream D)
-   *  — one query per event, not one per recipient. */
+   *  — one query per event, not one per recipient. Reused as-is by Sprint 28's
+   *  `EmailEligibilityService` (it needs the SAME rows, just reads `emailEnabled`
+   *  off them instead of `inAppEnabled`). */
   findManyForUsers(
     organisationId: string,
     userIds: string[],
@@ -47,6 +52,20 @@ export class NotificationPreferenceRepository {
     if (userIds.length === 0) return Promise.resolve([]);
     return this.prisma.notificationPreference.findMany({
       where: { organisationId, userId: { in: userIds }, category },
+    });
+  }
+
+  /** Sprint 28 — single-row lookup for `EmailEligibilityService`, which evaluates
+   *  one already-created `Notification`'s one recipient at a time (unlike the
+   *  in-app processor's batch-of-candidates shape above). `null` means "no
+   *  stored row" — the caller applies the default (`emailEnabled` → `false`). */
+  findOne(
+    organisationId: string,
+    userId: string,
+    category: NotificationCategory,
+  ): Promise<NotificationPreference | null> {
+    return this.prisma.notificationPreference.findUnique({
+      where: { organisationId_userId_category: { organisationId, userId, category } },
     });
   }
 }

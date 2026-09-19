@@ -4,6 +4,12 @@ import { AuthModule } from '../identity/auth/auth.module';
 import { IdentityModule } from '../identity/identity.module';
 import { WorkflowModule } from '../workflow/workflow.module';
 import { ActivityService } from './activity.service';
+import { EmailDeliveryCreationService } from './email-delivery-creation.service';
+import { EmailDeliveryProcessorService } from './email-delivery-processor.service';
+import { EmailDeliveryRepository } from './email-delivery.repository';
+import { EmailEligibilityService } from './email-eligibility.service';
+import { EmailTemplateRenderer } from './email-template-renderer';
+import { EmailProviderModule } from './infrastructure/email-provider.module';
 import { NotificationEventProcessorService } from './notification-event-processor.service';
 import { NotificationMessageBuilder } from './notification-message-builder';
 import { NotificationPreferenceRepository } from './notification-preference.repository';
@@ -27,10 +33,21 @@ import { NotificationsController } from './notifications.controller';
  *
  * `IdentityModule` is imported for the guards/decorators
  * (`JwtAuthGuard`/`CurrentUser`) the controller uses, matching every other domain
- * module's own import list.
+ * module's own import list — Sprint 28 additionally reuses its exported
+ * `OrganisationService`/`UserService` for `EmailEligibilityService`, the same
+ * "reuse, don't duplicate" reasoning as everything else in this module.
+ *
+ * Sprint 28 — Email Notification Delivery Foundation adds three new, deliberately
+ * SEPARATE services (`EmailEligibilityService`/`EmailDeliveryCreationService`/
+ * `EmailDeliveryProcessorService`, docs/architecture/email-delivery.md) plus
+ * `EmailProviderModule` (the `LocalEmailProvider`/`SmtpEmailProvider` boundary).
+ * None of them import or depend on `NotificationEventProcessorService` or
+ * anything Workflow-specific — email is a pure downstream consumer of the
+ * already-existing `Notification` table, exactly like `Notification` itself is a
+ * pure downstream consumer of `WorkflowEvent`.
  */
 @Module({
-  imports: [IdentityModule, AuthModule, WorkflowModule],
+  imports: [IdentityModule, AuthModule, WorkflowModule, EmailProviderModule],
   controllers: [NotificationsController],
   providers: [
     NotificationRepository,
@@ -41,6 +58,11 @@ import { NotificationsController } from './notifications.controller';
     ActivityService,
     NotificationPreferenceRepository,
     NotificationPreferenceService,
+    EmailEligibilityService,
+    EmailTemplateRenderer,
+    EmailDeliveryRepository,
+    EmailDeliveryCreationService,
+    EmailDeliveryProcessorService,
   ],
   exports: [NotificationEventProcessorService],
 })

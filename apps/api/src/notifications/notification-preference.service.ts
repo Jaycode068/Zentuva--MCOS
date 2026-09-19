@@ -7,6 +7,9 @@ import { NotificationPreferenceRepository } from './notification-preference.repo
 export interface PreferenceView {
   category: NotificationCategory;
   inAppEnabled: boolean;
+  /** Sprint 28 — defaults `false` when no row is stored, the OPPOSITE default of
+   *  `inAppEnabled` ("email is disabled unless explicitly enabled," §5.2). */
+  emailEnabled: boolean;
 }
 
 /**
@@ -23,24 +26,35 @@ export class NotificationPreferenceService {
 
   async getForUser(organisationId: string, userId: string): Promise<PreferenceView[]> {
     const stored = await this.repository.findAllForUser(organisationId, userId);
-    const byCategory = new Map(stored.map((p) => [p.category, p.inAppEnabled]));
-    return ALL_NOTIFICATION_CATEGORIES.map((category) => ({
-      category,
-      inAppEnabled: byCategory.get(category) ?? true,
-    }));
+    const byCategory = new Map(stored.map((p) => [p.category, p]));
+    return ALL_NOTIFICATION_CATEGORIES.map((category) => {
+      const row = byCategory.get(category);
+      return {
+        category,
+        inAppEnabled: row?.inAppEnabled ?? true,
+        emailEnabled: row?.emailEnabled ?? false,
+      };
+    });
   }
 
   async update(
     organisationId: string,
     userId: string,
     category: NotificationCategory,
-    inAppEnabled: boolean,
+    patch: { inAppEnabled?: boolean; emailEnabled?: boolean },
   ): Promise<PreferenceView> {
     if (!ALL_NOTIFICATION_CATEGORIES.includes(category)) {
       throw new BadRequestException(`"${category}" is not a supported notification category`);
     }
-    const saved = await this.repository.upsert(organisationId, userId, category, inAppEnabled);
-    return { category: saved.category, inAppEnabled: saved.inAppEnabled };
+    if (patch.inAppEnabled === undefined && patch.emailEnabled === undefined) {
+      throw new BadRequestException('Provide at least one of inAppEnabled, emailEnabled');
+    }
+    const saved = await this.repository.upsert(organisationId, userId, category, patch);
+    return {
+      category: saved.category,
+      inAppEnabled: saved.inAppEnabled,
+      emailEnabled: saved.emailEnabled,
+    };
   }
 
   /** §7.3 "Reset to defaults if useful" — deletes every stored override, which
@@ -70,5 +84,17 @@ export class NotificationPreferenceService {
     );
     const disabled = new Set(preferences.filter((p) => !p.inAppEnabled).map((p) => p.userId));
     return recipientUserIds.filter((id) => !disabled.has(id));
+  }
+
+  /** Sprint 28 — the email half of the preference gate, used by
+   *  `EmailEligibilityService`. Defaults `false` when no row exists — the
+   *  intentional opposite of `filterEnabledRecipients`'s in-app default. */
+  async isEmailEnabled(
+    organisationId: string,
+    userId: string,
+    category: NotificationCategory,
+  ): Promise<boolean> {
+    const row = await this.repository.findOne(organisationId, userId, category);
+    return row?.emailEnabled ?? false;
   }
 }

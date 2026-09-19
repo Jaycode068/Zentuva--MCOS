@@ -59,6 +59,8 @@ export type NotificationCategory = 'WORKFLOW_APPROVALS' | 'WORKFLOW_STATUS_CHANG
 export interface NotificationPreferenceEntry {
   category: NotificationCategory;
   inAppEnabled: boolean;
+  /** Sprint 28 — defaults `false` (opposite of `inAppEnabled`'s default `true`). */
+  emailEnabled: boolean;
 }
 
 export type NotificationProcessingStatus = 'PENDING' | 'PROCESSING' | 'PROCESSED' | 'FAILED';
@@ -162,10 +164,13 @@ export function getPreferences() {
   return apiFetch<NotificationPreferenceEntry[]>('/notifications/preferences');
 }
 
-export function updatePreference(category: NotificationCategory, inAppEnabled: boolean) {
+export function updatePreference(
+  category: NotificationCategory,
+  patch: { inAppEnabled?: boolean; emailEnabled?: boolean },
+) {
   return apiFetch<NotificationPreferenceEntry>(`/notifications/preferences/${category}`, {
     method: 'PATCH',
-    body: JSON.stringify({ inAppEnabled }),
+    body: JSON.stringify(patch),
   });
 }
 
@@ -202,4 +207,68 @@ export function retryProcessingRecord(eventId: string) {
   return apiFetch<ProcessingRecord>(`/notifications/admin/processing/${eventId}/retry`, {
     method: 'POST',
   });
+}
+
+// ---------------------------------------------------------------------------
+// Email delivery (Sprint 28) — requires notification.email.view/.manage; a
+// non-administrator's call 403s, surfaced as a permission-denied state rather
+// than hiding the tab, matching the processing-records admin panel above.
+// ---------------------------------------------------------------------------
+
+export type EmailDeliveryStatus = 'PENDING' | 'PROCESSING' | 'SENT' | 'FAILED';
+
+export interface EmailDeliveryRecord {
+  id: string;
+  organisationId: string;
+  notificationId: string;
+  recipientUserId: string;
+  recipientEmail: string;
+  recipientDisplayName: string | null;
+  fromEmail: string;
+  fromName: string;
+  templateKey: string;
+  category: NotificationCategory;
+  subject: string;
+  status: EmailDeliveryStatus;
+  attempts: number;
+  firstAttemptedAt: string | null;
+  lastAttemptedAt: string | null;
+  sentAt: string | null;
+  nextRetryAt: string | null;
+  providerName: string | null;
+  providerMessageId: string | null;
+  lastErrorCategory: string | null;
+  lastError: string | null;
+  createdAt: string;
+}
+
+export function listEmailDeliveries(params?: {
+  status?: EmailDeliveryStatus;
+  page?: number;
+  pageSize?: number;
+}) {
+  const qs = new URLSearchParams();
+  if (params?.status) qs.set('status', params.status);
+  if (params?.page) qs.set('page', String(params.page));
+  if (params?.pageSize) qs.set('pageSize', String(params.pageSize));
+  const suffix = qs.toString() ? `?${qs.toString()}` : '';
+  return apiFetch<{ items: EmailDeliveryRecord[]; total: number; page: number; pageSize: number }>(
+    `/notifications/admin/email-deliveries${suffix}`,
+  );
+}
+
+export function retryEmailDelivery(id: string) {
+  return apiFetch<EmailDeliveryRecord>(`/notifications/admin/email-deliveries/${id}/retry`, {
+    method: 'POST',
+  });
+}
+
+/** Sprint 28 §Workstream F — the on-demand trigger for the eligibility →
+ *  delivery-record → send pipeline, mirroring `processNotificationEvents`'s own
+ *  reasoning exactly (no queue/worker infrastructure exists). */
+export function processEmailDeliveries() {
+  return apiFetch<{
+    created: { evaluated: number; created: number; ineligible: number };
+    processed: { processed: number; sent: number; failed: number };
+  }>('/notifications/process-email', { method: 'POST' });
 }

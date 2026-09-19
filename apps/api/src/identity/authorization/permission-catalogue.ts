@@ -323,6 +323,18 @@ export const PERMISSION_CATALOGUE: PermissionCatalogueEntry[] = [
     'Retry a failed or stuck notification processing record',
   ),
 
+  // --- Notifications: Email delivery (Sprint 28 — operational administration,
+  // Workstream G). Genuinely new: this exposes actual recipient email addresses
+  // and per-message send history, a distinct trust level from
+  // `notification.processing.*` above (which never shows any email content or
+  // address, only WorkflowEvent processing metadata).
+  entry(
+    'notification.email.view',
+    'NONE',
+    'View email delivery records (including recipient address) for the organisation',
+  ),
+  entry('notification.email.manage', 'NONE', 'Retry a failed or stuck email delivery'),
+
   // --- Access Control (Sprint 25's own administration surface) ---
   entry('access.role.manage', 'NONE', 'Create/edit/archive roles and their permission grants'),
   entry('access.user_access.manage', 'NONE', 'Assign/remove roles on users'),

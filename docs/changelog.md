@@ -7,6 +7,67 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 28 Email Notification Delivery Foundation] - 2026-09-18
+
+**Adds email as a second, genuinely downstream notification delivery channel.**
+A new `EmailDelivery` model is produced from an already-created `Notification`
+row (Sprint 27) — never from `WorkflowEvent` or `WorkflowInstanceService`
+directly, which remain completely untouched by this sprint. Its own
+concurrency-safe claim-based state machine (`PENDING`/`PROCESSING`/`SENT`/
+`FAILED`), its own retry policy (3 attempts, `[0, 2min, 10min]` backoff —
+deliberately longer than the in-app processor's, since SMTP failures behave
+differently), and its own stale-lease recovery, all mirroring this codebase's
+established conditional-`updateMany` claim idiom.
+
+A provider-independent adapter (`EmailProvider` port, mirroring the Sprint 3.4
+`FileStorage` pattern): `LocalEmailProvider` (the default — never sends real
+email, deterministic plus-addressing failure simulation for tests) and a real
+`SmtpEmailProvider` (`nodemailer`, ZeptoMail-compatible, maps SMTP/connection
+errors to retryable vs. terminal failures, never logs or returns credentials).
+Selected once at boot via `EMAIL_PROVIDER_MODE` — real SMTP configuration
+missing or incomplete fails loudly at startup, never a silent fallback to the
+local provider.
+
+Recipient email address, sender identity, subject, and rendered body are all
+snapshotted onto `EmailDelivery` at creation time — a later change to the
+user's email, or a retry, always targets what was actually decided at that
+moment, never a live re-lookup. Email preferences default OFF (the opposite of
+in-app's default-ON), gated by both an organisation-level "transactional email
+enabled" toggle (reusing the existing `Organisation.settings` JSON bucket and
+`identity.organisation.manage` permission — no new config surface) and a
+per-user, per-category preference on the existing `NotificationPreference`
+row.
+
+A real starvation bug was found and fixed live during this sprint's own
+verification: the delivery-creation scan originally ordered oldest-first,
+which meant a backlog of permanently-ineligible old notifications could
+occupy the entire scan window forever, silently blocking genuinely eligible
+new notifications from ever being emailed. Fixed by scanning newest-first.
+
+Live-verified end-to-end against the real database: concurrent processing (5
+simultaneous requests, zero duplicates), simulated retryable and terminal
+provider failures with correct backoff/short-circuit behavior, stale-
+`PROCESSING`-lease recovery, manual admin retry preserving attempt history
+while still respecting the recipient-address snapshot, suspended-user
+exclusion, cross-tenant and cross-user isolation, and one real attempted send
+through ZeptoMail's actual SMTP endpoint — connection and authentication both
+succeeded, and the message was safely rejected at submission (reported
+honestly as a failure, with a diagnostic next step, never claimed as
+delivered).
+
+New operational admin surface (`GET/POST /notifications/admin/email-
+deliveries*`), gated by two new permissions auto-granted to the
+Administrator role through the existing catalogue-seed loop. New frontend:
+an Admin: Email Deliveries tab, In-app/Email columns on the existing
+notification preferences page, and a "Transactional Email" card on the
+organisation settings Preferences tab — all verified at desktop and 375px
+mobile width.
+
+Deliberately not SMS, push, webhooks, digests, scheduled reminders, a
+background worker, or any marketing-email capability — every email traces
+back to exactly one real, already-authorized `WorkflowEvent`, by
+construction.
+
 ## [Sprint 27.1 Notification Reliability, Preferences & Activity Consolidation] - 2026-09-16
 
 **Hardens the Sprint 27 notification foundation without redesigning it.**

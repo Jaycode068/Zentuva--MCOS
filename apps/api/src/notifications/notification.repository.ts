@@ -108,4 +108,30 @@ export class NotificationRepository {
     });
     return result.count;
   }
+
+  /** Sprint 28 — notifications for this organisation with no `EmailDelivery` row
+   *  yet (`{ emailDeliveries: { none: {} } }`, a genuine `NOT EXISTS`, not a
+   *  client-side join). Used by
+   *  `EmailDeliveryCreationService.createPendingDeliveries`, bounded by `limit`.
+   *
+   *  NEWEST-first, deliberately NOT the oldest-first order every other sweep in
+   *  this domain uses — found live, during this sprint's own verification: a
+   *  notification evaluated and found INELIGIBLE for email never gets an
+   *  `EmailDelivery` row (there's nothing to create), so it keeps matching this
+   *  query on every future sweep forever. With oldest-first ordering, a backlog
+   *  of old ineligible notifications permanently occupies the entire `limit`
+   *  window, starving genuinely eligible NEW notifications from ever being
+   *  reached — reproduced live in this sprint's verification (a freshly
+   *  submitted, fully-eligible notification was silently never emailed behind
+   *  ~50 old ineligible ones). Newest-first means a live system's actionable
+   *  backlog is always reachable regardless of how large the old, permanently-
+   *  ineligible tail grows; those old rows simply never matter rather than
+   *  actively blocking anything. */
+  findPendingForEmailEvaluation(organisationId: string, limit: number): Promise<Notification[]> {
+    return this.prisma.notification.findMany({
+      where: { organisationId, emailDeliveries: { none: {} } },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+    });
+  }
 }

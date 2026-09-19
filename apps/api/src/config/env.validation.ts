@@ -36,6 +36,36 @@ export const envSchema = baseEnvSchema
     // hardcoded into calculation logic. Has a default so no existing environment needs
     // changes to boot.
     FINANCE_DEFAULT_TAX_RATE_PERCENT: z.coerce.number().min(0).max(100).default(7.5),
+
+    // --- Email delivery (Sprint 28) — everything below is optional/defaulted so an
+    // existing environment boots unchanged; `EMAIL_PROVIDER_MODE=smtp` is the only
+    // thing that makes the SMTP fields load-bearing (email-provider.module.ts
+    // refuses to start in `smtp` mode if any required one is missing — Sprint 28
+    // brief §C "do not silently fall back... fail clearly"). Never logged/printed —
+    // see docs/architecture/email-delivery.md "Configuration."
+    EMAIL_PROVIDER_MODE: z.enum(['local', 'smtp']).default('local'),
+    /** Absolute origin used to build clickable links in email bodies (the in-app
+     *  `actionUrl` is only ever a relative path) — same role `API_PUBLIC_URL`
+     *  already plays for uploaded files. */
+    WEB_PUBLIC_URL: z.string().url().default('http://localhost:3000'),
+    SMTP_HOST: z.string().trim().min(1).optional(),
+    SMTP_PORT: z.coerce.number().int().positive().optional(),
+    /** Accepts the literal strings `"true"`/`"false"` (how `.env` stores it) rather
+     *  than `z.coerce.boolean()`, which would treat ANY non-empty string — including
+     *  the literal text `"false"` — as `true`. */
+    SMTP_SECURE: z
+      .enum(['true', 'false'])
+      .optional()
+      .transform((v) => v === 'true'),
+    SMTP_USER: z.string().trim().min(1).optional(),
+    SMTP_PASS: z.string().min(1).optional(),
+    /** Reserved for a future ZeptoMail REST API adapter — the SMTP adapter this
+     *  sprint implements authenticates with `SMTP_USER`/`SMTP_PASS` only and never
+     *  reads this value (Sprint 28 Add-On §B). Kept in the schema so its presence in
+     *  `.env` doesn't fail validation, not because anything consumes it yet. */
+    ZEPTOMAIL_API_KEY: z.string().optional(),
+    MAIL_FROM_NAME: z.string().trim().min(1).optional(),
+    MAIL_FROM_EMAIL: z.string().trim().email().optional(),
   })
   .refine((env) => env.JWT_ACCESS_SECRET !== env.JWT_REFRESH_SECRET, {
     message: 'JWT_ACCESS_SECRET and JWT_REFRESH_SECRET must be different values',

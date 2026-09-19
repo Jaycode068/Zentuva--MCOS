@@ -263,14 +263,17 @@ describe('OrganisationService — Workspace Configuration (Sprint 3.4)', () => {
       await service.updateWorkspaceSettings('org-1', { preferences: { aiFeatures: false } });
 
       expect(organisationRepository.updateProfile).toHaveBeenCalledWith('org-1', {
-        settings: {
+        settings: expect.objectContaining({
           theme: 'dark',
           preferences: expect.objectContaining({
             compactNavigation: true,
             aiFeatures: false,
             emailNotifications: true, // untouched default, not clobbered
           }),
-        },
+          // Sprint 28 — untouched default (this test never patches emailDelivery),
+          // proving the same read-modify-write merge applies to it too.
+          emailDelivery: { enabled: false, senderName: null, senderEmail: null },
+        }),
       });
     });
 

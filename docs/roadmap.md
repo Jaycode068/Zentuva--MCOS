@@ -513,6 +513,41 @@ ASSIGNED → IN_PROGRESS ⇄ ON_HOLD → COMPLETED`/`CANCELLED`, both
       total, all passing — see
       [`docs/domains/notifications.md`](domains/notifications.md) and
       [`docs/sprint-27.1-completion-report.md`](sprint-27.1-completion-report.md)
+- [x] Email Notification Delivery Foundation — shipped Sprint 28. A second,
+      genuinely downstream delivery channel consuming already-created
+      `Notification` rows — never `WorkflowEvent`/`WorkflowInstanceService`
+      directly, `WorkflowInstanceService` byte-for-byte unchanged. New
+      `EmailDelivery` model with its own concurrency-safe claim-based state
+      machine (`PENDING`/`PROCESSING`/`SENT`/`FAILED`) and its own retry
+      policy (3 attempts, `[0, 2min, 10min]` backoff — deliberately longer
+      than the in-app processor's, since SMTP failures differ). A
+      provider-independent adapter (`EmailProvider` port mirroring the
+      Sprint 3.4 `FileStorage` pattern): `LocalEmailProvider` (default,
+      never sends real email, deterministic plus-addressing failure
+      simulation) and a real `SmtpEmailProvider` (`nodemailer`, ZeptoMail-
+      compatible, maps SMTP errors to retryable/terminal, never logs
+      credentials) selected once at boot by `EMAIL_PROVIDER_MODE` — real
+      SMTP configuration missing fails loudly at startup, never a silent
+      fallback. Recipient-address snapshotting (a later email change or
+      suspension never retargets an already-created delivery). Asymmetric
+      preference default (email OFF unless explicitly enabled, in-app stays
+      ON) layered onto the existing `NotificationPreference` row. New
+      organisation-level sender configuration reusing the existing
+      `Organisation.settings` JSON bucket and `identity.organisation.manage`
+      permission — no new config surface. A real starvation bug found and
+      fixed live during this sprint's own verification (a backlog of
+      permanently-ineligible old notifications was blocking new ones from
+      ever being scanned for email). Live-verified end-to-end including
+      concurrent processing, retryable/terminal failure simulation,
+      stale-lease recovery, manual retry preserving attempt history,
+      suspended-user exclusion, cross-tenant/cross-user isolation, and one
+      real attempted send through ZeptoMail's SMTP endpoint (reached and
+      authenticated successfully; safely rejected at message submission,
+      reported honestly rather than claimed as delivered). Deliberately
+      still not SMS, push, or any marketing-email capability — see
+      [`docs/domains/notifications.md`](domains/notifications.md),
+      [`docs/architecture/email-delivery.md`](../architecture/email-delivery.md),
+      and [`docs/sprint-28-completion-report.md`](sprint-28-completion-report.md)
 - [ ] Retail Portal (mobile)
 - [ ] Sales Rep mobile workflows
 - [ ] Business Intelligence dashboards

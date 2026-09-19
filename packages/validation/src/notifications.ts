@@ -10,7 +10,15 @@ import { z } from 'zod';
 
 export const notificationCategorySchema = z.enum(['WORKFLOW_APPROVALS', 'WORKFLOW_STATUS_CHANGES']);
 
-export const updateNotificationPreferenceSchema = z.object({
-  inAppEnabled: z.boolean(),
-});
+/** Sprint 28 §Workstream B "Preference Model" — both fields optional so a save can
+ *  update in-app OR email alone; `.refine` requires at least one, matching the
+ *  service-layer check (`NotificationPreferenceService.update`). */
+export const updateNotificationPreferenceSchema = z
+  .object({
+    inAppEnabled: z.boolean().optional(),
+    emailEnabled: z.boolean().optional(),
+  })
+  .refine((v) => v.inAppEnabled !== undefined || v.emailEnabled !== undefined, {
+    message: 'Provide at least one of inAppEnabled, emailEnabled',
+  });
 export type UpdateNotificationPreferenceInput = z.infer<typeof updateNotificationPreferenceSchema>;
