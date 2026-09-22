@@ -71,6 +71,17 @@ export function PreferencesTab({ settings }: { settings: WorkspaceSettings }) {
     onSettled: () => setPendingKey(null),
   });
 
+  /** Sprint 29 — another SEPARATE mutation (own PATCH `whatsapp` key), mirroring
+   *  `emailDeliveryMutation` above. Enabled-only: no sender-identity fields, since
+   *  the WhatsApp Business phone number is environment/platform configuration. */
+  const whatsappMutation = useMutation({
+    mutationFn: (whatsapp: { enabled: boolean }) => updateWorkspaceSettings({ whatsapp }),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(['settings', 'workspace'], updated);
+    },
+    onSettled: () => setPendingKey(null),
+  });
+
   function toggle(key: keyof WorkspacePreferencesInput, value: boolean) {
     setPendingKey(key);
     mutation.mutate({ [key]: value });
@@ -84,6 +95,11 @@ export function PreferencesTab({ settings }: { settings: WorkspaceSettings }) {
   function toggleEmailDeliveryEnabled(value: boolean) {
     setPendingKey('emailDeliveryEnabled');
     emailDeliveryMutation.mutate({ enabled: value });
+  }
+
+  function toggleWhatsAppEnabled(value: boolean) {
+    setPendingKey('whatsappEnabled');
+    whatsappMutation.mutate({ enabled: value });
   }
 
   function saveSenderIdentity() {
@@ -194,18 +210,47 @@ export function PreferencesTab({ settings }: { settings: WorkspaceSettings }) {
         </CardContent>
       </Card>
 
-      {(mutation.isError || emailDeliveryMutation.isError) && (
+      <Card>
+        <CardHeader>
+          <CardTitle>WhatsApp</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-xs text-muted-foreground">
+            Controls whether Zentuva sends transactional WhatsApp messages (approval requests) to
+            your team on top of in-app and email notifications. Each user also chooses whether they
+            receive WhatsApp messages in their own notification preferences.
+          </p>
+          <label className="flex items-start justify-between gap-4">
+            <span>
+              <span className="block text-sm font-medium text-foreground">Enable WhatsApp</span>
+              <span className="block text-xs text-muted-foreground">
+                Off by default — no WhatsApp message is sent for this organisation until enabled.
+              </span>
+            </span>
+            <Checkbox
+              checked={settings.whatsapp.enabled}
+              disabled={whatsappMutation.isPending}
+              onChange={(event) => toggleWhatsAppEnabled(event.target.checked)}
+            />
+          </label>
+        </CardContent>
+      </Card>
+
+      {(mutation.isError || emailDeliveryMutation.isError || whatsappMutation.isError) && (
         <p className="text-sm text-destructive">
           {mutation.error instanceof ApiError
             ? mutation.error.message
             : emailDeliveryMutation.error instanceof ApiError
               ? emailDeliveryMutation.error.message
-              : 'Failed to save changes.'}
+              : whatsappMutation.error instanceof ApiError
+                ? whatsappMutation.error.message
+                : 'Failed to save changes.'}
         </p>
       )}
-      {pendingKey === null && (mutation.isSuccess || emailDeliveryMutation.isSuccess) && (
-        <p className="text-sm text-primary">Preferences saved.</p>
-      )}
+      {pendingKey === null &&
+        (mutation.isSuccess || emailDeliveryMutation.isSuccess || whatsappMutation.isSuccess) && (
+          <p className="text-sm text-primary">Preferences saved.</p>
+        )}
     </div>
   );
 }

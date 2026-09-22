@@ -134,4 +134,18 @@ export class NotificationRepository {
       take: limit,
     });
   }
+
+  /** Sprint 29 — the WhatsApp equivalent of `findPendingForEmailEvaluation`.
+   *  NEWEST-first from the start (never oldest-first) — Sprint 28 found live
+   *  that oldest-first ordering lets a backlog of permanently-ineligible old
+   *  notifications starve genuinely eligible new ones out of the scan window
+   *  forever, since an ineligible notification never gets a delivery row and
+   *  so never leaves this query's result set (notifications.md §15.6). */
+  findPendingForWhatsAppEvaluation(organisationId: string, limit: number): Promise<Notification[]> {
+    return this.prisma.notification.findMany({
+      where: { organisationId, whatsappDeliveries: { none: {} } },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+    });
+  }
 }

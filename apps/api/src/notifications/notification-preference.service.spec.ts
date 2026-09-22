@@ -15,6 +15,7 @@ describe('NotificationPreferenceService', () => {
           category,
           inAppEnabled: patch.inAppEnabled ?? true,
           emailEnabled: patch.emailEnabled ?? false,
+          whatsappEnabled: patch.whatsappEnabled ?? false,
         }),
       ),
       deleteAllForUser: jest.fn().mockResolvedValue({ count: 2 }),
@@ -26,12 +27,22 @@ describe('NotificationPreferenceService', () => {
   }
 
   describe('defaults', () => {
-    it('returns every category as in-app-enabled, email-disabled when no preference rows exist', async () => {
+    it('returns every category as in-app-enabled, email/whatsapp-disabled when no preference rows exist', async () => {
       const { service } = makeService();
       const result = await service.getForUser('org-1', 'user-1');
       expect(result).toEqual([
-        { category: 'WORKFLOW_APPROVALS', inAppEnabled: true, emailEnabled: false },
-        { category: 'WORKFLOW_STATUS_CHANGES', inAppEnabled: true, emailEnabled: false },
+        {
+          category: 'WORKFLOW_APPROVALS',
+          inAppEnabled: true,
+          emailEnabled: false,
+          whatsappEnabled: false,
+        },
+        {
+          category: 'WORKFLOW_STATUS_CHANGES',
+          inAppEnabled: true,
+          emailEnabled: false,
+          whatsappEnabled: false,
+        },
       ]);
     });
 
@@ -45,12 +56,23 @@ describe('NotificationPreferenceService', () => {
           category: 'WORKFLOW_APPROVALS',
           inAppEnabled: false,
           emailEnabled: true,
+          whatsappEnabled: true,
         },
       ] as never);
       const result = await service.getForUser('org-1', 'user-1');
       expect(result).toEqual([
-        { category: 'WORKFLOW_APPROVALS', inAppEnabled: false, emailEnabled: true },
-        { category: 'WORKFLOW_STATUS_CHANGES', inAppEnabled: true, emailEnabled: false },
+        {
+          category: 'WORKFLOW_APPROVALS',
+          inAppEnabled: false,
+          emailEnabled: true,
+          whatsappEnabled: true,
+        },
+        {
+          category: 'WORKFLOW_STATUS_CHANGES',
+          inAppEnabled: true,
+          emailEnabled: false,
+          whatsappEnabled: false,
+        },
       ]);
     });
   });
@@ -78,6 +100,14 @@ describe('NotificationPreferenceService', () => {
       });
     });
 
+    it('update() upserts WhatsApp preference independently of in-app/email', async () => {
+      const { service, repo } = makeService();
+      await service.update('org-1', 'user-1', 'WORKFLOW_APPROVALS', { whatsappEnabled: true });
+      expect(repo.upsert).toHaveBeenCalledWith('org-1', 'user-1', 'WORKFLOW_APPROVALS', {
+        whatsappEnabled: true,
+      });
+    });
+
     it('rejects an unsupported category', async () => {
       const { service } = makeService();
       await expect(
@@ -87,7 +117,7 @@ describe('NotificationPreferenceService', () => {
       ).rejects.toThrow(BadRequestException);
     });
 
-    it('rejects an update with neither field set', async () => {
+    it('rejects an update with no field set', async () => {
       const { service } = makeService();
       await expect(service.update('org-1', 'user-1', 'WORKFLOW_APPROVALS', {})).rejects.toThrow(
         BadRequestException,
@@ -102,6 +132,7 @@ describe('NotificationPreferenceService', () => {
       expect(repo.deleteAllForUser).toHaveBeenCalledWith('org-1', 'user-1');
       expect(result.every((p) => p.inAppEnabled)).toBe(true);
       expect(result.every((p) => !p.emailEnabled)).toBe(true);
+      expect(result.every((p) => !p.whatsappEnabled)).toBe(true);
     });
 
     it('reset does not touch any Notification row — only NotificationPreference', async () => {
@@ -122,6 +153,7 @@ describe('NotificationPreferenceService', () => {
           category: 'WORKFLOW_APPROVALS',
           inAppEnabled: false,
           emailEnabled: false,
+          whatsappEnabled: false,
         },
       ] as never);
       const result = await service.filterEnabledRecipients(
@@ -166,8 +198,32 @@ describe('NotificationPreferenceService', () => {
         category: 'WORKFLOW_APPROVALS',
         inAppEnabled: true,
         emailEnabled: true,
+        whatsappEnabled: false,
       } as never);
       const result = await service.isEmailEnabled('org-1', 'user-1', 'WORKFLOW_APPROVALS');
+      expect(result).toBe(true);
+    });
+  });
+
+  describe('isWhatsAppEnabled', () => {
+    it('defaults to false when no row is stored', async () => {
+      const { service } = makeService();
+      const result = await service.isWhatsAppEnabled('org-1', 'user-1', 'WORKFLOW_APPROVALS');
+      expect(result).toBe(false);
+    });
+
+    it('reflects a stored true override independently of email/in-app', async () => {
+      const { service, repo } = makeService();
+      repo.findOne.mockResolvedValue({
+        id: 'p1',
+        organisationId: 'org-1',
+        userId: 'user-1',
+        category: 'WORKFLOW_APPROVALS',
+        inAppEnabled: true,
+        emailEnabled: false,
+        whatsappEnabled: true,
+      } as never);
+      const result = await service.isWhatsAppEnabled('org-1', 'user-1', 'WORKFLOW_APPROVALS');
       expect(result).toBe(true);
     });
   });

@@ -66,6 +66,25 @@ export const envSchema = baseEnvSchema
     ZEPTOMAIL_API_KEY: z.string().optional(),
     MAIL_FROM_NAME: z.string().trim().min(1).optional(),
     MAIL_FROM_EMAIL: z.string().trim().email().optional(),
+
+    // --- WhatsApp delivery (Sprint 29) — same "everything optional, boots
+    // unchanged" contract as email above. `WHATSAPP_PROVIDER_MODE=meta` is the
+    // only thing that makes the API fields load-bearing
+    // (whatsapp-provider.module.ts refuses to start in `meta` mode if any
+    // required one is missing). Never logged/printed — see
+    // docs/architecture/whatsapp-delivery.md "Configuration."
+    WHATSAPP_PROVIDER_MODE: z.enum(['local', 'meta']).default('local'),
+    WHATSAPP_API_BASE_URL: z.string().trim().url().default('https://graph.facebook.com/v20.0'),
+    WHATSAPP_ACCESS_TOKEN: z.string().min(1).optional(),
+    WHATSAPP_PHONE_NUMBER_ID: z.string().trim().min(1).optional(),
+    WHATSAPP_BUSINESS_ACCOUNT_ID: z.string().trim().min(1).optional(),
+    /** The approved WhatsApp Business template name for the "Approval
+     *  Required" message — must match an ALREADY-APPROVED template in the
+     *  target WhatsApp Business account exactly; this codebase never creates
+     *  or submits templates itself. Configurable specifically because the
+     *  approved name is account-specific and cannot be hardcoded. */
+    WHATSAPP_APPROVAL_TEMPLATE_NAME: z.string().trim().min(1).default('zentuva_approval_required'),
+    WHATSAPP_APPROVAL_TEMPLATE_LANGUAGE: z.string().trim().min(1).default('en_US'),
   })
   .refine((env) => env.JWT_ACCESS_SECRET !== env.JWT_REFRESH_SECRET, {
     message: 'JWT_ACCESS_SECRET and JWT_REFRESH_SECRET must be different values',

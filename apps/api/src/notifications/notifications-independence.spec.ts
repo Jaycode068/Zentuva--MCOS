@@ -47,6 +47,18 @@ describe('Notifications independence (Sprint 27)', () => {
     'infrastructure/local-email-provider.ts',
     'infrastructure/smtp-email-provider.ts',
     'infrastructure/email-provider.module.ts',
+    // Sprint 29 — WhatsApp Notification Delivery Foundation
+    'whatsapp-eligibility.service.ts',
+    'whatsapp-delivery-creation.service.ts',
+    'whatsapp-delivery-processor.service.ts',
+    'whatsapp-delivery.repository.ts',
+    'whatsapp-template.ts',
+    'whatsapp-delivery-processing.constants.ts',
+    'phone-number-normalizer.ts',
+    'ports/whatsapp-provider.port.ts',
+    'infrastructure/local-whatsapp-provider.ts',
+    'infrastructure/meta-whatsapp-provider.ts',
+    'infrastructure/whatsapp-provider.module.ts',
   ];
 
   it('structural guard: no Notifications file IMPORTS WorkflowInstanceService — the boundary is the WorkflowEvent/WorkflowInstance/WorkflowStepInstance TABLES, never a call into the engine itself (doc comments explaining this are fine; an actual import is not)', () => {
@@ -74,7 +86,7 @@ describe('Notifications independence (Sprint 27)', () => {
     expect(processorSource).toMatch(/workflowEvent\.update\(/);
   });
 
-  it('structural guard: NotificationsModule imports only IdentityModule/AuthModule/WorkflowModule/EmailProviderModule', () => {
+  it('structural guard: NotificationsModule imports only IdentityModule/AuthModule/WorkflowModule/EmailProviderModule/WhatsAppProviderModule', () => {
     const source = readSource(notificationsDir, 'notifications.module.ts');
     const importsMatch = source.match(/imports:\s*\[([^\]]*)\]/);
     expect(importsMatch).not.toBeNull();
@@ -82,12 +94,19 @@ describe('Notifications independence (Sprint 27)', () => {
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean);
-    // EmailProviderModule (Sprint 28) is Notifications' OWN infrastructure module
-    // (the LocalEmailProvider/SmtpEmailProvider boundary) — not a cross-domain
-    // dependency in the sense this guard cares about, but listed explicitly so
-    // this test stays a real assertion, not a rubber stamp.
+    // EmailProviderModule (Sprint 28) / WhatsAppProviderModule (Sprint 29) are
+    // Notifications' OWN infrastructure modules (the provider-adapter
+    // boundaries) — not a cross-domain dependency in the sense this guard
+    // cares about, but listed explicitly so this test stays a real assertion,
+    // not a rubber stamp.
     expect(new Set(importedModules)).toEqual(
-      new Set(['IdentityModule', 'AuthModule', 'WorkflowModule', 'EmailProviderModule']),
+      new Set([
+        'IdentityModule',
+        'AuthModule',
+        'WorkflowModule',
+        'EmailProviderModule',
+        'WhatsAppProviderModule',
+      ]),
     );
   });
 

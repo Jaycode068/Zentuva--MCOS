@@ -335,6 +335,17 @@ export const PERMISSION_CATALOGUE: PermissionCatalogueEntry[] = [
   ),
   entry('notification.email.manage', 'NONE', 'Retry a failed or stuck email delivery'),
 
+  // --- Notifications: WhatsApp delivery (Sprint 29 — operational
+  // administration). Genuinely new: exposes actual recipient phone numbers
+  // and per-message send history, the same trust level as
+  // `notification.email.*` but a DIFFERENT channel's data.
+  entry(
+    'notification.whatsapp.view',
+    'NONE',
+    'View WhatsApp delivery records (including recipient phone number) for the organisation',
+  ),
+  entry('notification.whatsapp.manage', 'NONE', 'Retry a failed or stuck WhatsApp delivery'),
+
   // --- Access Control (Sprint 25's own administration surface) ---
   entry('access.role.manage', 'NONE', 'Create/edit/archive roles and their permission grants'),
   entry('access.user_access.manage', 'NONE', 'Assign/remove roles on users'),

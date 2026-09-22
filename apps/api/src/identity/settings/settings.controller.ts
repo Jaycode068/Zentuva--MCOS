@@ -194,6 +194,7 @@ function toDomainPatch(dto: UpdateWorkspaceSettingsInput): UpdateWorkspaceSettin
     ...(dto.theme !== undefined && { theme: dto.theme }),
     ...(dto.preferences !== undefined && { preferences: dto.preferences }),
     ...(dto.emailDelivery !== undefined && { emailDelivery: dto.emailDelivery }),
+    ...(dto.whatsapp !== undefined && { whatsapp: dto.whatsapp }),
   };
 }
 
@@ -248,5 +249,11 @@ function toWorkspaceSettingsResponse(org: Organisation) {
     // credentials from configuration endpoints" — provider mode is environment-
     // controlled, deliberately not part of this tenant-writable response at all).
     emailDelivery: settings.emailDelivery,
+
+    // WhatsApp delivery (Sprint 29) — enabled flag only, never access tokens
+    // or phone number ids (Sprint 29 §21 "no WhatsApp access token may
+    // appear in... API response" — those are environment-only, never part of
+    // this tenant-writable response at all).
+    whatsapp: settings.whatsapp,
   };
 }

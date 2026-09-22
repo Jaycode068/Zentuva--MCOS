@@ -18,6 +18,11 @@ import { NotificationRecipientResolver } from './notification-recipient-resolver
 import { NotificationRepository } from './notification.repository';
 import { NotificationService } from './notification.service';
 import { NotificationsController } from './notifications.controller';
+import { WhatsAppDeliveryCreationService } from './whatsapp-delivery-creation.service';
+import { WhatsAppDeliveryProcessorService } from './whatsapp-delivery-processor.service';
+import { WhatsAppDeliveryRepository } from './whatsapp-delivery.repository';
+import { WhatsAppEligibilityService } from './whatsapp-eligibility.service';
+import { WhatsAppProviderModule } from './infrastructure/whatsapp-provider.module';
 
 /**
  * Notifications & Activity Centre Foundation (Sprint 27, docs/domains/
@@ -45,9 +50,24 @@ import { NotificationsController } from './notifications.controller';
  * anything Workflow-specific — email is a pure downstream consumer of the
  * already-existing `Notification` table, exactly like `Notification` itself is a
  * pure downstream consumer of `WorkflowEvent`.
+ *
+ * Sprint 29 — WhatsApp Notification Delivery Foundation adds the identical
+ * three-service shape for a THIRD channel (`WhatsAppEligibilityService`/
+ * `WhatsAppDeliveryCreationService`/`WhatsAppDeliveryProcessorService`,
+ * docs/architecture/whatsapp-delivery.md) plus `WhatsAppProviderModule` (the
+ * `LocalWhatsAppProvider`/`MetaWhatsAppProvider` boundary). Same independence
+ * guarantee: none of them import `WorkflowInstanceService` or any workflow
+ * mutation service — WhatsApp is a pure downstream consumer of the
+ * already-existing `Notification` table.
  */
 @Module({
-  imports: [IdentityModule, AuthModule, WorkflowModule, EmailProviderModule],
+  imports: [
+    IdentityModule,
+    AuthModule,
+    WorkflowModule,
+    EmailProviderModule,
+    WhatsAppProviderModule,
+  ],
   controllers: [NotificationsController],
   providers: [
     NotificationRepository,
@@ -63,6 +83,10 @@ import { NotificationsController } from './notifications.controller';
     EmailDeliveryRepository,
     EmailDeliveryCreationService,
     EmailDeliveryProcessorService,
+    WhatsAppEligibilityService,
+    WhatsAppDeliveryRepository,
+    WhatsAppDeliveryCreationService,
+    WhatsAppDeliveryProcessorService,
   ],
   exports: [NotificationEventProcessorService],
 })

@@ -16,6 +16,7 @@ import {
   WorkspaceEmailDeliverySettings,
   WorkspacePreferences,
   WorkspaceTheme,
+  WorkspaceWhatsAppSettings,
 } from './workspace-settings';
 
 /**
@@ -124,10 +125,15 @@ export class OrganisationService {
     id: string,
     input: UpdateWorkspaceSettingsPatch,
   ): Promise<Organisation> {
-    const { theme, preferences, emailDelivery, ...columnFields } = input;
+    const { theme, preferences, emailDelivery, whatsapp, ...columnFields } = input;
     const data: Prisma.OrganisationUpdateInput = { ...columnFields };
 
-    if (theme !== undefined || preferences !== undefined || emailDelivery !== undefined) {
+    if (
+      theme !== undefined ||
+      preferences !== undefined ||
+      emailDelivery !== undefined ||
+      whatsapp !== undefined
+    ) {
       const current = await this.getByIdOrThrow(id);
       const merged = mergeWorkspaceSettings(current.settings);
       const currentSettings =
@@ -144,6 +150,8 @@ export class OrganisationService {
         // Sprint 28 — same read-modify-write merge as preferences, so e.g. patching
         // only `{ enabled: true }` never clobbers an already-saved senderName/senderEmail.
         emailDelivery: { ...merged.emailDelivery, ...(emailDelivery ?? {}) },
+        // Sprint 29 — same merge convention.
+        whatsapp: { ...merged.whatsapp, ...(whatsapp ?? {}) },
       };
       data.settings = next as unknown as Prisma.InputJsonValue;
     }
@@ -316,4 +324,5 @@ export interface UpdateWorkspaceSettingsPatch extends UpdateOrganisationProfileI
   theme?: WorkspaceTheme;
   preferences?: Partial<WorkspacePreferences>;
   emailDelivery?: Partial<WorkspaceEmailDeliverySettings>;
+  whatsapp?: Partial<WorkspaceWhatsAppSettings>;
 }

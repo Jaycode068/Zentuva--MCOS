@@ -19,15 +19,16 @@ export class NotificationPreferenceRepository {
   /** Upsert, scoped to exactly this tenant+user+category via the unique
    *  constraint — a client can never write another user's or tenant's row
    *  because both are always taken from the caller's own token, never the
-   *  request body. `patch` is partial so a save can update `inAppEnabled` alone,
-   *  `emailEnabled` alone, or both — any field NOT supplied on a fresh `create`
-   *  falls through to the column's own schema default (`inAppEnabled` → `true`,
-   *  `emailEnabled` → `false`, Sprint 28), never hand-duplicated here. */
+   *  request body. `patch` is partial so a save can update any subset of
+   *  `inAppEnabled`/`emailEnabled`/`whatsappEnabled` — any field NOT supplied
+   *  on a fresh `create` falls through to the column's own schema default
+   *  (`inAppEnabled` → `true`, `emailEnabled`/`whatsappEnabled` → `false`),
+   *  never hand-duplicated here. */
   upsert(
     organisationId: string,
     userId: string,
     category: NotificationCategory,
-    patch: { inAppEnabled?: boolean; emailEnabled?: boolean },
+    patch: { inAppEnabled?: boolean; emailEnabled?: boolean; whatsappEnabled?: boolean },
   ): Promise<NotificationPreference> {
     return this.prisma.notificationPreference.upsert({
       where: { organisationId_userId_category: { organisationId, userId, category } },

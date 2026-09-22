@@ -47,7 +47,7 @@ export default function NotificationPreferencesPage() {
       patch,
     }: {
       category: NotificationCategory;
-      patch: { inAppEnabled?: boolean; emailEnabled?: boolean };
+      patch: { inAppEnabled?: boolean; emailEnabled?: boolean; whatsappEnabled?: boolean };
     }) => updatePreference(category, patch),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['notifications', 'preferences'] }),
   });
@@ -133,12 +133,28 @@ export default function NotificationPreferencesPage() {
                   />
                   Email
                 </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4"
+                    checked={pref.whatsappEnabled}
+                    onChange={(event) =>
+                      updateMutation.mutate({
+                        category: pref.category,
+                        patch: { whatsappEnabled: event.target.checked },
+                      })
+                    }
+                    aria-label={`${CATEGORY_LABELS[pref.category].title} — WhatsApp notifications`}
+                  />
+                  WhatsApp
+                </label>
               </div>
             </div>
           ))}
           <p className="text-xs text-muted-foreground">
-            Email also requires your organisation to have transactional email enabled — ask an
-            administrator if you&apos;ve turned this on but aren&apos;t receiving email.
+            Email and WhatsApp also require your organisation to have the corresponding channel
+            enabled — ask an administrator if you&apos;ve turned this on but aren&apos;t receiving
+            messages.
           </p>
         </div>
       )}

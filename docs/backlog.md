@@ -866,6 +866,7 @@ REJECTED}`) optionally linking an existing `CapitalProject`/
 - ✓ Sprint 27 — Notifications & Activity Centre Foundation
 - ✓ Sprint 27.1 — Notification Reliability, Preferences & Activity Consolidation
 - ✓ Sprint 28 — Email Notification Delivery Foundation
+- ✓ Sprint 29 — WhatsApp Notification Delivery Foundation
 
 **Current focus:** The Finance MVP (Sprints 6-19) is considered
 functionally complete. Epic 14 (Asset & Maintenance Management) is fully
@@ -993,11 +994,46 @@ submission — reported honestly, not claimed as delivered). See
 [`docs/architecture/email-delivery.md`](architecture/email-delivery.md)
 and
 [`docs/sprint-28-completion-report.md`](sprint-28-completion-report.md).
+Sprint 29 ("WhatsApp Notification Delivery Foundation") adds WhatsApp as a
+THIRD delivery channel — a structural sibling of `EmailDelivery`, not a
+chain built on top of it: both read the same already-created `Notification`
+row independently, neither imports the other, `WorkflowInstanceService`
+untouched. A new `WhatsAppDelivery` model with the same claim-based state
+machine and its own retry policy (3 attempts, `[0, 2min, 10min]` backoff,
+its own independently-configurable constants file), a provider-independent
+`WhatsAppProvider` port (same `FileStorage`/`EmailProvider` pattern) with a
+safe `LocalWhatsAppProvider` (default, never contacts the real API,
+deterministic failure simulation via two reserved test phone numbers) and a
+real `MetaWhatsAppProvider` (WhatsApp Business Platform Cloud API via
+Node's built-in `fetch`, zero new dependency, maps Meta error codes to
+retryable/terminal, never logs the access token or a full phone number,
+fails loudly at boot rather than silently falling back to local when
+misconfigured). An approved-template-only model (never arbitrary free-form
+messages; a WhatsApp reply can never approve anything — the message only
+links back into Zentuva, where every existing authorization/concurrency
+protection applies unchanged), Nigeria-aware phone number normalization
+that fails safely rather than guesses for any other country, recipient-
+phone snapshotting, an asymmetric preference default (WhatsApp OFF unless
+explicitly enabled, same as email), and an organisation-level channel
+toggle deliberately smaller than email's (no tenant-configurable sender
+identity — the WhatsApp Business phone number is environment/platform
+configuration only). Live-verified end-to-end including 6 concurrent
+requests racing on one freshly-submitted notification (exactly one
+delivery created), retryable/terminal failure simulation, stale-lease
+recovery, manual retry preserving attempt history and recipient-snapshot
+immutability, suspended-user exclusion, and cross-tenant/cross-user
+isolation. No real WhatsApp Business Platform credentials were available
+this sprint, so the real-provider send was honestly reported as not
+attempted rather than simulated. See
+[`docs/architecture/whatsapp-delivery.md`](architecture/whatsapp-delivery.md)
+and
+[`docs/sprint-29-completion-report.md`](sprint-29-completion-report.md).
 Deliberately still not started: payroll, leave management, recruitment
 automation, performance/KPI engines, an LMS, SMS/push/webhook
-notification channels, digests, scheduled reminders, a real background
-worker for notification/email processing, a marketing-email platform of
-any kind, a Technician RBAC role (from Sprint 22),
+notification channels, a WhatsApp chatbot/two-way conversation capability,
+digests, scheduled reminders, a real background worker for
+notification/email/WhatsApp processing, a marketing-email or broadcast-
+messaging platform of any kind, a Technician RBAC role (from Sprint 22),
 `ASSIGNED_TERRITORY`/`ASSIGNED_ASSETS` scope enforcement (no
 server-side assignment relationship exists yet to prove them from),
 permission-aware frontend navigation filtering, automatic escalation/

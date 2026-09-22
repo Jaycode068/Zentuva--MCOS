@@ -15,7 +15,13 @@ downstream channel: `EmailDelivery` (§15) is produced from an already-created
 provider-independent adapter (§17), its own reliability state machine (§16), and
 its own preference gate (§15.3) — see
 [docs/architecture/email-delivery.md](../architecture/email-delivery.md) for the
-full architecture decision record.
+full architecture decision record. **Sprint 29 — WhatsApp Notification Delivery
+Foundation** adds a THIRD, equally independent downstream channel following the
+exact same template: `WhatsAppDelivery` (§20) is produced from an already-created
+`Notification`, with its own provider-independent adapter (§22), its own
+reliability state machine (§21), and its own preference gate (§20.3) — see
+[docs/architecture/whatsapp-delivery.md](../architecture/whatsapp-delivery.md) for
+the full architecture decision record.
 
 ## 1. Domain Purpose
 
@@ -26,12 +32,13 @@ related but deliberately distinct questions, never conflated (§10). See
 for the full architectural decision record on how these relate to `WorkflowEvent`
 and `AuditLog` too.
 
-Delivers two channels as of Sprint 28: `IN_APP` (Sprint 27) and `EMAIL` (Sprint 28,
-transactional only — never marketing, see email-delivery.md §7). SMS, push,
-WhatsApp, webhooks, digests, scheduled reminders, and automatic escalation are all
-explicitly out of scope — the data model and processing architecture are built so
-adding a further channel means adding a `NotificationChannel` enum value and a new
-delivery path (a new `*Delivery` table + provider adapter, following `EmailDelivery`
+Delivers three channels as of Sprint 29: `IN_APP` (Sprint 27), `EMAIL` (Sprint 28),
+and `WHATSAPP` (Sprint 29) — all transactional only, never marketing (see
+email-delivery.md §7 and whatsapp-delivery.md §7). SMS, push, webhooks, digests,
+scheduled reminders, and automatic escalation are all explicitly out of scope — the
+data model and processing architecture are built so adding a further channel means
+adding a `NotificationChannel` enum value and a new delivery path (a new
+`*Delivery` table + provider adapter, following `EmailDelivery`/`WhatsAppDelivery`
 as the template), never redesigning how events become notifications or deliveries.
 
 ## 2. Four Distinct Concepts — Do Not Confuse Them
@@ -1016,3 +1023,315 @@ receipt was not independently confirmed._ The first attempt's failure was a
 real, informative result in its own right — correctly classified terminal,
 safely surfaced with no secrets exposed, and correctly diagnosed before being
 confirmed by the successful second attempt.
+
+## 20. WhatsApp Delivery (Sprint 29)
+
+Full architecture rationale lives in
+[docs/architecture/whatsapp-delivery.md](../architecture/whatsapp-delivery.md);
+this section covers the domain-doc essentials. `WhatsAppDelivery` is a SIBLING of
+`EmailDelivery` (§15), not a continuation of it — both read the same `Notification`
+row independently, neither imports the other.
+
+### 20.1 `WhatsAppDelivery` — a delivery ATTEMPT, not a second notification intent
+
+One row per (notification, channel) — enforced by
+`@@unique([organisationId, notificationId, channel])`, `channel` always
+`WHATSAPP` on this table. Produced by `WhatsAppDeliveryCreationService`, sent by
+`WhatsAppDeliveryProcessorService` — two independent services; neither imports
+the other's internals, and NEITHER imports `NotificationEventProcessorService`,
+`EmailDeliveryCreationService`/`EmailDeliveryProcessorService`, or anything
+Workflow-specific.
+
+Fields worth calling out:
+
+- `recipientPhoneSnapshot`/`recipientDisplayNameSnapshot` — SNAPSHOTTED at
+  creation from the live `User` state (after phone normalization, §20.4), never
+  re-read live on retry.
+- `templateName`/`templateLanguage`/`templateParameterSnapshot` (Json) — the
+  resolved, pre-approved template and its exact rendered parameters at creation
+  time; see whatsapp-delivery.md §8 for the template model and its one open item
+  (unverified placeholder order).
+- `category` — denormalized from the notification for admin filtering.
+- `status` — `WhatsAppDeliveryStatus`: `PENDING → PROCESSING → SENT | FAILED`
+  (back to `PENDING` on a retryable failure with attempts remaining). `SENT`
+  means "the provider accepted it," never "confirmed delivered to the device" —
+  see whatsapp-delivery.md §3 for why that distinction matters.
+- `providerName`/`providerMessageId` — which adapter (`local`|`meta`) handled
+  this attempt, and its own message id when one was returned.
+- `lastErrorCode`/`lastErrorMessage` — bounded, never a raw provider response
+  body, never an access token.
+
+### 20.2 WhatsApp-eligible categories
+
+Only `WORKFLOW_APPROVAL_REQUIRED` is WhatsApp-eligible this sprint
+(`whatsapp-template.ts`'s own narrow registry — every other `NotificationType`
+resolves to no template, hence not eligible) — a deliberately narrower set than
+email's 6 eligible types (§15.2). The brief's explicit instruction: "start with
+`APPROVAL_REQUIRED` only this sprint; do not expand scope merely because WhatsApp
+could theoretically deliver every notification type."
+
+### 20.3 Preference contract — "Category → Channel → Enabled"
+
+`NotificationPreference` gained a `whatsappEnabled` column alongside the existing
+`inAppEnabled`/`emailEnabled` — same row, same `(organisationId, userId,
+category)` key, not a third table. **Same asymmetric-default convention as
+email**: `whatsappEnabled` defaults `false` (absent row = disabled) — "WhatsApp is
+disabled unless explicitly enabled," identical reasoning to §15.3. A delivery is
+only ever created when BOTH the organisation-level gate (§20.5) AND this per-user,
+per-category preference are true — an AND, not an OR, same as email.
+
+Suppression semantics, matching §15.3 exactly: a disabled preference only
+prevents `WhatsAppDelivery` row CREATION. It never touches `WorkflowEvent`,
+`Notification`, audit, Activity Centre, or the email channel — all stay complete
+regardless of anyone's WhatsApp preference.
+
+### 20.4 Recipient phone snapshot & normalization
+
+`recipientPhoneSnapshot` is frozen at `WhatsAppDelivery` creation time, same
+snapshot-immutability convention as `EmailDelivery.recipientEmail` (§15.4).
+
+**Phone normalization** (`phone-number-normalizer.ts`) turns `User.phoneNumber`
+(a free-form optional string, Sprint 3.3's own choice, unchanged) into an E.164
+representation the WhatsApp Business Platform requires:
+
+| Input                           | Organisation country   | Result                                                                              |
+| ------------------------------- | ---------------------- | ----------------------------------------------------------------------------------- |
+| `08012345678` (local format)    | Nigeria                | `+2348012345678`                                                                    |
+| `2348012345678` (no leading +)  | Nigeria                | `+2348012345678`                                                                    |
+| `+2348012345678` (already intl) | Any                    | `+2348012345678` (unchanged, accepted regardless of org country)                    |
+| `+15551234567` (already intl)   | Any                    | `+15551234567` (accepted — a `+`-prefixed number carries its own country code)      |
+| `08012345678` (local format)    | NOT Nigeria (or unset) | Rejected — ineligible, "cannot normalize without a recognized organisation country" |
+
+**Fail safely, never guess**: for an organisation whose `country` is not a
+recognized spelling of Nigeria, a local-format number is never assumed to be
+Nigerian or anything else — it makes the notification WhatsApp-ineligible rather
+than risking a send to the wrong country/number. This is the ONE place in the
+pipeline this normalization happens; the eligibility service and both provider
+adapters consume the already-normalized value.
+
+| Scenario                                            | Behaviour                                                                                                                                                                        |
+| --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| User has no phone number on file                    | Ineligible — `"No phone number on file"` (live-verified: owner/admin/Grace all start with `phoneNumber: null`).                                                                  |
+| User's phone changes AFTER a delivery was created   | The existing delivery keeps targeting the OLD, snapshotted number — a retry is "send THIS message again," never "recompute the recipient."                                       |
+| User suspended BEFORE the notification is processed | Never resolved as eligible (`WhatsAppEligibilityService` checks live `User.status !== 'ACTIVE'`) — live-verified (§24 item 9): zero new deliveries created.                      |
+| User suspended AFTER a delivery already exists      | The existing delivery is untouched — live-verified: 20 pre-existing delivery rows for the suspended test user remained exactly 20, unchanged, after suspension and reactivation. |
+| User reactivated                                    | Immediately eligible again for any notification not yet evaluated.                                                                                                               |
+| Historical delivery after any of the above          | Always remains visible in the admin UI — never deleted, matching `Notification`/`EmailDelivery`'s own "retained indefinitely" stance.                                            |
+
+### 20.5 Organisation configuration
+
+`Organisation.settings.whatsapp: { enabled }` — the same deep-merged
+`WorkspaceSettings` JSON bucket, read/written through the EXISTING `GET/PATCH
+/settings/workspace` route and `identity.organisation.manage` permission — no new
+controller, no new permission for configuration itself. Deliberately SMALLER than
+`emailDelivery` (§15.5) — no sender-identity fields, since there is no
+tenant-configurable "from" concept for WhatsApp; the WhatsApp Business phone
+number is environment/platform configuration only (§23), never exposed in the
+Zentuva UI. Defaults `{ enabled: false }` — "no organisation gets WhatsApp without
+explicitly turning it on."
+
+## 21. WhatsApp Processing Reliability
+
+Deliberately a SEPARATE state machine and constants file from both the in-app
+processor and the email processor (`whatsapp-delivery-processing.constants.ts`) —
+same "do not reuse another channel's retry policy blindly" principle as §16.
+
+- **States**: `PENDING → PROCESSING (claimed) → SENT | FAILED` (or back to
+  `PENDING` with a scheduled `nextRetryAt` on a retryable failure).
+- **Claiming**: a per-row conditional `updateMany`
+  (`WhatsAppDeliveryRepository.claimBatch`) — the same idiom every other
+  processor in this codebase uses, no new lock primitive, no Redis, no queue.
+- **Retry policy**: `MAX_WHATSAPP_ATTEMPTS = 3`, backoff `[0, 2min, 10min]` —
+  borrows email's numbers as a reasonable starting point (whatsapp-delivery.md
+  §4), in its own independently-configurable file.
+- **Stale-lease recovery**: `WHATSAPP_PROCESSING_LEASE_MS = 10 minutes` — a
+  `PROCESSING` row whose lease is older is reclaimed by the very next ordinary
+  sweep, no separate recovery job. Live-verified (§24 item 7): a lease manually
+  backdated 15 minutes was reclaimed and reprocessed on the next sweep.
+- **Manual retry**:
+  `POST /notifications/admin/whatsapp-deliveries/:id/retry` — eligible from
+  `FAILED` or a stuck `PROCESSING` row, bypasses backoff, does NOT reset
+  `attempts` (full history preserved) and does NOT re-snapshot the recipient
+  phone/template parameters (immutability preserved). Live-verified (§24 item 8).
+- **Ambiguous provider outcomes**: the provider call happens OUTSIDE any
+  database transaction (an HTTP round-trip cannot be part of one) — honest
+  at-least-once delivery, never claimed as exactly-once (whatsapp-delivery.md
+  §5).
+
+All of the above — successful send, retryable failure with backoff, terminal
+failure (immediate, regardless of attempt count), max-attempts → `FAILED`,
+stale-`PROCESSING` reclaim, and manual retry preserving attempt history — were
+live-verified this sprint (§24).
+
+## 22. Provider Abstraction
+
+`apps/api/src/notifications/ports/whatsapp-provider.port.ts` — mirrors the
+established `FileStorage`/`EmailProvider` port pattern exactly: a
+`WhatsAppProvider` interface (`sendTemplate`) + `WHATSAPP_PROVIDER` DI token,
+selected once at boot by `whatsapp-provider.module.ts` based on
+`WHATSAPP_PROVIDER_MODE` (`local` | `meta`, default `local`). Nothing downstream
+of the token knows or cares which concrete adapter it's talking to.
+
+- **`LocalWhatsAppProvider`** — the default. Never contacts the real WhatsApp
+  API; deterministic; failure simulation via two reserved test phone numbers
+  (`+10000000001` → retryable, `+10000000002` → terminal) rather than email's
+  plus-addressing trick, since phone numbers carry no equivalent syntax.
+- **`MetaWhatsAppProvider`** — a real WhatsApp Business Platform (Meta Cloud API)
+  integration via `POST /{phone_number_id}/messages`, built on Node's built-in
+  `fetch`, no new dependency. Maps Meta Graph API error codes to
+  retryable/terminal (whatsapp-delivery.md §4). Never logs
+  `WHATSAPP_ACCESS_TOKEN`; never logs a full recipient phone number (redacted to
+  country-code + last 2 digits).
+- **Fail loud, never silently downgrade**: `WHATSAPP_PROVIDER_MODE=meta` with any
+  required field missing/empty throws `WhatsAppConfigurationError` at
+  CONSTRUCTION time (app boot) — never falls back to the local provider while
+  reporting success.
+
+## 23. Configuration Reference
+
+All new environment variables (`apps/api/.env.example`, `env.validation.ts`) —
+every Meta-specific field is `.optional()` so an existing environment boots
+unchanged:
+
+| Variable                              | Required when                                 | Notes                                                                                                 |
+| ------------------------------------- | --------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `WHATSAPP_PROVIDER_MODE`              | Never (defaults `local`)                      | `local` \| `meta`                                                                                     |
+| `WHATSAPP_API_BASE_URL`               | `WHATSAPP_PROVIDER_MODE=meta` (has a default) | Defaults `https://graph.facebook.com/v20.0`                                                           |
+| `WHATSAPP_ACCESS_TOKEN`               | `WHATSAPP_PROVIDER_MODE=meta`                 | Never logged, never returned by any API response                                                      |
+| `WHATSAPP_PHONE_NUMBER_ID`            | `WHATSAPP_PROVIDER_MODE=meta`                 |                                                                                                       |
+| `WHATSAPP_BUSINESS_ACCOUNT_ID`        | Never (reserved)                              | Not currently read by either provider adapter; reserved for future account-level operations           |
+| `WHATSAPP_APPROVAL_TEMPLATE_NAME`     | Never (has a default)                         | Defaults `zentuva_approval_required` — unverified against a real account, see whatsapp-delivery.md §8 |
+| `WHATSAPP_APPROVAL_TEMPLATE_LANGUAGE` | Never (has a default)                         | Defaults `en_US`                                                                                      |
+
+Confirmed in this environment: no real WhatsApp credentials are configured
+(`WHATSAPP_ACCESS_TOKEN`/`WHATSAPP_PHONE_NUMBER_ID`/`WHATSAPP_BUSINESS_ACCOUNT_ID`
+all unset) — checked via a safe presence-only inspection, no values printed. The
+real-provider test (§24.1) was therefore not attempted this sprint.
+
+## 24. Live Verification (Sprint 29)
+
+Performed against the real local PostgreSQL database and real authenticated
+tokens (Boby Bites tenant: Owner for organisation configuration, Admin and Grace
+as eligible approvers/WhatsApp preference holders, Member for authorization
+negative tests; a freshly-registered second organisation — "Sprint29
+CrossTenant Test Co" — for cross-tenant checks, since the pre-existing rival-
+tenant fixtures' passwords were not known to this session):
+
+1. Enabled organisation WhatsApp (`PATCH /settings/workspace`) and per-user
+   `WORKFLOW_APPROVALS` WhatsApp preferences — confirmed both persisted with the
+   correct asymmetric (`false`-by-default) defaults, in both the API and the
+   organisation settings / notification preferences frontend pages (desktop and
+   375px mobile width).
+2. Submitted real Purchase Orders end-to-end through
+   `POST /workflows/instances` → `submit` → `process-events` — confirmed
+   `WhatsAppDelivery` rows created and `SENT` via the local provider, with
+   correctly normalized recipient phone numbers (`08012345678` →
+   `+2348012345678`, `08023456789` → `+2348023456789`) and correctly rendered
+   `templateParameterSnapshot` (`recipientName`, `documentType`,
+   `documentNumber`, `approvalUrl`).
+3. Replayed `process-whatsapp` 8 consecutive times against a fully-drained
+   backlog — every replay returned `created: 0`, confirming zero duplicate
+   delivery rows.
+4. Fired 6 concurrent `process-events` requests immediately after a fresh
+   submission — exactly ONE response showed `whatsapp.created: 1`/`sent: 1`; the
+   other 5 showed `created: 0`; total delivery count increased by exactly 1
+   (42 → 43), confirming the DB-unique-constraint-backed idempotent `create()`
+   holds under real concurrent load, not just in unit tests.
+5. Simulated a retryable failure (`+10000000001`) across 19 real deliveries —
+   confirmed `PENDING` with `nextRetryAt` scheduled `+2 min` after attempt 1,
+   `+10 min` after attempt 2 (backoff fast-forwarded via direct DB update to
+   avoid a 12-minute real-time wait, a legitimate test-timing shortcut — the
+   provider outcome and state-machine transitions themselves were never
+   mocked), and terminal `FAILED` at exactly `MAX_WHATSAPP_ATTEMPTS = 3` on
+   attempt 3, `nextRetryAt` cleared.
+6. Simulated a terminal failure (`+10000000002`) — confirmed `FAILED`
+   immediately on the FIRST attempt (`attempts: 1`, `nextRetryAt: null`), never
+   waiting for 3 tries.
+7. Manufactured a stale `PROCESSING` lease (backdated 15 minutes, past the
+   10-minute lease) on a `FAILED`-then-manually-retried row — confirmed the next
+   ordinary sweep reclaimed it (`attempts` incremented 2→3,
+   `processingStartedAt` refreshed) rather than leaving it stuck forever.
+8. **Manual retry** on a terminal `FAILED` row — confirmed in one sequence: (a)
+   status moved `FAILED → PENDING` with a fresh `nextRetryAt`, `attempts`
+   preserved at 1 (not reset); (b) `recipientPhoneSnapshot`/`createdAt`
+   unchanged across the retry (recipient/history immutability); (c)
+   reprocessing incremented `attempts` to 2 (accumulated, not reset by the
+   manual retry itself) while `createdAt` stayed fixed at the original value.
+9. Suspended a user (`status: INACTIVE`) with 20 existing `WhatsAppDelivery`
+   rows, then manufactured one fresh pending `Notification` addressed to them
+   (direct DB insert, since a suspended user is also excluded from workflow
+   eligible-approvers, making it impossible to reach this exact interleaving
+   through the normal API alone) — confirmed `process-whatsapp` created ZERO
+   deliveries for it (`created: 0`, correctly marked ineligible). Reactivated
+   the user (`status: ACTIVE`) and confirmed their 20 pre-existing delivery
+   rows were still exactly 20, byte-for-byte untouched, throughout.
+10. Cross-tenant: a freshly-registered second organisation's admin WhatsApp-
+    deliveries list returned `total: 0`; a request for a real Boby Bites
+    delivery ID's retry endpoint from that second organisation's token returned
+    `409` with the SAME generic "not eligible for retry" message a genuinely
+    nonexistent ID also produces (verified both return byte-identical
+    responses) — no existence leak, even though the status code is `409`
+    (business-rule conflict) rather than `404` (not found); both a real
+    cross-tenant row and a fake id are indistinguishable to the caller.
+11. Authorization: a Member-role user received `403` with
+    `"Missing required permission: notification.whatsapp.view"` on
+    `GET /notifications/admin/whatsapp-deliveries` and
+    `"Missing required permission: notification.whatsapp.manage"` on the retry
+    endpoint. `POST /notifications/process-whatsapp` itself requires no special
+    permission (any authenticated user may trigger it) — intentional, matching
+    `process-events`/`process-email`'s own existing "check for new" convention,
+    not a gap introduced this sprint.
+12. Confirmed the underlying `WorkflowInstance`s and in-app `Notification` rows
+    were completely unaffected by every one of the above WhatsApp
+    failures/successes throughout — WhatsApp is a pure, non-blocking downstream
+    concern, proven live, not just by construction.
+13. Frontend: the notification preferences page's new WhatsApp checkbox column,
+    the new "Admin: WhatsApp Deliveries" tab/page (all 5 status filters,
+    retry action), and the organisation settings "WhatsApp" card (enable
+    toggle only, no sender-identity fields) were all verified rendering and
+    functioning correctly — toggled live, confirmed persisted across a fresh
+    page reload — at both desktop width and 375px mobile width.
+14. Cleanup: cancelled all 5 test workflow instances created during this
+    session (confirmed `CANCELLED`, zero non-terminal remain); reverted all
+    test phone numbers (owner/admin/Grace back to `null`, their original
+    state) and all test WhatsApp preference toggles back to `false`; reverted
+    the organisation WhatsApp toggle back to `false` (the safe default);
+    deleted the one manufactured synthetic `Notification` row used for item 9.
+    Final sweep: 0 non-terminal test workflow instances, 0 `PENDING`/
+    `PROCESSING` WhatsApp deliveries. 20 `FAILED` and 45 `SENT` deliveries were
+    deliberately left in place as inspectable, documented demonstration data
+    (consistent with this domain's "nothing deletes rows" convention) — the
+    `FAILED` rows are a mix of the deliberate local-provider failure
+    simulations above and genuine historical backlog notifications that became
+    newly eligible once WhatsApp was first enabled in this environment (§24.1
+    note below); `WHATSAPP_PROVIDER_MODE` was never changed from its safe
+    `local` default at any point.
+
+**A note on the backlog sweep**: the very first `process-whatsapp` call in this
+session's testing created and sent 26 deliveries, not 1 — turning on WhatsApp for
+a user with an existing history of `WORKFLOW_APPROVAL_REQUIRED` notifications
+makes ALL of that user's still-in-the-scan-window historical notifications newly
+eligible for WhatsApp on the very next sweep, exactly as designed (eligibility is
+evaluated fresh at processing time, per notification, never frozen at
+notification-creation time — see §20.1). This is the same behaviour `EmailDelivery`
+already has (its own backlog had already been drained during Sprint 28's testing,
+which is why enabling email produced only 1 new delivery this sprint, not a
+similar backlog burst) — not a WhatsApp-specific quirk, and not a bug.
+
+### 24.1 Real WhatsApp Provider Test
+
+**Not attempted.** No `WHATSAPP_ACCESS_TOKEN`/`WHATSAPP_PHONE_NUMBER_ID`/
+`WHATSAPP_BUSINESS_ACCOUNT_ID` are configured in this environment (confirmed via
+a safe presence-only check — no values inspected or printed), and no approved
+WhatsApp Business template exists to test against. Per the brief's own explicit
+requirement, the real-provider test is performed ONLY when credentials AND an
+approved template are both actually available — fabricating or simulating this
+result would violate the brief's "never claim recipient receipt if you cannot
+verify it" instruction at a more fundamental level (claiming a test ran when it
+did not). If real WhatsApp Business Platform credentials become available (the
+way real ZeptoMail SMTP credentials were provided for Sprint 28's §19.1), this
+test can be performed following the same pattern: `WHATSAPP_PROVIDER_MODE=meta`
+temporarily, one controlled send to a designated test number through the real
+pipeline (never a bypass/test-only endpoint), verifying provider acceptance and
+`providerMessageId` persistence, then reverting to `local` and cleaning up
+exactly as §24 item 14 did for this sprint's local-provider testing.

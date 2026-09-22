@@ -7,6 +7,78 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 29 WhatsApp Notification Delivery Foundation] - 2026-09-21
+
+**Adds WhatsApp as a THIRD, genuinely downstream notification delivery
+channel — a structural sibling of Sprint 28's email channel, not a chain
+built on top of it.** A new `WhatsAppDelivery` model is produced from the
+same already-created `Notification` row (Sprint 27) that `EmailDelivery`
+reads — neither delivery channel imports the other, and neither imports
+`WorkflowEvent` or `WorkflowInstanceService` directly, both of which remain
+completely untouched by this sprint. Its own concurrency-safe claim-based
+state machine (`PENDING`/`PROCESSING`/`SENT`/`FAILED`), its own retry policy
+(3 attempts, `[0, 2min, 10min]` backoff, in its own independently-
+configurable constants file), and its own stale-lease recovery, all
+mirroring this codebase's established conditional-`updateMany` claim idiom.
+
+A provider-independent adapter (`WhatsAppProvider` port, mirroring the
+`FileStorage`/`EmailProvider` pattern): `LocalWhatsAppProvider` (the
+default — never contacts the real WhatsApp API, deterministic failure
+simulation via two reserved test phone numbers, since phone numbers carry
+no plus-addressing equivalent) and a real `MetaWhatsAppProvider` (WhatsApp
+Business Platform Cloud API via Node's built-in `fetch` — zero new
+dependency — maps Meta Graph API error codes to retryable vs. terminal
+failures, never logs the access token or a full recipient phone number).
+Selected once at boot via `WHATSAPP_PROVIDER_MODE` — real configuration
+missing or incomplete fails loudly at startup, never a silent fallback to
+the local provider.
+
+An approved-template-only model: only `WORKFLOW_APPROVAL_REQUIRED` has a
+template this sprint (`zentuva_approval_required`), and no caller may pass
+a template name in directly — never arbitrary free-form outbound messages.
+A WhatsApp reply can never approve anything itself; the message only links
+back into Zentuva, where every existing authentication, authorization, and
+concurrency protection applies exactly as if the user had navigated there
+directly. Nigeria-aware phone number normalization
+(`08012345678`/`2348012345678`/`+2348012345678` all correctly
+distinguished and normalized to E.164) that fails safely — never guesses —
+for any organisation outside Nigeria. Recipient phone number, display name,
+and rendered template parameters are all snapshotted onto `WhatsAppDelivery`
+at creation time, same immutability convention as email. WhatsApp
+preferences default OFF (matching email's own default), gated by both an
+organisation-level "WhatsApp enabled" toggle (reusing the existing
+`Organisation.settings` JSON bucket, deliberately smaller than email's
+sender-identity config since there is no tenant-configurable "from" concept
+for WhatsApp) and a per-user, per-category preference on the existing
+`NotificationPreference` row.
+
+Live-verified end-to-end against the real database: 6 concurrent requests
+racing on one freshly-submitted notification (exactly one `WhatsAppDelivery`
+row created, confirmed via both the API response and the total delivery
+count), 8 consecutive replays against a drained backlog (zero duplicates
+every time), simulated retryable and terminal provider failures with
+correct backoff/short-circuit behavior, stale-`PROCESSING`-lease recovery,
+manual admin retry preserving attempt history while respecting the
+recipient-snapshot immutability, suspended-user exclusion (with 20
+pre-existing delivery rows for the suspended user confirmed untouched),
+and cross-tenant/cross-user isolation. No real WhatsApp Business Platform
+credentials were available in this environment, so the real-provider send
+itself is honestly reported as not attempted, not simulated.
+
+New operational admin surface (`GET/POST /notifications/admin/whatsapp-
+deliveries*`), gated by two new permissions auto-granted to the
+Administrator role through the existing catalogue-seed loop. New frontend:
+an Admin: WhatsApp Deliveries tab, a WhatsApp column alongside the existing
+In-app/Email columns on the notification preferences page, and a
+"WhatsApp" card (enable toggle only) on the organisation settings
+Preferences tab — all verified at desktop and 375px mobile width.
+
+Deliberately not a chatbot, two-way conversations, WhatsApp-initiated
+approval actions, marketing/broadcast messaging, bulk messaging, WhatsApp
+groups, a customer-service inbox, SMS, voice calls, commerce/payments, or
+any conversational-AI capability — every WhatsApp message traces back to
+exactly one real, already-authorized `WorkflowEvent`, by construction.
+
 ## [Sprint 28 Email Notification Delivery Foundation] - 2026-09-18
 
 **Adds email as a second, genuinely downstream notification delivery channel.**

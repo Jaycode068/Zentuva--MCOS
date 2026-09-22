@@ -12,14 +12,15 @@ const TABS = [
   { label: 'Preferences', href: '/notifications/preferences', exactOnly: false },
   { label: 'Admin: Processing', href: '/notifications/admin', exactOnly: true },
   { label: 'Admin: Email Deliveries', href: '/notifications/admin/email', exactOnly: false },
+  { label: 'Admin: WhatsApp Deliveries', href: '/notifications/admin/whatsapp', exactOnly: false },
 ];
 
 /** Shared sub-navigation for the `/notifications*` pages (Sprint 27.1, extended
- *  Sprint 28) — the exact `WorkflowTabs` clone/convention. Both "Admin:" tabs are
- *  visible to every user (no client-side permission hook exists anywhere in this
- *  codebase); a non-administrator's API calls on either page 403 and the page
- *  renders a permission-denied state, matching every other admin-only surface's
- *  existing pattern. */
+ *  Sprint 28, Sprint 29) — the exact `WorkflowTabs` clone/convention. Every
+ *  "Admin:" tab is visible to every user (no client-side permission hook
+ *  exists anywhere in this codebase); a non-administrator's API calls on any
+ *  of them 403 and the page renders a permission-denied state, matching every
+ *  other admin-only surface's existing pattern. */
 export function NotificationTabs() {
   const pathname = usePathname();
 

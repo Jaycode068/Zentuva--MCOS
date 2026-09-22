@@ -241,6 +241,8 @@ model Organisation {
   notificationPreferences            NotificationPreference[]
   /// Added Sprint 28 — Email Notification Delivery Foundation.
   emailDeliveries                    EmailDelivery[]
+  /// Added Sprint 29 — WhatsApp Notification Delivery Foundation.
+  whatsappDeliveries                 WhatsAppDelivery[]
 
   @@map("organisations")
 }
@@ -6420,6 +6422,10 @@ enum NotificationChannel {
   /// notifications.md §11). SMS/PUSH/WEBHOOK remain unimplemented placeholders
   /// for the same reason IN_APP was added alone in Sprint 27.
   EMAIL
+  /// Added Sprint 29 — WhatsApp Notification Delivery Foundation. Used on
+  /// `WhatsAppDelivery.channel` (always `WHATSAPP` for that table) — same
+  /// reasoning as `EMAIL` above. SMS/PUSH/WEBHOOK remain unimplemented.
+  WHATSAPP
 }
 
 /// Sprint 27 §Workstream 1 "Notification status" — deliberately the simplest
@@ -6492,14 +6498,18 @@ model Notification {
   createdAt       DateTime            @default(now())
   updatedAt       DateTime            @updatedAt
 
-  organisation    Organisation    @relation(fields: [organisationId], references: [id], onDelete: Cascade)
-  sourceEvent     WorkflowEvent?  @relation(fields: [sourceEventId], references: [id], onDelete: SetNull)
+  organisation       Organisation       @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  sourceEvent        WorkflowEvent?     @relation(fields: [sourceEventId], references: [id], onDelete: SetNull)
   /// Added Sprint 28 — Email Notification Delivery Foundation. At most one row per
   /// channel per the `EmailDelivery` unique constraint; zero rows means "never
   /// evaluated for email, or evaluated and found ineligible" (both are `null`/
   /// absent, not distinguished on this side — see `EmailDelivery` itself, or the
   /// absence of one, for the actual reason).
-  emailDeliveries EmailDelivery[]
+  emailDeliveries    EmailDelivery[]
+  /// Added Sprint 29 — WhatsApp Notification Delivery Foundation. Same
+  /// "zero rows means never evaluated or found ineligible" convention as
+  /// `emailDeliveries` above.
+  whatsappDeliveries WhatsAppDelivery[]
 
   /// Sprint 27 §Workstream 3 "Idempotency and Deduplication" — the database-level
   /// invariant: at most one notification per (event, recipient, channel).
@@ -6536,13 +6546,13 @@ enum NotificationCategory {
 /// which remain complete and unaffected — auditability is never gated by a
 /// user's own delivery preference.
 model NotificationPreference {
-  id             String               @id @default(cuid())
-  organisationId String
+  id              String               @id @default(cuid())
+  organisationId  String
   /// Plain scoped string, matching `Notification.recipientUserId`'s own
   /// convention — no reverse relation on `User`.
-  userId         String
-  category       NotificationCategory
-  inAppEnabled   Boolean              @default(true)
+  userId          String
+  category        NotificationCategory
+  inAppEnabled    Boolean              @default(true)
   /// Sprint 28 §Workstream B "Email Eligibility and Preference Contract" — the
   /// "Category → Channel → Enabled" model on the SAME row rather than a second
   /// preference table (notifications.md §12): one category has one in-app
@@ -6550,9 +6560,13 @@ model NotificationPreference {
   /// in sync. Deliberately defaults `false`, the OPPOSITE of `inAppEnabled`'s
   /// default `true` — "email is disabled unless explicitly enabled" (Sprint 28
   /// brief §5.2), a documented, intentional asymmetry, not an oversight.
-  emailEnabled   Boolean              @default(false)
-  createdAt      DateTime             @default(now())
-  updatedAt      DateTime             @updatedAt
+  emailEnabled    Boolean              @default(false)
+  /// Sprint 29 §13 "Preferences" — same "Category → Channel → Enabled" model,
+  /// same asymmetric-default reasoning as `emailEnabled`: defaults `false`,
+  /// "do not silently enroll every existing user into WhatsApp messaging."
+  whatsappEnabled Boolean              @default(false)
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
 
   organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
 
@@ -6678,6 +6692,106 @@ model EmailDelivery {
   @@index([organisationId, recipientUserId])
   @@index([organisationId, createdAt])
   @@map("email_deliveries")
+}
+
+/// Sprint 29 §Data Model — see `WhatsAppDelivery.status`. Identical shape to
+/// `EmailDeliveryStatus` (Sprint 28) — no reason to invent an incompatible
+/// state machine when the proven one already fits: `SENT` means "the
+/// WhatsApp Business Platform accepted the message for delivery," NEVER
+/// "confirmed read/delivered to the recipient's device" — this codebase has
+/// no read-receipt/delivery-webhook integration, so it does not claim more
+/// than it can prove (docs/architecture/whatsapp-delivery.md).
+enum WhatsAppDeliveryStatus {
+  PENDING
+  PROCESSING
+  SENT
+  FAILED
+}
+
+/// One WhatsApp delivery ATTEMPT record for one existing `Notification`
+/// (Sprint 29). Structurally identical in shape and role to `EmailDelivery`
+/// (Sprint 28) — deliberately downstream of, and separate from, `Notification`
+/// itself. `NotificationEventProcessorService`/`WorkflowInstanceService`/
+/// `EmailDelivery*` never read or write this table — WhatsApp is a pure
+/// downstream consumer of an already-created `Notification` row, exactly like
+/// email is (docs/architecture/whatsapp-delivery.md).
+model WhatsAppDelivery {
+  id                           String                 @id @default(cuid())
+  organisationId               String
+  notificationId               String
+  /// Denormalized from `Notification.recipientUserId` — same role as
+  /// `EmailDelivery.recipientUserId`.
+  recipientUserId              String
+  /// Sprint 29 §12 "Phone Number Handling" — the NORMALIZED (E.164, e.g.
+  /// `+2348012345678`) phone number resolved at creation time from the live
+  /// `User.phoneNumber`, frozen from that point on — same "freeze what was
+  /// actually used" reasoning as `EmailDelivery.recipientEmail`. A later
+  /// change to the user's phone number never retargets an already-created
+  /// delivery; a retry always re-sends to this same snapshotted number.
+  recipientPhoneSnapshot       String
+  recipientDisplayNameSnapshot String?
+  /// The approved WhatsApp Business template used — see
+  /// `whatsapp-template.ts`. Never a client-/user-supplied value; resolved
+  /// deterministically from `Notification.type` through a fixed registry.
+  templateName                 String
+  templateLanguage             String
+  /// The exact parameters sent to the template, snapshotted so an
+  /// administrator can see precisely what was sent without re-deriving it —
+  /// Sprint 29 §10 "Template Safety." Never contains secrets (only
+  /// human-readable message content: recipient name, document reference,
+  /// document type, approval URL).
+  templateParameterSnapshot    Json
+  /// Denormalized from the notification's category — lets the admin UI
+  /// filter without joining back to `Notification`.
+  category                     NotificationCategory
+  status                       WhatsAppDeliveryStatus @default(PENDING)
+  /// Same "incremented on every attempt, success or failure, never reset"
+  /// contract as `EmailDelivery.attempts` (brief §4's `attemptCount`).
+  attempts                     Int                    @default(0)
+  /// Stamped/OVERWRITTEN every time a processor claims this row (`PENDING`/
+  /// stale-`PROCESSING` → `PROCESSING`) — doubles as both "when did
+  /// processing most recently start" (brief §4's `processingStartedAt`) AND
+  /// the stale-lease detection timestamp (same role as `EmailDelivery.
+  /// leaseAt`, Sprint 28): a `PROCESSING` row whose `processingStartedAt` is
+  /// older than `WHATSAPP_PROCESSING_LEASE_MS` is treated as an abandoned
+  /// lease and is safely reclaimable by the next sweep. Cleared back to
+  /// `null` on every exit from `PROCESSING`.
+  processingStartedAt          DateTime?
+  /// Set only on the attempt that reaches terminal `SENT` (brief §4's
+  /// `processedAt`) — `null` while still pending/processing/failed.
+  processedAt                  DateTime?
+  /// Backoff scheduling for a retryable failure (brief §4's `nextAttemptAt`)
+  /// — `null`/in-the-past means "eligible for the next sweep right now."
+  nextRetryAt                  DateTime?
+  /// `'local'` or `'meta'` (`WhatsAppProvider.name`) — which adapter actually
+  /// attempted this delivery.
+  providerName                 String?
+  /// The provider's own message id (Meta's `messages[0].id`) when the
+  /// provider returns one — never fabricated.
+  providerMessageId            String?
+  lastErrorCode                String?
+  /// Bounded to 2000 chars, same convention as `EmailDelivery.lastError` —
+  /// never a raw provider response, never an access token (`meta-whatsapp-
+  /// provider.ts` is responsible for never including one in a thrown error).
+  lastErrorMessage             String?
+  createdAt                    DateTime               @default(now())
+  updatedAt                    DateTime               @updatedAt
+
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  notification Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+
+  /// Sprint 29 §5 "Idempotency" — the database-level invariant, identical
+  /// shape to `EmailDelivery`'s: at most one WhatsApp delivery per
+  /// (notification, channel). `channel` is always `WHATSAPP` on every row
+  /// this table ever holds.
+  channel NotificationChannel @default(WHATSAPP)
+
+  @@unique([organisationId, notificationId, channel])
+  /// The processor's claim query — mirrors `EmailDelivery`'s own index exactly.
+  @@index([organisationId, status, nextRetryAt])
+  @@index([organisationId, recipientUserId])
+  @@index([organisationId, createdAt])
+  @@map("whatsapp_deliveries")
 }
 
 /// A runtime copy of one `WorkflowStep`, snapshotted at `WorkflowInstance` creation so

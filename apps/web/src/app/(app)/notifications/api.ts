@@ -61,6 +61,8 @@ export interface NotificationPreferenceEntry {
   inAppEnabled: boolean;
   /** Sprint 28 — defaults `false` (opposite of `inAppEnabled`'s default `true`). */
   emailEnabled: boolean;
+  /** Sprint 29 — same default-`false` convention as `emailEnabled`. */
+  whatsappEnabled: boolean;
 }
 
 export type NotificationProcessingStatus = 'PENDING' | 'PROCESSING' | 'PROCESSED' | 'FAILED';
@@ -166,7 +168,7 @@ export function getPreferences() {
 
 export function updatePreference(
   category: NotificationCategory,
-  patch: { inAppEnabled?: boolean; emailEnabled?: boolean },
+  patch: { inAppEnabled?: boolean; emailEnabled?: boolean; whatsappEnabled?: boolean },
 ) {
   return apiFetch<NotificationPreferenceEntry>(`/notifications/preferences/${category}`, {
     method: 'PATCH',
@@ -271,4 +273,68 @@ export function processEmailDeliveries() {
     created: { evaluated: number; created: number; ineligible: number };
     processed: { processed: number; sent: number; failed: number };
   }>('/notifications/process-email', { method: 'POST' });
+}
+
+// ---------------------------------------------------------------------------
+// WhatsApp delivery (Sprint 29) — requires notification.whatsapp.view/.manage;
+// a non-administrator's call 403s, surfaced as a permission-denied state
+// rather than hiding the tab, matching the email admin panel above.
+// ---------------------------------------------------------------------------
+
+export type WhatsAppDeliveryStatus = 'PENDING' | 'PROCESSING' | 'SENT' | 'FAILED';
+
+export interface WhatsAppDeliveryRecord {
+  id: string;
+  organisationId: string;
+  notificationId: string;
+  recipientUserId: string;
+  recipientPhoneSnapshot: string;
+  recipientDisplayNameSnapshot: string | null;
+  templateName: string;
+  templateLanguage: string;
+  templateParameterSnapshot: Record<string, string>;
+  category: NotificationCategory;
+  status: WhatsAppDeliveryStatus;
+  attempts: number;
+  processingStartedAt: string | null;
+  processedAt: string | null;
+  nextRetryAt: string | null;
+  providerName: string | null;
+  providerMessageId: string | null;
+  lastErrorCode: string | null;
+  lastErrorMessage: string | null;
+  createdAt: string;
+}
+
+export function listWhatsAppDeliveries(params?: {
+  status?: WhatsAppDeliveryStatus;
+  page?: number;
+  pageSize?: number;
+}) {
+  const qs = new URLSearchParams();
+  if (params?.status) qs.set('status', params.status);
+  if (params?.page) qs.set('page', String(params.page));
+  if (params?.pageSize) qs.set('pageSize', String(params.pageSize));
+  const suffix = qs.toString() ? `?${qs.toString()}` : '';
+  return apiFetch<{
+    items: WhatsAppDeliveryRecord[];
+    total: number;
+    page: number;
+    pageSize: number;
+  }>(`/notifications/admin/whatsapp-deliveries${suffix}`);
+}
+
+export function retryWhatsAppDelivery(id: string) {
+  return apiFetch<WhatsAppDeliveryRecord>(`/notifications/admin/whatsapp-deliveries/${id}/retry`, {
+    method: 'POST',
+  });
+}
+
+/** Sprint 29 §16 — the on-demand trigger for the WhatsApp eligibility →
+ *  delivery-record → send pipeline, mirroring `processEmailDeliveries` exactly. */
+export function processWhatsAppDeliveries() {
+  return apiFetch<{
+    created: { evaluated: number; created: number; ineligible: number };
+    processed: { processed: number; sent: number; failed: number };
+  }>('/notifications/process-whatsapp', { method: 'POST' });
 }

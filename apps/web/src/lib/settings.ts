@@ -64,6 +64,14 @@ export interface WorkspaceSettings {
     senderName: string | null;
     senderEmail: string | null;
   };
+
+  /** Sprint 29 — organisation-level WhatsApp channel toggle. Smaller than
+   *  `emailDelivery`: no sender-identity fields, since the WhatsApp Business
+   *  phone number is environment/platform configuration, never tenant-
+   *  editable. Never includes access tokens or phone number ids. */
+  whatsapp: {
+    enabled: boolean;
+  };
 }
 
 export function getWorkspaceSettings(): Promise<WorkspaceSettings> {

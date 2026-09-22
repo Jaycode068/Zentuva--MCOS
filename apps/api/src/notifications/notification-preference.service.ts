@@ -10,6 +10,10 @@ export interface PreferenceView {
   /** Sprint 28 — defaults `false` when no row is stored, the OPPOSITE default of
    *  `inAppEnabled` ("email is disabled unless explicitly enabled," §5.2). */
   emailEnabled: boolean;
+  /** Sprint 29 §13 — same asymmetric default as `emailEnabled`: `false` when
+   *  no row is stored ("do not silently enroll every existing user into
+   *  WhatsApp messaging"). */
+  whatsappEnabled: boolean;
 }
 
 /**
@@ -33,6 +37,7 @@ export class NotificationPreferenceService {
         category,
         inAppEnabled: row?.inAppEnabled ?? true,
         emailEnabled: row?.emailEnabled ?? false,
+        whatsappEnabled: row?.whatsappEnabled ?? false,
       };
     });
   }
@@ -41,19 +46,26 @@ export class NotificationPreferenceService {
     organisationId: string,
     userId: string,
     category: NotificationCategory,
-    patch: { inAppEnabled?: boolean; emailEnabled?: boolean },
+    patch: { inAppEnabled?: boolean; emailEnabled?: boolean; whatsappEnabled?: boolean },
   ): Promise<PreferenceView> {
     if (!ALL_NOTIFICATION_CATEGORIES.includes(category)) {
       throw new BadRequestException(`"${category}" is not a supported notification category`);
     }
-    if (patch.inAppEnabled === undefined && patch.emailEnabled === undefined) {
-      throw new BadRequestException('Provide at least one of inAppEnabled, emailEnabled');
+    if (
+      patch.inAppEnabled === undefined &&
+      patch.emailEnabled === undefined &&
+      patch.whatsappEnabled === undefined
+    ) {
+      throw new BadRequestException(
+        'Provide at least one of inAppEnabled, emailEnabled, whatsappEnabled',
+      );
     }
     const saved = await this.repository.upsert(organisationId, userId, category, patch);
     return {
       category: saved.category,
       inAppEnabled: saved.inAppEnabled,
       emailEnabled: saved.emailEnabled,
+      whatsappEnabled: saved.whatsappEnabled,
     };
   }
 
@@ -96,5 +108,17 @@ export class NotificationPreferenceService {
   ): Promise<boolean> {
     const row = await this.repository.findOne(organisationId, userId, category);
     return row?.emailEnabled ?? false;
+  }
+
+  /** Sprint 29 — the WhatsApp half of the preference gate, used by
+   *  `WhatsAppEligibilityService`. Same "false when no row exists" default as
+   *  `isEmailEnabled`. */
+  async isWhatsAppEnabled(
+    organisationId: string,
+    userId: string,
+    category: NotificationCategory,
+  ): Promise<boolean> {
+    const row = await this.repository.findOne(organisationId, userId, category);
+    return row?.whatsappEnabled ?? false;
   }
 }

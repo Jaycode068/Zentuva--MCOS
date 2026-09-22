@@ -15,6 +15,7 @@ import {
   NotificationCategory,
   NotificationProcessingStatus,
   NotificationStatus,
+  WhatsAppDeliveryStatus,
 } from '@prisma/client';
 import { paginationSchema, updateNotificationPreferenceSchema } from '@zentuva/validation';
 
@@ -30,6 +31,8 @@ import { EmailDeliveryProcessorService } from './email-delivery-processor.servic
 import { NotificationEventProcessorService } from './notification-event-processor.service';
 import { NotificationPreferenceService } from './notification-preference.service';
 import { NotificationService } from './notification.service';
+import { WhatsAppDeliveryCreationService } from './whatsapp-delivery-creation.service';
+import { WhatsAppDeliveryProcessorService } from './whatsapp-delivery-processor.service';
 
 /**
  * `/notifications` — the authenticated user's own in-app notifications
@@ -56,6 +59,8 @@ export class NotificationsController {
     private readonly preferenceService: NotificationPreferenceService,
     private readonly emailDeliveryCreationService: EmailDeliveryCreationService,
     private readonly emailDeliveryProcessorService: EmailDeliveryProcessorService,
+    private readonly whatsappDeliveryCreationService: WhatsAppDeliveryCreationService,
+    private readonly whatsappDeliveryProcessorService: WhatsAppDeliveryProcessorService,
   ) {}
 
   /** Sprint 27 §Workstream 6 "Activity Centre Foundation" — organisation-wide, NOT
@@ -99,7 +104,7 @@ export class NotificationsController {
     @CurrentUser() user: TokenPayload,
     @Param('category') category: NotificationCategory,
     @Body(new ZodValidationPipe(updateNotificationPreferenceSchema))
-    body: { inAppEnabled?: boolean; emailEnabled?: boolean },
+    body: { inAppEnabled?: boolean; emailEnabled?: boolean; whatsappEnabled?: boolean },
   ) {
     return this.preferenceService.update(user.organisationId, user.sub, category, body);
   }
@@ -201,6 +206,58 @@ export class NotificationsController {
     return { created, processed };
   }
 
+  // ---------------------------------------------------------------------------
+  // WhatsApp delivery — operational administration (Sprint 29 §18). Organisation-
+  // wide, gated by the new notification.whatsapp.view/.manage permissions —
+  // mirrors the email admin surface exactly, one section up.
+  // ---------------------------------------------------------------------------
+
+  @Get('admin/whatsapp-deliveries')
+  @UseGuards(PermissionsGuard)
+  @RequirePermission('notification.whatsapp.view')
+  async listWhatsAppDeliveries(
+    @CurrentUser() user: TokenPayload,
+    @Query('status') status?: WhatsAppDeliveryStatus,
+    @Query('page') pageRaw?: string,
+    @Query('pageSize') pageSizeRaw?: string,
+  ) {
+    const { page, pageSize } = paginationSchema.parse({ page: pageRaw, pageSize: pageSizeRaw });
+    const { items, total } = await this.whatsappDeliveryProcessorService.listForOrganisation(
+      user.organisationId,
+      { status, skip: (page - 1) * pageSize, take: pageSize },
+    );
+    return { items, total, page, pageSize };
+  }
+
+  @Get('admin/whatsapp-deliveries/:id')
+  @UseGuards(PermissionsGuard)
+  @RequirePermission('notification.whatsapp.view')
+  getWhatsAppDelivery(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
+    return this.whatsappDeliveryProcessorService.getById(user.organisationId, id);
+  }
+
+  @Post('admin/whatsapp-deliveries/:id/retry')
+  @UseGuards(PermissionsGuard)
+  @RequirePermission('notification.whatsapp.manage')
+  @HttpCode(HttpStatus.OK)
+  retryWhatsAppDelivery(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
+    return this.whatsappDeliveryProcessorService.retryDelivery(user.organisationId, id);
+  }
+
+  /** Sprint 29 §16 — the WhatsApp equivalent of `process-email`, same
+   *  reasoning throughout. */
+  @Post('process-whatsapp')
+  @HttpCode(HttpStatus.OK)
+  async processWhatsApp(@CurrentUser() user: TokenPayload) {
+    const created = await this.whatsappDeliveryCreationService.createPendingDeliveries(
+      user.organisationId,
+    );
+    const processed = await this.whatsappDeliveryProcessorService.processPendingDeliveries(
+      user.organisationId,
+    );
+    return { created, processed };
+  }
+
   @Get()
   async list(
     @CurrentUser() user: TokenPayload,
@@ -247,13 +304,18 @@ export class NotificationsController {
    *  in-app `processed`/`failed`/`notificationsCreated` result above it — a `try`/
    *  `catch` here mirrors this domain's own "email failure must not corrupt
    *  anything upstream" invariant one layer further up than usual, since this is
-   *  the one place both pipelines share an HTTP request. */
+   *  the one place both pipelines share an HTTP request.
+   *
+   *  Sprint 29 — ALSO chains the WhatsApp pipeline the same way, independently
+   *  try/caught so a WhatsApp failure never masks the email or in-app results. */
   @Post('process-events')
   @HttpCode(HttpStatus.OK)
   async processEvents(@CurrentUser() user: TokenPayload) {
     const inApp = await this.notificationEventProcessorService.processPendingEvents(
       user.organisationId,
     );
+    const result: Record<string, unknown> = { ...inApp };
+
     try {
       const created = await this.emailDeliveryCreationService.createPendingDeliveries(
         user.organisationId,
@@ -261,11 +323,24 @@ export class NotificationsController {
       const processed = await this.emailDeliveryProcessorService.processPendingDeliveries(
         user.organisationId,
       );
-      return { ...inApp, email: { created, processed } };
+      result.email = { created, processed };
     } catch {
       // Email pipeline errors never mask the in-app result already computed above.
-      return inApp;
     }
+
+    try {
+      const created = await this.whatsappDeliveryCreationService.createPendingDeliveries(
+        user.organisationId,
+      );
+      const processed = await this.whatsappDeliveryProcessorService.processPendingDeliveries(
+        user.organisationId,
+      );
+      result.whatsapp = { created, processed };
+    } catch {
+      // WhatsApp pipeline errors never mask the in-app/email results above.
+    }
+
+    return result;
   }
 
   @Post('mark-all-read')

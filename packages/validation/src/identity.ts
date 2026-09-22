@@ -124,6 +124,14 @@ export type WorkspaceEmailDeliverySettingsInput = z.infer<
   typeof workspaceEmailDeliverySettingsSchema
 >;
 
+/** `whatsapp` on `PATCH /api/settings/workspace` (Sprint 29 §14) — a single
+ *  `enabled` toggle, no sender-identity fields (there is no tenant-
+ *  configurable "from" concept for WhatsApp). */
+export const workspaceWhatsAppSettingsSchema = z.object({
+  enabled: z.boolean().optional(),
+});
+export type WorkspaceWhatsAppSettingsInput = z.infer<typeof workspaceWhatsAppSettingsSchema>;
+
 /**
  * `PATCH /api/settings/workspace` (Sprint 3.4 brief) — extends
  * {@link updateOrganisationProfileSchema} (Sprint 2.1) with the Branding/Regional/
@@ -151,6 +159,8 @@ export const updateWorkspaceSettingsSchema = updateOrganisationProfileSchema.ext
   preferences: workspacePreferencesSchema.optional(),
   // Email delivery (Sprint 28)
   emailDelivery: workspaceEmailDeliverySettingsSchema.optional(),
+  // WhatsApp delivery (Sprint 29)
+  whatsapp: workspaceWhatsAppSettingsSchema.optional(),
 });
 export type UpdateWorkspaceSettingsInput = z.infer<typeof updateWorkspaceSettingsSchema>;
 

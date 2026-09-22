@@ -548,6 +548,50 @@ ASSIGNED → IN_PROGRESS ⇄ ON_HOLD → COMPLETED`/`CANCELLED`, both
       [`docs/domains/notifications.md`](domains/notifications.md),
       [`docs/architecture/email-delivery.md`](../architecture/email-delivery.md),
       and [`docs/sprint-28-completion-report.md`](sprint-28-completion-report.md)
+- [x] WhatsApp Notification Delivery Foundation — shipped Sprint 29. A THIRD
+      downstream delivery channel, a structural sibling of `EmailDelivery`
+      rather than a chain — both read the same already-created `Notification`
+      row independently, neither imports the other, neither imports
+      `WorkflowEvent`/`WorkflowInstanceService` directly. New `WhatsAppDelivery`
+      model with the same concurrency-safe claim-based state machine
+      (`PENDING`/`PROCESSING`/`SENT`/`FAILED`) and its own retry policy (3
+      attempts, `[0, 2min, 10min]` backoff, in its own independently-
+      configurable constants file). A provider-independent adapter
+      (`WhatsAppProvider` port, same `FileStorage`/`EmailProvider` pattern):
+      `LocalWhatsAppProvider` (default, never contacts the real API,
+      deterministic failure simulation via two reserved test phone numbers)
+      and a real `MetaWhatsAppProvider` (WhatsApp Business Platform Cloud API
+      via Node's built-in `fetch`, zero new dependency, maps Meta error codes
+      to retryable/terminal, never logs the access token or a full phone
+      number) selected once at boot by `WHATSAPP_PROVIDER_MODE` — real
+      configuration missing fails loudly at startup, never a silent fallback.
+      Approved-template-only model (`zentuva_approval_required`, only
+      `WORKFLOW_APPROVAL_REQUIRED` this sprint) — never arbitrary free-form
+      messages, and a WhatsApp reply can never approve anything itself; the
+      message only links back into Zentuva, where every existing
+      authorization/concurrency protection applies unchanged. Nigeria-aware
+      phone number normalization (`08012345678`/`2348012345678`/
+      `+2348012345678` all correctly distinguished) that fails safely rather
+      than guesses for any other country. Recipient-phone snapshotting (a
+      later phone change or suspension never retargets an already-created
+      delivery). Asymmetric preference default (WhatsApp OFF unless
+      explicitly enabled, same as email) layered onto the existing
+      `NotificationPreference` row; organisation-level channel toggle
+      deliberately smaller than email's (`{ enabled }` only — no
+      tenant-configurable sender identity, since the WhatsApp Business phone
+      number is environment/platform configuration only). Live-verified
+      end-to-end against the real database, including firing 6 concurrent
+      requests at one freshly-submitted notification and confirming exactly
+      one delivery was created, retryable/terminal failure simulation,
+      stale-lease recovery, manual retry preserving attempt history and
+      recipient-snapshot immutability, suspended-user exclusion, and
+      cross-tenant/cross-user isolation. No real WhatsApp Business Platform
+      credentials were available this sprint, so the real-provider send was
+      honestly reported as not attempted rather than simulated. Deliberately
+      still not a chatbot, two-way conversations, or marketing broadcasts —
+      see [`docs/domains/notifications.md`](domains/notifications.md),
+      [`docs/architecture/whatsapp-delivery.md`](../architecture/whatsapp-delivery.md),
+      and [`docs/sprint-29-completion-report.md`](sprint-29-completion-report.md)
 - [ ] Retail Portal (mobile)
 - [ ] Sales Rep mobile workflows
 - [ ] Business Intelligence dashboards

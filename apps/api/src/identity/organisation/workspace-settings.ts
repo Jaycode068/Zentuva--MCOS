@@ -48,10 +48,30 @@ export interface WorkspaceEmailDeliverySettings {
   senderEmail: string | null;
 }
 
+/**
+ * Sprint 29 §14 "Organisation-Level Configuration" — the ONLY organisation-
+ * level knob WhatsApp delivery has. Deliberately smaller than
+ * `WorkspaceEmailDeliverySettings`: no sender-identity fields, since there is
+ * no tenant-configurable "from" concept for WhatsApp the way there is for an
+ * email sender name/address — the WhatsApp Business phone number itself is
+ * environment/platform configuration (`WHATSAPP_PHONE_NUMBER_ID`), never
+ * tenant-editable (brief §14 "Provider credentials should remain
+ * environment/platform configuration, not normal user-editable tenant
+ * settings").
+ */
+export interface WorkspaceWhatsAppSettings {
+  /** "WhatsApp is disabled unless explicitly enabled" (Sprint 29 §13/§14) —
+   *  the organisation-level half of the gate; `NotificationPreference.
+   *  whatsappEnabled` (per-user, per-category) is the other half. BOTH must
+   *  be true for a delivery to be created. */
+  enabled: boolean;
+}
+
 export interface WorkspaceSettings {
   theme: WorkspaceTheme;
   preferences: WorkspacePreferences;
   emailDelivery: WorkspaceEmailDeliverySettings;
+  whatsapp: WorkspaceWhatsAppSettings;
 }
 
 export const DEFAULT_WORKSPACE_SETTINGS: WorkspaceSettings = {
@@ -71,6 +91,9 @@ export const DEFAULT_WORKSPACE_SETTINGS: WorkspaceSettings = {
     senderName: null,
     senderEmail: null,
   },
+  whatsapp: {
+    enabled: false,
+  },
 };
 
 export function mergeWorkspaceSettings(stored: unknown): WorkspaceSettings {
@@ -87,6 +110,10 @@ export function mergeWorkspaceSettings(stored: unknown): WorkspaceSettings {
     emailDelivery: {
       ...DEFAULT_WORKSPACE_SETTINGS.emailDelivery,
       ...(storedObj.emailDelivery ?? {}),
+    },
+    whatsapp: {
+      ...DEFAULT_WORKSPACE_SETTINGS.whatsapp,
+      ...(storedObj.whatsapp ?? {}),
     },
   };
 }

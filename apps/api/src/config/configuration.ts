@@ -43,4 +43,16 @@ export default () => ({
     fromName: process.env.MAIL_FROM_NAME,
     fromEmail: process.env.MAIL_FROM_EMAIL,
   },
+  whatsapp: {
+    // Sprint 29 — never logged, never returned from any API response as-is;
+    // see docs/architecture/whatsapp-delivery.md "Configuration."
+    providerMode: (process.env.WHATSAPP_PROVIDER_MODE ?? 'local') as 'local' | 'meta',
+    apiBaseUrl: process.env.WHATSAPP_API_BASE_URL ?? 'https://graph.facebook.com/v20.0',
+    accessToken: process.env.WHATSAPP_ACCESS_TOKEN,
+    phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID,
+    businessAccountId: process.env.WHATSAPP_BUSINESS_ACCOUNT_ID,
+    approvalTemplateName:
+      process.env.WHATSAPP_APPROVAL_TEMPLATE_NAME ?? 'zentuva_approval_required',
+    approvalTemplateLanguage: process.env.WHATSAPP_APPROVAL_TEMPLATE_LANGUAGE ?? 'en_US',
+  },
 });

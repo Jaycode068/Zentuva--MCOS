@@ -135,7 +135,26 @@ feature is built configurably so it can be reused by future tenants without code
 > provider before being safely, informatively rejected — reported honestly rather
 > than claimed as a success it wasn't. Deliberately still not SMS, push, or a
 > marketing platform — every email traces back to exactly one real workflow event,
-> by construction. See
+> by construction. Most recently, a WhatsApp Notification Delivery Foundation
+> sprint added a THIRD downstream delivery channel, a structural sibling of email
+> rather than a chain — `WhatsAppDelivery` reads the same already-created
+> `Notification` row independently, never `EmailDelivery`, never `WorkflowEvent` or
+> `WorkflowInstanceService` directly. Its own provider-independent adapter (a safe
+> local provider for every automated test, and a real WhatsApp Business Platform
+> Meta Cloud API adapter behind the exact same interface, built on Node's built-in
+> `fetch` with zero new dependency), its own approved-template-only model (never
+> arbitrary free-form messages — a WhatsApp reply can never approve anything;
+> the message only links back into Zentuva, where every existing authorization and
+> concurrency protection applies unchanged), Nigeria-aware phone number
+> normalization that fails safely rather than guesses for any other country, and
+> its own asymmetric preference default (WhatsApp starts OFF, same as email) — all
+> live-verified end-to-end against the real database, including firing six
+> concurrent requests at one freshly-submitted notification and confirming exactly
+> one delivery was created despite the race. No real WhatsApp Business Platform
+> credentials were available this sprint, so the real-provider send itself was
+> honestly reported as not attempted rather than simulated. Deliberately still not
+> a chatbot, not two-way conversations, not marketing broadcasts — every WhatsApp
+> message traces back to exactly one real workflow event, by construction. See
 > [docs/domains/README.md](docs/domains/README.md) for the
 > current status of every domain and [docs/roadmap.md](docs/roadmap.md) for the full
 > build order.
