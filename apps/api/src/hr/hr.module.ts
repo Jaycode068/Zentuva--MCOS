@@ -66,6 +66,17 @@ import { WorkScheduleService } from './work-schedule.service';
  * §9) — never a repository, and `SalesOrderService` itself still has zero
  * HR imports (unchanged, `direct-sales-independence.spec.ts`'s existing
  * structural guards).
+ *
+ * Sprint 30 adds a third exception, this one a genuine part of the HR
+ * domain conceptually: `RecruitmentModule` (`apps/api/src/hr/recruitment/`)
+ * imports this module for `EmployeeService`/`DepartmentService`/
+ * `PositionService` (unchanged) plus `EmployeeOnboardingService` (newly
+ * exported here) — reused completely as-is at the offer-acceptance→
+ * candidate-conversion step (recruitment.md §"Candidate → Employee →
+ * Onboarding"), never duplicated. `RecruitmentModule` is kept as its own
+ * NestJS module purely to avoid bloating this module's provider list with
+ * ~13 new models' worth of services, not because Recruitment is a separate
+ * domain.
  */
 @Module({
   imports: [IdentityModule, AuthModule, FileStorageModule],
@@ -106,6 +117,6 @@ import { WorkScheduleService } from './work-schedule.service';
     EmployeeTrainingRepository,
     EmployeeTrainingService,
   ],
-  exports: [EmployeeService, DepartmentService, PositionService],
+  exports: [EmployeeService, DepartmentService, PositionService, EmployeeOnboardingService],
 })
 export class HrModule {}

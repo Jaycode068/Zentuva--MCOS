@@ -48,6 +48,11 @@ const EMAIL_ELIGIBLE_TYPES: ReadonlySet<NotificationType> = new Set([
   'WORKFLOW_RETURNED',
   'WORKFLOW_RESUBMITTED',
   'WORKFLOW_EXPIRED',
+  /** Added Sprint 30 — Recruitment & Candidate Interview Management
+   *  Foundation (recruitment.md §9). Both are genuinely actionable —
+   *  "you have an interview to run" — not intermediate-step noise. */
+  'INTERVIEW_SCHEDULED',
+  'INTERVIEW_EVALUATION_REQUIRED',
 ]);
 
 @Injectable()

@@ -12,6 +12,7 @@ import { AuthModule } from './identity/auth/auth.module';
 import { AccessControlModule } from './access-control/access-control.module';
 import { HealthModule } from './health/health.module';
 import { HrModule } from './hr/hr.module';
+import { RecruitmentModule } from './hr/recruitment/recruitment.module';
 import { IdentityModule } from './identity/identity.module';
 import { OrganisationModule } from './identity/organisation/organisation.module';
 import { SettingsModule } from './identity/settings/settings.module';
@@ -64,6 +65,7 @@ import { WorkflowModule } from './workflow/workflow.module';
     AssetsModule,
     MaintenanceModule,
     HrModule,
+    RecruitmentModule,
     AccessControlModule,
     WorkflowModule,
     NotificationsModule,

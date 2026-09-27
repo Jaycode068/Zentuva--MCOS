@@ -11,6 +11,11 @@ const EXTENSION_BY_MIME_TYPE: Record<string, string> = {
   'image/png': '.png',
   'image/jpeg': '.jpg',
   'image/svg+xml': '.svg',
+  // Sprint 30 — Recruitment & Candidate Interview Management Foundation
+  // (candidate resume/CV uploads on the public careers apply endpoint).
+  'application/pdf': '.pdf',
+  'application/msword': '.doc',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
 };
 
 /**

@@ -7,6 +7,158 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 30.2 Hiring Request → HR Approval → Public Vacancy Flow Audit] - 2026-09-27
+
+An audit of whether Sprint 30/30.1's recruitment implementation actually
+enforces "department requests → HR approves → HR creates & publishes vacancy
+→ public careers page," not a rebuild. Found and fixed one real defect:
+`VacancyService.create()` only checked that a supplied `hiringRequestId`
+existed, never that it had been approved — a vacancy could be created from a
+`DRAFT`, `SUBMITTED`, `REJECTED`, or `CANCELLED` hiring request. Now throws
+`400` unless the linked request is `APPROVED`; live-verified against both a
+`DRAFT` and a `REJECTED` request.
+
+Also found a seed/demo gap: no role except Administrator had ever been
+granted `hr.recruitment.hiring_request.manage`, so "a department can request
+staff" was structurally undemonstrable even though the permission was real
+and correctly enforced. Fixed in the seed only — granted it (plus `.view`
+and the prerequisite `hr.organisation_structure.view`) to the existing `Head
+of Finance` role, assigned to the existing Finance Officer demo user — no
+new permission, role, or user. Live-verified the full chain end to end on
+Boby Bites: Emeka (Finance) creates and submits a request, cannot approve it
+himself (`403`) or publish the resulting vacancy (`403`); Administrator
+approves it, creates a `Vacancy` from it (rejected while unapproved),
+publishes it, and it appears at `/careers/boby-bites`; a real candidate
+applies successfully. Also observed (not a defect): routing a request
+through the real Workflow engine records the _router_ as `requestedById`,
+so HR routing someone else's request while also being the only assigned
+approver correctly self-blocks per `allowSelfApproval: false` — the direct
+approval path remains fully available. 2 new test suites / 26 new tests.
+
+## [Sprint 30.1 Public Recruitment Experience & Candidate Application Flow] - 2026-09-26
+
+An audit-first sprint: Sprint 30's recruitment backend (tenant resolution,
+published-only visibility, security, duplicate protection, custom questions)
+was found already correct and left untouched. The gap was the candidate-facing
+public template itself — plain, unstyled pages with no SEO metadata and no
+live end-to-end browser verification. Rebuilt the three public routes
+(`/careers/{org}`, `/careers/{org}/{vacancy}`, `.../apply`) as Server
+Components with real per-page `generateMetadata`, genuine HTTP 404s for an
+unknown/inactive organisation or an unpublished/closed/cancelled/expired
+vacancy, and a shared tenant-agnostic component library
+(`PublicCareersLayout`, `CareersHero`, `VacancyCard`/`VacancyList`,
+`VacancyDetails`, `ApplicationForm`/`ApplicationSuccess`) built on the
+existing `@zentuva/ui` kit instead of Sprint 30's raw HTML elements. The
+organisation's `industry`/`city`/`country`/`description` — pre-existing,
+previously-unread columns — now feed the landing page's hero copy.
+
+Found and fixed one real defect via live browser testing, not design review:
+`loading.tsx` Suspense boundaries caused Next.js to stream a `200` response
+before an async page's `notFound()` could run, so an unavailable vacancy's
+"Page Not Found" UI rendered correctly while the actual HTTP status stayed
+`200`. Removed the two `loading.tsx` files; both routes now return a genuine
+`404`, confirmed by `curl` before and after the fix.
+
+Live-verified end-to-end as an external candidate against the real Boby
+Bites seed data: browsed the careers page, opened the Cashier vacancy,
+submitted a full application (candidate details, cover letter, both
+configured custom questions), received the polished confirmation screen, and
+confirmed the application appeared correctly in HR's recruitment view with
+its cover letter and custom answers intact — then shortlisted it, connecting
+cleanly into Sprint 30's unchanged interview pipeline. Also live-verified: a
+temporarily-paused vacancy disappears from the public list, 404s on direct
+URL and on the apply endpoint, and reappears immediately once republished.
+One new test suite (`vacancy.repository.spec.ts`, 14 tests) closes the one
+coverage gap the audit found — the actual visibility-rule `WHERE` clause was
+never directly tested before, only mocked. 214 suites / 1835 tests passing.
+See [`docs/sprint-30.1-completion-report.md`](sprint-30.1-completion-report.md).
+
+## [Sprint 30 Recruitment & Candidate Interview Management Foundation] - 2026-09-25
+
+**Closes the one gap left in the HR lifecycle — how a person becomes an
+Employee.** Built as a genuine extension of the HR domain (its own NestJS
+module, `apps/api/src/hr/recruitment/`, purely to avoid bloating `HrModule`'s
+own provider list with ~13 new models' worth of services — never a separate
+application). A `HiringRequest` can optionally route through the EXISTING
+Workflow engine for approval via the exact `WorkflowSubjectHandler` recipe
+Purchase Order already established (Sprint 26) — never a second approval
+engine; `Candidate`/`Application`/`Interview` are deliberately never
+`WorkflowInstance`s.
+
+A `Vacancy` owns its own HR-configurable, explicitly-ordered multi-stage
+interview process directly, with real Employee/User-identity panelists —
+never a free-text role like "Head of Finance." A `WorkflowStep`/
+`WorkflowStepInstance`-style configuration/snapshot split
+(`InterviewStageParticipant` = the default panel, `InterviewParticipant` =
+the snapshot copied at scheduling time) means a later edit to a stage's
+default panel never retroactively alters who was actually invited to
+evaluate an already-scheduled candidate.
+
+A public, account-free careers page (`/careers/{organisationSlug}`) lets a
+candidate apply without a Zentuva login, answering a small set of HR-
+configured questions (never a general-purpose form builder) and optionally
+attaching a resume/CV through the existing `FileStorage` port. New, narrowly-
+scoped infrastructure for this one endpoint: `@nestjs/throttler` rate
+limiting (never registered globally — an early draft that would have
+throttled the entire authenticated application was caught and fixed before
+shipping) and resume file-type/size validation.
+
+Each interviewer submits an independent 1–5 score plus a recommendation,
+immutable once submitted (a database-level one-evaluation-per-interviewer
+constraint) — an interviewer can never see another's evaluation before
+submitting their own, live-verified across a real 3-person panel. HR sees
+computed evidence (average score, recommendation counts) on every read,
+never a system-made decision — advancing, holding, or rejecting a candidate
+at any stage, and the final hiring decision itself, is always an explicit,
+authenticated HR action, concurrency-guarded so two simultaneous decisions on
+the same interview can only ever produce one valid outcome (live-verified:
+5 concurrent requests, exactly one succeeded).
+
+An MVP `Offer` (draft → issued → accepted/declined/expired/withdrawn) hands
+off to the EXISTING `Employee`/`EmployeeOnboarding` architecture at
+acceptance — reusing `EmployeeService.create()` and
+`EmployeeOnboardingService.start()` completely unchanged, no duplicate
+onboarding model, and never auto-provisioning a `User` login account.
+
+Interview notifications reuse the identical Notification/Email/WhatsApp
+pipeline the last three sprints built, unchanged — the first producer of
+`Notification` rows that isn't sourced from a `WorkflowEvent`, proving that
+architecture needed zero changes to accept one. It required exactly one
+additive, narrowly-scoped database change: a second unique index on the
+existing `Notification` model, scoped to interview-sourced rows only (an
+unscoped first attempt was caught failing against real live Workflow data
+before ever being committed — the same notification type legitimately
+recurs for the same Purchase Order across its own approval lifecycle, which
+an unscoped constraint would have broken).
+
+Four real issues were found and fixed during this sprint's own implementation
+and live verification, not discovered later: an offer-acceptance sequence
+that would have let a genuine race create two `Employee` records for one
+accepted offer (restructured into a claim-then-create sequence before it was
+ever tested); a suspended interviewer's still-cryptographically-valid,
+pre-suspension login token successfully reaching the evaluation-submission
+code path (caught live, fixed with an explicit live-status check, and
+re-verified with the identical token); the mobile interviewer page crashing
+when opened in a real browser session because the self-scoped interview
+endpoint wasn't fetching the candidate/vacancy relations it needed; and, once
+that was fixed, the same endpoint's underlying query turning out to also
+carry every other evaluator's raw scores and every stage decision into the
+response body — never rendered by the frontend, but exposed to a network-tab
+inspection — resolved by returning only the fields the self-scoped view
+needs.
+
+Live-verified end-to-end against the real database: the full public-
+application-through-hired-employee flow for a real Cashier vacancy across
+two interview stages, a rejected-at-screening path, cross-tenant isolation
+across every new surface, interviewer authorization (an unassigned user
+receives a clear rejection on both viewing and evaluating), and the actual
+Workflow-routing integration for hiring-request approval.
+
+Deliberately not AI-driven CV ranking, automated rejection, or any automated
+hiring decision — every decision stays under authorised human control, by
+construction. Also not a job-board/ATS integration, video interviewing,
+digital signatures, background checks, or a candidate portal/account.
+
 ## [Sprint 29 WhatsApp Notification Delivery Foundation] - 2026-09-21
 
 **Adds WhatsApp as a THIRD, genuinely downstream notification delivery

@@ -1335,3 +1335,66 @@ temporarily, one controlled send to a designated test number through the real
 pipeline (never a bypass/test-only endpoint), verifying provider acceptance and
 `providerMessageId` persistence, then reverting to `local` and cleaning up
 exactly as §24 item 14 did for this sprint's local-provider testing.
+
+## 25. First Non-Workflow-Sourced Producer (Sprint 30 — Recruitment)
+
+Sprints 27–29 only ever had ONE producer of `Notification` rows:
+`NotificationEventProcessorService`, driven exclusively by `WorkflowEvent`.
+Sprint 30 (docs/domains/recruitment.md) adds the first genuinely different
+one: `RecruitmentNotificationService` (`apps/api/src/hr/recruitment/
+recruitment-notification.service.ts`) creates `Notification` rows directly
+for `INTERVIEW_SCHEDULED`/`INTERVIEW_EVALUATION_REQUIRED` — Recruitment's
+`Candidate`/`Application`/`Interview` are deliberately never
+`WorkflowInstance`s, so there is no `WorkflowEvent` to process.
+
+This proves the architecture this domain was built around actually holds:
+`EmailDeliveryCreationService`/`WhatsAppDeliveryCreationService` (Sprint
+28/29) already scanned the `Notification` table generically, by type, never
+by "was this produced by `NotificationEventProcessorService`" — so a
+completely different producer needed **zero changes** to either delivery
+service or their processors. Only three small, additive registrations were
+needed: the two new `NotificationType` values + a new
+`NotificationCategory.RECRUITMENT_INTERVIEWS` (this document's own enums,
+above), `EMAIL_ELIGIBLE_TYPES` gaining both types (`email-eligibility.
+service.ts`), and `whatsapp-template.ts` gaining one new template resolution
+for `INTERVIEW_SCHEDULED` only.
+
+### 25.1 A new idempotency mechanism — additive, not a redesign
+
+`NotificationRepository.createMany`'s existing `skipDuplicates: true` relies
+on the `@@unique([organisationId, sourceEventId, recipientUserId, channel])`
+constraint — `sourceEventId` is nullable and Workflow-specific, so it gives
+NO duplicate protection for a non-Workflow-sourced row like Recruitment's
+(every NULL is distinct to Postgres). A second compound index was needed.
+
+**The first attempt was UNSCOPED and was caught failing against real live
+data** before ever being committed: `(organisationId, sourceType, sourceId,
+type, recipientUserId, channel)` with no `WHERE` clause failed
+`prisma migrate deploy` with a genuine `P3018` constraint violation, because
+the SAME `WORKFLOW_APPROVAL_REQUIRED` type legitimately recurs for the SAME
+subject/recipient/channel across a Purchase Order's own lifetime (step 1's
+approval-required notification, then later step 2's, for the same PO and the
+same approver — both real, both correct, both already existing in the
+database). An unscoped version would have been WRONG for Workflow's own
+existing rows, not merely redundant.
+
+**Fixed**: a PARTIAL unique index, scoped to `WHERE "sourceType" =
+'INTERVIEW'` only:
+
+```sql
+CREATE UNIQUE INDEX "hr_recruitment_notifications_source_recipient_channel_key"
+  ON "notifications" ("organisationId", "sourceType", "sourceId", "type", "recipientUserId", "channel")
+  WHERE "sourceType" = 'INTERVIEW';
+```
+
+This gives Recruitment's own notifications the same DB-backed idempotency
+Workflow's `sourceEventId`-keyed rows already have, without touching
+Workflow's semantics at all — a future non-Workflow producer follows the
+identical recipe (its own `WHERE "sourceType" = '...'` scoped index), never a
+redesign of this constraint.
+
+Live-verified (recruitment.md §9): scheduling one real interview with 2
+participants produced exactly 4 `Notification` rows (2 recipients × 2 types),
+and enabling one recipient's `RECRUITMENT_INTERVIEWS` email preference then
+re-running the EXISTING `process-events` sweep produced 2 real `EmailDelivery`
+rows, `SENT`, with zero code changes to the email pipeline itself.

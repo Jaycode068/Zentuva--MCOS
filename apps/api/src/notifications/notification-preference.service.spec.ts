@@ -43,6 +43,12 @@ describe('NotificationPreferenceService', () => {
           emailEnabled: false,
           whatsappEnabled: false,
         },
+        {
+          category: 'RECRUITMENT_INTERVIEWS',
+          inAppEnabled: true,
+          emailEnabled: false,
+          whatsappEnabled: false,
+        },
       ]);
     });
 
@@ -69,6 +75,12 @@ describe('NotificationPreferenceService', () => {
         },
         {
           category: 'WORKFLOW_STATUS_CHANGES',
+          inAppEnabled: true,
+          emailEnabled: false,
+          whatsappEnabled: false,
+        },
+        {
+          category: 'RECRUITMENT_INTERVIEWS',
           inAppEnabled: true,
           emailEnabled: false,
           whatsappEnabled: false,

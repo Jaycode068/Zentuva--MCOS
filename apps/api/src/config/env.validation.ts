@@ -31,6 +31,13 @@ export const envSchema = baseEnvSchema
       .int()
       .positive()
       .default(2 * 1024 * 1024),
+    /** Sprint 30 — candidate resume/CV uploads on the public careers apply
+     *  endpoint; a larger cap than the 2MB image default above. */
+    UPLOAD_MAX_RESUME_FILE_SIZE_BYTES: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(5 * 1024 * 1024),
 
     // --- Finance (Sprint 6) — a configurable suggested default tax rate, never
     // hardcoded into calculation logic. Has a default so no existing environment needs
@@ -85,6 +92,14 @@ export const envSchema = baseEnvSchema
      *  approved name is account-specific and cannot be hardcoded. */
     WHATSAPP_APPROVAL_TEMPLATE_NAME: z.string().trim().min(1).default('zentuva_approval_required'),
     WHATSAPP_APPROVAL_TEMPLATE_LANGUAGE: z.string().trim().min(1).default('en_US'),
+    /** Sprint 30 — same reasoning as the approval template above, for the
+     *  "Interview Scheduled" message (recruitment.md §9). */
+    WHATSAPP_INTERVIEW_SCHEDULED_TEMPLATE_NAME: z
+      .string()
+      .trim()
+      .min(1)
+      .default('zentuva_interview_scheduled'),
+    WHATSAPP_INTERVIEW_SCHEDULED_TEMPLATE_LANGUAGE: z.string().trim().min(1).default('en_US'),
   })
   .refine((env) => env.JWT_ACCESS_SECRET !== env.JWT_REFRESH_SECRET, {
     message: 'JWT_ACCESS_SECRET and JWT_REFRESH_SECRET must be different values',

@@ -867,6 +867,9 @@ REJECTED}`) optionally linking an existing `CapitalProject`/
 - ✓ Sprint 27.1 — Notification Reliability, Preferences & Activity Consolidation
 - ✓ Sprint 28 — Email Notification Delivery Foundation
 - ✓ Sprint 29 — WhatsApp Notification Delivery Foundation
+- ✓ Sprint 30 — Recruitment & Candidate Interview Management Foundation
+- ✓ Sprint 30.1 — Public Recruitment Experience & Candidate Application Flow
+- ✓ Sprint 30.2 — Hiring Request → HR Approval → Public Vacancy Flow Audit
 
 **Current focus:** The Finance MVP (Sprints 6-19) is considered
 functionally complete. Epic 14 (Asset & Maintenance Management) is fully
@@ -1028,12 +1031,99 @@ attempted rather than simulated. See
 [`docs/architecture/whatsapp-delivery.md`](architecture/whatsapp-delivery.md)
 and
 [`docs/sprint-29-completion-report.md`](sprint-29-completion-report.md).
-Deliberately still not started: payroll, leave management, recruitment
-automation, performance/KPI engines, an LMS, SMS/push/webhook
-notification channels, a WhatsApp chatbot/two-way conversation capability,
-digests, scheduled reminders, a real background worker for
-notification/email/WhatsApp processing, a marketing-email or broadcast-
-messaging platform of any kind, a Technician RBAC role (from Sprint 22),
+Sprint 30 ("Recruitment & Candidate Interview Management Foundation") closes
+the "how does a person become an Employee" gap in the HR lifecycle — built as
+its own NestJS module (`apps/api/src/hr/recruitment/`) purely to avoid
+bloating `HrModule`'s own provider list, never a separate application.
+`HiringRequest` optionally routes through the EXISTING Workflow engine for
+approval via the exact `WorkflowSubjectHandler` recipe Purchase Order
+established (never a second approval engine); `Candidate`/`Application`/
+`Interview` are never `WorkflowInstance`s. `Vacancy` owns its own
+HR-configurable, explicitly-ordered multi-stage interview processes with
+real Employee/User-identity panelists (never free-text roles) — a
+`WorkflowStep`/`WorkflowStepInstance`-style config/snapshot split so a later
+panel edit never retroactively alters who evaluated an already-scheduled
+candidate. A public, account-free careers page (new `@nestjs/throttler`
+rate-limiting, scoped to one route only — never registered globally) with a
+small configurable question engine. Independent 1–5 interviewer evaluations,
+immutable once submitted (DB-enforced one-per-evaluator, verified
+independent — an evaluator never sees another's score before submitting
+their own). HR-authoritative stage and final hiring decisions — average
+score/recommendation counts are computed as evidence on every read, never
+persisted, never used to auto-decide anything. A documented, concurrency-safe
+hand-off into the EXISTING `EmployeeService.create()`/
+`EmployeeOnboardingService.start()`, completely unchanged — no duplicate
+onboarding model, no auto-created `User` account. Interview notifications
+reuse the identical Notification/Email/WhatsApp pipeline unchanged — the
+first producer that isn't `WorkflowEvent`-sourced, needing only one
+additive, scoped partial unique index on the existing `Notification` model
+for its own idempotency (an unscoped first attempt was caught failing
+against real live Workflow data before ever being committed). Four real
+issues were found and fixed during the sprint's own implementation/live
+verification: an offer-acceptance race that would have created duplicate
+`Employee` rows (restructured before ever being tested); a suspended
+interviewer's still-valid JWT reaching the evaluation-submission code path
+(caught live, fixed with an explicit status re-check, re-verified); the
+mobile interviewer page crashing on a real device viewport because its
+self-scoped endpoint wasn't joining the candidate/vacancy it needed; and
+that same endpoint, once fixed, still leaking every other evaluator's raw
+score into its JSON response until narrowed to only the fields the view
+needs. Live-verified end-to-end including a full 2-stage Cashier process,
+5-way concurrent stage-decision and offer-accept races each producing
+exactly one valid transition, cross-tenant isolation across every surface,
+and one rejected-candidate path. See
+[`docs/domains/recruitment.md`](domains/recruitment.md) and
+[`docs/sprint-30-completion-report.md`](sprint-30-completion-report.md).
+Sprint 30.1 ("Public Recruitment Experience & Candidate Application Flow")
+audited that public careers surface and found the backend already correct —
+the actual gap was the frontend template: plain, unstyled pages, no SEO
+metadata (client components can't export `generateMetadata`), and no live
+end-to-end browser verification. Rebuilt the three public routes as Server
+Components with real per-page metadata and genuine HTTP 404s for an
+unavailable organisation/vacancy, plus a shared tenant-agnostic component
+library on the existing `@zentuva/ui` kit — no raw HTML form elements, no new
+UI framework. Found and fixed one real defect via live browser testing (not
+design review): `loading.tsx` Suspense boundaries caused Next.js to stream a
+`200` response before `notFound()` could run, so an unavailable vacancy
+returned the correct UI but the wrong HTTP status; removing them fixed it.
+Live-verified end-to-end as an external candidate against the real Boby
+Bites seed — browse, vacancy detail, apply with custom questions, submit,
+confirmation, then confirmed in HR with cover letter/answers intact and
+shortlisted into Sprint 30's unchanged interview pipeline — plus a
+vacancy-state toggle test (pause → hidden everywhere → republish → visible
+again). One new test suite closed the one coverage gap the audit found (the
+visibility-rule `WHERE` clause was previously only mocked, never directly
+tested). 214 suites / 1835 tests passing. See
+[`docs/sprint-30.1-completion-report.md`](sprint-30.1-completion-report.md).
+Sprint 30.2 ("Hiring Request → HR Approval → Public Vacancy Flow Audit")
+checked whether that whole chain was actually _enforced_ end to end, not
+just individually correct. It found one real defect —
+`VacancyService.create()` only checked a supplied `hiringRequestId` existed,
+never that it was `APPROVED`, so a `DRAFT`/`SUBMITTED`/`REJECTED`/
+`CANCELLED` request could be silently turned into a vacancy — fixed with a
+status check, live-verified against both a `DRAFT` and a `REJECTED` request.
+It also found that no seeded role except Administrator could ever create a
+hiring request (the permission was real and correctly enforced, just never
+granted to anyone else), fixed by granting the existing `Head of Finance`
+role `hr.recruitment.hiring_request.manage`/`.view` and assigning it to the
+existing Finance Officer demo user — no new permission, role, or user.
+Live-verified the complete chain on Boby Bites: a non-HR requester
+creates/submits a request, cannot approve it or publish the resulting
+vacancy themselves (`403` both times), HR approves it, a vacancy can only be
+created from the approved request, HR publishes it, it appears at
+`/careers/boby-bites`, and a real candidate applies. Also observed (and
+documented, not fixed, since it's correct behaviour): routing a request
+through the real Workflow engine records the _router_ as `requestedById`,
+so HR routing someone else's request while also being the only assigned
+approver correctly self-blocks. 215 suites / 1861 tests passing. See
+[`docs/sprint-30.2-completion-report.md`](sprint-30.2-completion-report.md).
+Deliberately still not started: payroll, leave management, AI-driven
+recruitment automation (CV ranking, automated rejection, automated hiring
+decisions), a job-board/ATS integration, performance/KPI engines, an LMS,
+SMS/push/webhook notification channels, a WhatsApp chatbot/two-way
+conversation capability, digests, scheduled reminders, a real background
+worker for notification/email/WhatsApp processing, a marketing-email or
+broadcast-messaging platform of any kind, a Technician RBAC role (from Sprint 22),
 `ASSIGNED_TERRITORY`/`ASSIGNED_ASSETS` scope enforcement (no
 server-side assignment relationship exists yet to prove them from),
 permission-aware frontend navigation filtering, automatic escalation/

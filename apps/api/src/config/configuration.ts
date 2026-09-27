@@ -21,6 +21,12 @@ export default () => ({
       process.env.UPLOAD_MAX_FILE_SIZE_BYTES ?? String(2 * 1024 * 1024),
       10,
     ),
+    // Sprint 30 — Recruitment & Candidate Interview Management Foundation
+    // (candidate resume/CV uploads, a larger cap than the 2MB image default).
+    maxResumeFileSizeBytes: parseInt(
+      process.env.UPLOAD_MAX_RESUME_FILE_SIZE_BYTES ?? String(5 * 1024 * 1024),
+      10,
+    ),
   },
   finance: {
     // Sprint 6 — a configurable *suggested default*, never hardcoded into invoice
@@ -54,5 +60,10 @@ export default () => ({
     approvalTemplateName:
       process.env.WHATSAPP_APPROVAL_TEMPLATE_NAME ?? 'zentuva_approval_required',
     approvalTemplateLanguage: process.env.WHATSAPP_APPROVAL_TEMPLATE_LANGUAGE ?? 'en_US',
+    // Sprint 30 — Recruitment & Candidate Interview Management Foundation.
+    interviewScheduledTemplateName:
+      process.env.WHATSAPP_INTERVIEW_SCHEDULED_TEMPLATE_NAME ?? 'zentuva_interview_scheduled',
+    interviewScheduledTemplateLanguage:
+      process.env.WHATSAPP_INTERVIEW_SCHEDULED_TEMPLATE_LANGUAGE ?? 'en_US',
   },
 });

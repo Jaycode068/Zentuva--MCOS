@@ -254,6 +254,54 @@ export const PERMISSION_CATALOGUE: PermissionCatalogueEntry[] = [
   entry('hr.policy.self_acknowledge', 'NONE', 'Acknowledge a policy version'),
   entry('hr.employee.self_view', 'NONE', 'View your own employee profile'),
 
+  // --- HR: Recruitment (Sprint 30 — docs/domains/recruitment.md). Part of the HR
+  // module, not a separate domain; `interview.evaluate` is deliberately broad
+  // ("may act as an interviewer in this organisation at all") — the actual
+  // per-interview authorization is always a direct `InterviewParticipant` row
+  // lookup, enforced server-side, never inferred from this permission alone. A
+  // self-scoped interviewer never needs any of these permissions to reach their
+  // OWN assigned evaluations — that surface is gated by `JwtAuthGuard` alone,
+  // the same "my own data" precedent `AccountController` already established. ---
+  entry('hr.recruitment.hiring_request.view', 'SCOPABLE', 'View hiring requests'),
+  entry(
+    'hr.recruitment.hiring_request.manage',
+    'NONE',
+    'Create, submit, or cancel a hiring request',
+  ),
+  entry(
+    'hr.recruitment.hiring_request.approve',
+    'NONE',
+    "Approve or reject a hiring request — used both directly and as a Workflow step's required permission",
+  ),
+  entry('hr.recruitment.vacancy.view', 'SCOPABLE', 'View vacancies'),
+  entry(
+    'hr.recruitment.vacancy.manage',
+    'NONE',
+    'Create/edit/publish/pause/close a vacancy, and configure its interview stages and default panels',
+  ),
+  entry('hr.recruitment.application.view', 'SCOPABLE', 'View candidate applications'),
+  entry(
+    'hr.recruitment.application.screen',
+    'NONE',
+    'Screen, shortlist, or reject a candidate application',
+  ),
+  entry('hr.recruitment.interview.manage', 'NONE', 'Schedule an interview and its participants'),
+  entry(
+    'hr.recruitment.interview.evaluate',
+    'NONE',
+    'Act as an interview panelist (coarse gate — the specific interview still requires an assigned-participant row)',
+  ),
+  entry(
+    'hr.recruitment.interview.decide',
+    'NONE',
+    'Record a stage decision (advance/hold/reject) or the final hiring decision',
+  ),
+  entry(
+    'hr.recruitment.offer.manage',
+    'NONE',
+    'Issue, accept, decline, or withdraw an offer, and convert an accepted offer into an employee',
+  ),
+
   // --- Product Catalogue (Sprint 25.1 — genuinely new domain, not in the original
   // 88-entry catalogue at all; families/variants/products are a tightly-coupled
   // hierarchy, grouped under one view/manage pair the same way Assets groups asset +

@@ -7086,6 +7086,367 @@ async function seedWorkflowFixtures(
   void definition;
 }
 
+/**
+ * Sprint 30 — Recruitment & Candidate Interview Management Foundation
+ * (docs/domains/recruitment.md). Gated by the SAME "is `HIRING_REQUEST_
+ * APPROVAL` already seeded" check `seedWorkflowFixtures` uses for its own
+ * `PURCHASE_ORDER_APPROVAL` definition — one skip-gate per seed function,
+ * matching this file's own established convention throughout.
+ *
+ * Reuses the EXACT demo actors already seeded/linked by `seedHrFixtures`/
+ * `seedWorkflowFixtures` rather than inventing new ones: Adaeze Balogun
+ * (MD, `ownerUserId`) and Chinedu Obi (GM, `administratorUserId`) play the
+ * brief's own worked example's "GM/MD" Stage 2 panel; Ibrahim Musa and Grace
+ * Effiong (already given login users by `seedWorkflowFixtures`) join
+ * `administratorUserId` as the Stage 1 "Finance Interview" 3-person panel —
+ * matching the brief's exact worked example counts (3 participants, then 2).
+ */
+async function seedRecruitmentFixtures(
+  organisationId: string,
+  ownerUserId: string,
+  administratorUserId: string,
+  permissionByKey: Map<string, { id: string }>,
+): Promise<void> {
+  const existing = await prisma.workflowDefinition.findFirst({
+    where: { organisationId, code: 'HIRING_REQUEST_APPROVAL' },
+  });
+  if (existing) {
+    console.log('  Skipping Sprint 30 Recruitment fixtures — already seeded.');
+    return;
+  }
+
+  console.log('Seeding Sprint 30 Recruitment & Candidate Interview Management fixtures...');
+
+  const financeDepartment = await prisma.department.findFirst({
+    where: { organisationId, code: 'FIN' },
+  });
+  if (!financeDepartment) {
+    console.log('  Skipping Sprint 30 Recruitment fixtures — Finance department not found.');
+    return;
+  }
+
+  const cashierPosition = await prisma.position.upsert({
+    where: { organisationId_code: { organisationId, code: 'CASHIER' } },
+    update: {},
+    create: {
+      organisationId,
+      code: 'CASHIER',
+      title: 'Cashier',
+      departmentId: financeDepartment.id,
+      status: 'ACTIVE',
+      createdById: ownerUserId,
+    },
+  });
+
+  const interviewPanelist = await upsertCustomRole(
+    organisationId,
+    'Interview Panelist',
+    'May act as a recruitment interview panelist and submit independent evaluations. No screening, scheduling, or hiring-decision access.',
+  );
+  await grantRolePermissions(interviewPanelist.id, permissionByKey, [
+    { key: 'hr.recruitment.interview.evaluate' },
+  ]);
+
+  const procurementOfficerUser = await seedDemoEmployeeUser({
+    organisationId,
+    employeeCode: 'EMP-000004', // Ibrahim Musa
+    email: 'ibrahim.musa.demo@bobybites.local',
+    firstName: 'Ibrahim',
+    lastName: 'Musa',
+  });
+  if (procurementOfficerUser) {
+    await assignRoleIfMissing(organisationId, procurementOfficerUser.id, interviewPanelist.id);
+  }
+
+  const approverUser = await seedDemoEmployeeUser({
+    organisationId,
+    employeeCode: 'EMP-000005', // Grace Effiong
+    email: 'grace.effiong.demo@bobybites.local',
+    firstName: 'Grace',
+    lastName: 'Effiong',
+  });
+  if (approverUser) {
+    await assignRoleIfMissing(organisationId, approverUser.id, interviewPanelist.id);
+  }
+
+  // Owner/Administrator already hold every permission (Owner bypass /
+  // Administrator's full catalogue grant, seeded earlier in `main()`) — no
+  // additional role needed for them to approve hiring requests or evaluate.
+
+  const hiringRequestApprovalDefinition = await prisma.workflowDefinition.create({
+    data: {
+      organisationId,
+      name: 'Hiring Request Approval',
+      code: 'HIRING_REQUEST_APPROVAL',
+      description:
+        'Single-step approval: a hiring request is approved by a General Manager or above before HR may create a vacancy from it.',
+      subjectType: 'HIRING_REQUEST',
+      status: 'ACTIVE',
+      allowSelfApproval: false,
+      createdById: administratorUserId,
+      updatedById: administratorUserId,
+      steps: {
+        create: [
+          {
+            name: 'Management Approval',
+            code: 'MANAGEMENT_APPROVAL',
+            sequence: 1,
+            requiredPermission: 'hr.recruitment.hiring_request.approve',
+            requiredScope: 'ORGANISATION',
+            assignedUserId: administratorUserId,
+          },
+        ],
+      },
+    },
+  });
+  void hiringRequestApprovalDefinition;
+
+  const hiringRequest = await prisma.hiringRequest.create({
+    data: {
+      organisationId,
+      departmentId: financeDepartment.id,
+      positionId: cashierPosition.id,
+      requestedHeadcount: 1,
+      employmentType: 'FULL_TIME',
+      reason: 'REPLACEMENT',
+      justification:
+        'Existing cashier resigned; role must be backfilled to maintain daily till operations.',
+      requestedStartDate: new Date('2026-10-01'),
+      requestedById: administratorUserId,
+      status: 'APPROVED',
+    },
+  });
+
+  const vacancy = await prisma.vacancy.create({
+    data: {
+      organisationId,
+      title: 'Cashier',
+      positionId: cashierPosition.id,
+      departmentId: financeDepartment.id,
+      hiringRequestId: hiringRequest.id,
+      numberOfOpenings: 1,
+      employmentType: 'FULL_TIME',
+      workArrangement: 'ON_SITE',
+      location: 'Ibadan',
+      description:
+        'Boby Bites is looking for a diligent Cashier to manage daily till operations, process customer payments accurately, and maintain transaction records for our Ibadan outlet.',
+      responsibilities:
+        'Process customer payments and issue receipts. Reconcile the till at the start and end of each shift. Maintain accurate daily transaction records. Escalate discrepancies to the Finance Officer promptly.',
+      requirements:
+        'Secondary school certificate or equivalent. Basic numeracy and record-keeping skills. Honesty and attention to detail.',
+      qualifications: 'OND in Accounting or a related field is an advantage but not required.',
+      experienceRequirements: 'At least 1 year of cash-handling or retail experience preferred.',
+      applicationDeadline: new Date('2026-10-15'),
+      status: 'PUBLISHED',
+      publicSlug: 'cashier',
+      publishedAt: new Date(),
+      createdById: administratorUserId,
+      questions: {
+        create: [
+          {
+            organisationId,
+            label: 'Do you have previous cashier experience?',
+            type: 'YES_NO',
+            required: true,
+            sortOrder: 1,
+          },
+          {
+            organisationId,
+            label: 'How many years of cash-handling experience do you have?',
+            type: 'NUMBER',
+            required: true,
+            sortOrder: 2,
+          },
+        ],
+      },
+    },
+    include: { questions: true },
+  });
+
+  const financeInterviewStage = await prisma.interviewStage.create({
+    data: {
+      organisationId,
+      vacancyId: vacancy.id,
+      name: 'Finance Interview',
+      description: 'Initial interview with the Finance department and HR.',
+      sequence: 1,
+      isRequired: true,
+      evaluationRequired: true,
+      participants: {
+        create: [
+          { organisationId, userId: administratorUserId },
+          ...(procurementOfficerUser
+            ? [{ organisationId, userId: procurementOfficerUser.id }]
+            : []),
+          ...(approverUser ? [{ organisationId, userId: approverUser.id }] : []),
+        ],
+      },
+    },
+  });
+
+  await prisma.interviewStage.create({
+    data: {
+      organisationId,
+      vacancyId: vacancy.id,
+      name: 'Management Interview',
+      description: 'Final interview with senior management.',
+      sequence: 2,
+      isRequired: true,
+      evaluationRequired: true,
+      participants: {
+        create: [
+          { organisationId, userId: ownerUserId },
+          { organisationId, userId: administratorUserId },
+        ],
+      },
+    },
+  });
+
+  const yesNoQuestion = vacancy.questions.find((q) => q.type === 'YES_NO')!;
+  const numberQuestion = vacancy.questions.find((q) => q.type === 'NUMBER')!;
+
+  interface CandidateDef {
+    firstName: string;
+    lastName: string;
+    email: string;
+    phone: string;
+    status: 'SUBMITTED' | 'SHORTLISTED' | 'INTERVIEWING';
+    scheduleInterview?: boolean;
+  }
+  const candidateDefs: CandidateDef[] = [
+    {
+      firstName: 'Ngozi',
+      lastName: 'Adeyemi',
+      email: 'ngozi.adeyemi.candidate@example.test',
+      phone: '08031234567',
+      status: 'SUBMITTED',
+    },
+    {
+      firstName: 'Tobi',
+      lastName: 'Fashola',
+      email: 'tobi.fashola.candidate@example.test',
+      phone: '08032345678',
+      status: 'SHORTLISTED',
+    },
+    {
+      firstName: 'Amaka',
+      lastName: 'Chukwu',
+      email: 'amaka.chukwu.candidate@example.test',
+      phone: '08033456789',
+      status: 'INTERVIEWING',
+      scheduleInterview: true,
+    },
+  ];
+
+  for (const def of candidateDefs) {
+    const candidate = await prisma.candidate.create({
+      data: {
+        organisationId,
+        firstName: def.firstName,
+        lastName: def.lastName,
+        email: def.email,
+        phone: def.phone,
+        location: 'Ibadan',
+      },
+    });
+    const application = await prisma.application.create({
+      data: {
+        organisationId,
+        vacancyId: vacancy.id,
+        candidateId: candidate.id,
+        status: def.status,
+        coverLetterText: `I am excited to apply for the Cashier role at Boby Bites and believe my attention to detail makes me a strong fit.`,
+        ...(def.status !== 'SUBMITTED'
+          ? { screenedByUserId: administratorUserId, screenedAt: new Date() }
+          : {}),
+        answers: {
+          create: [
+            { organisationId, vacancyQuestionId: yesNoQuestion.id, answerBoolean: true },
+            { organisationId, vacancyQuestionId: numberQuestion.id, answerNumber: 2 },
+          ],
+        },
+      },
+    });
+
+    if (def.scheduleInterview) {
+      await prisma.interview.create({
+        data: {
+          organisationId,
+          applicationId: application.id,
+          interviewStageId: financeInterviewStage.id,
+          scheduledAt: new Date('2026-10-05T10:00:00Z'),
+          durationMinutes: 30,
+          location: 'Boby Bites — Ibadan Head Office',
+          createdById: administratorUserId,
+          participants: {
+            create: [
+              { organisationId, userId: administratorUserId },
+              ...(procurementOfficerUser
+                ? [{ organisationId, userId: procurementOfficerUser.id }]
+                : []),
+              ...(approverUser ? [{ organisationId, userId: approverUser.id }] : []),
+            ],
+          },
+        },
+      });
+    }
+  }
+}
+
+/**
+ * "Hiring Request → HR Approval → Public Vacancy Flow" audit — grants an
+ * existing, real demo user (Emeka Nwachukwu, the Finance department's
+ * `financeStaffUser`) the ability to create/submit a hiring request for
+ * their own department. The audit found that NO seeded role anywhere held
+ * `hr.recruitment.hiring_request.manage` — the permission was already real
+ * and grantable (Sprint 30's own catalogue), but nothing in the seed ever
+ * granted it to anyone but Administrator, so in practice only
+ * HR/Administrator could ever create a hiring request, collapsing "our
+ * department needs someone" and "HR reviews/approves" into the same actor.
+ * `hr.organisation_structure.view` is also required — the create-request
+ * form's department/position dropdowns 403 without it, discovered live.
+ * Deliberately NOT `.approve` or `vacancy.manage` — Head of Finance can
+ * request, never approve its own request or create/publish the resulting
+ * vacancy (recruitment.md §"Requester vs Approver Authorization").
+ *
+ * Deliberately its own small, unconditionally-idempotent step — NOT gated
+ * behind an "if X already exists, skip the whole function" guard the way
+ * `seedAccessControlFixtures`/`seedRecruitmentFixtures` above are. Those
+ * guards mean a database that had already passed Sprint 25/30 once (true of
+ * every environment this fix ships to, including this session's own dev
+ * database) would silently never receive grants added inside those
+ * functions afterwards. `grantRolePermissions` (`createMany({
+ * skipDuplicates: true })`) and `assignRoleIfMissing` (`upsert`) are both
+ * already safe to call on every single run regardless of prior state, so
+ * this function has no early-return at all — it converges to the same
+ * correct end state whether the database is brand new or has been seeded
+ * many times before.
+ */
+async function seedDepartmentRequesterFixtures(
+  organisationId: string,
+  permissionByKey: Map<string, { id: string }>,
+): Promise<void> {
+  const headOfFinanceRole = await prisma.role.findFirst({
+    where: { organisationId, name: 'Head of Finance' },
+  });
+  const financeOfficerUser = await prisma.user.findUnique({
+    where: { email: 'emeka.nwachukwu.demo@bobybites.local' },
+  });
+  if (!headOfFinanceRole || !financeOfficerUser) {
+    console.log(
+      '  Skipping department-requester fixture — Head of Finance role or the Finance Officer demo user was not found.',
+    );
+    return;
+  }
+
+  await grantRolePermissions(headOfFinanceRole.id, permissionByKey, [
+    { key: 'hr.recruitment.hiring_request.manage' },
+    { key: 'hr.recruitment.hiring_request.view', scope: 'ORGANISATION' },
+    { key: 'hr.organisation_structure.view' },
+  ]);
+  await assignRoleIfMissing(organisationId, financeOfficerUser.id, headOfFinanceRole.id);
+}
+
 async function main(): Promise<void> {
   // Read early (rather than inside `seedUser`) because the organisation's `businessEmail`
   // needs it before any user is created.
@@ -7324,6 +7685,13 @@ async function main(): Promise<void> {
     permissionByKey,
   );
   await seedWorkflowFixtures(organisation.id, administratorUser.id, permissionByKey);
+  await seedRecruitmentFixtures(
+    organisation.id,
+    ownerUser.id,
+    administratorUser.id,
+    permissionByKey,
+  );
+  await seedDepartmentRequesterFixtures(organisation.id, permissionByKey);
 
   console.log('Recording an audit log entry for this seed run...');
   await prisma.auditLog.create({

@@ -778,3 +778,30 @@ stubbed:
   sprint's overview aggregates extend the same read-only composition
   boundary, ready to be consumed by a future cross-domain reporting
   layer without duplication.
+- **Sprint 30 — Recruitment & Candidate Interview Management Foundation**
+  (implemented): closed the "how does a person become an Employee"
+  question this section left open. Built as a genuine extension of this
+  domain (`apps/api/src/hr/recruitment/`, its own NestJS module purely to
+  avoid bloating this one's provider list — never a separate application),
+  reusing `EmployeeService.create()` and `EmployeeOnboardingService.start()`
+  completely unchanged at the offer-acceptance→conversion step. See
+  [docs/domains/recruitment.md](recruitment.md) for the full domain doc and
+  [docs/sprint-30-completion-report.md](../sprint-30-completion-report.md)
+  for the sprint report.
+
+# Part C — Sprint 30: Recruitment & Candidate Interview Management Foundation
+
+Full domain doc: [docs/domains/recruitment.md](recruitment.md). Summary of
+what this means for THIS document's own models: `Employee.userId` remains
+nullable and never auto-populated by recruitment (brief §31 — a candidate
+becoming an Employee never auto-provisions a `User` account, matching this
+domain's own pre-existing `linkUser`/`unlinkUser` "inert linking, no account
+creation" precedent exactly); `EmployeeService.create()` and
+`EmployeeOnboardingService.start()` gained a new CALLER
+(`RecruitmentModule`'s `OfferService.accept()`) but zero changes to their own
+implementations — a new `Employee` created via an accepted offer is
+byte-for-byte indistinguishable from one created through this domain's own
+existing `POST /hr/employees` endpoint, starting `DRAFT` and moving to
+`ONBOARDING` via the same default 7-task checklist. `HrModule` gained one
+new export (`EmployeeOnboardingService`, previously internal-only) for this
+purpose — its own implementation is unchanged.

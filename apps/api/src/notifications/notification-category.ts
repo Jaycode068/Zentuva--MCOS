@@ -17,6 +17,13 @@ export const NOTIFICATION_TYPE_CATEGORY: Record<NotificationType, NotificationCa
   WORKFLOW_RESUBMITTED: 'WORKFLOW_STATUS_CHANGES',
   WORKFLOW_CANCELLED: 'WORKFLOW_STATUS_CHANGES',
   WORKFLOW_EXPIRED: 'WORKFLOW_STATUS_CHANGES',
+  /** Added Sprint 30 — Recruitment & Candidate Interview Management Foundation.
+   *  Not Workflow-sourced (recruitment.md §9) — grouped under their own
+   *  category rather than folded into `WORKFLOW_APPROVALS` since a user may
+   *  reasonably want different channel preferences for "I have an interview
+   *  to run" than for approval notifications. */
+  INTERVIEW_SCHEDULED: 'RECRUITMENT_INTERVIEWS',
+  INTERVIEW_EVALUATION_REQUIRED: 'RECRUITMENT_INTERVIEWS',
 };
 
 export function categoryForType(type: NotificationType): NotificationCategory {
@@ -26,4 +33,5 @@ export function categoryForType(type: NotificationType): NotificationCategory {
 export const ALL_NOTIFICATION_CATEGORIES: NotificationCategory[] = [
   'WORKFLOW_APPROVALS',
   'WORKFLOW_STATUS_CHANGES',
+  'RECRUITMENT_INTERVIEWS',
 ];

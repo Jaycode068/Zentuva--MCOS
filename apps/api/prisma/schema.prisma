@@ -111,138 +111,153 @@ model Organisation {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  users                              User[]
-  roles                              Role[]
-  invitations                        Invitation[]
-  auditLogs                          AuditLog[]
-  sessions                           Session[]
-  userRoles                          UserRole[]
+  users                                 User[]
+  roles                                 Role[]
+  invitations                           Invitation[]
+  auditLogs                             AuditLog[]
+  sessions                              Session[]
+  userRoles                             UserRole[]
   /// Added Sprint 4.1 — Product Catalogue (docs/domains/catalogue.md).
-  products                           Product[]
+  products                              Product[]
   /// Added Sprint 4.2 — Supplier Management (docs/domains/suppliers.md).
-  suppliers                          Supplier[]
+  suppliers                             Supplier[]
   /// Added Sprint 4.3 — Procurement (docs/domains/procurement.md).
-  purchaseOrders                     PurchaseOrder[]
+  purchaseOrders                        PurchaseOrder[]
   /// Added Sprint 4.4 — Inventory (docs/domains/inventory.md).
-  goodsReceipts                      GoodsReceipt[]
-  inventoryStock                     InventoryStock[]
-  inventoryTransactions              InventoryTransaction[]
+  goodsReceipts                         GoodsReceipt[]
+  inventoryStock                        InventoryStock[]
+  inventoryTransactions                 InventoryTransaction[]
   /// Added Sprint 4.5 — Inventory Locations (docs/domains/inventory.md).
-  inventoryLocations                 InventoryLocation[]
+  inventoryLocations                    InventoryLocation[]
   /// Added Sprint 4.6 — Production & Bill of Materials (docs/domains/production.md).
-  billOfMaterials                    BillOfMaterial[]
-  productionOrders                   ProductionOrder[]
-  productionMaterialIssues           ProductionMaterialIssue[]
-  productionRuns                     ProductionRun[]
+  billOfMaterials                       BillOfMaterial[]
+  productionOrders                      ProductionOrder[]
+  productionMaterialIssues              ProductionMaterialIssue[]
+  productionRuns                        ProductionRun[]
   /// Added Sprint 4.7 — Product Family, Variant & SKU Architecture (docs/domains/catalogue.md).
-  productFamilies                    ProductFamily[]
-  productVariants                    ProductVariant[]
+  productFamilies                       ProductFamily[]
+  productVariants                       ProductVariant[]
   /// Added Sprint 4.8 — Customer, Territory, Outlet & Retail Network
   /// (docs/domains/retail-network.md).
-  territories                        Territory[]
-  customers                          Customer[]
-  outlets                            Outlet[]
-  outletPhotos                       OutletPhoto[]
-  distributionNetworkRelationships   DistributionNetworkRelationship[]
+  territories                           Territory[]
+  customers                             Customer[]
+  outlets                               Outlet[]
+  outletPhotos                          OutletPhoto[]
+  distributionNetworkRelationships      DistributionNetworkRelationship[]
   /// Added Sprint 4.8 — Sales (docs/domains/sales.md).
-  salesOrders                        SalesOrder[]
+  salesOrders                           SalesOrder[]
   /// Added Sprint 4.9 — Sales Fulfilment (docs/domains/sales.md "Fulfilment").
-  salesFulfilments                   SalesFulfilment[]
+  salesFulfilments                      SalesFulfilment[]
   /// Added Sprint 5 — Distribution & Delivery (docs/domains/distribution.md).
-  dispatches                         Dispatch[]
-  deliveries                         Delivery[]
+  dispatches                            Dispatch[]
+  deliveries                            Delivery[]
   /// Added Sprint 6 — Finance (docs/domains/finance.md).
-  invoices                           Invoice[]
-  payments                           Payment[]
-  creditNotes                        CreditNote[]
+  invoices                              Invoice[]
+  payments                              Payment[]
+  creditNotes                           CreditNote[]
   /// Added Sprint 7 — Accounting (docs/domains/accounting.md).
-  chartOfAccounts                    ChartOfAccount[]
-  accountingPeriods                  AccountingPeriod[]
-  journalEntries                     JournalEntry[]
+  chartOfAccounts                       ChartOfAccount[]
+  accountingPeriods                     AccountingPeriod[]
+  journalEntries                        JournalEntry[]
   /// Added Sprint 11 — Returns, Claims & Reversals (docs/domains/sales.md,
   /// docs/domains/procurement.md).
-  customerReturns                    CustomerReturn[]
-  supplierReturns                    SupplierReturn[]
+  customerReturns                       CustomerReturn[]
+  supplierReturns                       SupplierReturn[]
   /// Added Sprint 12 — Accounts Payable (docs/domains/finance.md).
-  supplierInvoices                   SupplierInvoice[]
-  supplierPayments                   SupplierPayment[]
-  supplierCreditNotes                SupplierCreditNote[]
+  supplierInvoices                      SupplierInvoice[]
+  supplierPayments                      SupplierPayment[]
+  supplierCreditNotes                   SupplierCreditNote[]
   /// Added Sprint 14 — Cash & Bank Management (docs/domains/cash-management.md).
-  cashAccounts                       CashAccount[]
-  cashTransactions                   CashTransaction[]
-  bankStatementImports               BankStatementImport[]
-  bankStatementTransactions          BankStatementTransaction[]
-  bankReconciliations                BankReconciliation[]
+  cashAccounts                          CashAccount[]
+  cashTransactions                      CashTransaction[]
+  bankStatementImports                  BankStatementImport[]
+  bankStatementTransactions             BankStatementTransaction[]
+  bankReconciliations                   BankReconciliation[]
   /// Added Sprint 15 — Cashflow Management & Forecasting (docs/domains/cashflow.md).
-  cashflowForecastItems              CashflowForecastItem[]
-  cashflowScenarios                  CashflowScenario[]
-  cashflowForecastAdjustments        CashflowForecastAdjustment[]
-  cashflowSettings                   CashflowSettings?
+  cashflowForecastItems                 CashflowForecastItem[]
+  cashflowScenarios                     CashflowScenario[]
+  cashflowForecastAdjustments           CashflowForecastAdjustment[]
+  cashflowSettings                      CashflowSettings?
   /// Added Sprint 16 — Budgeting & Financial Planning (docs/domains/budgeting.md).
-  budgets                            Budget[]
-  costCentres                        CostCentre[]
+  budgets                               Budget[]
+  costCentres                           CostCentre[]
   /// Added Sprint 17 — Capital & Debt Management (docs/domains/debt-management.md).
-  lenders                            Lender[]
-  capitalRequirements                CapitalRequirement[]
-  debtFacilities                     DebtFacility[]
-  debtDrawdowns                      DebtDrawdown[]
-  debtRepayments                     DebtRepayment[]
+  lenders                               Lender[]
+  capitalRequirements                   CapitalRequirement[]
+  debtFacilities                        DebtFacility[]
+  debtDrawdowns                         DebtDrawdown[]
+  debtRepayments                        DebtRepayment[]
   /// Added Sprint 18 — Investment / Capital Project Management
   /// (docs/domains/investment-projects.md).
-  capitalProjects                    CapitalProject[]
-  capitalProjectFundings             CapitalProjectFunding[]
+  capitalProjects                       CapitalProject[]
+  capitalProjectFundings                CapitalProjectFunding[]
   /// Added Sprint 19 — Financial Decision & Scenario Analysis
   /// (docs/domains/financial-decision-analysis.md).
-  decisionAnalyses                   DecisionAnalysis[]
+  decisionAnalyses                      DecisionAnalysis[]
   /// Added Sprint 20 — Asset Register & Asset Management Foundation
   /// (docs/domains/assets.md).
-  assetCategories                    AssetCategory[]
-  assetLocations                     AssetLocation[]
-  assets                             Asset[]
-  assetDocuments                     AssetDocument[]
-  assetMovements                     AssetMovement[]
-  assetMeters                        AssetMeter[]
-  assetMeterReadings                 AssetMeterReading[]
-  maintenanceTypes                   MaintenanceType[]
-  maintenancePlans                   MaintenancePlan[]
-  maintenanceSchedules               MaintenanceSchedule[]
-  maintenanceRequests                MaintenanceRequest[]
-  workOrders                         WorkOrder[]
-  assetDowntimes                     AssetDowntime[]
-  maintenancePartUsages              MaintenancePartUsage[]
-  maintenanceCosts                   MaintenanceCost[]
-  maintenanceDocuments               MaintenanceDocument[]
-  maintenanceProcurementRequirements MaintenanceProcurementRequirement[]
+  assetCategories                       AssetCategory[]
+  assetLocations                        AssetLocation[]
+  assets                                Asset[]
+  assetDocuments                        AssetDocument[]
+  assetMovements                        AssetMovement[]
+  assetMeters                           AssetMeter[]
+  assetMeterReadings                    AssetMeterReading[]
+  maintenanceTypes                      MaintenanceType[]
+  maintenancePlans                      MaintenancePlan[]
+  maintenanceSchedules                  MaintenanceSchedule[]
+  maintenanceRequests                   MaintenanceRequest[]
+  workOrders                            WorkOrder[]
+  assetDowntimes                        AssetDowntime[]
+  maintenancePartUsages                 MaintenancePartUsage[]
+  maintenanceCosts                      MaintenanceCost[]
+  maintenanceDocuments                  MaintenanceDocument[]
+  maintenanceProcurementRequirements    MaintenanceProcurementRequirement[]
   /// Added Sprint 23 — HR Employee Lifecycle Foundation (docs/domains/hr.md).
-  hrDepartments                      Department[]
-  hrPositions                        Position[]
-  hrEmployees                        Employee[]
-  hrEmployeeDocuments                EmployeeDocument[]
-  hrEmployeeOnboardings              EmployeeOnboarding[]
-  hrEmployeeOnboardingTasks          EmployeeOnboardingTask[]
+  hrDepartments                         Department[]
+  hrPositions                           Position[]
+  hrEmployees                           Employee[]
+  hrEmployeeDocuments                   EmployeeDocument[]
+  hrEmployeeOnboardings                 EmployeeOnboarding[]
+  hrEmployeeOnboardingTasks             EmployeeOnboardingTask[]
   /// Added Sprint 24 — HR Attendance, Training & People Operations
   /// (docs/domains/hr.md).
-  hrWorkSchedules                    WorkSchedule[]
-  hrAttendanceRecords                AttendanceRecord[]
-  hrAttendanceCorrectionRequests     AttendanceCorrectionRequest[]
-  hrPolicies                         Policy[]
-  hrPolicyVersions                   PolicyVersion[]
-  hrPolicyAcknowledgements           PolicyAcknowledgement[]
-  hrTrainingCourses                  TrainingCourse[]
-  hrEmployeeTrainings                EmployeeTraining[]
+  hrWorkSchedules                       WorkSchedule[]
+  hrAttendanceRecords                   AttendanceRecord[]
+  hrAttendanceCorrectionRequests        AttendanceCorrectionRequest[]
+  hrPolicies                            Policy[]
+  hrPolicyVersions                      PolicyVersion[]
+  hrPolicyAcknowledgements              PolicyAcknowledgement[]
+  hrTrainingCourses                     TrainingCourse[]
+  hrEmployeeTrainings                   EmployeeTraining[]
   /// Added Sprint 26 — Workflow & Approval Foundation (docs/domains/workflow.md).
-  workflowDefinitions                WorkflowDefinition[]
-  workflowInstances                  WorkflowInstance[]
+  workflowDefinitions                   WorkflowDefinition[]
+  workflowInstances                     WorkflowInstance[]
   /// Added Sprint 26.1 — Workflow Hardening (docs/domains/workflow.md §7).
-  workflowEvents                     WorkflowEvent[]
+  workflowEvents                        WorkflowEvent[]
   /// Added Sprint 27 — Notifications & Activity Centre Foundation (docs/domains/notifications.md).
-  notifications                      Notification[]
+  notifications                         Notification[]
   /// Added Sprint 27.1 — Notification Reliability & Preferences.
-  notificationPreferences            NotificationPreference[]
+  notificationPreferences               NotificationPreference[]
   /// Added Sprint 28 — Email Notification Delivery Foundation.
-  emailDeliveries                    EmailDelivery[]
+  emailDeliveries                       EmailDelivery[]
   /// Added Sprint 29 — WhatsApp Notification Delivery Foundation.
-  whatsappDeliveries                 WhatsAppDelivery[]
+  whatsappDeliveries                    WhatsAppDelivery[]
+  /// Added Sprint 30 — Recruitment & Candidate Interview Management Foundation
+  /// (docs/domains/recruitment.md).
+  hiringRequests                        HiringRequest[]
+  recruitmentVacancies                  Vacancy[]
+  recruitmentVacancyQuestions           VacancyQuestion[]
+  recruitmentCandidates                 Candidate[]
+  recruitmentApplications               Application[]
+  recruitmentApplicationAnswers         ApplicationAnswer[]
+  recruitmentInterviewStages            InterviewStage[]
+  recruitmentInterviewStageParticipants InterviewStageParticipant[]
+  recruitmentInterviews                 Interview[]
+  recruitmentInterviewParticipants      InterviewParticipant[]
+  recruitmentInterviewEvaluations       InterviewEvaluation[]
+  recruitmentInterviewStageDecisions    InterviewStageDecision[]
+  recruitmentOffers                     Offer[]
 
   @@map("organisations")
 }
@@ -5532,16 +5547,19 @@ model Department {
   createdAt                DateTime         @default(now())
   updatedAt                DateTime         @updatedAt
 
-  organisation     Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
-  parentDepartment Department?  @relation("DepartmentHierarchy", fields: [parentDepartmentId], references: [id])
-  childDepartments Department[] @relation("DepartmentHierarchy")
-  departmentHead   Employee?    @relation("DepartmentHead", fields: [departmentHeadEmployeeId], references: [id])
+  organisation     Organisation    @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  parentDepartment Department?     @relation("DepartmentHierarchy", fields: [parentDepartmentId], references: [id])
+  childDepartments Department[]    @relation("DepartmentHierarchy")
+  departmentHead   Employee?       @relation("DepartmentHead", fields: [departmentHeadEmployeeId], references: [id])
   positions        Position[]
-  employees        Employee[]   @relation("EmployeeDepartment")
+  employees        Employee[]      @relation("EmployeeDepartment")
   /// Added Sprint 24 — policies scoped to this department.
-  scopedPolicies   Policy[]     @relation("PolicyDepartmentScope")
+  scopedPolicies   Policy[]        @relation("PolicyDepartmentScope")
   /// Added Sprint 24 — policies this department owns/authors (independent of scope).
-  ownedPolicies    Policy[]     @relation("PolicyOwnerDepartment")
+  ownedPolicies    Policy[]        @relation("PolicyOwnerDepartment")
+  /// Added Sprint 30 — Recruitment & Candidate Interview Management Foundation.
+  hiringRequests   HiringRequest[]
+  vacancies        Vacancy[]
 
   @@unique([organisationId, code])
   @@unique([organisationId, name])
@@ -5573,11 +5591,14 @@ model Position {
   createdAt           DateTime       @default(now())
   updatedAt           DateTime       @updatedAt
 
-  organisation         Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
-  department           Department?  @relation(fields: [departmentId], references: [id])
-  reportsToPosition    Position?    @relation("PositionHierarchy", fields: [reportsToPositionId], references: [id])
-  subordinatePositions Position[]   @relation("PositionHierarchy")
+  organisation         Organisation    @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  department           Department?     @relation(fields: [departmentId], references: [id])
+  reportsToPosition    Position?       @relation("PositionHierarchy", fields: [reportsToPositionId], references: [id])
+  subordinatePositions Position[]      @relation("PositionHierarchy")
   employees            Employee[]
+  /// Added Sprint 30 — Recruitment & Candidate Interview Management Foundation.
+  hiringRequests       HiringRequest[]
+  vacancies            Vacancy[]
 
   @@unique([organisationId, code])
   @@unique([organisationId, title])
@@ -5657,6 +5678,13 @@ model Employee {
   requestedCorrections   AttendanceCorrectionRequest[] @relation("AttendanceCorrectionRequestedByEmployee")
   policyAcknowledgements PolicyAcknowledgement[]
   trainingRecords        EmployeeTraining[]
+  /// Added Sprint 30 — Recruitment & Candidate Interview Management Foundation.
+  /// Set only when this Employee was created by converting an accepted
+  /// recruitment Offer (`Offer.convertedEmployeeId`) — null for every Employee
+  /// created through the pre-existing direct-creation path. Never the other
+  /// direction: Recruitment reads/writes this link, HR's own Employee code
+  /// never references Recruitment.
+  convertedFromOffer     Offer?
 
   @@unique([organisationId, employeeCode])
   @@index([organisationId])
@@ -6457,6 +6485,16 @@ enum NotificationType {
   WORKFLOW_RESUBMITTED
   WORKFLOW_CANCELLED
   WORKFLOW_EXPIRED
+  /// Added Sprint 30 — Recruitment & Candidate Interview Management Foundation.
+  /// Deliberately NOT produced by `NotificationEventProcessorService`/
+  /// `WorkflowEvent` — Recruitment creates these rows directly (recruitment.md
+  /// §9 "Notification Integration"), since Candidate/Application/Interview are
+  /// never `WorkflowInstance`s. Both fire together, once, at interview
+  /// scheduling time — see recruitment.md for why a genuinely delayed
+  /// post-interview reminder is deferred (no background scheduler exists in
+  /// this codebase).
+  INTERVIEW_SCHEDULED
+  INTERVIEW_EVALUATION_REQUIRED
 }
 
 /// A single user-facing in-app notification (Sprint 27, docs/domains/notifications.md
@@ -6518,6 +6556,22 @@ model Notification {
   /// event, or two concurrent processors racing on the same event, both converge on
   /// exactly one row per recipient — never a silent application-level check alone.
   @@unique([organisationId, sourceEventId, recipientUserId, channel])
+  /// Added Sprint 30 (raw SQL in the migration, not expressible here — a
+  /// PARTIAL unique index): `hr_recruitment_notifications_source_recipient_
+  /// channel_key`, scoped to `WHERE "sourceType" = 'INTERVIEW'` only. The
+  /// constraint above (keyed on `sourceEventId`) gives no duplicate
+  /// protection for a non-Workflow-sourced row, since `sourceEventId` is
+  /// null there and Postgres treats every NULL as distinct — but a BROAD,
+  /// unscoped `(sourceType, sourceId, type, recipientUserId, channel)`
+  /// constraint would be WRONG for existing Workflow rows: the SAME
+  /// `WORKFLOW_APPROVAL_REQUIRED` type legitimately recurs for the SAME
+  /// subject/recipient/channel across a subject's lifetime (e.g. step 1's
+  /// approval-required, then later step 2's, for the same PO and the same
+  /// approver) — confirmed by a real constraint-violation against live data
+  /// when first attempted unscoped. Scoping the index to `sourceType =
+  /// 'INTERVIEW'` only gives Recruitment's own notifications the same
+  /// DB-backed idempotency Workflow's rows already have, without touching
+  /// Workflow's semantics at all — recruitment.md §9.
   @@index([organisationId, recipientUserId, status])
   @@index([organisationId, recipientUserId, createdAt])
   @@map("notifications")
@@ -6532,6 +6586,12 @@ model Notification {
 enum NotificationCategory {
   WORKFLOW_APPROVALS
   WORKFLOW_STATUS_CHANGES
+  /// Added Sprint 30 — Recruitment & Candidate Interview Management
+  /// Foundation. Covers `INTERVIEW_SCHEDULED`/`INTERVIEW_EVALUATION_REQUIRED`
+  /// — a distinct category from the two above since it is not Workflow-
+  /// sourced and a user may reasonably want different channel preferences
+  /// for "I have an interview to run" than for approval notifications.
+  RECRUITMENT_INTERVIEWS
 }
 
 /// One user's in-app delivery preference for one category, in one organisation
@@ -6845,4 +6905,519 @@ model WorkflowDecision {
   @@index([workflowInstanceId])
   @@index([workflowStepInstanceId])
   @@map("workflow_decisions")
+}
+
+// ============================================================================
+// HR — Recruitment & Candidate Interview Management Foundation (Sprint 30,
+// docs/domains/recruitment.md)
+//
+// Part of the HR domain, not a separate application — reuses `Department`/
+// `Position` (organisation structure), `Employee`/`EmployeeOnboarding` (the
+// candidate→employee transition, §Offer below), the existing Workflow engine
+// (`HiringRequest` approval only — see `HiringRequestWorkflowHandler`,
+// subjectType `HIRING_REQUEST`; Candidate/Application/Interview are
+// deliberately NEVER WorkflowInstances), and the existing Notification/
+// EmailDelivery/WhatsAppDelivery pipeline (recruitment creates `Notification`
+// rows directly — see the `INTERVIEW_SCHEDULED`/`INTERVIEW_EVALUATION_
+// REQUIRED` enum values above and the second compound-unique index added to
+// `Notification` above).
+//
+// `InterviewStage`/`InterviewStageParticipant` are the CONFIGURED template for
+// a Vacancy's process (shared across every candidate who applies to it);
+// `Interview`/`InterviewParticipant` are the per-candidate SCHEDULED instance
+// and its snapshotted panel — the exact `WorkflowStep`/`WorkflowStepInstance`
+// definition/instance split this codebase already established, reused here so
+// a later change to a stage's default panel never retroactively alters who
+// was actually invited to evaluate an already-scheduled candidate.
+// ============================================================================
+
+enum HiringRequestReason {
+  NEW_POSITION
+  REPLACEMENT
+  EXPANSION
+  OTHER
+}
+
+enum HiringRequestStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+/// A formal request that a position be filled — the recruitment lifecycle's
+/// own entry point, deliberately separate from Workflow approval (recruitment.md
+/// §2): this model's `status` is recruitment-owned and moved either by
+/// `HiringRequestWorkflowHandler`'s callbacks (when an organisation routes a
+/// request through a configured `WorkflowInstance`, subjectType
+/// `HIRING_REQUEST`) or directly by an HR user (`hr.recruitment.hiring_request.
+/// approve`) when no approval workflow is configured — the SAME internal
+/// `HiringRequestService.approve()`/`.reject()` methods either way, so there is
+/// exactly one code path for "a hiring request became approved."
+model HiringRequest {
+  id                 String              @id @default(cuid())
+  organisationId     String
+  departmentId       String
+  positionId         String
+  requestedHeadcount Int                 @default(1)
+  employmentType     EmploymentType
+  reason             HiringRequestReason
+  justification      String?
+  requestedStartDate DateTime?
+  requestedById      String
+  status             HiringRequestStatus @default(DRAFT)
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  department   Department   @relation(fields: [departmentId], references: [id])
+  position     Position     @relation(fields: [positionId], references: [id])
+  vacancies    Vacancy[]
+
+  @@index([organisationId])
+  @@index([organisationId, status])
+  @@index([departmentId])
+  @@index([positionId])
+  @@map("hr_recruitment_hiring_requests")
+}
+
+enum WorkArrangement {
+  ON_SITE
+  REMOTE
+  HYBRID
+}
+
+enum VacancyStatus {
+  DRAFT
+  PUBLISHED
+  PAUSED
+  CLOSED
+  CANCELLED
+}
+
+/// A specific recruitment opportunity — distinct from `Position` (the
+/// organisational job title, reusable across many vacancies over time,
+/// recruitment.md §3 "Position vs Vacancy"). Not every vacancy needs a
+/// `HiringRequest` (nullable `hiringRequestId`) — an administrative vacancy is
+/// a legitimate use case per the brief. Only `PUBLISHED` vacancies whose
+/// `applicationDeadline` has not passed are ever visible on the public
+/// careers page (`CareersService`) — a `DRAFT`/`PAUSED`/`CLOSED`/`CANCELLED`
+/// vacancy is never returned there, enforced server-side, never a frontend-
+/// only filter.
+model Vacancy {
+  id                     String          @id @default(cuid())
+  organisationId         String
+  title                  String
+  positionId             String
+  departmentId           String?
+  hiringRequestId        String?
+  numberOfOpenings       Int             @default(1)
+  employmentType         EmploymentType
+  workArrangement        WorkArrangement
+  location               String?
+  salaryMin              Float?
+  salaryMax              Float?
+  description            String
+  responsibilities       String
+  requirements           String
+  qualifications         String
+  experienceRequirements String?
+  applicationDeadline    DateTime?
+  status                 VacancyStatus   @default(DRAFT)
+  /// Public, URL-safe identifier — the ONLY identifier ever exposed on the
+  /// public careers page (recruitment.md §7 "no exposure of internal IDs
+  /// where avoidable"). `@@unique([organisationId, publicSlug])`, not
+  /// globally unique, so different organisations may independently choose
+  /// e.g. "cashier".
+  publicSlug             String
+  publishedAt            DateTime?
+  closedAt               DateTime?
+  createdById            String?
+  createdAt              DateTime        @default(now())
+  updatedAt              DateTime        @updatedAt
+
+  organisation    Organisation      @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  position        Position          @relation(fields: [positionId], references: [id])
+  department      Department?       @relation(fields: [departmentId], references: [id])
+  hiringRequest   HiringRequest?    @relation(fields: [hiringRequestId], references: [id])
+  questions       VacancyQuestion[]
+  applications    Application[]
+  interviewStages InterviewStage[]
+
+  @@unique([organisationId, publicSlug])
+  @@index([organisationId])
+  @@index([organisationId, status])
+  @@index([positionId])
+  @@index([departmentId])
+  @@index([hiringRequestId])
+  @@map("hr_recruitment_vacancies")
+}
+
+enum ApplicationQuestionType {
+  TEXT
+  YES_NO
+  NUMBER
+  FILE
+}
+
+/// One HR-configured question on a `Vacancy`'s application form (recruitment.md
+/// §5 "Configurable Application Form") — an intentionally small question
+/// engine (four fixed types), never a general-purpose form builder.
+model VacancyQuestion {
+  id             String                  @id @default(cuid())
+  organisationId String
+  vacancyId      String
+  label          String
+  type           ApplicationQuestionType
+  required       Boolean                 @default(false)
+  sortOrder      Int                     @default(0)
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+
+  organisation Organisation        @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  vacancy      Vacancy             @relation(fields: [vacancyId], references: [id], onDelete: Cascade)
+  answers      ApplicationAnswer[]
+
+  @@unique([vacancyId, sortOrder])
+  @@index([organisationId])
+  @@index([vacancyId])
+  @@map("hr_recruitment_vacancy_questions")
+}
+
+/// The person, distinct from `Application` (their application to one
+/// specific `Vacancy`, recruitment.md §10). Tenant-scoped: a duplicate check
+/// is a practical `[organisationId, email]` match only — no cross-tenant
+/// candidate identity is ever inferred or merged (recruitment.md §33
+/// "candidate privacy").
+model Candidate {
+  id             String   @id @default(cuid())
+  organisationId String
+  firstName      String
+  lastName       String
+  email          String
+  phone          String?
+  location       String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organisation Organisation  @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  applications Application[]
+
+  @@unique([organisationId, email])
+  @@index([organisationId])
+  @@map("hr_recruitment_candidates")
+}
+
+enum ApplicationStatus {
+  SUBMITTED
+  SCREENING
+  SHORTLISTED
+  INTERVIEWING
+  SELECTED
+  REJECTED
+  WITHDRAWN
+}
+
+/// One candidate's application to one vacancy — deliberately coarse-grained
+/// `status` (recruitment.md §11 "do not make this lifecycle responsible for
+/// individual interview-stage states"; see `Interview`/`InterviewStageDecision`
+/// for per-stage progress). `resumeUrl`/`resumeKey` follow the existing
+/// `EmployeeDocument`-style url/key metadata-only pattern via the same
+/// `FileStorage` port — no binary content in Postgres.
+model Application {
+  id               String            @id @default(cuid())
+  organisationId   String
+  vacancyId        String
+  candidateId      String
+  status           ApplicationStatus @default(SUBMITTED)
+  resumeUrl        String?
+  resumeKey        String?
+  coverLetterText  String?
+  /// Internal HR screening notes — never returned on any public/candidate-
+  /// facing response (recruitment.md §12/§33).
+  screeningNotes   String?
+  screenedByUserId String?
+  screenedAt       DateTime?
+  submittedAt      DateTime          @default(now())
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  organisation Organisation        @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  vacancy      Vacancy             @relation(fields: [vacancyId], references: [id], onDelete: Cascade)
+  candidate    Candidate           @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  answers      ApplicationAnswer[]
+  interviews   Interview[]
+  offers       Offer[]
+
+  /// The duplicate-submission guard (recruitment.md §10/§18 "Idempotency") —
+  /// DB-enforced, not just an application-level check: the same candidate
+  /// cannot apply twice to the same vacancy.
+  @@unique([organisationId, vacancyId, candidateId])
+  @@index([organisationId])
+  @@index([organisationId, status])
+  @@index([vacancyId])
+  @@index([candidateId])
+  @@map("hr_recruitment_applications")
+}
+
+/// One answer to one `VacancyQuestion` on one `Application`. Exactly one of
+/// the four `answer*` columns is populated, matching `VacancyQuestion.type` —
+/// validated at the service layer (never a Prisma-level constraint, the same
+/// "business rule, not a type constraint" precedent `Department.
+/// departmentHeadEmployeeId` already establishes in this schema).
+model ApplicationAnswer {
+  id                String   @id @default(cuid())
+  organisationId    String
+  applicationId     String
+  vacancyQuestionId String
+  answerText        String?
+  answerNumber      Float?
+  answerBoolean     Boolean?
+  answerFileUrl     String?
+  answerFileKey     String?
+  createdAt         DateTime @default(now())
+
+  organisation    Organisation    @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  application     Application     @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  vacancyQuestion VacancyQuestion @relation(fields: [vacancyQuestionId], references: [id], onDelete: Cascade)
+
+  @@unique([applicationId, vacancyQuestionId])
+  @@index([organisationId])
+  @@index([applicationId])
+  @@map("hr_recruitment_application_answers")
+}
+
+/// A CONFIGURED interview stage on a `Vacancy` — shared across every
+/// candidate applying to it. `sequence` is the explicit stage order (brief
+/// §13 "must have an explicit order"), never inferred from creation order.
+/// `evaluationRequired` gates whether `InterviewStageDecisionService`'s
+/// aggregate-summary view expects evaluations at all (kept for a future
+/// "informational-only" stage type; every stage this sprint sets it `true`).
+model InterviewStage {
+  id                 String   @id @default(cuid())
+  organisationId     String
+  vacancyId          String
+  name               String
+  description        String?
+  sequence           Int
+  isRequired         Boolean  @default(true)
+  evaluationRequired Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  organisation Organisation                @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  vacancy      Vacancy                     @relation(fields: [vacancyId], references: [id], onDelete: Cascade)
+  participants InterviewStageParticipant[]
+  interviews   Interview[]
+
+  @@unique([vacancyId, sequence])
+  @@index([organisationId])
+  @@index([vacancyId])
+  @@map("hr_recruitment_interview_stages")
+}
+
+/// The DEFAULT panel for a configured `InterviewStage` — real
+/// Employee/User identity (recruitment.md §15 "Interview Participants" —
+/// never a free-text role like "Head of Finance"). Copied into
+/// `InterviewParticipant` at scheduling time for each candidate; editing this
+/// default list never retroactively changes who was invited to an
+/// already-scheduled `Interview`.
+model InterviewStageParticipant {
+  id               String   @id @default(cuid())
+  organisationId   String
+  interviewStageId String
+  userId           String
+  addedAt          DateTime @default(now())
+
+  organisation   Organisation   @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  interviewStage InterviewStage @relation(fields: [interviewStageId], references: [id], onDelete: Cascade)
+
+  @@unique([interviewStageId, userId])
+  @@index([organisationId])
+  @@map("hr_recruitment_interview_stage_participants")
+}
+
+enum InterviewStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+}
+
+/// The SCHEDULED, per-candidate instance of an `InterviewStage` — recruitment.md
+/// §17 "Interview Scheduling". `@@unique([applicationId, interviewStageId])`
+/// is both the "one interview per candidate per stage" business rule AND the
+/// concurrency/duplicate-schedule guard (brief §43). `status` only becomes
+/// `COMPLETED` via an explicit HR action or when the stage's evaluation
+/// requirements are satisfied (recruitment.md §17 "a stage is not completed
+/// merely because the interview date passed") — never a time-based side
+/// effect of `scheduledAt` passing.
+model Interview {
+  id               String          @id @default(cuid())
+  organisationId   String
+  applicationId    String
+  interviewStageId String
+  scheduledAt      DateTime?
+  durationMinutes  Int?
+  location         String?
+  meetingLink      String?
+  status           InterviewStatus @default(SCHEDULED)
+  completedAt      DateTime?
+  createdById      String?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  organisation   Organisation             @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  application    Application              @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  interviewStage InterviewStage           @relation(fields: [interviewStageId], references: [id], onDelete: Cascade)
+  participants   InterviewParticipant[]
+  evaluations    InterviewEvaluation[]
+  decisions      InterviewStageDecision[]
+
+  @@unique([applicationId, interviewStageId])
+  @@index([organisationId])
+  @@index([applicationId])
+  @@index([interviewStageId])
+  @@map("hr_recruitment_interviews")
+}
+
+/// The SNAPSHOTTED panel for one scheduled `Interview` — copied from
+/// `InterviewStageParticipant` at schedule time (HR may still adjust the copy
+/// per interview). This row is the SOLE authorization source for "may this
+/// user evaluate this interview" (recruitment.md §35 "Interviewer
+/// Authorization") — a direct row lookup in `InterviewEvaluationService`,
+/// never `ScopeEvaluator`/`AccessScope.ASSIGNED_RECORDS` (which has no real
+/// production wiring anywhere else in this codebase either).
+model InterviewParticipant {
+  id             String   @id @default(cuid())
+  organisationId String
+  interviewId    String
+  userId         String
+  addedAt        DateTime @default(now())
+
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  interview    Interview    @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+
+  @@unique([interviewId, userId])
+  @@index([organisationId])
+  @@index([userId])
+  @@map("hr_recruitment_interview_participants")
+}
+
+/// A single 1–5 score plus one recommendation, matching brief §21's own
+/// "prefer the simpler architecture" hint — the SAME enum serves both
+/// intermediate stages (PROCEED/HOLD/REJECT) and a vacancy's final stage
+/// (RECOMMEND_HIRE/HOLD/RECOMMEND_REJECT); the frontend shows only the
+/// relevant subset per stage, never a second enum.
+enum InterviewRecommendation {
+  PROCEED
+  HOLD
+  REJECT
+  RECOMMEND_HIRE
+  RECOMMEND_REJECT
+}
+
+/// One interviewer's independent evaluation of one `Interview` — recruitment.md
+/// §19/§22. `@@unique([interviewId, evaluatorUserId])` is the "each
+/// interviewer submits their own, exactly once" DB guard (duplicate-
+/// submission prevention, brief §43). IMMUTABLE once inserted by default — no
+/// update route exists; `reopenedAt`/`reopenedByUserId` plus an explicit,
+/// audited `POST .../reopen` action (recruitment.md §23) is the only
+/// sanctioned correction path, and it clears neither the original `score`/
+/// `recommendation`/`submittedAt` nor the evaluator identity.
+model InterviewEvaluation {
+  id               String                  @id @default(cuid())
+  organisationId   String
+  interviewId      String
+  evaluatorUserId  String
+  score            Int
+  recommendation   InterviewRecommendation
+  comments         String?
+  submittedAt      DateTime                @default(now())
+  reopenedAt       DateTime?
+  reopenedByUserId String?
+
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  interview    Interview    @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+
+  @@unique([interviewId, evaluatorUserId])
+  @@index([organisationId])
+  @@index([interviewId])
+  @@map("hr_recruitment_interview_evaluations")
+}
+
+enum StageDecisionType {
+  ADVANCE
+  HOLD
+  REJECT
+}
+
+/// HR's own, authoritative decision for one candidate at one `Interview`
+/// stage — recruitment.md §25 "the aggregate score/recommendation is
+/// evidence, not the final authority." APPEND-ONLY (mirrors `WorkflowDecision`'s
+/// own immutable-log convention exactly) — "the" decision for an interview is
+/// simply its latest row; the system never derives or auto-applies a decision
+/// from `InterviewEvaluation` averages/counts.
+model InterviewStageDecision {
+  id              String            @id @default(cuid())
+  organisationId  String
+  interviewId     String
+  decision        StageDecisionType
+  decidedByUserId String
+  decidedAt       DateTime          @default(now())
+  comment         String?
+
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  interview    Interview    @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+
+  @@index([organisationId])
+  @@index([interviewId])
+  @@map("hr_recruitment_interview_stage_decisions")
+}
+
+enum OfferStatus {
+  DRAFT
+  ISSUED
+  ACCEPTED
+  DECLINED
+  EXPIRED
+  WITHDRAWN
+}
+
+/// An MVP offer — no payroll/compensation system, no digital signatures
+/// (recruitment.md §28). `convertedEmployeeId` is set EXACTLY ONCE, via a
+/// conditional `updateMany({ where: { id, convertedEmployeeId: null } })`
+/// (never a blind update) — the concurrency guard against a double-accept
+/// creating two `Employee` rows for the same offer (brief §43/§50). The
+/// accompanying migration adds a partial unique index enforcing at most one
+/// non-terminal (`DRAFT`/`ISSUED`) offer per `Application` at a time — the
+/// duplicate-offer-creation guard.
+model Offer {
+  id                  String         @id @default(cuid())
+  organisationId      String
+  applicationId       String
+  proposedSalary      Float?
+  employmentType      EmploymentType
+  proposedStartDate   DateTime?
+  offerDate           DateTime       @default(now())
+  expiryDate          DateTime?
+  status              OfferStatus    @default(DRAFT)
+  notes               String?
+  issuedByUserId      String?
+  respondedAt         DateTime?
+  /// Set once, on acceptance — see the model doc comment above. Null means
+  /// "not yet converted" (still true for a DECLINED/EXPIRED/WITHDRAWN offer,
+  /// which is never converted at all).
+  convertedEmployeeId String?        @unique
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+
+  organisation      Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  application       Application  @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  convertedEmployee Employee?    @relation(fields: [convertedEmployeeId], references: [id])
+
+  @@index([organisationId])
+  @@index([organisationId, status])
+  @@index([applicationId])
+  @@map("hr_recruitment_offers")
 }

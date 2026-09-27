@@ -9,6 +9,7 @@ const TABS = [
   { label: 'Departments', href: '/settings/hr/departments' },
   { label: 'Positions', href: '/settings/hr/positions' },
   { label: 'Organisation Structure', href: '/settings/hr/structure' },
+  { label: 'Recruitment', href: '/settings/hr/recruitment' },
   { label: 'Schedules', href: '/settings/hr/schedules' },
   { label: 'Attendance', href: '/settings/hr/attendance' },
   { label: 'Policies', href: '/settings/hr/policies' },

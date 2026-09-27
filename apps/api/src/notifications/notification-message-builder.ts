@@ -133,6 +133,16 @@ export class NotificationMessageBuilder {
           body: `${label} ${ref} has expired without a decision.`,
           actionUrl,
         };
+      // Sprint 30 — `INTERVIEW_SCHEDULED`/`INTERVIEW_EVALUATION_REQUIRED` are
+      // never produced by `EVENT_TO_NOTIFICATION_TYPE` above (it only maps
+      // Workflow `eventType` strings) — this builder is exclusively for
+      // Workflow-sourced messages. Recruitment builds its own title/body
+      // directly in `RecruitmentNotificationService`, never through this
+      // class (recruitment.md §9). Unreachable in practice; satisfies
+      // exhaustiveness now that `NotificationType` has more than 8 members.
+      case 'INTERVIEW_SCHEDULED':
+      case 'INTERVIEW_EVALUATION_REQUIRED':
+        return null;
     }
   }
 }

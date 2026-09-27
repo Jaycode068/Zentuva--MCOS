@@ -18,6 +18,21 @@ import { Notification, NotificationType } from '@prisma/client';
  * `null`, which `WhatsAppEligibilityService` treats as "not WhatsApp-
  * eligible," exactly like `EmailEligibilityService`'s own category scoping
  * (Sprint 28).
+ *
+ * Sprint 30 adds ONE more: `INTERVIEW_SCHEDULED` (recruitment.md §9) — reuses
+ * this SAME generic parameter shape (`documentType`/`documentNumber`/
+ * `approvalUrl`) rather than inventing interview-specific placeholders.
+ * `documentNumber` is `subjectReference`, which for an `INTERVIEW`-sourced
+ * notification falls back to `describeSubject`'s generic `#<last 8 chars of
+ * subjectId>` (no `WorkflowSubjectHandler` is registered for `INTERVIEW` —
+ * Interview is deliberately never a `WorkflowInstance` subject, recruitment.md
+ * §"Workflow Integration") — a known, documented limitation, not a bug:
+ * extending the shared `subject-label.util.ts` to special-case Recruitment
+ * data would mean a Workflow-owned utility reading Recruitment-specific
+ * content, the exact cross-domain coupling this codebase avoids elsewhere.
+ * `INTERVIEW_EVALUATION_REQUIRED` remains WhatsApp-ineligible this sprint
+ * (email + in-app only) — a deliberate scope cut, documented in the sprint
+ * completion report.
  */
 export interface ResolvedWhatsAppTemplate {
   name: string;
@@ -60,18 +75,34 @@ export function resolveWhatsAppTemplate(
   approvalUrl: string,
 ): ResolvedWhatsAppTemplate | null {
   const type: NotificationType = notification.type;
-  if (type !== 'WORKFLOW_APPROVAL_REQUIRED') {
-    return null;
+
+  if (type === 'WORKFLOW_APPROVAL_REQUIRED') {
+    return {
+      name: config.get<string>('whatsapp.approvalTemplateName') ?? 'zentuva_approval_required',
+      language: config.get<string>('whatsapp.approvalTemplateLanguage') ?? 'en_US',
+      parameters: {
+        recipientName,
+        documentType: subjectLabel,
+        documentNumber: subjectReference,
+        approvalUrl,
+      },
+    };
   }
 
-  return {
-    name: config.get<string>('whatsapp.approvalTemplateName') ?? 'zentuva_approval_required',
-    language: config.get<string>('whatsapp.approvalTemplateLanguage') ?? 'en_US',
-    parameters: {
-      recipientName,
-      documentType: subjectLabel,
-      documentNumber: subjectReference,
-      approvalUrl,
-    },
-  };
+  if (type === 'INTERVIEW_SCHEDULED') {
+    return {
+      name:
+        config.get<string>('whatsapp.interviewScheduledTemplateName') ??
+        'zentuva_interview_scheduled',
+      language: config.get<string>('whatsapp.interviewScheduledTemplateLanguage') ?? 'en_US',
+      parameters: {
+        recipientName,
+        documentType: subjectLabel,
+        documentNumber: subjectReference,
+        approvalUrl,
+      },
+    };
+  }
+
+  return null;
 }

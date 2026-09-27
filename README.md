@@ -154,7 +154,52 @@ feature is built configurably so it can be reused by future tenants without code
 > credentials were available this sprint, so the real-provider send itself was
 > honestly reported as not attempted rather than simulated. Deliberately still not
 > a chatbot, not two-way conversations, not marketing broadcasts — every WhatsApp
-> message traces back to exactly one real workflow event, by construction. See
+> message traces back to exactly one real workflow event, by construction. Most
+> recently, a Recruitment & Candidate Interview Management Foundation sprint
+> closed the one gap left in the HR lifecycle — how a person becomes an Employee
+> in the first place. A hiring request optionally routes through the SAME Workflow
+> engine Purchase Order already uses (never a second approval engine); a public,
+> account-free careers page; HR-CONFIGURABLE multi-stage interview processes with
+> real Employee/User-identity panelists, never free-text roles; independent 1–5
+> evaluations, immutable once submitted, that one interviewer can never see
+> another's before submitting their own; HR-authoritative stage and hiring
+> decisions — the system computes average scores and recommendation counts as
+> evidence, never decides anything itself; and a documented, concurrency-safe
+> hand-off into the EXISTING Employee/Onboarding architecture, reusing both
+> services completely unchanged. Interview notifications reuse the identical
+> Notification/Email/WhatsApp pipeline the last three sprints built — the first
+> producer that ISN'T workflow-event-sourced, proving that architecture needed
+> zero changes to accept one. Four real concurrency/security issues were found
+> and fixed during the sprint's own implementation and live verification, not
+> discovered later: an offer-acceptance race that would have created duplicate
+> employee records; a suspended interviewer's still-valid login token reaching
+> the evaluation-submission code path; the mobile interviewer page crashing
+> because its self-scoped endpoint wasn't joining the candidate it needed; and
+> that same endpoint, once fixed, leaking other evaluators' raw scores until
+> narrowed to only the fields the view needs. Deliberately still not AI hiring
+> decisions, automated CV ranking, or a job-board integration — every hiring
+> decision stays under authorised human control, by construction. A follow-up
+> sprint then rebuilt the PUBLIC side of that same recruitment domain — the
+> candidate-facing `/careers/{organisation}` careers page, vacancy detail, and
+> application form — as a polished, tenant-agnostic template (Server Components
+> with real per-page SEO metadata, genuine HTTP 404s for an unavailable
+> vacancy, a shared component library on the existing UI kit) after an audit
+> found the underlying backend already correct. Live-verified end-to-end as an
+> external candidate: browse, apply with a custom question, get confirmed, and
+> the application appears correctly in HR with its answers intact. A third
+> audit then checked whether the whole chain BEHIND that public page —
+> department requests staff, HR approves, HR creates and publishes the
+> vacancy — was actually enforced, not just individually correct. It found a
+> vacancy could be silently created from a rejected or unapproved hiring
+> request (fixed with a status check) and that no role except Administrator
+> could ever raise a hiring request in the first place, so "Finance can
+> request a Cashier" was undemonstrable even though the permission already
+> existed correctly (fixed by granting it to an existing department role and
+> demo user — no new permission, role, or mechanism). Live-verified the full
+> chain on the seeded organisation: a non-HR requester creates and submits a
+> request, cannot approve it or publish the resulting vacancy themselves, HR
+> approves it, a vacancy can only be created from an approved request, HR
+> publishes it, and a real candidate applies. See
 > [docs/domains/README.md](docs/domains/README.md) for the
 > current status of every domain and [docs/roadmap.md](docs/roadmap.md) for the full
 > build order.

@@ -58,7 +58,7 @@ describe('Workflow independence (Sprint 26)', () => {
     }
   });
 
-  it('structural guard: WorkflowModule imports only IdentityModule/AuthModule/PurchaseOrderModule', () => {
+  it('structural guard: WorkflowModule imports only IdentityModule/AuthModule/PurchaseOrderModule/RecruitmentModule', () => {
     const source = readSource('workflow.module.ts');
     const importsMatch = source.match(/imports:\s*\[([^\]]*)\]/);
     expect(importsMatch).not.toBeNull();
@@ -67,7 +67,7 @@ describe('Workflow independence (Sprint 26)', () => {
       .map((s) => s.trim())
       .filter(Boolean);
     expect(new Set(importedModules)).toEqual(
-      new Set(['IdentityModule', 'AuthModule', 'PurchaseOrderModule']),
+      new Set(['IdentityModule', 'AuthModule', 'PurchaseOrderModule', 'RecruitmentModule']),
     );
   });
 
@@ -78,6 +78,18 @@ describe('Workflow independence (Sprint 26)', () => {
     );
     expect(source).not.toMatch(/this\.prisma\./);
     expect(source).toMatch(/purchaseOrderRepository/);
+  });
+
+  // Sprint 30 — Recruitment & Candidate Interview Management Foundation adds
+  // its own domain-integration exception (`HiringRequestWorkflowHandler`),
+  // the exact same recipe as the Purchase Order handler above.
+  it('structural guard: the Hiring Request handler only writes via HiringRequestRepository, never raw Prisma', () => {
+    const source = readFileSync(
+      join(__dirname, 'handlers', 'hiring-request-workflow.handler.ts'),
+      'utf-8',
+    );
+    expect(source).not.toMatch(/this\.prisma\./);
+    expect(source).toMatch(/hiringRequestRepository/);
   });
 
   it('structural guard: every eligibility check goes through EffectiveAccessResolver/ScopeEvaluator, never a raw role-name or position/department string comparison', () => {
