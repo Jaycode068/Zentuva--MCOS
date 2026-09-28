@@ -7,6 +7,56 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 32 Consumer Identity, Territory & Location Foundation] - 2026-09-28
+
+Establishes the D2C backend identity foundation: a dedicated `Consumer`
+entity — never a `User`, `Employee`, `Customer`, or `Outlet` — identified by
+a server-generated `CON-000001`-style code and a required, tenant-scoped
+normalized phone number (`[organisationId, normalizedPhone]` unique, never
+a global constraint). Audit-first: reused the existing `Territory`
+hierarchy (Sprint 4.8) as the structured location rather than building a
+second geography model — a leaf `Territory` row (e.g. "Bodija") already
+carries its full ancestor chain up to "Oyo State," exactly what a future
+Collection Point matching algorithm will need. Also reused the existing
+Sprint 29 `normalizePhoneNumber` utility rather than a second
+implementation, so `08012345678`/`2348012345678`/`+2348012345678` all
+resolve to the same identity.
+
+Registration is idempotent by phone — the exact
+`CandidateRepository.findOrCreate`/`P2002`-race-recovery recipe from Sprint
+30, applied to phone identity. Live-verified with 5 genuinely concurrent
+real HTTP requests against the running dev server, producing exactly one
+`Consumer` row, one `consumer.registered` audit event, and four
+`alreadyRegistered: true` responses all pointing at the same record. A new,
+small `ConsumerLocationRequest` model captures a controlled "I can't find
+my location" signal as non-authoritative text only — it is never parsed or
+turned into an official `Territory` automatically.
+
+`NotificationPreference` was deliberately not reused for communication
+preferences: it is hard-wired to a real `User.id`, which a Consumer
+structurally never has. The minimum foundation instead is a single
+`marketingOptIn` boolean, deferring any real multi-category preference
+model to whichever future sprint introduces actual D2C notification types.
+`ConsumerService` is channel-neutral by construction — it has zero
+knowledge of WhatsApp, HTTP, or any other channel — and this is verified
+executably by a new `d2c-independence.spec.ts` structural guard, not just
+documented. A future WhatsApp/simulator adapter is expected to call it
+directly, never through the internal/admin-only `d2c.consumer.view`/
+`.manage`-gated HTTP surface this sprint builds.
+
+Live-verified end to end against the real dev database: phone-format
+equivalence and invalid-phone rejection, invalid-territory rejection,
+location update and the location-not-found signal (confirmed it never
+creates a Territory), full cross-tenant isolation (get/update/search/
+status-actions all correctly 404 or return empty against a genuinely
+separate organisation, and a cross-tenant territoryId is rejected), and
+unauthorized-access enforcement (401 with no token, 403 without the
+permission). A minimal `/settings/d2c/consumers` internal admin UI was
+added for verification — not the eventual Sprint 39 D2C Sales
+Administration dashboard. 218 suites / 1889 tests passing, confirming
+nothing in Customer/Outlet/Territory/Sales/Identity/Access
+Control/Notifications/Audit/Finance/Recruitment regressed.
+
 ## [Sprint 30.2 Hiring Request → HR Approval → Public Vacancy Flow Audit] - 2026-09-27
 
 An audit of whether Sprint 30/30.1's recruitment implementation actually

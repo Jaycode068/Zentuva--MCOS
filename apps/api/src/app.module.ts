@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 
 import { AssetsModule } from './assets/assets.module';
 import { ProductModule } from './catalogue/product/product.module';
+import { ConsumerModule } from './d2c/consumer/consumer.module';
 import { ProductFamilyModule } from './catalogue/product-family/product-family.module';
 import { ProductVariantModule } from './catalogue/product-variant/product-variant.module';
 import configuration from './config/configuration';
@@ -66,6 +67,7 @@ import { WorkflowModule } from './workflow/workflow.module';
     MaintenanceModule,
     HrModule,
     RecruitmentModule,
+    ConsumerModule,
     AccessControlModule,
     WorkflowModule,
     NotificationsModule,

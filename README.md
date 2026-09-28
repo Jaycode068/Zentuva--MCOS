@@ -199,7 +199,18 @@ feature is built configurably so it can be reused by future tenants without code
 > chain on the seeded organisation: a non-HR requester creates and submits a
 > request, cannot approve it or publish the resulting vacancy themselves, HR
 > approves it, a vacancy can only be created from an approved request, HR
-> publishes it, and a real candidate applies. See
+> publishes it, and a real candidate applies. A new D2C effort then opened
+> with a Consumer identity foundation — deliberately never a User, Employee,
+> Customer, or Outlet, identified by a server-generated code and a required,
+> tenant-scoped normalized phone number. It reused the existing Territory
+> hierarchy as the structured location rather than building a second
+> geography model, and the existing WhatsApp-delivery phone normalizer
+> rather than a second implementation. Registration is idempotent by
+> phone — live-verified with 5 genuinely concurrent real requests producing
+> exactly one Consumer row — and the service layer is channel-neutral by
+> construction, with zero WhatsApp knowledge anywhere in the domain,
+> verified executably, ready for a future WhatsApp adapter to call directly.
+> See
 > [docs/domains/README.md](docs/domains/README.md) for the
 > current status of every domain and [docs/roadmap.md](docs/roadmap.md) for the full
 > build order.

@@ -407,4 +407,17 @@ export const PERMISSION_CATALOGUE: PermissionCatalogueEntry[] = [
     'NONE',
     'View the access-control overview and effective-access previews',
   ),
+
+  // --- D2C: Consumer (Sprint 32 — docs/domains/d2c.md). Internal/admin
+  // access to the Consumer identity foundation only — there is no public or
+  // consumer-facing authentication surface yet (that arrives with the
+  // future WhatsApp/simulator channel adapters, which call the channel-
+  // neutral `ConsumerService` directly, never through this permission-gated
+  // HTTP surface). Mirrors `sales.customer.view`/`.manage` exactly. ---
+  entry('d2c.consumer.view', 'SCOPABLE', 'View D2C consumers and their location'),
+  entry(
+    'd2c.consumer.manage',
+    'SCOPABLE',
+    'Register/edit consumers, update their location, and manage location-not-found requests',
+  ),
 ];

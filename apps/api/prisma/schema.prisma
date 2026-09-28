@@ -258,6 +258,10 @@ model Organisation {
   recruitmentInterviewEvaluations       InterviewEvaluation[]
   recruitmentInterviewStageDecisions    InterviewStageDecision[]
   recruitmentOffers                     Offer[]
+  /// Added Sprint 32 — Consumer Identity, Territory & Location Foundation
+  /// (docs/domains/d2c.md).
+  d2cConsumers                          Consumer[]
+  d2cConsumerLocationRequests           ConsumerLocationRequest[]
 
   @@map("organisations")
 }
@@ -1753,6 +1757,10 @@ model Territory {
   childTerritories Territory[]  @relation("TerritoryHierarchy")
   customers        Customer[]
   outlets          Outlet[]
+  /// Added Sprint 32 — Consumer Identity, Territory & Location Foundation.
+  /// The EXISTING hierarchy is reused as-is for D2C structured location —
+  /// no separate Location/ConsumerTerritory model (docs/domains/d2c.md §3).
+  d2cConsumers     Consumer[]
 
   @@index([organisationId])
   @@index([organisationId, status])
@@ -7420,4 +7428,124 @@ model Offer {
   @@index([organisationId, status])
   @@index([applicationId])
   @@map("hr_recruitment_offers")
+}
+
+// ============================================================================
+// Sprint 32 — Consumer Identity, Territory & Location Foundation
+// (docs/domains/d2c.md)
+// ============================================================================
+
+enum ConsumerStatus {
+  ACTIVE
+  SUSPENDED
+  INACTIVE
+}
+
+/// A D2C end consumer — deliberately a DISTINCT business actor, never a `User`
+/// (no login/password, no authentication relationship at all), never an
+/// `Employee`, never a `Customer` (the existing B2B commercial account
+/// model). A future WhatsApp conversation is expected to be the primary way
+/// a Consumer ever interacts with Zentuva, but this model itself knows
+/// nothing about WhatsApp — see `ConsumerService` (docs/domains/d2c.md §2
+/// "Channel Neutrality").
+///
+/// `territoryId` is the STRUCTURED location — deliberately reuses the
+/// EXISTING `Territory` hierarchy (Sprint 4.8) rather than introducing a
+/// second geography model. A leaf-level `Territory` row (e.g. "Bodija",
+/// type `Area`) IS the consumer's "location"; its ancestors up the
+/// self-referential chain (Ibadan North → Ibadan → Oyo State) already give
+/// every level a future Collection Point matching algorithm could need. No
+/// separate `Location`/`ConsumerTerritory`/`D2CTerritory` model exists or
+/// should ever be introduced (docs/domains/d2c.md §3).
+///
+/// `address` is free-form, OPTIONAL, profile-completeness context only
+/// (landmark/delivery notes) — it is NEVER used to derive `territoryId` and
+/// never authoritative for matching (docs/domains/d2c.md §4 "Structured
+/// Location vs Address").
+model Consumer {
+  id              String         @id @default(cuid())
+  organisationId  String
+  /// Auto-generated (`CON-000001`, ...), globally unique, immutable — same
+  /// sequential collision-avoidance convention as `Customer.customerCode`/
+  /// `Territory.territoryCode`. Deliberately NOT organisation-prefixed
+  /// (e.g. never "BB-C-000001") — no existing auto-numbered entity in this
+  /// codebase embeds a tenant-specific prefix in its code, and inventing one
+  /// here would be a new, undocumented convention for no functional benefit.
+  consumerCode    String         @unique
+  fullName        String
+  /// As the consumer/agent typed it — never normalized in place, so the
+  /// original input is always recoverable for support purposes.
+  phoneNumber     String
+  /// E.164-shaped (`+234...`), produced by the EXISTING
+  /// `normalizePhoneNumber` utility (Sprint 29,
+  /// `notifications/phone-number-normalizer.ts`) — the actual identity key.
+  /// Required (registration fails if the phone cannot be normalized,
+  /// docs/domains/d2c.md §5) so this column is NEVER null and the unique
+  /// constraint below is always a real, enforceable dedup guarantee.
+  normalizedPhone String
+  email           String?
+  status          ConsumerStatus @default(ACTIVE)
+  /// Structured location — see model doc comment above. Nullable: a consumer
+  /// may exist (e.g. just registered by phone) before selecting one.
+  territoryId     String?
+  /// Free-form, optional, non-authoritative — see model doc comment above.
+  address         String?
+  /// Communication-preference foundation (docs/domains/d2c.md §7) —
+  /// deliberately a single boolean, not a `NotificationPreference` row
+  /// (that table is keyed to a real `User.id`, which a Consumer structurally
+  /// never has) and not a multi-category preference table (no second D2C
+  /// notification type exists yet to distinguish). Defaults `false` —
+  /// "do not silently enroll into promotional messaging" — matching the
+  /// same asymmetric-default convention `NotificationPreference.emailEnabled`/
+  /// `whatsappEnabled` already established.
+  marketingOptIn  Boolean        @default(false)
+  /// Null for a channel-originated registration with no internal actor
+  /// (the future WhatsApp adapter case) — never required.
+  createdById     String?
+  updatedById     String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  organisation     Organisation              @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  /// `SetNull` — deactivating/restructuring a territory must never block or
+  /// orphan a consumer, same rationale as `Customer.territory`.
+  territory        Territory?                @relation(fields: [territoryId], references: [id], onDelete: SetNull)
+  locationRequests ConsumerLocationRequest[]
+
+  /// The core tenant-scoped identity guarantee (docs/domains/d2c.md §5):
+  /// one normalized phone number identifies at most one Consumer PER
+  /// ORGANISATION — never a global constraint across tenants (brief §6).
+  @@unique([organisationId, normalizedPhone])
+  @@index([organisationId])
+  @@index([organisationId, status])
+  @@index([territoryId])
+  @@map("d2c_consumers")
+}
+
+/// A controlled "I can't find my location" signal (docs/domains/d2c.md §6) —
+/// deliberately NOT an automatic mechanism for creating official geography.
+/// `rawLocationText` is captured as non-authoritative context only; an
+/// internal user reviews it later and, if warranted, creates a REAL
+/// `Territory` row through the existing Territory admin flow — this model
+/// never writes to `Territory` itself. No workflow, no status machine beyond
+/// open (`resolvedAt` null) / resolved.
+model ConsumerLocationRequest {
+  id               String    @id @default(cuid())
+  organisationId   String
+  consumerId       String
+  /// Non-authoritative context as the consumer described it (e.g. "somewhere
+  /// around Challenge") — never parsed or matched against `Territory` names.
+  rawLocationText  String
+  resolvedAt       DateTime?
+  resolvedByUserId String?
+  resolutionNotes  String?
+  createdAt        DateTime  @default(now())
+
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  consumer     Consumer     @relation(fields: [consumerId], references: [id], onDelete: Cascade)
+
+  @@index([organisationId])
+  @@index([organisationId, resolvedAt])
+  @@index([consumerId])
+  @@map("d2c_consumer_location_requests")
 }

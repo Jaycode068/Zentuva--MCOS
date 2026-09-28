@@ -7447,6 +7447,71 @@ async function seedDepartmentRequesterFixtures(
   await assignRoleIfMissing(organisationId, financeOfficerUser.id, headOfFinanceRole.id);
 }
 
+/**
+ * Sprint 32 — Consumer Identity, Territory & Location Foundation
+ * (docs/domains/d2c.md). Two demonstration consumers only (brief §23: "do
+ * not create dozens/hundreds") — just enough to prove the structured-
+ * location relationship and phone-identity model live against real seeded
+ * `Territory` rows (Sprint 4.8's own Oyo State hierarchy), never a new
+ * organisation or new territories. Phone numbers are written already
+ * normalized (E.164), matching the exact convention `BOBY_BITES_CUSTOMERS`
+ * already established — this seed talks to Prisma directly, never through
+ * `ConsumerService`, so `normalizePhoneNumber` is deliberately not imported
+ * here (see this file's own header comment on why Prisma is called
+ * directly). `consumerCode` is upserted by its own unique value, same
+ * idempotent-by-natural-key convention as `seedTerritories`.
+ */
+async function seedD2cFixtures(organisationId: string, actorUserId: string): Promise<void> {
+  const bodija = await prisma.territory.findFirst({
+    where: { organisationId, territoryCode: 'TER-000005' },
+  });
+  const challenge = await prisma.territory.findFirst({
+    where: { organisationId, territoryCode: 'TER-000007' },
+  });
+  if (!bodija || !challenge) {
+    console.log('  Skipping Sprint 32 D2C fixtures — expected Territory rows not found.');
+    return;
+  }
+
+  console.log('Seeding Sprint 32 D2C Consumer fixtures...');
+
+  const D2C_CONSUMERS = [
+    {
+      consumerCode: 'CON-000001',
+      fullName: 'Blessing Okafor',
+      phoneNumber: '+2348031234501',
+      territoryId: bodija.id,
+      marketingOptIn: true,
+    },
+    {
+      consumerCode: 'CON-000002',
+      fullName: 'Tayo Bello',
+      phoneNumber: '+2348031234502',
+      territoryId: challenge.id,
+      marketingOptIn: false,
+    },
+  ] as const;
+
+  for (const consumer of D2C_CONSUMERS) {
+    await prisma.consumer.upsert({
+      where: { consumerCode: consumer.consumerCode },
+      update: {},
+      create: {
+        organisationId,
+        consumerCode: consumer.consumerCode,
+        fullName: consumer.fullName,
+        phoneNumber: consumer.phoneNumber,
+        normalizedPhone: consumer.phoneNumber,
+        territoryId: consumer.territoryId,
+        marketingOptIn: consumer.marketingOptIn,
+        status: 'ACTIVE',
+        createdById: actorUserId,
+        updatedById: actorUserId,
+      },
+    });
+  }
+}
+
 async function main(): Promise<void> {
   // Read early (rather than inside `seedUser`) because the organisation's `businessEmail`
   // needs it before any user is created.
@@ -7692,6 +7757,7 @@ async function main(): Promise<void> {
     permissionByKey,
   );
   await seedDepartmentRequesterFixtures(organisation.id, permissionByKey);
+  await seedD2cFixtures(organisation.id, administratorUser.id);
 
   console.log('Recording an audit log entry for this seed run...');
   await prisma.auditLog.create({

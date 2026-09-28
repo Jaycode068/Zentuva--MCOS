@@ -870,6 +870,7 @@ REJECTED}`) optionally linking an existing `CapitalProject`/
 - ✓ Sprint 30 — Recruitment & Candidate Interview Management Foundation
 - ✓ Sprint 30.1 — Public Recruitment Experience & Candidate Application Flow
 - ✓ Sprint 30.2 — Hiring Request → HR Approval → Public Vacancy Flow Audit
+- ✓ Sprint 32 — Consumer Identity, Territory & Location Foundation
 
 **Current focus:** The Finance MVP (Sprints 6-19) is considered
 functionally complete. Epic 14 (Asset & Maintenance Management) is fully
@@ -1117,6 +1118,36 @@ through the real Workflow engine records the _router_ as `requestedById`,
 so HR routing someone else's request while also being the only assigned
 approver correctly self-blocks. 215 suites / 1861 tests passing. See
 [`docs/sprint-30.2-completion-report.md`](sprint-30.2-completion-report.md).
+
+Sprint 32 ("Consumer Identity, Territory & Location Foundation") opened the
+D2C effort with an audit-first backend foundation: a dedicated `Consumer`
+entity, deliberately never a `User`/`Employee`/`Customer`/`Outlet`, with a
+server-generated `CON-000001`-style code and a required, tenant-scoped
+normalized phone identity. The audit found the existing `Territory`
+hierarchy (Sprint 4.8) already models exactly the structured "select
+territory, then location" flow the brief needed — no second geography model
+was built, a leaf `Territory` row like "Bodija" already carries its full
+ancestor chain to "Oyo State." Likewise reused the existing Sprint 29
+`normalizePhoneNumber` utility rather than a second implementation.
+Registration is idempotent by phone (the exact
+`CandidateRepository.findOrCreate`/`P2002`-race-recovery recipe from Sprint 30) — live-verified with 5 genuinely concurrent real HTTP requests
+producing exactly one `Consumer` row, one audit event, and four
+`alreadyRegistered: true` responses. A small `ConsumerLocationRequest`
+model captures a controlled "can't find my location" signal as
+non-authoritative text only — never auto-creating a Territory.
+`NotificationPreference` was deliberately not reused (it is hard-wired to a
+real `User.id`, which a Consumer structurally never has); the minimum
+communication-preference foundation instead is one `marketingOptIn`
+boolean. `ConsumerService` is channel-neutral by construction and verified
+executably (`d2c-independence.spec.ts` — no WhatsApp import or class exists
+anywhere in the domain), ready for a future WhatsApp/simulator adapter to
+call directly without ever going through the internal/admin-only HTTP
+surface this sprint built. Live-verified end to end: phone-format
+equivalence, invalid phone/territory rejection, cross-tenant isolation on
+get/update/search/status-actions and territory assignment, and a minimal
+`/settings/d2c/consumers` admin UI. 218 suites / 1889 tests passing. See
+[`docs/sprint-32-completion-report.md`](sprint-32-completion-report.md).
+
 Deliberately still not started: payroll, leave management, AI-driven
 recruitment automation (CV ranking, automated rejection, automated hiring
 decisions), a job-board/ATS integration, performance/KPI engines, an LMS,

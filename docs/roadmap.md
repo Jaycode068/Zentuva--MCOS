@@ -673,7 +673,7 @@ ASSIGNED → IN_PROGRESS ⇄ ON_HOLD → COMPLETED`/`CANCELLED`, both
       vacancy. Also found no non-Administrator role could ever create a
       hiring request (the permission existed and was correctly enforced,
       but nothing granted it) — fixed by granting the existing `Head of
-    Finance` role `hr.recruitment.hiring_request.manage`/`.view` and
+  Finance` role `hr.recruitment.hiring_request.manage`/`.view` and
       assigning it to the existing Finance Officer demo user, no new
       permission/role/user. Live-verified the complete chain on Boby Bites:
       non-HR requester creates/submits → cannot self-approve or publish
@@ -682,6 +682,30 @@ ASSIGNED → IN_PROGRESS ⇄ ON_HOLD → COMPLETED`/`CANCELLED`, both
       `/careers/boby-bites` → a real candidate applies. 215 suites / 1861
       tests passing — see
       [`docs/sprint-30.2-completion-report.md`](sprint-30.2-completion-report.md)
+- [x] **Sprint 32 — Consumer Identity, Territory & Location Foundation.**
+      The backend identity foundation for D2C: `Consumer` (never a `User`/
+      `Employee`/`Customer`/`Outlet`) with a server-generated
+      `CON-000001`-style code and a required, tenant-scoped normalized phone
+      identity (`[organisationId, normalizedPhone]` unique, never global).
+      Audit-first: reused the existing `Territory` hierarchy as the
+      structured location (no second Location model — a leaf Territory
+      like "Bodija" already carries its full ancestor chain) and the
+      existing Sprint 29 `normalizePhoneNumber` utility (no second
+      implementation). Registration is idempotent by phone, the exact
+      `CandidateRepository.findOrCreate`/`P2002`-race-recovery recipe from
+      Sprint 30 — live-verified with 5 genuinely concurrent HTTP requests
+      producing exactly one `Consumer` row and one audit event. A small
+      `ConsumerLocationRequest` model captures a controlled "can't find my
+      location" signal as non-authoritative text only, never auto-creating
+      a Territory. `NotificationPreference` was deliberately not reused (it
+      is hard-wired to a real `User.id`) — the minimum foundation instead
+      is one `marketingOptIn` boolean. `ConsumerService` is channel-neutral
+      by construction and verified so (`d2c-independence.spec.ts`) — no
+      WhatsApp import exists anywhere in the domain, ready for a future
+      WhatsApp/simulator adapter to call directly. Internal/admin-only HTTP
+      surface plus a lightweight `/settings/d2c/consumers` verification UI.
+      218 suites / 1889 tests passing — see
+      [`docs/sprint-32-completion-report.md`](sprint-32-completion-report.md)
 - [ ] Retail Portal (mobile)
 - [ ] Sales Rep mobile workflows
 - [ ] Business Intelligence dashboards
