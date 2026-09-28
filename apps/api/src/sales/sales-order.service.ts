@@ -1,5 +1,12 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { CustomerStatus, OutletStatus, ProductType, SalesOrderStatus } from '@prisma/client';
+import {
+  CustomerStatus,
+  OutletStatus,
+  Prisma,
+  ProductType,
+  SalesOrderSource,
+  SalesOrderStatus,
+} from '@prisma/client';
 import { CreateSalesOrderInput, UpdateSalesOrderInput } from '@zentuva/validation';
 
 import { ProductRepository } from '../catalogue/product/product.repository';
@@ -13,6 +20,22 @@ import {
 
 const SALES_ORDER_CODE_PREFIX = 'SO';
 const SALES_ORDER_CODE_SEQUENCE_LENGTH = 6;
+const UNIQUE_CONSTRAINT_VIOLATION = 'P2002';
+
+/** Sprint 34 — the D2C order-creation request `D2COrderingService` builds. Deliberately
+ *  has no `unitPrice`/`customerId`/`salesAgentId` fields at all: pricing is always the
+ *  live `Product.sellingPrice` read inside {@link SalesOrderService.createForConsumer},
+ *  never a value any caller can supply. */
+export interface CreateConsumerSalesOrderInput {
+  consumerId: string;
+  items: { productId: string; quantity: number }[];
+  orderDate: Date;
+  /** Minted once by the Conversation Layer when the consumer reaches order review
+   *  (docs/domains/d2c.md "Idempotency"), persisted in the conversation's own `context`,
+   *  and replayed unchanged on every subsequent confirmation attempt for that same
+   *  checkout — including genuinely concurrent ones. */
+  idempotencyKey: string;
+}
 
 interface BuiltItem {
   productId: string;
@@ -81,6 +104,68 @@ export class SalesOrderService {
     });
   }
 
+  /**
+   * Sprint 34 — the D2C entry point, called only by `D2COrderingService`, never a
+   * second order-creation implementation: it shares this exact service's own
+   * `buildItemsFromCataloguePricing`/`calculateTotals`/`generateUniqueCode` with
+   * {@link create}, differing only in (a) who it's for (a `Consumer`, connected via
+   * `consumerId`, never `customerId`) and (b) where the price comes from (the live
+   * `Product.sellingPrice`, never a client-supplied `unitPrice` — `input.items` here has
+   * no such field to supply, docs/domains/d2c.md "Pricing").
+   *
+   * Idempotency-before-precheck (the Sprint 9→10 lesson, `CustomerReturnService.request`'s
+   * exact pattern): the lookup happens first, before any validation, so a genuine retry
+   * can never be rejected by a precheck the ORIGINAL request already satisfied. A true
+   * concurrent race (two callers both miss the lookup) is closed by catching the
+   * `@@unique([organisationId, idempotencyKey])` constraint's `P2002` and re-fetching the
+   * winner — the same recovery recipe `ConsumerRepository`/`ConversationRepository`
+   * already established for Consumer/Conversation creation.
+   */
+  async createForConsumer(
+    organisationId: string,
+    input: CreateConsumerSalesOrderInput,
+  ): Promise<{ order: SalesOrderWithRelations; wasCreated: boolean }> {
+    const existing = await this.salesOrderRepository.findByIdempotencyKey(
+      organisationId,
+      input.idempotencyKey,
+    );
+    if (existing) {
+      return { order: existing, wasCreated: false };
+    }
+
+    const items = await this.buildItemsFromCataloguePricing(organisationId, input.items);
+    const { subtotal, total } = this.calculateTotals(items, 0);
+    const orderCode = await this.generateUniqueCode();
+
+    try {
+      const order = await this.salesOrderRepository.create({
+        organisation: { connect: { id: organisationId } },
+        orderCode,
+        consumer: { connect: { id: input.consumerId } },
+        source: SalesOrderSource.D2C,
+        status: SalesOrderStatus.DRAFT,
+        orderDate: input.orderDate,
+        subtotal,
+        discount: 0,
+        total,
+        idempotencyKey: input.idempotencyKey,
+        items: { create: items },
+      });
+      return { order, wasCreated: true };
+    } catch (error) {
+      if (isUniqueConstraintViolation(error)) {
+        const winner = await this.salesOrderRepository.findByIdempotencyKey(
+          organisationId,
+          input.idempotencyKey,
+        );
+        if (winner) {
+          return { order: winner, wasCreated: false };
+        }
+      }
+      throw error;
+    }
+  }
+
   /** Only reachable while `status === DRAFT`. Recomputes totals from the new item list
    *  when `items` is supplied — never trusts a client-submitted total either way. */
   async update(
@@ -94,6 +179,14 @@ export class SalesOrderService {
       throw new BadRequestException('Only draft sales orders can be edited');
     }
     if (input.outletId) {
+      // Sprint 34 — a D2C order (`existing.customerId === null`) has no B2B customer for
+      // an outlet to belong to; this edit path is B2B-only (a D2C order is never
+      // touched by `PATCH /api/sales/orders/:id` this sprint).
+      if (!existing.customerId) {
+        throw new BadRequestException(
+          'This sales order has no B2B customer and cannot be assigned an outlet',
+        );
+      }
       await this.assertOutletBelongsToCustomer(organisationId, existing.customerId, input.outletId);
     }
 
@@ -251,6 +344,46 @@ export class SalesOrderService {
     return built;
   }
 
+  /** Sprint 34's D2C counterpart to {@link buildItems} — same tenant-scoped/
+   *  `FINISHED_PRODUCT`-only validation, but the price is NEVER supplied by the caller
+   *  (there is no `unitPrice` field on this method's input at all): it is always the
+   *  live `Product.sellingPrice`, read here, at order-creation time — never trusted from
+   *  the Conversation Layer, which only ever supplies `productId`/`quantity`
+   *  (docs/domains/d2c.md "Pricing"). A product with no `sellingPrice` (the default for
+   *  every existing product — pricing is opt-in per product, Sprint 34 §"Product
+   *  Catalogue") is not D2C-orderable and rejected here exactly like an inactive or
+   *  non-finished-product SKU would be. */
+  private async buildItemsFromCataloguePricing(
+    organisationId: string,
+    items: { productId: string; quantity: number }[],
+  ): Promise<BuiltItem[]> {
+    const built: BuiltItem[] = [];
+    for (const item of items) {
+      if (!Number.isInteger(item.quantity) || item.quantity <= 0) {
+        throw new BadRequestException('Quantity must be a positive whole number');
+      }
+      const product = await this.productRepository.findById(organisationId, item.productId);
+      if (!product) {
+        throw new BadRequestException('Product not found');
+      }
+      if (product.type !== ProductType.FINISHED_PRODUCT) {
+        throw new BadRequestException(
+          `"${product.name}" is not a finished product and cannot be sold`,
+        );
+      }
+      if (product.status !== 'ACTIVE' || product.sellingPrice == null) {
+        throw new BadRequestException(`"${product.name}" is no longer available`);
+      }
+      built.push({
+        productId: item.productId,
+        quantity: item.quantity,
+        unitPrice: product.sellingPrice,
+        lineTotal: roundCurrency(item.quantity * product.sellingPrice),
+      });
+    }
+    return built;
+  }
+
   private calculateTotals(
     items: { lineTotal: number }[],
     discount: number,
@@ -294,4 +427,14 @@ function roundCurrency(value: number): number {
 
 function formatSalesOrderCode(sequence: number): string {
   return `${SALES_ORDER_CODE_PREFIX}-${String(sequence).padStart(SALES_ORDER_CODE_SEQUENCE_LENGTH, '0')}`;
+}
+
+/** Same `P2002` check as `ConsumerRepository`/`ConversationRepository`'s own
+ *  race-recovery, applied here to `SalesOrder`'s new `[organisationId, idempotencyKey]`
+ *  unique constraint (Sprint 34). */
+function isUniqueConstraintViolation(error: unknown): boolean {
+  return (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    error.code === UNIQUE_CONSTRAINT_VIOLATION
+  );
 }

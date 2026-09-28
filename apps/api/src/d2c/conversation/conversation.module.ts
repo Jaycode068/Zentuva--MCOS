@@ -4,6 +4,7 @@ import { AuthModule } from '../../identity/auth/auth.module';
 import { IdentityModule } from '../../identity/identity.module';
 import { TerritoryModule } from '../../retail/territory/territory.module';
 import { ConsumerModule } from '../consumer/consumer.module';
+import { D2COrderingModule } from '../ordering/d2c-ordering.module';
 import { ConversationMessageRepository } from './conversation-message.repository';
 import { ConversationController } from './conversation.controller';
 import { ConversationRepository } from './conversation.repository';
@@ -17,9 +18,14 @@ import { ConversationService } from './conversation.service';
  * every other domain in this codebase already uses. Deliberately does NOT
  * import `NotificationsModule`/`WorkflowModule`/any WhatsApp-related
  * module — see `d2c-independence.spec.ts`.
+ *
+ * Added Sprint 34 — `D2COrderingModule`, so `ConversationService` can inject
+ * `D2COrderingService` to drive the Order Snacks flow, the exact
+ * `Conversation Layer -> D2C Ordering Service -> Existing Sales Order`
+ * architecture this sprint's brief describes.
  */
 @Module({
-  imports: [IdentityModule, AuthModule, TerritoryModule, ConsumerModule],
+  imports: [IdentityModule, AuthModule, TerritoryModule, ConsumerModule, D2COrderingModule],
   controllers: [ConversationController],
   providers: [ConversationRepository, ConversationMessageRepository, ConversationService],
   exports: [ConversationService],

@@ -85,6 +85,15 @@ export class CustomerReturnService {
     if (!order) {
       throw new NotFoundException('Sales order not found');
     }
+    // Sprint 34 — a D2C order has no B2B `customerId` and is never FULFILLED this sprint
+    // (no D2C fulfilment exists yet), so this is currently unreachable in practice.
+    // Guarded explicitly rather than silently passing `null` — see the identical guard
+    // and rationale in `InvoiceService.create`.
+    if (!order.customerId) {
+      throw new BadRequestException(
+        'This sales order has no B2B customer and cannot be returned through this flow',
+      );
+    }
 
     const location = await this.inventoryLocationRepository.findById(
       organisationId,

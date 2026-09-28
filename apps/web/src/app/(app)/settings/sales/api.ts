@@ -3,6 +3,9 @@ import { apiFetch } from '@/lib/api-client';
 export type SalesOrderStatus =
   'DRAFT' | 'CONFIRMED' | 'PARTIALLY_FULFILLED' | 'FULFILLED' | 'CANCELLED';
 
+/** Added Sprint 34 — see `SalesOrder.source`'s schema doc comment. */
+export type SalesOrderSource = 'B2B' | 'D2C';
+
 export interface SalesOrderItem {
   id: string;
   product: { id: string; code: string; name: string; unit: string };
@@ -19,9 +22,13 @@ export interface SalesOrderItem {
 export interface SalesOrder {
   id: string;
   orderCode: string;
-  customer: { id: string; customerCode: string; customerName: string };
+  /** `null` for a D2C order (Sprint 34) — see `consumer` below. */
+  customer: { id: string; customerCode: string; customerName: string } | null;
   outlet: { id: string; outletCode: string; name: string } | null;
-  salesAgentId: string;
+  /** Added Sprint 34 — `null` for a B2B order. */
+  consumer: { id: string; consumerCode: string; fullName: string } | null;
+  source: SalesOrderSource;
+  salesAgentId: string | null;
   status: SalesOrderStatus;
   orderDate: string;
   notes: string | null;
@@ -31,6 +38,15 @@ export interface SalesOrder {
   items: SalesOrderItem[];
   createdAt: string;
   updatedAt: string;
+}
+
+/** Added Sprint 34 — the one shared helper every existing Sales Order-adjacent view
+ *  (list, detail, and the Dispatch/Invoice/Customer-Return "eligible order" pickers)
+ *  uses to display who an order is for, whether it's a B2B `customer` or a D2C
+ *  `consumer` (docs/domains/d2c.md "Internal Admin Visibility") — kept in one place so
+ *  no view has to reimplement the fallback. */
+export function getSalesOrderPartyName(order: Pick<SalesOrder, 'customer' | 'consumer'>): string {
+  return order.customer?.customerName ?? order.consumer?.fullName ?? 'D2C Consumer';
 }
 
 export interface SalesOrderItemPayload {

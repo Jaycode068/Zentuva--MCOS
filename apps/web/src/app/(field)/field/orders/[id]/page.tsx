@@ -26,6 +26,7 @@ import {
   fulfilSalesOrder,
   getSalesOrder,
   getSalesOrderAvailability,
+  getSalesOrderPartyName,
   listInventoryLocations,
   listSalesFulfilments,
   requestCustomerReturn,
@@ -78,7 +79,7 @@ export default function FieldOrderDetailPage({ params }: { params: { id: string 
           </Badge>
         </div>
         <div>
-          <p className="font-medium">{order.customer.customerName}</p>
+          <p className="font-medium">{getSalesOrderPartyName(order)}</p>
           <p className="text-sm text-muted-foreground">
             {order.outlet?.name ?? 'No outlet — direct delivery'}
           </p>

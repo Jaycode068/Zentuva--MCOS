@@ -1,5 +1,5 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
-import { SalesOrderStatus } from '@prisma/client';
+import { SalesOrderSource, SalesOrderStatus } from '@prisma/client';
 
 import { InventoryLocationRepository } from '../inventory/inventory-location.repository';
 import {
@@ -23,19 +23,23 @@ describe('SalesFulfilmentService', () => {
     orderCode: 'SO-000001',
     customerId: 'customer-1',
     outletId: 'outlet-1',
+    consumerId: null,
     salesAgentId: 'user-1',
+    source: SalesOrderSource.B2B,
     status: SalesOrderStatus.CONFIRMED,
     orderDate: new Date('2026-08-21'),
     notes: null,
     subtotal: 25000,
     discount: 0,
     total: 25000,
+    idempotencyKey: null,
     createdById: 'user-1',
     updatedById: 'user-1',
     createdAt: new Date('2026-08-21'),
     updatedAt: new Date('2026-08-21'),
     customer: { id: 'customer-1', customerCode: 'CUS-000001', customerName: 'Bodija Supermart' },
     outlet: { id: 'outlet-1', outletCode: 'OUT-000001', name: 'Bodija Supermart — Main Branch' },
+    consumer: null,
     items: [
       {
         id: 'item-1',

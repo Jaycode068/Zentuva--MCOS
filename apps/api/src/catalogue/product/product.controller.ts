@@ -231,6 +231,10 @@ function toProductResponse(product: Product) {
     unit: product.unit,
     imageUrl: product.imageUrl,
     status: product.status,
+    /** Added Sprint 34 — D2C Consumer Ordering (docs/domains/d2c.md "Pricing"). `null`
+     *  for every existing product until an admin explicitly sets one; see
+     *  `Product.sellingPrice`'s schema doc comment. */
+    sellingPrice: product.sellingPrice,
     createdAt: product.createdAt,
     updatedAt: product.updatedAt,
     createdById: product.createdById,

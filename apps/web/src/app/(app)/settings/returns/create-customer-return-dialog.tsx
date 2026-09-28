@@ -16,7 +16,11 @@ import {
 
 import { ApiError } from '@/lib/api-client';
 import { listInventoryLocations } from '@/app/(app)/settings/inventory/api';
-import { listSalesFulfilments, listSalesOrders } from '@/app/(app)/settings/sales/api';
+import {
+  getSalesOrderPartyName,
+  listSalesFulfilments,
+  listSalesOrders,
+} from '@/app/(app)/settings/sales/api';
 
 import { requestCustomerReturn } from './api';
 import { CUSTOMER_RETURN_REASON_LABELS } from './labels';
@@ -64,7 +68,7 @@ export function CreateCustomerReturnDialog({
       .filter(
         (order) =>
           order.orderCode.toLowerCase().includes(query) ||
-          order.customer.customerName.toLowerCase().includes(query),
+          getSalesOrderPartyName(order).toLowerCase().includes(query),
       )
       .slice(0, 8);
   }, [ordersData, orderSearch]);
@@ -142,7 +146,9 @@ export function CreateCustomerReturnDialog({
                   className="w-full rounded-md p-2 text-left text-sm hover:bg-muted"
                 >
                   <span className="font-mono text-xs font-medium">{order.orderCode}</span>
-                  <span className="ml-2 text-muted-foreground">{order.customer.customerName}</span>
+                  <span className="ml-2 text-muted-foreground">
+                    {getSalesOrderPartyName(order)}
+                  </span>
                 </button>
               ))}
             </div>
@@ -153,7 +159,7 @@ export function CreateCustomerReturnDialog({
               <div>
                 <p className="font-mono text-xs font-medium">{selectedOrder.orderCode}</p>
                 <p className="text-xs text-muted-foreground">
-                  {selectedOrder.customer.customerName}
+                  {getSalesOrderPartyName(selectedOrder)}
                 </p>
               </div>
               <Button

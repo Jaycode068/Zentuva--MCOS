@@ -7,7 +7,12 @@ import { Badge, Button, Input, Select } from '@zentuva/ui';
 import { TrendingUpIcon } from '@/components/workspace/icons';
 import { ApiError } from '@/lib/api-client';
 
-import { listSalesOrders, type SalesOrder, type SalesOrderStatus } from './api';
+import {
+  getSalesOrderPartyName,
+  listSalesOrders,
+  type SalesOrder,
+  type SalesOrderStatus,
+} from './api';
 import { SALES_ORDER_STATUS_LABELS, SALES_ORDER_STATUS_VARIANT } from './labels';
 import { SalesOrderDetailDialog } from './sales-order-detail-dialog';
 import { SalesOrderDialog } from './sales-order-dialog';
@@ -38,7 +43,7 @@ export default function SalesSettingsPage() {
       if (!query) return true;
       return (
         order.orderCode.toLowerCase().includes(query) ||
-        order.customer.customerName.toLowerCase().includes(query)
+        getSalesOrderPartyName(order).toLowerCase().includes(query)
       );
     });
   }, [orders, search, statusFilter]);
@@ -109,6 +114,10 @@ export default function SalesSettingsPage() {
                   <th className="px-4 py-3 font-medium">Outlet</th>
                   <th className="px-4 py-3 font-medium">Total</th>
                   <th className="px-4 py-3 font-medium">Status</th>
+                  {/* Added Sprint 34 — distinguishes a D2C order from a B2B order in
+                   *  this existing list, per docs/domains/d2c.md "Internal Admin
+                   *  Visibility"; no separate D2C order screen was built. */}
+                  <th className="px-4 py-3 font-medium">Source</th>
                   <th className="px-4 py-3 text-right font-medium">Actions</th>
                 </tr>
               </thead>
@@ -139,7 +148,7 @@ export default function SalesSettingsPage() {
                   </Badge>
                 </div>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  {order.customer.customerName} · {order.total.toFixed(2)}
+                  {getSalesOrderPartyName(order)} · {order.total.toFixed(2)}
                 </p>
               </button>
             ))}
@@ -173,13 +182,16 @@ function SalesOrderRow({ order, onSelect }: { order: SalesOrder; onSelect: () =>
           {order.orderCode}
         </button>
       </td>
-      <td className="px-4 py-3">{order.customer.customerName}</td>
+      <td className="px-4 py-3">{getSalesOrderPartyName(order)}</td>
       <td className="px-4 py-3 text-muted-foreground">{order.outlet?.name ?? '—'}</td>
       <td className="px-4 py-3">{order.total.toFixed(2)}</td>
       <td className="px-4 py-3">
         <Badge variant={SALES_ORDER_STATUS_VARIANT[order.status]}>
           {SALES_ORDER_STATUS_LABELS[order.status]}
         </Badge>
+      </td>
+      <td className="px-4 py-3">
+        <Badge variant={order.source === 'D2C' ? 'success' : 'default'}>{order.source}</Badge>
       </td>
       <td className="px-4 py-3 text-right">
         <Button variant="outline" size="sm" onClick={onSelect}>

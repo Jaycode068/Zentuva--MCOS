@@ -1,4 +1,6 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
+
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConsumerConversation, Consumer, Prisma, Territory } from '@prisma/client';
 import { ConversationInput, SendConversationMessageInput } from '@zentuva/validation';
 
@@ -6,6 +8,8 @@ import { AuditService } from '../../identity/audit/audit.service';
 import { OrganisationService } from '../../identity/organisation/organisation.service';
 import { TerritoryRepository } from '../../retail/territory/territory.repository';
 import { ConsumerService } from '../consumer/consumer.service';
+import { CartItemUnavailableError, D2COrderingService } from '../ordering/d2c-ordering.service';
+import { CartLine } from '../ordering/d2c-ordering.types';
 import { CONVERSATION_AUDIT_ACTIONS } from './conversation-audit-actions';
 import { ConversationMessageRepository } from './conversation-message.repository';
 import { ConversationRepository } from './conversation.repository';
@@ -21,6 +25,14 @@ interface ConversationContext {
   step?: string;
   mode?: 'REGISTRATION' | 'UPDATE';
   territoryId?: string;
+  /** Sprint 34 — the Order Snacks flow's own working state, all still just JSON in the
+   *  existing `context` bag (brief §17 "lightweight interaction state," never a second
+   *  workflow engine). `cart`/`checkoutIdempotencyKey` are the only two fields carried
+   *  across the whole `ACTIVE` state; `pendingProductId` lives only between selecting a
+   *  product and supplying its quantity. */
+  cart?: CartLine[];
+  pendingProductId?: string;
+  checkoutIdempotencyKey?: string;
 }
 
 /**
@@ -49,6 +61,7 @@ export class ConversationService {
     private readonly territoryRepository: TerritoryRepository,
     private readonly auditService: AuditService,
     private readonly organisationService: OrganisationService,
+    private readonly d2cOrderingService: D2COrderingService,
   ) {}
 
   /**
@@ -158,8 +171,9 @@ export class ConversationService {
         return this.handleRegistration(organisationId, conversation, input);
       case 'LOCATION_SELECTION':
         return this.handleLocationSelection(organisationId, conversation, input, organisationName);
-      case 'MAIN_MENU':
       case 'ACTIVE':
+        return this.handleOrdering(organisationId, conversation, input, organisationName);
+      case 'MAIN_MENU':
         return this.handleMainMenu(organisationId, conversation, input);
       case 'NEW':
       default:
@@ -578,6 +592,10 @@ export class ConversationService {
       return this.beginLocationSelection(organisationId, conversation, 'UPDATE');
     }
 
+    if (value === 'ORDER_SNACKS') {
+      return this.beginOrdering(organisationId, conversation);
+    }
+
     if (value === 'HELP') {
       return this.respond(conversation, [
         {
@@ -603,6 +621,420 @@ export class ConversationService {
       { type: 'TEXT', text: `${greetingPrefix}, ${consumer.fullName} 👋` },
       ...mainMenuMessages(),
     ]);
+  }
+
+  // ---------------------------------------------------------------------
+  // ACTIVE — Sprint 34 "Order Snacks" (brief §10 flow: Browse -> Select
+  // Product -> Select Quantity -> Cart -> Review -> Confirm). Reuses
+  // `D2COrderingService` for every validation/pricing/order-creation
+  // decision; this class only ever moves `context.step`/`context.cart`
+  // and renders the resulting response — never a second implementation of
+  // Sales Order business rules (brief §9 "do not move Sales Order
+  // business rules into the Conversation Layer").
+  // ---------------------------------------------------------------------
+
+  private async beginOrdering(
+    organisationId: string,
+    conversation: ConsumerConversation,
+  ): Promise<ConversationOutboundResponse> {
+    const updated = await this.conversationRepository.update(organisationId, conversation.id, {
+      state: 'ACTIVE',
+      context: { step: 'BROWSING', cart: [] } as Prisma.InputJsonValue,
+    });
+    return this.renderBrowsing(organisationId, updated!, []);
+  }
+
+  private async handleOrdering(
+    organisationId: string,
+    conversation: ConsumerConversation,
+    input: ConversationInput,
+    organisationName: string,
+  ): Promise<ConversationOutboundResponse> {
+    const context = readContext(conversation);
+    const cart = context.cart ?? [];
+
+    switch (context.step) {
+      case 'BROWSING':
+        return this.handleBrowsing(organisationId, conversation, input, cart);
+      case 'AWAITING_QUANTITY':
+        return this.handleAwaitingQuantity(organisationId, conversation, input, cart);
+      case 'CART_MENU':
+        return this.handleCartMenu(organisationId, conversation, input, cart);
+      case 'AWAITING_REMOVE':
+        return this.handleAwaitingRemove(organisationId, conversation, input, cart);
+      case 'AWAITING_CONFIRM':
+        return this.handleAwaitingConfirm(organisationId, conversation, input, cart, context);
+      default:
+        // Unexpected/corrupted context — fail safely rather than getting stuck,
+        // same convention as `handleLocationSelection`'s own fallback.
+        return this.handleReset(organisationId, conversation, organisationName);
+    }
+  }
+
+  private async renderBrowsing(
+    organisationId: string,
+    conversation: ConsumerConversation,
+    cart: CartLine[],
+    prefix?: ConversationOutboundMessage,
+  ): Promise<ConversationOutboundResponse> {
+    const products = await this.d2cOrderingService.getAvailableProducts(organisationId);
+    const messages: ConversationOutboundMessage[] = [];
+    if (prefix) messages.push(prefix);
+
+    if (products.length === 0) {
+      // No D2C-orderable products exist for this tenant — never leave the consumer
+      // stuck in BROWSING while displaying main-menu buttons (found live: clicking one
+      // of those buttons was previously misrouted into `handleBrowsing` as if it were a
+      // product selection, since the conversation's actual persisted state never
+      // changed). Genuinely return to MAIN_MENU here.
+      const updated = await this.conversationRepository.update(organisationId, conversation.id, {
+        state: 'MAIN_MENU',
+        context: Prisma.JsonNull,
+      });
+      messages.push({
+        type: 'TEXT',
+        text: 'Sorry, there are no products available to order right now.',
+      });
+      messages.push(...mainMenuMessages());
+      return this.respond(updated!, messages);
+    }
+
+    messages.push({
+      type: 'LIST',
+      text: 'Select a product',
+      options: products.map((product) => ({
+        value: product.skuId,
+        label: `${product.displayName ?? product.productName}${
+          product.variantName ? ` - ${product.variantName}` : ''
+        } - ${product.currency} ${product.sellingPrice}`,
+      })),
+    });
+    if (cart.length > 0) {
+      messages.push({
+        type: 'BUTTONS',
+        text: `You have ${cart.length} item(s) in your cart.`,
+        options: [{ value: 'VIEW_CART', label: 'View Cart & Checkout' }],
+      });
+    }
+    return this.respond(conversation, messages);
+  }
+
+  private async handleBrowsing(
+    organisationId: string,
+    conversation: ConsumerConversation,
+    input: ConversationInput,
+    cart: CartLine[],
+  ): Promise<ConversationOutboundResponse> {
+    const value = optionValue(input);
+    if (value === 'VIEW_CART') {
+      return this.showCartMenu(organisationId, conversation, cart);
+    }
+    if (!value) {
+      return this.renderBrowsing(organisationId, conversation, cart, {
+        type: 'TEXT',
+        text: 'Please select a product from the list.',
+      });
+    }
+
+    const updated = await this.conversationRepository.update(organisationId, conversation.id, {
+      context: {
+        step: 'AWAITING_QUANTITY',
+        cart,
+        pendingProductId: value,
+      } as unknown as Prisma.InputJsonValue,
+    });
+    return this.respond(updated!, [{ type: 'TEXT', text: 'How many would you like?' }]);
+  }
+
+  private async handleAwaitingQuantity(
+    organisationId: string,
+    conversation: ConsumerConversation,
+    input: ConversationInput,
+    cart: CartLine[],
+  ): Promise<ConversationOutboundResponse> {
+    const context = readContext(conversation);
+    const productId = context.pendingProductId;
+    if (!productId) {
+      // Corrupted context — no product was ever pending; back to browsing.
+      return this.renderBrowsing(organisationId, conversation, cart);
+    }
+    const quantity = input.type === 'TEXT' ? Number.parseInt(input.text.trim(), 10) : NaN;
+
+    let newCart: CartLine[];
+    try {
+      newCart = await this.d2cOrderingService.addItemToCart(
+        organisationId,
+        cart,
+        productId,
+        quantity,
+      );
+    } catch (error) {
+      if (error instanceof BadRequestException) {
+        return this.respond(conversation, [
+          { type: 'TEXT', text: this.errorMessage(error) },
+          { type: 'TEXT', text: 'How many would you like?' },
+        ]);
+      }
+      throw error;
+    }
+
+    const updated = await this.conversationRepository.update(organisationId, conversation.id, {
+      context: { step: 'CART_MENU', cart: newCart } as unknown as Prisma.InputJsonValue,
+    });
+    return this.showCartMenu(organisationId, updated!, newCart, {
+      type: 'TEXT',
+      text: 'Added to your cart.',
+    });
+  }
+
+  private async showCartMenu(
+    organisationId: string,
+    conversation: ConsumerConversation,
+    cart: CartLine[],
+    prefix?: ConversationOutboundMessage,
+  ): Promise<ConversationOutboundResponse> {
+    const updated = await this.conversationRepository.update(organisationId, conversation.id, {
+      context: { step: 'CART_MENU', cart } as unknown as Prisma.InputJsonValue,
+    });
+    const { summary } = await this.d2cOrderingService.getCartSummary(organisationId, cart);
+    const cartText = formatCartSummary(summary);
+
+    const messages: ConversationOutboundMessage[] = [];
+    if (prefix) messages.push(prefix);
+    messages.push({ type: 'TEXT', text: cartText });
+    messages.push({
+      type: 'BUTTONS',
+      text: 'What next?',
+      options: [
+        { value: 'ADD_MORE', label: 'Add Another Item' },
+        { value: 'CHECKOUT', label: 'Review & Confirm' },
+        { value: 'REMOVE_ITEM', label: 'Remove an Item' },
+      ],
+    });
+    return this.respond(updated!, messages);
+  }
+
+  private async handleCartMenu(
+    organisationId: string,
+    conversation: ConsumerConversation,
+    input: ConversationInput,
+    cart: CartLine[],
+  ): Promise<ConversationOutboundResponse> {
+    const value = optionValue(input);
+
+    if (value === 'ADD_MORE') {
+      const updated = await this.conversationRepository.update(organisationId, conversation.id, {
+        context: { step: 'BROWSING', cart } as unknown as Prisma.InputJsonValue,
+      });
+      return this.renderBrowsing(organisationId, updated!, cart);
+    }
+
+    if (value === 'REMOVE_ITEM') {
+      return this.presentRemoveOptions(organisationId, conversation, cart);
+    }
+
+    if (value === 'CHECKOUT') {
+      return this.beginCheckout(organisationId, conversation, cart);
+    }
+
+    return this.showCartMenu(organisationId, conversation, cart, {
+      type: 'TEXT',
+      text: "Sorry, I didn't understand that.",
+    });
+  }
+
+  private async presentRemoveOptions(
+    organisationId: string,
+    conversation: ConsumerConversation,
+    cart: CartLine[],
+  ): Promise<ConversationOutboundResponse> {
+    const { summary } = await this.d2cOrderingService.getCartSummary(organisationId, cart);
+    const updated = await this.conversationRepository.update(organisationId, conversation.id, {
+      context: { step: 'AWAITING_REMOVE', cart } as unknown as Prisma.InputJsonValue,
+    });
+    return this.respond(updated!, [
+      {
+        type: 'LIST',
+        text: 'Select an item to remove',
+        options: summary.lines.map((line) => ({
+          value: line.productId,
+          label: `${line.productName} x ${line.quantity}`,
+        })),
+      },
+    ]);
+  }
+
+  private async handleAwaitingRemove(
+    organisationId: string,
+    conversation: ConsumerConversation,
+    input: ConversationInput,
+    cart: CartLine[],
+  ): Promise<ConversationOutboundResponse> {
+    const value = optionValue(input);
+    if (!value) {
+      return this.presentRemoveOptions(organisationId, conversation, cart);
+    }
+    const newCart = this.d2cOrderingService.removeCartItem(cart, value);
+    if (newCart.length === 0) {
+      const updated = await this.conversationRepository.update(organisationId, conversation.id, {
+        context: { step: 'BROWSING', cart: newCart } as unknown as Prisma.InputJsonValue,
+      });
+      return this.renderBrowsing(organisationId, updated!, newCart, {
+        type: 'TEXT',
+        text: 'Your cart is now empty.',
+      });
+    }
+    return this.showCartMenu(organisationId, conversation, newCart, {
+      type: 'TEXT',
+      text: 'Item removed.',
+    });
+  }
+
+  private async beginCheckout(
+    organisationId: string,
+    conversation: ConsumerConversation,
+    cart: CartLine[],
+  ): Promise<ConversationOutboundResponse> {
+    const {
+      summary,
+      cart: keptCart,
+      removedProductIds,
+    } = await this.d2cOrderingService.getCartSummary(organisationId, cart);
+    if (keptCart.length === 0) {
+      const updated = await this.conversationRepository.update(organisationId, conversation.id, {
+        context: { step: 'BROWSING', cart: [] } as Prisma.InputJsonValue,
+      });
+      return this.renderBrowsing(organisationId, updated!, [], {
+        type: 'TEXT',
+        text:
+          removedProductIds.length > 0
+            ? "One of the items in your order is no longer available. We've updated your order. Please review it again."
+            : 'Your cart is empty.',
+      });
+    }
+
+    // Mint the idempotency key exactly once, the moment the consumer reaches
+    // review — every subsequent confirmation attempt (including genuinely
+    // concurrent duplicates) reads this SAME persisted value rather than
+    // minting a new one, closing the race (docs/domains/d2c.md
+    // "Idempotency").
+    const idempotencyKey = randomUUID();
+    const updated = await this.conversationRepository.update(organisationId, conversation.id, {
+      context: {
+        step: 'AWAITING_CONFIRM',
+        cart: keptCart,
+        checkoutIdempotencyKey: idempotencyKey,
+      } as unknown as Prisma.InputJsonValue,
+    });
+
+    const messages: ConversationOutboundMessage[] = [];
+    if (removedProductIds.length > 0) {
+      messages.push({
+        type: 'TEXT',
+        text: "One of the items in your order is no longer available. We've updated your order. Please review it again.",
+      });
+    }
+    messages.push({ type: 'TEXT', text: formatCartSummary(summary) });
+    messages.push({
+      type: 'BUTTONS',
+      text: 'Confirm order?',
+      options: [
+        { value: 'CONFIRM_ORDER', label: 'Confirm Order' },
+        { value: 'EDIT_ORDER', label: 'Edit Order' },
+        { value: 'CANCEL_ORDER', label: 'Cancel' },
+      ],
+    });
+    return this.respond(updated!, messages);
+  }
+
+  private async handleAwaitingConfirm(
+    organisationId: string,
+    conversation: ConsumerConversation,
+    input: ConversationInput,
+    cart: CartLine[],
+    context: ConversationContext,
+  ): Promise<ConversationOutboundResponse> {
+    const value = optionValue(input);
+
+    if (value === 'EDIT_ORDER') {
+      return this.showCartMenu(organisationId, conversation, cart);
+    }
+    if (value === 'CANCEL_ORDER') {
+      const updated = await this.conversationRepository.update(organisationId, conversation.id, {
+        state: 'MAIN_MENU',
+        context: Prisma.JsonNull,
+      });
+      return this.respond(updated!, [
+        { type: 'TEXT', text: 'Order cancelled.' },
+        ...mainMenuMessages(),
+      ]);
+    }
+    if (value !== 'CONFIRM_ORDER') {
+      return this.beginCheckout(organisationId, conversation, cart);
+    }
+
+    const idempotencyKey = context.checkoutIdempotencyKey;
+    if (!idempotencyKey) {
+      // Corrupted context — no key was ever minted; safest is to rebuild the
+      // review step, which mints a fresh one.
+      return this.beginCheckout(organisationId, conversation, cart);
+    }
+
+    try {
+      const { result, wasCreated } = await this.d2cOrderingService.confirmOrder(
+        organisationId,
+        conversation.consumerId!,
+        cart,
+        idempotencyKey,
+      );
+      if (wasCreated) {
+        await this.auditService.record({
+          action: CONVERSATION_AUDIT_ACTIONS.ORDER_CREATED_VIA_CONVERSATION,
+          entityType: 'SalesOrder',
+          entityId: result.orderId,
+          organisationId,
+          metadata: { conversationId: conversation.id, orderCode: result.orderCode },
+        });
+      }
+      const updated = await this.conversationRepository.update(organisationId, conversation.id, {
+        state: 'MAIN_MENU',
+        context: Prisma.JsonNull,
+      });
+      return this.respond(updated!, [
+        {
+          type: 'TEXT',
+          text: [
+            'Order created successfully.',
+            '',
+            `Order: ${result.orderCode}`,
+            `Amount: ${result.currency} ${result.total}`,
+            `Status: ${formatOrderStatusForConsumer(result.status)}`,
+          ].join('\n'),
+        },
+        ...mainMenuMessages(),
+      ]);
+    } catch (error) {
+      if (error instanceof CartItemUnavailableError) {
+        return this.beginCheckout(organisationId, conversation, cart);
+      }
+      if (error instanceof BadRequestException) {
+        return this.respond(conversation, [{ type: 'TEXT', text: this.errorMessage(error) }]);
+      }
+      throw error;
+    }
+  }
+
+  /** Extracts a `BadRequestException`'s own consumer-friendly `message` — never its
+   *  stack trace or any internal detail (brief §15/§27). */
+  private errorMessage(error: BadRequestException): string {
+    const response = error.getResponse();
+    if (typeof response === 'string') return response;
+    if (typeof response === 'object' && response && 'message' in response) {
+      const message = (response as { message: unknown }).message;
+      if (typeof message === 'string') return message;
+      if (Array.isArray(message)) return message.join(' ');
+    }
+    return 'That was not a valid request. Please try again.';
   }
 
   // ---------------------------------------------------------------------
@@ -664,6 +1096,36 @@ function toOptions(territories: Territory[]): ConversationOption[] {
   return territories.map((t) => ({ value: t.id, label: t.name }));
 }
 
+/** brief §6 — "Your Order / Plantain Chips x 2  ₦____ / ... / Total  ₦____". The
+ *  currency is always the summary's own (the tenant's real `Organisation.currency`,
+ *  §"Tenant-Aware Copy" applies here just as much as to the welcome message) — never a
+ *  hardcoded "₦"/"NGN". */
+function formatCartSummary(summary: {
+  lines: { productName: string; quantity: number; lineTotal: number }[];
+  subtotal: number;
+  currency: string;
+}): string {
+  const lines = summary.lines.map(
+    (line) => `${line.productName} x ${line.quantity}   ${summary.currency} ${line.lineTotal}`,
+  );
+  return [
+    'Your Order',
+    '',
+    ...lines,
+    '----------------------------',
+    `Total   ${summary.currency} ${summary.subtotal}`,
+  ].join('\n');
+}
+
+/** brief §6/§19 — the Conversation Layer's own wording for a fresh order's status, kept
+ *  entirely out of `D2COrderingService`/`SalesOrderService` (which only ever know the
+ *  real `DRAFT` status — see `D2COrderResult.status`'s doc comment). Sprint 35 is
+ *  expected to introduce real payment states; this mapping is the one place that will
+ *  need to grow, never the business logic layer. */
+function formatOrderStatusForConsumer(status: string): string {
+  return status === 'DRAFT' ? 'Awaiting Payment' : status;
+}
+
 /** `organisationName` is ALWAYS the caller's real `Organisation.displayName`/
  *  `.name` — never hardcoded to any one tenant. This is the exact bug the
  *  brief's own cross-tenant live verification is designed to catch: a
@@ -688,6 +1150,10 @@ function mainMenuMessages(): ConversationOutboundMessage[] {
       type: 'BUTTONS',
       text: 'What would you like to do?',
       options: [
+        // Sprint 34 — the one new "available now" capability (brief §11/§20: never
+        // present a capability with no backing implementation, e.g. loyalty/rewards/
+        // Collection/promotions, all still absent here).
+        { value: 'ORDER_SNACKS', label: 'Order Snacks' },
         { value: 'MY_ACCOUNT', label: 'My Account' },
         { value: 'UPDATE_LOCATION', label: 'Update My Location' },
         { value: 'HELP', label: 'Help' },

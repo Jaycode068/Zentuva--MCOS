@@ -216,7 +216,15 @@ feature is built configurably so it can be reused by future tenants without code
 > branch-point-resolution algorithm (found necessary via live testing
 > against the real, multi-level seeded territory hierarchy) so the first
 > question a consumer sees is always a meaningful choice, not a
-> single-option dead end. See
+> single-option dead end. The following sprint closed the loop: a consumer
+> can now browse the catalogue, build a cart, and confirm an order through
+> that same conversation, ending in a real, existing Sales Order — never a
+> parallel D2C order system — with server-authoritative pricing (the
+> conversation client can never supply a price) and the exact
+> find-then-create-then-recover-from-P2002 idempotency recipe already
+> proven for Consumer/Conversation creation, live-verified with 5
+> genuinely concurrent order confirmations producing exactly one order.
+> See
 > [docs/domains/README.md](docs/domains/README.md) for the
 > current status of every domain and [docs/roadmap.md](docs/roadmap.md) for the full
 > build order.

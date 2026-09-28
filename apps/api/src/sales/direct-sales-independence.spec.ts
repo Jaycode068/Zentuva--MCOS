@@ -72,6 +72,7 @@ describe('Direct sales independence from the distribution network (Sprint 4.8)',
     updatedById: 'user-1',
     createdAt: new Date('2026-08-21'),
     updatedAt: new Date('2026-08-21'),
+    sellingPrice: null,
     productVariantId: null,
   };
 

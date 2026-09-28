@@ -85,6 +85,7 @@ export function ProductDialog({
       shortDescription: product?.shortDescription ?? '',
       longDescription: product?.longDescription ?? '',
       productVariantId: product?.productVariantId ?? undefined,
+      sellingPrice: product?.sellingPrice ?? undefined,
     },
   });
 
@@ -248,6 +249,30 @@ export function ProductDialog({
                 ))}
               </Select>
             </div>
+          </div>
+        )}
+
+        {isFinishedProduct && (
+          <div className="space-y-1.5">
+            <Label>D2C Selling Price (optional)</Label>
+            <Input
+              type="number"
+              step="0.01"
+              min="0"
+              {...form.register('sellingPrice', {
+                setValueAs: (v) =>
+                  v === '' || v === null || v === undefined ? undefined : Number(v),
+              })}
+            />
+            <p className="text-xs text-muted-foreground">
+              Set this to make the product orderable through the D2C Conversation channel (Sprint
+              34) — leave blank to keep it unavailable for direct consumer ordering.
+            </p>
+            {form.formState.errors.sellingPrice && (
+              <p className="text-xs text-destructive">
+                {form.formState.errors.sellingPrice.message}
+              </p>
+            )}
           </div>
         )}
 

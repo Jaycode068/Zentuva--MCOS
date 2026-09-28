@@ -35,6 +35,7 @@ describe('ProductController', () => {
     updatedById: 'user-1',
     createdAt: new Date('2026-01-01'),
     updatedAt: new Date('2026-01-01'),
+    sellingPrice: null,
     productVariantId: null,
   };
 

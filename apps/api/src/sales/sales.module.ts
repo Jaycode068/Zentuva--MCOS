@@ -67,6 +67,11 @@ import { SalesOrderService } from './sales-order.service';
     CustomerReturnRepository,
     CustomerReturnService,
   ],
-  exports: [SalesOrderRepository, SalesFulfilmentRepository],
+  /** Added Sprint 34 — `SalesOrderService` is now also exported so
+   *  `D2COrderingModule` can inject it directly (never a repository bypass) to reuse
+   *  `createForConsumer`'s pricing/idempotency/order-creation logic — the same
+   *  "consume another domain only through its exported service/repository" convention
+   *  (ADR-002) `DistributionModule` already uses for the two repositories below. */
+  exports: [SalesOrderRepository, SalesFulfilmentRepository, SalesOrderService],
 })
 export class SalesModule {}

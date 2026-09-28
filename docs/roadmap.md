@@ -709,7 +709,7 @@ Finance` role `hr.recruitment.hiring_request.manage`/`.view` and
 - [x] **Sprint 33 — Consumer Conversation Experience Foundation.** The
       channel-neutral Conversation Layer between a future WhatsApp adapter
       and Sprint 32's D2C services: `WhatsApp → Channel Adapter →
-    Conversation Layer → D2C Services → Existing Domains`.
+  Conversation Layer → D2C Services → Existing Domains`.
       `ConversationService.handleInboundMessage()` is the single,
       channel-neutral entry point — no real WhatsApp integration, no
       generic workflow engine, no second Consumer/Territory/phone-
@@ -740,6 +740,31 @@ Finance` role `hr.recruitment.hiring_request.manage`/`.view` and
       was added for verification — not the future Sprint 42
       consumer-facing simulator. 221 suites / 1912 tests passing — see
       [`docs/sprint-33-completion-report.md`](sprint-33-completion-report.md)
+- [x] **Sprint 34 — D2C Consumer Ordering.** Extends the existing Sales
+      Order domain — never a parallel order system — so a registered
+      Consumer can browse, cart, and confirm an order through the
+      Conversation Layer: `Conversation Layer -> D2COrderingService (new)
+    -> SalesOrderService.createForConsumer (new entry point on the
+    EXISTING service) -> SalesOrder`. Audit found two real gaps: no
+      pricing field existed anywhere in the Product Catalogue (added
+      `Product.sellingPrice`, nullable/opt-in, exposed through the
+      existing product endpoints — not a pricing engine), and
+      `SalesOrder.customerId` was a required FK that couldn't represent a
+      Consumer without converting it into a `Customer` — widened to
+      nullable and paired with a new, mutually exclusive nullable
+      `consumerId` (DB-level `CHECK` constraint), plus a new
+      `SalesOrderSource` (`B2B`/`D2C`) so the existing Sales Order admin
+      list/detail distinguishes the two channels with no new screen.
+      Pricing is server-authoritative by construction (the conversation
+      contract has no price field at all); idempotency reuses the exact
+      find-then-create-then-recover-from-`P2002` recipe already proven for
+      Consumer/Conversation creation, applied to a new
+      `SalesOrder.idempotencyKey` minted once at order review —
+      live-verified with 5 genuinely concurrent confirmations producing
+      exactly one order. A real bug (an empty-catalogue tenant's next menu
+      click misrouted as a product selection) was found live and fixed
+      before completion. 223 suites / 1950 tests passing — see
+      [`docs/sprint-34-completion-report.md`](sprint-34-completion-report.md)
 - [ ] Retail Portal (mobile)
 - [ ] Sales Rep mobile workflows
 - [ ] Business Intelligence dashboards

@@ -872,6 +872,7 @@ REJECTED}`) optionally linking an existing `CapitalProject`/
 - ✓ Sprint 30.2 — Hiring Request → HR Approval → Public Vacancy Flow Audit
 - ✓ Sprint 32 — Consumer Identity, Territory & Location Foundation
 - ✓ Sprint 33 — Consumer Conversation Experience Foundation
+- ✓ Sprint 34 — D2C Consumer Ordering
 
 **Current focus:** The Finance MVP (Sprints 6-19) is considered
 functionally complete. Epic 14 (Asset & Maintenance Management) is fully
@@ -1185,14 +1186,52 @@ verification — explicitly not the future Sprint 42 consumer-facing
 simulator. 221 suites / 1912 tests passing. See
 [`docs/sprint-33-completion-report.md`](sprint-33-completion-report.md).
 
+Sprint 34 ("D2C Consumer Ordering") extended the existing Sales Order
+domain — never a parallel order system — so a registered Consumer can
+browse, cart, and confirm an order through the Conversation Layer:
+`Conversation Layer -> D2COrderingService (new) ->
+SalesOrderService.createForConsumer (new entry point on the EXISTING
+service) -> SalesOrder`. The audit found two genuine gaps rather than
+inventing anything: the Product Catalogue had no pricing field at all
+(added `Product.sellingPrice`, nullable/opt-in, exposed through the
+existing product endpoints — not a pricing engine or price list), and
+`SalesOrder.customerId` was a required FK that structurally could not
+represent a Consumer without converting it into a `Customer` or
+fabricating a placeholder one — widened to nullable and paired with a new,
+mutually exclusive nullable `consumerId` (enforced by a DB-level `CHECK`
+constraint, since Prisma's schema DSL has no multi-column `CHECK`), plus a
+new `SalesOrderSource` (`B2B`/`D2C`, default `B2B`) so the existing Sales
+Order admin list/detail can distinguish the two channels — no new admin
+screen was built. Pricing is server-authoritative by construction: the
+conversation contract has no price field anywhere, so every order is
+priced from the live `Product.sellingPrice` at confirmation time, never a
+client-supplied value (live-verified: injecting extraneous `price`/`total`
+fields into the confirmation request had no effect). Idempotency reuses
+the exact find-then-create-then-recover-from-`P2002` recipe already
+established for Consumer/Conversation creation, applied to a new
+`SalesOrder.idempotencyKey` minted once by the Conversation Layer at order
+review — live-verified with 5 genuinely concurrent confirmation requests
+producing exactly one `SalesOrder`. Three existing B2B-only flows
+(`InvoiceService`, `CustomerReturnService`, `DispatchService`) that
+previously assumed `customerId` was always present each gained an explicit
+guard documenting that D2C invoicing/returns/dispatch is a future sprint's
+decision, not something this one silently handled. A real bug — an
+empty-catalogue tenant's next menu click being misrouted as a product
+selection, since the conversation's own persisted state never actually
+left `BROWSING` — was found during this sprint's own live verification and
+fixed before completion, covered by a new regression test. 223 suites /
+1950 tests passing. See
+[`docs/sprint-34-completion-report.md`](sprint-34-completion-report.md).
+
 Deliberately still not started: payroll, leave management, AI-driven
 recruitment automation (CV ranking, automated rejection, automated hiring
 decisions), a job-board/ATS integration, performance/KPI engines, an LMS,
 SMS/push/webhook notification channels, the real WhatsApp channel adapter
 itself (Sprint 33 built only the channel-neutral conversation layer behind
 it — no Meta API, webhooks, templates, or media handling), the Sprint 42
-consumer-facing simulator, D2C ordering/payment/Collection Points/loyalty/
-promotions, digests, scheduled reminders, a real background
+consumer-facing simulator, D2C payment/Collection Points/fulfilment/
+inventory deduction/loyalty/promotions (Sprint 34 built ordering only —
+see docs/domains/d2c.md §38), digests, scheduled reminders, a real background
 worker for notification/email/WhatsApp processing, a marketing-email or
 broadcast-messaging platform of any kind, a Technician RBAC role (from Sprint 22),
 `ASSIGNED_TERRITORY`/`ASSIGNED_ASSETS` scope enforcement (no

@@ -49,9 +49,12 @@ export interface JournalEntrySummary {
 
 /** Adds the parent Sales Order's own identity fields (Sprint 5) — `DispatchService`
  *  needs `customerId`/`outletId` to resolve a Dispatch's destination without a second
- *  round trip through `SalesOrderRepository`. */
+ *  round trip through `SalesOrderRepository`. `customerId` is nullable since Sprint 34
+ *  (a D2C order has none — see `SalesOrder.consumerId`'s schema doc comment); Dispatch
+ *  guards this explicitly rather than trusting it non-null, since D2C fulfilment/
+ *  dispatch does not exist yet. */
 export type SalesFulfilmentWithOrder = SalesFulfilmentWithItems & {
-  salesOrder: { id: string; customerId: string; outletId: string | null };
+  salesOrder: { id: string; customerId: string | null; outletId: string | null };
 };
 
 const RELATIONS_INCLUDE = {
@@ -62,6 +65,7 @@ const RELATIONS_INCLUDE = {
 const ORDER_RELATIONS_INCLUDE = {
   customer: { select: { id: true, customerCode: true, customerName: true } },
   outlet: { select: { id: true, outletCode: true, name: true } },
+  consumer: { select: { id: true, consumerCode: true, fullName: true } },
   items: {
     include: { product: { select: PRODUCT_SELECT } },
     orderBy: { createdAt: 'asc' as const },

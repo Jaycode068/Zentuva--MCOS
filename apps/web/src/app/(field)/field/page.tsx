@@ -6,7 +6,7 @@ import { Badge, Input } from '@zentuva/ui';
 
 import { FieldCard } from '@/components/field/FieldCard';
 
-import { listCustomers, listSalesOrders } from './api';
+import { getSalesOrderPartyName, listCustomers, listSalesOrders } from './api';
 import { SALES_ORDER_STATUS_LABELS, SALES_ORDER_STATUS_VARIANT } from './labels';
 
 /**
@@ -109,7 +109,7 @@ export default function FieldHomePage() {
                 </Badge>
               </div>
               <p className="mt-0.5 text-xs text-muted-foreground">
-                {order.customer.customerName} · {order.total.toFixed(2)}
+                {getSalesOrderPartyName(order)} · {order.total.toFixed(2)}
               </p>
             </FieldCard>
           ))}

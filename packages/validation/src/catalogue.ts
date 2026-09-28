@@ -68,6 +68,10 @@ export const createProductSchema = z.object({
   /** Added Sprint 4.7 — optionally attaches this product to a `ProductVariant` at
    *  creation. One-way attach only this sprint (no detach/clear via `null`). */
   productVariantId: z.string().trim().min(1).optional(),
+  /** Added Sprint 34 — D2C Consumer Ordering (docs/domains/d2c.md "Pricing"). Optional
+   *  and deliberately NOT part of a pricing engine — see `Product.sellingPrice`'s schema
+   *  doc comment. Setting this (and only this) is what makes a product D2C-orderable. */
+  sellingPrice: z.number().positive('Selling price must be greater than zero').optional(),
 });
 export type CreateProductInput = z.infer<typeof createProductSchema>;
 
@@ -83,6 +87,13 @@ export const updateProductSchema = z.object({
   shortDescription: z.string().trim().max(500).optional(),
   longDescription: z.string().trim().max(5000).optional(),
   productVariantId: z.string().trim().min(1).optional(),
+  /** Added Sprint 34 — see {@link createProductSchema}'s `sellingPrice` doc comment.
+   *  `null` clears it (the product becomes not-D2C-orderable again). */
+  sellingPrice: z
+    .number()
+    .positive('Selling price must be greater than zero')
+    .nullable()
+    .optional(),
 });
 export type UpdateProductInput = z.infer<typeof updateProductSchema>;
 

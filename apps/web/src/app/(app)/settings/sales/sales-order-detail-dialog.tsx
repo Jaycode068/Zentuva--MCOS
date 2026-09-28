@@ -72,13 +72,19 @@ export function SalesOrderDetailDialog({
             <Badge variant={SALES_ORDER_STATUS_VARIANT[order.status]}>
               {SALES_ORDER_STATUS_LABELS[order.status]}
             </Badge>
+            {/* Added Sprint 34 — the one place administrators distinguish a D2C order
+             *  from a B2B order in this existing dialog (docs/domains/d2c.md "Internal
+             *  Admin Visibility"); no separate D2C order screen was built. */}
+            <Badge variant={order.source === 'D2C' ? 'success' : 'default'}>{order.source}</Badge>
           </DialogTitle>
         </DialogHeader>
         <div className="max-h-[70vh] space-y-4 overflow-y-auto pr-1 text-sm">
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <p className="text-xs text-muted-foreground">Customer</p>
-              <p>{order.customer.customerName}</p>
+              <p className="text-xs text-muted-foreground">
+                {order.source === 'D2C' ? 'Consumer' : 'Customer'}
+              </p>
+              <p>{order.customer?.customerName ?? order.consumer?.fullName ?? '—'}</p>
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Outlet</p>

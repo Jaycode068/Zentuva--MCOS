@@ -73,7 +73,7 @@ describe('D2C Consumer Conversation domain independence (Sprint 33)', () => {
     }
   });
 
-  it('structural guard: ConversationModule imports only IdentityModule/AuthModule/TerritoryModule/ConsumerModule', () => {
+  it('structural guard: ConversationModule imports only IdentityModule/AuthModule/TerritoryModule/ConsumerModule/D2COrderingModule (Sprint 34)', () => {
     const source = readFileSync(join(__dirname, 'conversation.module.ts'), 'utf-8');
     expect(source).not.toMatch(/^import .*NotificationsModule.*from/m);
     expect(source).not.toMatch(/^import .*WorkflowModule.*from/m);
@@ -83,7 +83,13 @@ describe('D2C Consumer Conversation domain independence (Sprint 33)', () => {
       (m) => m[1],
     );
     expect(new Set(importedModules)).toEqual(
-      new Set(['IdentityModule', 'AuthModule', 'TerritoryModule', 'ConsumerModule']),
+      new Set([
+        'IdentityModule',
+        'AuthModule',
+        'TerritoryModule',
+        'ConsumerModule',
+        'D2COrderingModule',
+      ]),
     );
   });
 
@@ -94,5 +100,14 @@ describe('D2C Consumer Conversation domain independence (Sprint 33)', () => {
     );
     expect(source).not.toMatch(/this\.prisma\b/);
     expect(source).not.toMatch(/ConsumerRepository/);
+  });
+
+  it('structural guard (Sprint 34): ConversationService only ever creates/reads a D2C order through D2COrderingService — never imports SalesOrderRepository/SalesOrderService/Prisma directly (a doc-comment may still legitimately discuss them in prose)', () => {
+    const source = readSource('conversation.service.ts');
+    expect(source).toMatch(
+      /this\.d2cOrderingService\.(confirmOrder|getAvailableProducts|addItemToCart|getCartSummary|removeCartItem)\(/,
+    );
+    expect(source).not.toMatch(/^import .*from ['"].*\bsales\//m);
+    expect(source).not.toMatch(/\bnew SalesOrderService\(|\bnew SalesOrderRepository\(/);
   });
 });

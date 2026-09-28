@@ -80,7 +80,16 @@ export class DispatchService {
     actorUserId: string,
   ): Promise<CreateDispatchResult> {
     const fulfilment = await this.getFulfilmentOrThrow(organisationId, input.salesFulfilmentId);
+    // Sprint 34 — a D2C order has no B2B `customerId` and is never fulfilled this sprint
+    // (no D2C fulfilment exists yet), so this is currently unreachable in practice.
+    // Guarded explicitly rather than trusting it non-null — see the identical guard and
+    // rationale in `InvoiceService.create`/`CustomerReturnService.request`.
     const customerId = fulfilment.salesOrder.customerId;
+    if (!customerId) {
+      throw new BadRequestException(
+        'This sales order has no B2B customer and cannot be dispatched through this flow',
+      );
+    }
     /** Only an explicit override needs validating — the order's own default outlet is
      *  provably already this customer's, since it came from the same order. */
     if (input.outletId) {

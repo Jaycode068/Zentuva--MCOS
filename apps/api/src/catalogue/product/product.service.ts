@@ -58,6 +58,7 @@ export class ProductService {
       shortDescription: input.shortDescription,
       longDescription: input.longDescription,
       status: ProductStatus.DRAFT,
+      sellingPrice: input.sellingPrice,
       createdById: actorUserId,
       updatedById: actorUserId,
       ...(input.productVariantId
@@ -88,6 +89,7 @@ export class ProductService {
       shortDescription: input.shortDescription,
       longDescription: input.longDescription,
       updatedById: actorUserId,
+      ...(input.sellingPrice !== undefined ? { sellingPrice: input.sellingPrice } : {}),
       ...(input.productVariantId
         ? { productVariant: { connect: { id: input.productVariantId } } }
         : {}),

@@ -17,7 +17,14 @@ Sprint 33 builds the next link in that chain: a channel-neutral
 messages/button clicks into registration, location capture, and a main
 menu — see §14 onward. WhatsApp itself is still not implemented.
 
-This sprint deliberately does **not** implement WhatsApp, ordering, payment,
+Sprint 34 builds the ordering link: a consumer can now browse the
+catalogue, build a cart, and confirm an order entirely through that same
+Conversation Layer, ending in a real, existing `SalesOrder` — never a
+parallel D2C order system — with server-authoritative pricing and
+idempotent creation. See §27 onward. Payment, fulfilment, and WhatsApp
+itself remain not implemented.
+
+This sprint deliberately does **not** implement WhatsApp, payment,
 loyalty, Collection Points, or marketing campaigns — see §11 "Deferred
 Scope."
 
@@ -558,3 +565,278 @@ except through `ConsumerService`). Full live verification against the
 real dev database and real HTTP/browser sessions, including a genuine
 second organisation created via `/auth/register` — see
 `docs/sprint-33-completion-report.md`.
+
+---
+
+# Sprint 34 — D2C Consumer Ordering
+
+## 27. D2C Ordering Architecture
+
+The next link in the same chain Sprint 32/33 already established:
+
+```
+Conversation Layer (Sprint 33)
+        ↓
+D2COrderingService  (apps/api/src/d2c/ordering/)
+        ↓
+SalesOrderService.createForConsumer  (apps/api/src/sales/, EXISTING, extended)
+        ↓
+SalesOrder + SalesOrderItem  (EXISTING model, Sprint 4.8)
+        ↓
+Existing Product Catalogue (Sprint 4.1/4.7), reused unchanged for browsing/pricing
+```
+
+**D2C is a Sales Order channel, not a different kind of order.** No
+`ConsumerOrder`/`D2COrder` model, no second order-numbering system, no
+second inventory/reservation mechanism, and no second product catalogue
+were created. `D2COrderingService` has no Prisma dependency of its own —
+it reads products via the existing `ProductRepository`, validates the
+consumer via the existing `ConsumerService`, and creates the order purely
+by calling `SalesOrderService.createForConsumer()`, a new entry point on
+the _same_ service the existing `POST /api/sales/orders` (B2B) endpoint
+has always used — sharing its pricing/totals/order-code-generation
+internals, never a parallel implementation of them (verified executably:
+`d2c-ordering-independence.spec.ts`).
+
+## 28. Consumer → SalesOrder Relationship
+
+**Audit finding**: `SalesOrder.customerId` was a required, non-nullable FK
+to `Customer`. A `Consumer` (Sprint 32) is not a `Customer` — silently
+connecting a D2C order to a B2B `Customer` row, or fabricating a
+placeholder `Customer` per organisation purely to satisfy the constraint,
+would both have quietly converted the Consumer into something it
+structurally isn't.
+
+**Decision**: the smallest schema change that preserves the distinction —
+`SalesOrder.customerId` and `.salesAgentId` became nullable, and a new
+nullable `SalesOrder.consumerId` (FK to `Consumer`, `Restrict`) was added.
+`customerId`/`consumerId` are mutually exclusive: a B2B order (the
+pre-existing, completely unaffected case) has `customerId` set and
+`consumerId` null; a D2C order has `consumerId` set and `customerId` null.
+This is enforced by a DB-level `CHECK` constraint (added via raw SQL in
+this sprint's migration — Prisma's schema DSL has no multi-column `CHECK`)
+in addition to service-level construction. `salesAgentId` is nullable for
+the same reason a D2C order has no internal human agent who "took" it —
+the same `null`-means-"no human actor" convention `createdById`/
+`updatedById` already use throughout this codebase.
+
+**Blast radius, handled explicitly**: three existing B2B-only flows read
+`order.customerId` assuming it was always present —
+`InvoiceService.create` (invoicing requires `FULFILLED`),
+`CustomerReturnService.request` (returns require a prior fulfilment), and
+`DispatchService.create` (dispatch requires a `SalesFulfilment`). A D2C
+order never reaches any of these states this sprint (no D2C fulfilment
+exists yet), so all three are currently unreachable in practice — each got
+an explicit guard (`if (!order.customerId) throw ...`) rather than a
+silent `null`, documenting the boundary for whichever future sprint wires
+up D2C fulfilment/invoicing. The existing Sales Order admin UI (list,
+detail dialog) and the Field Sales pages were updated to a null-safe
+`getSalesOrderPartyName()` helper that shows the `Consumer`'s name in
+place of a `Customer`'s — live-verified: opening a D2C order in the
+existing `/settings/sales` list shows "Consumer: {name}" and a `D2C`
+source badge, right next to ordinary B2B orders, with zero new screens.
+
+## 29. D2C Order Source / Channel
+
+`enum SalesOrderSource { B2B, D2C }`, `SalesOrder.source @default(B2B)`.
+Every pre-existing and future-created-via-`POST /api/sales/orders` order
+is `B2B` by default and completely unaffected; `D2COrderingService` is the
+only caller that ever passes `D2C`. It never alters core Sales Order
+semantics (status lifecycle, totals, fulfilment eligibility) — it exists
+purely so `SalesOrder`s originating from the two channels can be told
+apart in reporting/admin UI, per this sprint's own live-verified admin
+list badge.
+
+## 30. Pricing — Server-Authoritative, Always
+
+**Audit finding**: the Product Catalogue had no pricing field at all —
+`docs/domains/catalogue.md` explicitly lists Pricing as out of scope, and
+`docs/domains/sales.md` documents that a B2B `SalesOrderItem.unitPrice` is
+typed in per-order by the sales agent (no price list, no customer-specific
+pricing). This is fine for B2B (a trusted internal, authenticated agent),
+but a D2C conversation has no human negotiating a price — there was
+genuinely nothing to read from.
+
+**Decision**: the smallest additive field — `Product.sellingPrice Float?`
+— nullable, opt-in per product, **not** a pricing engine, price list, or
+customer-specific pricing (B2B ordering never reads it; `buildItems()`,
+the pre-existing B2B item-builder, is byte-for-byte unchanged). A product
+is D2C-orderable iff `status === ACTIVE && type === FINISHED_PRODUCT &&
+sellingPrice !== null`. Exposed via the existing
+`POST`/`PATCH /api/products` endpoints (one new optional field on each,
+`packages/validation/src/catalogue.ts`) and a new optional field on the
+existing Product dialog — no second product-management surface.
+
+**The conversation client can never supply a price.** The inbound
+conversation contract (`TEXT`/`BUTTON`/`LIST_SELECTION`) has no price
+field anywhere; `D2COrderingService`'s cart methods take only
+`productId`/`quantity`; `SalesOrderService.createForConsumer()`'s own
+input type has no `unitPrice` field either — the price is always the live
+`Product.sellingPrice`, read at order-creation time, inside
+`buildItemsFromCataloguePricing()` (the D2C counterpart to the existing
+`buildItems()`, sharing its FINISHED_PRODUCT/tenant-scope validation).
+Live-verified: a confirmation request with extraneous `price`/`total`
+fields injected into the HTTP body produced an order priced from the
+catalogue, not the injected values (docs/sprint-34-completion-report.md
+"Live Verification").
+
+## 31. Idempotency
+
+**The established pattern, reused, not reinvented.** `SalesOrder` gained a
+nullable `idempotencyKey` (`@@unique([organisationId, idempotencyKey])`),
+the exact shape `SalesFulfilment.idempotencyKey`/`CustomerReturn`'s own
+idempotency keys already use, generalised here to order _creation_ itself.
+`SalesOrderService.createForConsumer()` follows the Sprint 9→10
+idempotency-before-precheck lesson (`CustomerReturnService.request()`'s
+own pattern): the `findByIdempotencyKey` lookup happens first, before any
+consumer/product/quantity validation, so a genuine retry can never be
+rejected by a precheck the original request already satisfied. A true
+concurrent race (two callers both miss the lookup) is closed by catching
+the unique constraint's `P2002` and re-fetching the winner — the same
+recovery recipe `ConsumerRepository`/`ConversationRepository` (Sprints
+30/32/33) already established.
+
+The Conversation Layer mints the key exactly once, the moment the
+consumer reaches order review (`CHECKOUT` → `AWAITING_CONFIRM`), and
+persists it into `context.checkoutIdempotencyKey` — every subsequent
+`CONFIRM_ORDER`, including genuinely concurrent duplicates arriving before
+the first one's state transition commits, reads the SAME persisted key.
+Live-verified with 5 truly concurrent `CONFIRM_ORDER` HTTP requests
+against the running dev server producing exactly one `SalesOrder`.
+
+## 32. Order Status — DRAFT, Not a New State
+
+A D2C order is created `DRAFT`, the existing default every Sales Order
+already starts at — no new status (`AWAITING_PAYMENT`, etc.) was added to
+`SalesOrderStatus`. "Awaiting Payment" is purely display wording the
+Conversation Layer applies when formatting the confirmation message
+(`formatOrderStatusForConsumer()` in `conversation.service.ts`) — the real
+persisted status stays `DRAFT`, exactly like every other domain object in
+this codebase (`SalesOrder.status`, `Product.status`, ...) versus its
+display label. Sprint 35 is expected to introduce real payment states;
+this mapping function is the one place that will need to grow, never the
+business logic layer underneath it.
+
+## 33. Order Confirmation Flow (Conversation State)
+
+Reuses the reserved `ConversationState.ACTIVE` value (documented as an
+extension point since Sprint 33) — no new conversation state enum value
+was needed. All flow-scoped working data (`cart: {productId,quantity}[]`,
+`pendingProductId`, `checkoutIdempotencyKey`) lives in the same untyped
+`context: Json?` bag every other conversation state already uses; no cart
+table, no persistent shopping-cart infrastructure (brief §4) — a "cart" is
+never more than an array sitting inside one `ConsumerConversation` row.
+
+```
+MAIN_MENU --[ORDER_SNACKS]--> ACTIVE/BROWSING
+  --[select SKU]--> ACTIVE/AWAITING_QUANTITY
+  --[quantity]--> ACTIVE/CART_MENU  (shows running cart + Add More/Review/Remove)
+  --[CHECKOUT]--> ACTIVE/AWAITING_CONFIRM  (mints idempotency key, shows order summary)
+  --[CONFIRM_ORDER]--> MAIN_MENU  (SalesOrder created, confirmation shown)
+```
+
+`EDIT_ORDER` returns to `CART_MENU`; `CANCEL_ORDER` clears the cart and
+returns to `MAIN_MENU` without creating anything; `REMOVE_ITEM` presents
+the current cart as a list and removes the chosen line. `MENU`/reset works
+from any of these states exactly as it already did before this sprint
+(brief §20 — unchanged).
+
+**Bug found and fixed during live verification**: when a tenant's D2C
+catalogue is empty, the original implementation displayed the main-menu
+buttons while leaving the conversation's own persisted state in
+`BROWSING` — clicking one of those buttons was then misrouted into the
+product-selection handler as if it were a SKU id (a real consumer would
+have seen "How many would you like?" after clicking "My Account"). Fixed
+by genuinely transitioning to `MAIN_MENU` in that branch; covered by a new
+regression test and re-verified live against a real second, catalogue-less
+tenant.
+
+## 34. Main Menu — Order Snacks
+
+"Order Snacks" is the one new "available now" main-menu option (brief
+§11) — deliberately generic wording, never a tenant's own brand name in
+the button label (the same lesson Sprint 33's own tenant-name bug taught).
+My Points/My Rewards (Sprint 40), My Collection (Sprint 37), and
+Promotions (Sprint 41) remain absent entirely — never shown as disabled
+stubs.
+
+## 35. Order Lookup
+
+Satisfied at the minimum the brief asks for (§12): the `CONFIRM_ORDER`
+response itself already includes the order reference, date, items,
+quantities, total, currency, and status — no separate "view my orders"
+command or endpoint was built. `D2COrderingService.getConsumerOrder()`
+exists as a proper, ownership-enforced lookup (used internally to format
+that response, and available for a future "view order" command) — a
+Consumer may only ever retrieve their OWN order; a mismatched
+`consumerId` and a genuinely nonexistent order both return the identical
+404, never distinguishing which case occurred.
+
+## 36. Security, Idempotency, and Concurrency — Live-Verified
+
+- Unauthenticated `POST /d2c/conversations/messages` → `401` (unchanged
+  from Sprint 33 — the ordering flow rides the same internal,
+  JWT-authenticated surface, no new controller/route was added).
+- Tenant isolation: a second, genuinely separate organisation (created via
+  a real `/auth/register` call, exactly Sprint 33's own precedent) sees
+  only its own D2C-orderable products; submitting the FIRST tenant's own
+  product id as a SKU selection under the second tenant is rejected with
+  the brief's exact wording ("That product is no longer available...").
+- Price/total tampering: an HTTP body with extraneous `price`/`total`
+  fields injected alongside `CONFIRM_ORDER` produced an order priced
+  entirely from the live catalogue — those fields have no schema slot to
+  land in and are silently dropped by Zod validation.
+- Idempotency/concurrency: 5 genuinely concurrent `CONFIRM_ORDER` requests
+  against the same in-flight checkout produced exactly one `SalesOrder`.
+- Consumer ownership: enforced at `D2COrderingService.getConsumerOrder()`
+  (unit-tested — no HTTP route exists to exercise it live this sprint,
+  since no "view past orders" command was built, per §35).
+
+## 37. Inventory — Deliberately Untouched
+
+Creating or confirming a D2C order never deducts, reserves, or otherwise
+touches `InventoryStock`/`InventoryTransaction` — `D2COrderingService`
+and `SalesOrderService.createForConsumer()` both have zero Inventory
+imports, the same "a Sales Order is a record of demand" invariant
+Sprint 4.8 already established for B2B orders (verified structurally by
+the existing `direct-sales-independence.spec.ts` guard, unchanged). Stock
+availability is not yet shown during D2C browsing (Sprint 4.8's own B2B
+UI shows it only as a live informational read, never a gate) — a
+documented, deliberately deferred piece of "availability" for whichever
+sprint wires up D2C fulfilment.
+
+## 38. Deferred Scope (Sprint 34)
+
+Explicitly not built this sprint: payment of any kind (Sprint 35), D2C
+fulfilment/Collection Point (later sprint — `InvoiceService`/
+`DispatchService`/`CustomerReturnService`'s new guards document exactly
+where that future work plugs in), inventory deduction/reservation for D2C
+orders, loyalty/rewards, marketing/promotions, a "view my past orders"
+conversation command, a dedicated D2C order-management admin screen
+(Sprint 39 — the existing Sales Order list/detail already shows D2C orders
+today), and the Sprint 42 consumer-facing simulator.
+
+## 39. Testing (Sprint 34)
+
+`apps/api/src/sales/sales-order.service.spec.ts`: `createForConsumer`
+(live-catalogue pricing never client-supplied, rejects an unpriced/
+non-finished/cross-tenant/invalid-quantity SKU, idempotency-before-
+precheck, P2002-race recovery). `apps/api/src/catalogue/product/
+product.service.spec.ts`: `sellingPrice` create/update/clear pass-through.
+`apps/api/src/d2c/ordering/`: `d2c-ordering.service.spec.ts` (product
+browsing filters — inactive/unpriced/wrong-type/cross-tenant all
+excluded; cart add/update/remove/merge; live-price cart summary with
+unavailable-item dropping; ownership-enforced order lookup);
+`d2c-ordering-independence.spec.ts` (no direct Product/SalesOrder/
+Consumer table writes, no WhatsApp code, no forbidden cross-domain
+imports, no persistent cart infrastructure). `apps/api/src/d2c/
+conversation/conversation.service.spec.ts`: a full new "Order Snacks
+flow" suite — browse → select → quantity → checkout → confirm → real
+`SalesOrder` created; invalid quantity/product rejection; multi-item
+orders (one `SalesOrder`, multiple `SalesOrderItem`s, merged quantities
+for a repeated SKU); a product becoming unavailable between add-to-cart
+and checkout; idempotent replay and 5-way genuine concurrency producing
+exactly one order; cross-tenant SKU rejection; the empty-catalogue
+state-transition regression found live. Full live verification against
+the real dev database, real HTTP requests, and a real second organisation
+— see `docs/sprint-34-completion-report.md`.

@@ -5,6 +5,7 @@ import {
   Outlet,
   OutletStatus,
   Product,
+  SalesOrderSource,
   SalesOrderStatus,
 } from '@prisma/client';
 
@@ -81,6 +82,7 @@ describe('SalesOrderService', () => {
     updatedById: 'user-1',
     createdAt: new Date('2026-08-21'),
     updatedAt: new Date('2026-08-21'),
+    sellingPrice: null,
     productVariantId: null,
   };
 
@@ -97,19 +99,23 @@ describe('SalesOrderService', () => {
     orderCode: 'SO-000001',
     customerId: 'customer-1',
     outletId: 'outlet-1',
+    consumerId: null,
     salesAgentId: 'user-1',
+    source: SalesOrderSource.B2B,
     status: SalesOrderStatus.DRAFT,
     orderDate: new Date('2026-08-21'),
     notes: null,
     subtotal: 500,
     discount: 0,
     total: 500,
+    idempotencyKey: null,
     createdById: 'user-1',
     updatedById: 'user-1',
     createdAt: new Date('2026-08-21'),
     updatedAt: new Date('2026-08-21'),
     customer: { id: 'customer-1', customerCode: 'CUS-000001', customerName: 'Bodija Supermart' },
     outlet: { id: 'outlet-1', outletCode: 'OUT-000001', name: 'Bodija Supermart — Main Branch' },
+    consumer: null,
     items: [
       {
         id: 'item-1',
@@ -127,6 +133,7 @@ describe('SalesOrderService', () => {
     const salesOrderRepository = {
       create: jest.fn(),
       findById: jest.fn(),
+      findByIdempotencyKey: jest.fn(),
       findManyByOrganisation: jest.fn(),
       existsByCode: jest.fn().mockResolvedValue(false),
       update: jest.fn(),
@@ -363,6 +370,185 @@ describe('SalesOrderService', () => {
 
         expect(outletRepository.findById).not.toHaveBeenCalled();
       });
+    });
+  });
+
+  describe('createForConsumer (Sprint 34)', () => {
+    const pricedProduct: Product = { ...finishedProduct, id: 'product-priced', sellingPrice: 500 };
+    const unpricedProduct: Product = {
+      ...finishedProduct,
+      id: 'product-unpriced',
+      sellingPrice: null,
+    };
+
+    function d2cOrder(overrides: Partial<SalesOrderWithRelations> = {}): SalesOrderWithRelations {
+      return {
+        ...order,
+        id: 'order-d2c-1',
+        customerId: null,
+        outletId: null,
+        consumerId: 'consumer-1',
+        salesAgentId: null,
+        source: SalesOrderSource.D2C,
+        idempotencyKey: 'idem-key-1',
+        customer: null,
+        outlet: null,
+        consumer: { id: 'consumer-1', consumerCode: 'CON-000001', fullName: 'Ada Okafor' },
+        items: [
+          {
+            id: 'item-d2c-1',
+            productId: pricedProduct.id,
+            quantity: 2,
+            quantityFulfilled: 0,
+            unitPrice: 500,
+            lineTotal: 1000,
+            product: {
+              id: pricedProduct.id,
+              code: pricedProduct.code,
+              name: pricedProduct.name,
+              unit: 'Pack',
+            },
+          },
+        ],
+        subtotal: 1000,
+        total: 1000,
+        ...overrides,
+      };
+    }
+
+    it('prices every item from the LIVE Product.sellingPrice — never a client-supplied price (there is no such field)', async () => {
+      const { service, salesOrderRepository, productRepository } = makeService();
+      salesOrderRepository.findByIdempotencyKey.mockResolvedValue(null);
+      productRepository.findById.mockResolvedValue(pricedProduct);
+      salesOrderRepository.create.mockResolvedValue(d2cOrder());
+
+      const { order: created, wasCreated } = await service.createForConsumer('org-1', {
+        consumerId: 'consumer-1',
+        items: [{ productId: pricedProduct.id, quantity: 2 }],
+        orderDate: new Date('2026-09-28'),
+        idempotencyKey: 'idem-key-1',
+      });
+
+      expect(wasCreated).toBe(true);
+      expect(created.source).toBe('D2C');
+      expect(created.consumerId).toBe('consumer-1');
+      expect(created.customerId).toBeNull();
+      const createArg = salesOrderRepository.create.mock.calls[0]![0] as {
+        source: string;
+        consumer: { connect: { id: string } };
+        items: {
+          create: { productId: string; quantity: number; unitPrice: number; lineTotal: number }[];
+        };
+      };
+      expect(createArg.source).toBe('D2C');
+      expect(createArg.consumer.connect.id).toBe('consumer-1');
+      // The service input has NO `unitPrice` field at all — this asserts the price it
+      // actually persisted came from `pricedProduct.sellingPrice` (500), not anything
+      // the (nonexistent) caller-supplied price could have been.
+      expect(createArg.items.create[0]!.unitPrice).toBe(500);
+      expect(createArg.items.create[0]!.lineTotal).toBe(1000);
+    });
+
+    it('rejects a product with no sellingPrice (not D2C-orderable)', async () => {
+      const { service, salesOrderRepository, productRepository } = makeService();
+      salesOrderRepository.findByIdempotencyKey.mockResolvedValue(null);
+      productRepository.findById.mockResolvedValue(unpricedProduct);
+
+      await expect(
+        service.createForConsumer('org-1', {
+          consumerId: 'consumer-1',
+          items: [{ productId: unpricedProduct.id, quantity: 1 }],
+          orderDate: new Date('2026-09-28'),
+          idempotencyKey: 'idem-key-2',
+        }),
+      ).rejects.toThrow(BadRequestException);
+      expect(salesOrderRepository.create).not.toHaveBeenCalled();
+    });
+
+    it('rejects a non-finished-product SKU, and a non-tenant-scoped SKU', async () => {
+      const { service, salesOrderRepository, productRepository } = makeService();
+      salesOrderRepository.findByIdempotencyKey.mockResolvedValue(null);
+      productRepository.findById.mockResolvedValueOnce(rawMaterial);
+      await expect(
+        service.createForConsumer('org-1', {
+          consumerId: 'consumer-1',
+          items: [{ productId: rawMaterial.id, quantity: 1 }],
+          orderDate: new Date('2026-09-28'),
+          idempotencyKey: 'idem-key-3',
+        }),
+      ).rejects.toThrow(BadRequestException);
+
+      productRepository.findById.mockResolvedValueOnce(null);
+      await expect(
+        service.createForConsumer('org-1', {
+          consumerId: 'consumer-1',
+          items: [{ productId: 'someone-elses-product', quantity: 1 }],
+          orderDate: new Date('2026-09-28'),
+          idempotencyKey: 'idem-key-4',
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects an invalid quantity (zero, negative, non-integer)', async () => {
+      const { service, salesOrderRepository, productRepository } = makeService();
+      salesOrderRepository.findByIdempotencyKey.mockResolvedValue(null);
+      productRepository.findById.mockResolvedValue(pricedProduct);
+
+      for (const quantity of [0, -1, 1.5]) {
+        await expect(
+          service.createForConsumer('org-1', {
+            consumerId: 'consumer-1',
+            items: [{ productId: pricedProduct.id, quantity }],
+            orderDate: new Date('2026-09-28'),
+            idempotencyKey: `idem-key-qty-${quantity}`,
+          }),
+        ).rejects.toThrow(BadRequestException);
+      }
+    });
+
+    it('idempotency-before-precheck: an existing idempotency-key match short-circuits before any product validation', async () => {
+      const { service, salesOrderRepository, productRepository } = makeService();
+      const existing = d2cOrder();
+      salesOrderRepository.findByIdempotencyKey.mockResolvedValue(existing);
+
+      const { order: returned, wasCreated } = await service.createForConsumer('org-1', {
+        consumerId: 'consumer-1',
+        // A deliberately invalid item — if the precheck ran, this would throw. It never
+        // runs, because the idempotency lookup returns first (the Sprint 9->10 lesson).
+        items: [{ productId: 'this-product-does-not-exist', quantity: -5 }],
+        orderDate: new Date('2026-09-28'),
+        idempotencyKey: 'idem-key-1',
+      });
+
+      expect(wasCreated).toBe(false);
+      expect(returned.id).toBe(existing.id);
+      expect(productRepository.findById).not.toHaveBeenCalled();
+      expect(salesOrderRepository.create).not.toHaveBeenCalled();
+    });
+
+    it('a genuine concurrent race (P2002 on the idempotency key) recovers by re-fetching the winner, never surfaces the raw DB error', async () => {
+      const { service, salesOrderRepository, productRepository } = makeService();
+      productRepository.findById.mockResolvedValue(pricedProduct);
+      const winner = d2cOrder();
+      salesOrderRepository.findByIdempotencyKey
+        .mockResolvedValueOnce(null) // this call's own pre-check: no existing order yet
+        .mockResolvedValueOnce(winner); // the recovery re-fetch after losing the race
+      const p2002 = Object.assign(new Error('Unique constraint failed'), { code: 'P2002' });
+      Object.setPrototypeOf(
+        p2002,
+        jest.requireActual('@prisma/client').Prisma.PrismaClientKnownRequestError.prototype,
+      );
+      salesOrderRepository.create.mockRejectedValue(p2002);
+
+      const { order: returned, wasCreated } = await service.createForConsumer('org-1', {
+        consumerId: 'consumer-1',
+        items: [{ productId: pricedProduct.id, quantity: 1 }],
+        orderDate: new Date('2026-09-28'),
+        idempotencyKey: 'idem-key-1',
+      });
+
+      expect(wasCreated).toBe(false);
+      expect(returned.id).toBe(winner.id);
     });
   });
 

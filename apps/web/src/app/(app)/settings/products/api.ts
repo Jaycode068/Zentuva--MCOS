@@ -30,6 +30,9 @@ export interface Product {
   unit: string;
   imageUrl: string | null;
   status: 'DRAFT' | 'ACTIVE' | 'ARCHIVED';
+  /** Added Sprint 34 — D2C Consumer Ordering. `null` until an admin sets one; see
+   *  `Product.sellingPrice`'s schema doc comment. */
+  sellingPrice: number | null;
   createdAt: string;
   updatedAt: string;
   createdById: string | null;

@@ -24,8 +24,12 @@ export interface ListSalesOrdersParams {
 const PRODUCT_SELECT = { id: true, code: true, name: true, unit: true };
 
 export type SalesOrderWithRelations = SalesOrder & {
-  customer: { id: string; customerCode: string; customerName: string };
+  /** `null` for a `D2C` order (Sprint 34) — see `SalesOrder.customerId`'s schema doc
+   *  comment. Every pre-existing B2B caller keeps getting a real object here. */
+  customer: { id: string; customerCode: string; customerName: string } | null;
   outlet: { id: string; outletCode: string; name: string } | null;
+  /** Added Sprint 34 — `null` for a `B2B` order. */
+  consumer: { id: string; consumerCode: string; fullName: string } | null;
   items: {
     id: string;
     productId: string;
@@ -42,6 +46,7 @@ export type SalesOrderWithRelations = SalesOrder & {
 const RELATIONS_INCLUDE = {
   customer: { select: { id: true, customerCode: true, customerName: true } },
   outlet: { select: { id: true, outletCode: true, name: true } },
+  consumer: { select: { id: true, consumerCode: true, fullName: true } },
   items: {
     include: { product: { select: PRODUCT_SELECT } },
     orderBy: { createdAt: 'asc' as const },
@@ -68,6 +73,21 @@ export class SalesOrderRepository {
   findById(organisationId: string, id: string): Promise<SalesOrderWithRelations | null> {
     return this.prisma.salesOrder.findFirst({
       where: { id, organisationId },
+      include: RELATIONS_INCLUDE,
+    });
+  }
+
+  /** Added Sprint 34 — the idempotency-before-precheck lookup
+   *  (`SalesOrderService.createForConsumer`), same shape as
+   *  `CustomerReturnRepository`/`SalesFulfilmentRepository`'s own
+   *  `findByIdempotencyKey`, generalised here to sales-order creation itself rather
+   *  than a downstream event against an existing order. */
+  findByIdempotencyKey(
+    organisationId: string,
+    idempotencyKey: string,
+  ): Promise<SalesOrderWithRelations | null> {
+    return this.prisma.salesOrder.findFirst({
+      where: { organisationId, idempotencyKey },
       include: RELATIONS_INCLUDE,
     });
   }

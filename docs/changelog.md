@@ -7,6 +7,50 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 34 D2C Consumer Ordering] - 2026-09-28
+
+Builds D2C Consumer Ordering entirely as an extension of the existing
+Sales Order domain, never a parallel order system: a registered Consumer,
+through the existing Conversation Layer, can now browse the tenant's own
+D2C-orderable products, build a multi-item cart, review an order summary,
+and confirm it — producing a real, ordinary `SalesOrder`/`SalesOrderItem`,
+with server-authoritative pricing and idempotent, concurrency-safe
+creation. `Conversation Layer -> D2COrderingService (new) ->
+SalesOrderService.createForConsumer (new entry point on the EXISTING
+service) -> SalesOrder`.
+
+The pre-implementation audit found two real, non-trivial gaps rather than
+inventing anything: the Product Catalogue had no pricing field at all
+(deliberately out of scope until now), and `SalesOrder.customerId` was a
+required FK that structurally could not represent a Consumer without
+either converting it into a `Customer` or fabricating a placeholder one.
+Both were resolved with the smallest additive changes: `Product
+.sellingPrice` (nullable, opt-in, exposed through the existing product
+endpoints — not a pricing engine), and widening `customerId`/
+`salesAgentId` to nullable while adding a new nullable `consumerId`,
+mutually exclusive with `customerId` and enforced by a DB-level `CHECK`
+constraint. A new `SalesOrderSource` (`B2B`/`D2C`, default `B2B`) lets the
+existing Sales Order admin list/detail distinguish the two channels — no
+new admin screen was built.
+
+Pricing is server-authoritative by construction: the conversation contract
+has no price field anywhere, so a consumer's client can never supply one —
+every order is priced from the live `Product.sellingPrice` at confirmation
+time. Idempotency reuses the exact `find-then-create-then-recover-from-
+P2002` recipe already established for Consumer/Conversation creation,
+applied to a new `SalesOrder.idempotencyKey`, minted once by the
+Conversation Layer at order review and replayed on every subsequent
+confirmation attempt — live-verified with 5 genuinely concurrent
+confirmation requests producing exactly one order. A real bug (an
+empty-catalogue tenant's next menu click being misrouted as a product
+selection, since the conversation's own state never actually left
+`BROWSING`) was found during this sprint's own live verification and
+fixed before completion.
+
+223 suites / 1950 tests passing, confirming nothing in the pre-existing
+B2B Sales Order, fulfilment, invoice, dispatch, customer return, finance,
+or Sprint 32/33 D2C behaviour regressed.
+
 ## [Sprint 33 Consumer Conversation Experience Foundation] - 2026-09-28
 
 Builds the channel-neutral **Consumer Conversation Layer** that will

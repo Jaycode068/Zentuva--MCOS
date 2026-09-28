@@ -18,6 +18,7 @@ import { ApiError } from '@/lib/api-client';
 import { listInventoryLocations } from '@/app/(app)/settings/inventory/api';
 import { listOutlets } from '@/app/(app)/settings/retail/api';
 import {
+  getSalesOrderPartyName,
   listSalesFulfilments,
   listSalesOrders,
   type SalesFulfilment,
@@ -74,7 +75,7 @@ export function DispatchDialog({
           (order.status === 'PARTIALLY_FULFILLED' || order.status === 'FULFILLED') &&
           (!orderSearch.trim() ||
             order.orderCode.toLowerCase().includes(orderSearch.trim().toLowerCase()) ||
-            order.customer.customerName.toLowerCase().includes(orderSearch.trim().toLowerCase())),
+            getSalesOrderPartyName(order).toLowerCase().includes(orderSearch.trim().toLowerCase())),
       ),
     [ordersData, orderSearch],
   );
@@ -100,10 +101,14 @@ export function DispatchDialog({
   const defaultLocation = activeLocations.find((l) => l.isDefault) ?? activeLocations[0];
   const resolvedSourceLocationId = sourceLocationId || defaultLocation?.id || '';
 
+  // Sprint 34 — a D2C order has no B2B `customer` at all (see `getSalesOrderPartyName`),
+  // so there is no outlet list to fetch for it; this dialog only ever lists dispatchable
+  // (PARTIALLY_FULFILLED/FULFILLED) orders, which a D2C order never reaches this sprint
+  // anyway (no D2C fulfilment exists yet), but the guard keeps this defensively correct.
   const { data: outletsData } = useQuery({
-    queryKey: ['outlets', selectedOrder?.customer.id],
-    queryFn: () => listOutlets({ customerId: selectedOrder!.customer.id }),
-    enabled: !!selectedOrder,
+    queryKey: ['outlets', selectedOrder?.customer?.id],
+    queryFn: () => listOutlets({ customerId: selectedOrder!.customer!.id }),
+    enabled: !!selectedOrder?.customer,
   });
 
   const rows = useMemo(
@@ -165,7 +170,7 @@ export function DispatchDialog({
                 className="w-full rounded-md border border-border p-2 text-left text-sm hover:bg-muted/50"
               >
                 <span className="font-mono text-xs font-medium">{order.orderCode}</span>
-                <span className="ml-2 text-muted-foreground">{order.customer.customerName}</span>
+                <span className="ml-2 text-muted-foreground">{getSalesOrderPartyName(order)}</span>
               </button>
             ))}
           </div>

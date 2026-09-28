@@ -8,7 +8,7 @@ import { Badge, Button, Select } from '@zentuva/ui';
 import { FieldCard } from '@/components/field/FieldCard';
 import { FieldStickyActionBar } from '@/components/field/FieldStickyActionBar';
 
-import { listSalesOrders, type SalesOrderStatus } from '../api';
+import { getSalesOrderPartyName, listSalesOrders, type SalesOrderStatus } from '../api';
 import { SALES_ORDER_STATUS_LABELS, SALES_ORDER_STATUS_VARIANT } from '../labels';
 
 /** Order history card list (Sprint 4.8 brief §20) — status filter only, no dense table. */
@@ -52,7 +52,7 @@ export default function FieldOrdersPage() {
                 {SALES_ORDER_STATUS_LABELS[order.status]}
               </Badge>
             </div>
-            <p className="mt-0.5 text-sm">{order.customer.customerName}</p>
+            <p className="mt-0.5 text-sm">{getSalesOrderPartyName(order)}</p>
             <p className="text-xs text-muted-foreground">{order.total.toFixed(2)}</p>
           </FieldCard>
         ))}

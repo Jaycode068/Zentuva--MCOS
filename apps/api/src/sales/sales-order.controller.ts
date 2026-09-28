@@ -323,6 +323,11 @@ function toSalesOrderResponse(order: SalesOrderWithRelations) {
     orderCode: order.orderCode,
     customer: order.customer,
     outlet: order.outlet,
+    /** Added Sprint 34 — `null` for a B2B order. Lets the existing Sales Order admin
+     *  UI show a D2C order's actual `Consumer` in place of a `Customer`, without a
+     *  second admin screen (docs/domains/d2c.md "Internal Admin Visibility"). */
+    consumer: order.consumer,
+    source: order.source,
     salesAgentId: order.salesAgentId,
     status: order.status,
     orderDate: order.orderDate,

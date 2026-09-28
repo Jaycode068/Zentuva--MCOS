@@ -88,6 +88,17 @@ export class InvoiceService {
     if (order.status !== SalesOrderStatus.FULFILLED) {
       throw new BadRequestException('Sales order must be fulfilled before it can be invoiced');
     }
+    // Sprint 34 — a D2C order has no B2B `customerId` (see `SalesOrder.consumerId`'s
+    // schema doc comment) and is never FULFILLED this sprint anyway (no D2C fulfilment
+    // exists yet), so this is currently unreachable in practice. Guarded explicitly
+    // rather than silently passing `null` into `customer.connect`: D2C invoicing is a
+    // documented future-sprint boundary (docs/domains/d2c.md "Payment Boundary"), not
+    // something this flow should attempt.
+    if (!order.customerId) {
+      throw new BadRequestException(
+        'This sales order has no B2B customer and cannot be invoiced through this flow',
+      );
+    }
 
     const existing = await this.invoiceRepository.findManyBySalesOrderExcludingVoid(
       organisationId,

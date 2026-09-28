@@ -26,6 +26,7 @@ describe('ProductService', () => {
     updatedById: 'user-1',
     createdAt: new Date('2026-01-01'),
     updatedAt: new Date('2026-01-01'),
+    sellingPrice: null,
     productVariantId: null,
   };
 
@@ -169,6 +170,42 @@ describe('ProductService', () => {
       expect(productVariantRepository.findById).not.toHaveBeenCalled();
       expect(productRepository.create.mock.calls[0]?.[0]).not.toHaveProperty('productVariant');
     });
+
+    it('passes sellingPrice through when supplied (Sprint 34 — D2C ordering)', async () => {
+      const { service, productRepository } = makeService();
+      productRepository.create.mockResolvedValue(product);
+
+      await service.create(
+        'org-1',
+        {
+          name: 'Plantain Chips',
+          category: 'SNACKS',
+          type: 'FINISHED_PRODUCT',
+          unit: 'Pack',
+          sellingPrice: 500,
+        },
+        'user-1',
+      );
+
+      expect(productRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ sellingPrice: 500 }),
+      );
+    });
+
+    it('defaults sellingPrice to undefined (never D2C-orderable until an admin sets one)', async () => {
+      const { service, productRepository } = makeService();
+      productRepository.create.mockResolvedValue(product);
+
+      await service.create(
+        'org-1',
+        { name: 'Plantain Chips', category: 'SNACKS', type: 'FINISHED_PRODUCT', unit: 'Pack' },
+        'user-1',
+      );
+
+      expect(productRepository.create.mock.calls[0]?.[0]).toMatchObject({
+        sellingPrice: undefined,
+      });
+    });
   });
 
   describe('update', () => {
@@ -179,6 +216,35 @@ describe('ProductService', () => {
       await expect(service.update('org-1', 'missing', { name: 'X' }, 'user-1')).rejects.toThrow(
         NotFoundException,
       );
+    });
+
+    it('sets and clears sellingPrice (Sprint 34) — clearing (null) makes the product not D2C-orderable again', async () => {
+      const { service, productRepository } = makeService();
+      productRepository.findById.mockResolvedValue(product);
+      productRepository.update.mockResolvedValue(product);
+
+      await service.update('org-1', 'product-1', { sellingPrice: 750 }, 'user-1');
+      expect(productRepository.update).toHaveBeenCalledWith(
+        'org-1',
+        'product-1',
+        expect.objectContaining({ sellingPrice: 750 }),
+      );
+
+      await service.update('org-1', 'product-1', { sellingPrice: null }, 'user-1');
+      expect(productRepository.update).toHaveBeenCalledWith(
+        'org-1',
+        'product-1',
+        expect.objectContaining({ sellingPrice: null }),
+      );
+    });
+
+    it('omitting sellingPrice from the update leaves it untouched', async () => {
+      const { service, productRepository } = makeService();
+      productRepository.findById.mockResolvedValue(product);
+      productRepository.update.mockResolvedValue(product);
+
+      await service.update('org-1', 'product-1', { name: 'New Name' }, 'user-1');
+      expect(productRepository.update.mock.calls[0]?.[2]).not.toHaveProperty('sellingPrice');
     });
 
     it('passes the partial update through, stamping updatedById', async () => {
