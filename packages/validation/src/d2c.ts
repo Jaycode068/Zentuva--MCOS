@@ -90,3 +90,46 @@ export const resolveConsumerLocationRequestSchema = z.object({
 export type ResolveConsumerLocationRequestInput = z.infer<
   typeof resolveConsumerLocationRequestSchema
 >;
+
+// ---------------------------------------------------------------------------
+// Sprint 33 — Consumer Conversation Experience Foundation
+// (docs/domains/d2c.md §"Conversation Contract"). The typed inbound half of
+// the Channel Adapter <-> Conversation Layer contract — the exact shape a
+// future WhatsApp adapter (translating a WhatsApp message/button/list reply)
+// and the Sprint 42 simulator are both expected to submit, unchanged. The
+// outbound half (`ConversationOutboundResponse`) is server-constructed, not
+// client-submitted, so it is a plain TypeScript type in
+// `apps/api/src/d2c/conversation/conversation.types.ts` rather than a Zod
+// schema here — nothing validates a shape the server itself produces.
+// ---------------------------------------------------------------------------
+
+export const conversationChannelSchema = z.enum(['WHATSAPP']);
+export type ConversationChannelInput = z.infer<typeof conversationChannelSchema>;
+
+/** A discriminated union, not a generic `{type: string; value: string}` —
+ *  `TEXT` carries free text, `BUTTON`/`LIST_SELECTION` carry a short,
+ *  already-known option value (never a WhatsApp-specific payload shape;
+ *  translating an actual WhatsApp interactive-message reply into one of
+ *  these three is the future adapter's own job, not this schema's). */
+export const conversationInputSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('TEXT'), text: z.string().trim().min(1).max(1000) }),
+  z.object({ type: z.literal('BUTTON'), value: z.string().trim().min(1).max(100) }),
+  z.object({ type: z.literal('LIST_SELECTION'), value: z.string().trim().min(1).max(100) }),
+]);
+export type ConversationInput = z.infer<typeof conversationInputSchema>;
+
+/**
+ * `POST /d2c/conversations/messages` — this sprint's internal test-harness
+ * surface for the conversation contract (docs/domains/d2c.md §"Public
+ * Security" — deliberately internal/authenticated this sprint, never a
+ * public unauthenticated endpoint, since no real WhatsApp webhook exists
+ * yet to receive). `organisationId` is never part of this payload — the
+ * controller always derives it from the caller's own authenticated session,
+ * exactly like every other internal endpoint in this codebase.
+ */
+export const sendConversationMessageSchema = z.object({
+  channel: conversationChannelSchema.default('WHATSAPP'),
+  externalConversationId: z.string().trim().min(1, 'externalConversationId is required').max(64),
+  input: conversationInputSchema,
+});
+export type SendConversationMessageInput = z.infer<typeof sendConversationMessageSchema>;

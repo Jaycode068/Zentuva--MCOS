@@ -7,6 +7,61 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 33 Consumer Conversation Experience Foundation] - 2026-09-28
+
+Builds the channel-neutral **Consumer Conversation Layer** that will
+eventually sit between a future WhatsApp adapter and Zentuva's D2C
+services: `WhatsApp → Channel Adapter → Conversation Layer → D2C Services
+→ Existing Domains`. `ConversationService` exposes a single
+`handleInboundMessage()` entry point with zero WhatsApp knowledge — no
+real WhatsApp integration, no generic workflow engine, and no second
+Consumer/Territory/phone-normalization system were built. A lightweight
+`ConsumerConversation` session (`NEW → REGISTRATION → LOCATION_SELECTION →
+MAIN_MENU`) drives registration and location capture by calling Sprint
+32's `ConsumerService` directly — never a second registration system —
+and reuses Sprint 32's existing `Territory` hierarchy and "I can't find my
+location" mechanism unchanged.
+
+A real architectural gap was found via live testing, not unit tests alone:
+the seeded `Territory` hierarchy is four levels deep, so a naive "select
+from the root" query surfaced a single useless option instead of a
+meaningful territory choice. Fixed with a new, fully generic
+`resolveBranchPoint()` helper that auto-descends through any chain of
+single-child hierarchy levels until reaching a real branch point — no
+hardcoded depth or level names, verified against the real seed data.
+Every territory/location selection is re-validated server-side at submit
+time, rejecting an unknown id or a location that does not belong to the
+previously selected territory.
+
+A second issue, also found via live cross-tenant testing (registering a
+brand-new second organisation and reading the response text): the welcome
+message hardcoded one tenant's brand name regardless of which organisation
+was actually being served. Fixed by threading the real
+`Organisation.displayName`/`.name` through every message-building path,
+covered by a new regression test and re-verified live.
+
+The conversation contract (`TEXT`/`BUTTON`/`LIST_SELECTION` inbound,
+`TEXT`/`BUTTONS`/`LIST` outbound) is deliberately channel-neutral — never
+a WhatsApp payload shape — so a future adapter's only job is translating a
+webhook payload into this contract and rendering the response as the
+equivalent WhatsApp message type. The main menu shows only capabilities
+that already work (My Account, Update My Location, Help); ordering (Sprint
+34), My Points/My Rewards (Sprint 40), My Collection (Sprint 37), and
+Promotions (Sprint 41) are deliberately absent rather than shown as
+disabled stubs. Idempotency reuses the existing
+`findOrCreate`/`P2002`-race-recovery recipe — live-verified with 5
+genuinely concurrent registration requests producing exactly one
+`Consumer` row. The HTTP surface is internal/JWT-authenticated only
+(reusing Sprint 32's `d2c.consumer.view`/`.manage` permissions, no new
+permission), since no real WhatsApp webhook exists yet to receive an
+unauthenticated call. A small internal "Conversation Tester" UI was added
+for verification — explicitly not the future Sprint 42 consumer-facing
+simulator.
+
+221 suites / 1912 tests passing, confirming nothing in Consumer/Territory/
+Customer/Outlet/Sales/Identity/Access Control/Notifications/Audit/Finance/
+Recruitment regressed.
+
 ## [Sprint 32 Consumer Identity, Territory & Location Foundation] - 2026-09-28
 
 Establishes the D2C backend identity foundation: a dedicated `Consumer`

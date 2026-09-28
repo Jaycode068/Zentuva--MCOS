@@ -210,7 +210,13 @@ feature is built configurably so it can be reused by future tenants without code
 > exactly one Consumer row — and the service layer is channel-neutral by
 > construction, with zero WhatsApp knowledge anywhere in the domain,
 > verified executably, ready for a future WhatsApp adapter to call directly.
-> See
+> The next sprint built exactly that adapter's landing point: a
+> channel-neutral Conversation Layer driving registration and structured
+> location capture through the same Consumer service, with a generic
+> branch-point-resolution algorithm (found necessary via live testing
+> against the real, multi-level seeded territory hierarchy) so the first
+> question a consumer sees is always a meaningful choice, not a
+> single-option dead end. See
 > [docs/domains/README.md](docs/domains/README.md) for the
 > current status of every domain and [docs/roadmap.md](docs/roadmap.md) for the full
 > build order.

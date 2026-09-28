@@ -871,6 +871,7 @@ REJECTED}`) optionally linking an existing `CapitalProject`/
 - ✓ Sprint 30.1 — Public Recruitment Experience & Candidate Application Flow
 - ✓ Sprint 30.2 — Hiring Request → HR Approval → Public Vacancy Flow Audit
 - ✓ Sprint 32 — Consumer Identity, Territory & Location Foundation
+- ✓ Sprint 33 — Consumer Conversation Experience Foundation
 
 **Current focus:** The Finance MVP (Sprints 6-19) is considered
 functionally complete. Epic 14 (Asset & Maintenance Management) is fully
@@ -1148,11 +1149,50 @@ get/update/search/status-actions and territory assignment, and a minimal
 `/settings/d2c/consumers` admin UI. 218 suites / 1889 tests passing. See
 [`docs/sprint-32-completion-report.md`](sprint-32-completion-report.md).
 
+Sprint 33 ("Consumer Conversation Experience Foundation") built the
+channel-neutral Conversation Layer the brief's own diagram places between
+a future WhatsApp adapter and Sprint 32's D2C services:
+`WhatsApp → Channel Adapter → Conversation Layer → D2C Services →
+Existing Domains`. `ConversationService.handleInboundMessage()` is the one
+entry point, with zero WhatsApp knowledge — no real WhatsApp integration,
+no generic workflow engine, and no second Consumer/Territory/phone-
+normalization system were built. A lightweight `ConsumerConversation`
+session (`NEW → REGISTRATION → LOCATION_SELECTION → MAIN_MENU`) drives
+registration and structured location capture entirely through Sprint 32's
+existing `ConsumerService`/`Territory` hierarchy — never a second
+registration or geography system. Live testing (not unit tests alone)
+found the real seeded `Territory` hierarchy is four levels deep, so a
+naive root-level query surfaced a single useless option instead of a
+meaningful choice — fixed with a new, fully generic
+`resolveBranchPoint()` helper that auto-descends through any chain of
+single-child levels (no hardcoded depth or names) and re-validates every
+selection server-side, rejecting an unknown id or a location that does
+not belong to the selected territory. A second bug, also found live
+(registering a genuine second organisation and reading the response
+text): the welcome message hardcoded one tenant's brand name — fixed by
+threading the real organisation name through every message and
+re-verified against two real tenants. The conversation contract
+(`TEXT`/`BUTTON`/`LIST_SELECTION` in, `TEXT`/`BUTTONS`/`LIST` out) is
+deliberately channel-neutral; idempotency reuses the existing
+`findOrCreate`/`P2002`-recovery recipe, live-verified with 5 concurrent
+registration requests producing exactly one `Consumer`; the HTTP surface
+is internal/JWT-authenticated only, reusing Sprint 32's
+`d2c.consumer.view`/`.manage` permissions (no new permission); the main
+menu shows only what already works, deferring ordering (Sprint 34), My
+Points/Rewards (Sprint 40), My Collection (Sprint 37), and Promotions
+(Sprint 41). A small internal "Conversation Tester" UI was added for
+verification — explicitly not the future Sprint 42 consumer-facing
+simulator. 221 suites / 1912 tests passing. See
+[`docs/sprint-33-completion-report.md`](sprint-33-completion-report.md).
+
 Deliberately still not started: payroll, leave management, AI-driven
 recruitment automation (CV ranking, automated rejection, automated hiring
 decisions), a job-board/ATS integration, performance/KPI engines, an LMS,
-SMS/push/webhook notification channels, a WhatsApp chatbot/two-way
-conversation capability, digests, scheduled reminders, a real background
+SMS/push/webhook notification channels, the real WhatsApp channel adapter
+itself (Sprint 33 built only the channel-neutral conversation layer behind
+it — no Meta API, webhooks, templates, or media handling), the Sprint 42
+consumer-facing simulator, D2C ordering/payment/Collection Points/loyalty/
+promotions, digests, scheduled reminders, a real background
 worker for notification/email/WhatsApp processing, a marketing-email or
 broadcast-messaging platform of any kind, a Technician RBAC role (from Sprint 22),
 `ASSIGNED_TERRITORY`/`ASSIGNED_ASSETS` scope enforcement (no

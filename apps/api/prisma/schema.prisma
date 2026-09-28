@@ -262,6 +262,10 @@ model Organisation {
   /// (docs/domains/d2c.md).
   d2cConsumers                          Consumer[]
   d2cConsumerLocationRequests           ConsumerLocationRequest[]
+  /// Added Sprint 33 — Consumer Conversation Experience Foundation
+  /// (docs/domains/d2c.md).
+  d2cConsumerConversations              ConsumerConversation[]
+  d2cConversationMessages               ConsumerConversationMessage[]
 
   @@map("organisations")
 }
@@ -7511,6 +7515,8 @@ model Consumer {
   /// orphan a consumer, same rationale as `Customer.territory`.
   territory        Territory?                @relation(fields: [territoryId], references: [id], onDelete: SetNull)
   locationRequests ConsumerLocationRequest[]
+  /// Added Sprint 33 — Consumer Conversation Experience Foundation.
+  conversations    ConsumerConversation[]
 
   /// The core tenant-scoped identity guarantee (docs/domains/d2c.md §5):
   /// one normalized phone number identifies at most one Consumer PER
@@ -7548,4 +7554,117 @@ model ConsumerLocationRequest {
   @@index([organisationId, resolvedAt])
   @@index([consumerId])
   @@map("d2c_consumer_location_requests")
+}
+
+// ---------------------------------------------------------------------------
+// Sprint 33 — Consumer Conversation Experience Foundation
+// (docs/domains/d2c.md §"Conversation Architecture")
+// ---------------------------------------------------------------------------
+
+/// The inbound channel a `ConsumerConversation` arrived on. Deliberately ONE
+/// value this sprint — no real WhatsApp integration exists yet, and no
+/// speculative `SIMULATOR` value was added (docs/domains/d2c.md): Sprint
+/// 33's own internal test harness exercises this exact `WHATSAPP` path with
+/// a synthetic phone-shaped identifier, and the eventual Sprint 42 simulator
+/// is expected to do the same rather than requiring a schema migration now
+/// for a channel that doesn't exist yet.
+enum ConversationChannel {
+  WHATSAPP
+}
+
+/// A lightweight INTERACTION state — never a business workflow (Zentuva
+/// already has one, see `WorkflowInstance`) and never a generic state-
+/// machine framework. `ACTIVE` is reserved, unused this sprint: a
+/// placeholder for a future in-progress capability (e.g. Sprint 34's
+/// ordering flow) to occupy without a further schema migration; nothing in
+/// Sprint 33 ever sets it.
+enum ConversationState {
+  NEW
+  REGISTRATION
+  LOCATION_SELECTION
+  MAIN_MENU
+  ACTIVE
+}
+
+/// Conversation-session lifecycle, distinct from `state` (interaction
+/// step). `ENDED` is reserved, unused this sprint (brief §20: "do not build
+/// sophisticated session expiry rules unless clearly needed") — every
+/// conversation stays `ACTIVE` for its entire life this sprint; a future
+/// sprint may introduce real handoff/expiry rules that set it.
+enum ConversationStatus {
+  ACTIVE
+  ENDED
+}
+
+/// A conversational session with one external identity on one channel, in
+/// one organisation (docs/domains/d2c.md §"Conversation Session"). Never
+/// the WhatsApp phone number's primary database identity — deliberately a
+/// separate `id`, so a channel's own external identifier scheme (a phone
+/// number today, a synthetic test id for a future simulator) is never
+/// baked into how this row is referenced elsewhere.
+model ConsumerConversation {
+  id                     String              @id @default(cuid())
+  organisationId         String
+  /// Null until the underlying `Consumer` is identified/created — a brand
+  /// new conversation always starts without one.
+  consumerId             String?
+  channel                ConversationChannel @default(WHATSAPP)
+  /// The channel's own identifier for this conversation — a phone number
+  /// for WhatsApp. Deliberately NOT assumed globally unique (brief §21) —
+  /// uniqueness is always `[organisationId, channel, externalConversationId]`.
+  externalConversationId String
+  state                  ConversationState   @default(NEW)
+  /// Flow-scoped working data (e.g. the name/territory collected so far
+  /// mid-registration) — a small, deliberately untyped-at-the-schema-level
+  /// JSON bag, matching `Notification.metadata`/`AuditLog.metadata`'s own
+  /// existing convention for this kind of auxiliary, non-relational data.
+  context                Json?
+  status                 ConversationStatus  @default(ACTIVE)
+  lastInteractionAt      DateTime            @default(now())
+  createdAt              DateTime            @default(now())
+  updatedAt              DateTime            @updatedAt
+
+  organisation Organisation                  @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  /// `SetNull` — same rationale as `Consumer.territory`: nothing about a
+  /// conversation should ever block or cascade a Consumer-side change.
+  consumer     Consumer?                     @relation(fields: [consumerId], references: [id], onDelete: SetNull)
+  messages     ConsumerConversationMessage[]
+
+  /// The identity-resolution guarantee a channel adapter depends on (brief
+  /// §21): one external identity on one channel resolves to at most one
+  /// conversation per organisation — never a global constraint.
+  @@unique([organisationId, channel, externalConversationId])
+  @@index([organisationId])
+  @@index([organisationId, status])
+  @@index([consumerId])
+  @@map("d2c_consumer_conversations")
+}
+
+enum ConversationMessageDirection {
+  INBOUND
+  OUTBOUND
+}
+
+/// A minimal, immutable debug trail (docs/domains/d2c.md §"Conversation
+/// History") — deliberately NOT a full chat transcript/CRM messaging
+/// system. `payload` stores exactly the same small, already-internal
+/// command/response shape `ConversationService` itself works with — no raw
+/// channel-specific (future WhatsApp webhook) payload is ever persisted
+/// here, and nothing beyond what is already visible elsewhere (the phone
+/// number already lives on `ConsumerConversation.externalConversationId`)
+/// is captured.
+model ConsumerConversationMessage {
+  id             String                       @id @default(cuid())
+  organisationId String
+  conversationId String
+  direction      ConversationMessageDirection
+  payload        Json
+  createdAt      DateTime                     @default(now())
+
+  organisation Organisation         @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  conversation ConsumerConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([organisationId])
+  @@index([conversationId])
+  @@map("d2c_conversation_messages")
 }

@@ -5,7 +5,11 @@ import { PrismaService } from '../../prisma/prisma.service';
 
 export interface ListTerritoriesParams {
   status?: TerritoryStatus;
-  parentTerritoryId?: string;
+  /** `undefined` (the existing, unchanged default) means "no filter — every
+   *  level." An explicit `null` (Sprint 33, `ConversationService`'s root-
+   *  territory lookup) means "top-level only" (`parentTerritoryId IS NULL`).
+   *  A string filters to that parent's direct children, exactly as before. */
+  parentTerritoryId?: string | null;
   /** Simple case-insensitive substring match against name or code — same convention as
    *  `ProductRepository.findManyByOrganisation`. */
   search?: string;
@@ -39,7 +43,11 @@ export class TerritoryRepository {
       where: {
         organisationId,
         ...(params.status ? { status: params.status } : {}),
-        ...(params.parentTerritoryId ? { parentTerritoryId: params.parentTerritoryId } : {}),
+        ...(params.parentTerritoryId === null
+          ? { parentTerritoryId: null }
+          : params.parentTerritoryId
+            ? { parentTerritoryId: params.parentTerritoryId }
+            : {}),
         ...(params.search
           ? {
               OR: [

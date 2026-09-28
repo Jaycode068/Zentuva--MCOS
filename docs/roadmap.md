@@ -673,7 +673,7 @@ ASSIGNED → IN_PROGRESS ⇄ ON_HOLD → COMPLETED`/`CANCELLED`, both
       vacancy. Also found no non-Administrator role could ever create a
       hiring request (the permission existed and was correctly enforced,
       but nothing granted it) — fixed by granting the existing `Head of
-  Finance` role `hr.recruitment.hiring_request.manage`/`.view` and
+Finance` role `hr.recruitment.hiring_request.manage`/`.view` and
       assigning it to the existing Finance Officer demo user, no new
       permission/role/user. Live-verified the complete chain on Boby Bites:
       non-HR requester creates/submits → cannot self-approve or publish
@@ -706,6 +706,40 @@ ASSIGNED → IN_PROGRESS ⇄ ON_HOLD → COMPLETED`/`CANCELLED`, both
       surface plus a lightweight `/settings/d2c/consumers` verification UI.
       218 suites / 1889 tests passing — see
       [`docs/sprint-32-completion-report.md`](sprint-32-completion-report.md)
+- [x] **Sprint 33 — Consumer Conversation Experience Foundation.** The
+      channel-neutral Conversation Layer between a future WhatsApp adapter
+      and Sprint 32's D2C services: `WhatsApp → Channel Adapter →
+    Conversation Layer → D2C Services → Existing Domains`.
+      `ConversationService.handleInboundMessage()` is the single,
+      channel-neutral entry point — no real WhatsApp integration, no
+      generic workflow engine, no second Consumer/Territory/phone-
+      normalization system. A lightweight `ConsumerConversation` session
+      (`NEW → REGISTRATION → LOCATION_SELECTION → MAIN_MENU`) drives
+      registration and location capture entirely through Sprint 32's
+      existing `ConsumerService`/`Territory` hierarchy. Found and fixed
+      via live testing (not unit tests alone): the real seeded Territory
+      hierarchy is four levels deep, so a naive root-level query showed a
+      single useless option — fixed with a new, fully generic
+      `resolveBranchPoint()` auto-descent helper (no hardcoded depth/names)
+      that also re-validates every selection server-side, rejecting an
+      unknown id or a location that doesn't belong to the selected
+      territory. Also found live: the welcome message hardcoded one
+      tenant's brand name — fixed by threading the real organisation name
+      through every message, verified against a genuine second
+      organisation. The conversation contract
+      (`TEXT`/`BUTTON`/`LIST_SELECTION` in,
+      `TEXT`/`BUTTONS`/`LIST` out) is deliberately channel-neutral;
+      idempotency reuses the existing `findOrCreate`/`P2002`-recovery
+      recipe (live-verified with 5 concurrent registration requests
+      producing exactly one Consumer); the HTTP surface is
+      internal/JWT-authenticated only, reusing Sprint 32's
+      `d2c.consumer.*` permissions (no new permission); the main menu
+      shows only what already works, deferring ordering (Sprint 34), My
+      Points/Rewards (Sprint 40), My Collection (Sprint 37), and
+      Promotions (Sprint 41). A small internal "Conversation Tester" UI
+      was added for verification — not the future Sprint 42
+      consumer-facing simulator. 221 suites / 1912 tests passing — see
+      [`docs/sprint-33-completion-report.md`](sprint-33-completion-report.md)
 - [ ] Retail Portal (mobile)
 - [ ] Sales Rep mobile workflows
 - [ ] Business Intelligence dashboards
