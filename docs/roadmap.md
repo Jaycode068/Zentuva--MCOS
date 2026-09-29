@@ -744,8 +744,8 @@ Conversation Layer → D2C Services → Existing Domains`.
       Order domain — never a parallel order system — so a registered
       Consumer can browse, cart, and confirm an order through the
       Conversation Layer: `Conversation Layer -> D2COrderingService (new)
-  -> SalesOrderService.createForConsumer (new entry point on the
-  EXISTING service) -> SalesOrder`. Audit found two real gaps: no
+-> SalesOrderService.createForConsumer (new entry point on the
+EXISTING service) -> SalesOrder`. Audit found two real gaps: no
       pricing field existed anywhere in the Product Catalogue (added
       `Product.sellingPrice`, nullable/opt-in, exposed through the
       existing product endpoints — not a pricing engine), and
@@ -769,8 +769,8 @@ Conversation Layer → D2C Services → Existing Domains`.
       Sprint 34 left open, entirely as an extension of the existing
       Finance `Payment` model and Sales Order lifecycle — never a parallel
       payment system: `Conversation Layer -> D2CPaymentService (new) ->
-  PaymentService (existing, extended) + SalesOrderService.confirm
-  (existing, widened) -> Payment + SalesOrder DRAFT->CONFIRMED`, with
+PaymentService (existing, extended) + SalesOrderService.confirm
+(existing, widened) -> Payment + SalesOrder DRAFT->CONFIRMED`, with
       OPay itself reached only through a new `PaymentProvider` port
       (mirroring the Sprint 28/29 `EmailProvider`/`WhatsAppProvider`
       pattern) so Finance never couples to OPay's wire format. A
@@ -797,6 +797,34 @@ Conversation Layer → D2C Services → Existing Domains`.
       convention every other dynamic route already uses. 227 suites /
       2017 tests passing — see
       [`docs/sprint-35-completion-report.md`](sprint-35-completion-report.md)
+- [x] **Sprint 36 — Existing Outlet -> Collection Point Enablement.**
+      Enables an existing `Outlet` to optionally operate as a D2C
+      Collection Point — a CAPABILITY of the existing Outlet, never a
+      parallel entity: three additive columns
+      (`collectionPointStatus`/`.ResponsibleUserId`/`.OperatingHours`)
+      directly on `Outlet`, reusing its existing territory and contact
+      fields rather than duplicating either. Dedicated
+      `enableCollectionPoint`/`disableCollectionPoint`/
+      `updateCollectionPointConfig` methods mirror the exact
+      `activate`/`deactivate` shape already established for `Outlet`
+      itself; every route reuses the Outlet domain's own existing
+      `sales.customer.view`/`.manage` permissions — zero new permission
+      catalogue entries. Eligibility requires the outlet to be `ACTIVE`
+      with a territory assigned; disabling is reversible and never
+      destroys the saved configuration. The audit found no existing
+      "responsible representative" concept anywhere on `Outlet`/
+      `Customer` — resolved with a plain id referencing an existing
+      `User` (the `SalesOrder.salesAgentId` convention), never a new
+      `CollectionPointAgent` entity. Live-verified with 5 truly
+      concurrent enable requests producing exactly one success and a
+      deterministic final state, cross-tenant outlet/employee rejection,
+      and a real browser session confirming persistence across a full
+      page reload. Explicitly does not implement order fulfilment,
+      inventory deduction, or any consumer-facing selection flow —
+      documents the inventory bridge Sprint 37 will need
+      (`InventoryLocation` has no link to `Outlet` today) without
+      building it. 227 suites / 2040 tests passing — see
+      [`docs/sprint-36-completion-report.md`](sprint-36-completion-report.md)
 - [ ] Retail Portal (mobile)
 - [ ] Sales Rep mobile workflows
 - [ ] Business Intelligence dashboards

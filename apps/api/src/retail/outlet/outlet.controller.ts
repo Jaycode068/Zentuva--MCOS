@@ -20,9 +20,11 @@ import { OutletPhoto, OutletStatus, OutletType } from '@prisma/client';
 import {
   AddOutletPhotosInput,
   CreateOutletInput,
+  UpdateCollectionPointConfigInput,
   UpdateOutletInput,
   addOutletPhotosSchema,
   createOutletSchema,
+  updateCollectionPointConfigSchema,
   updateOutletSchema,
 } from '@zentuva/validation';
 import { Request } from 'express';
@@ -33,6 +35,7 @@ import { CurrentUser } from '../../identity/auth/decorators/current-user.decorat
 import { JwtAuthGuard } from '../../identity/auth/guards/jwt-auth.guard';
 import { TokenPayload } from '../../identity/auth/ports/token.port';
 import { assertValidImageFile } from '../../identity/common/image-upload-validation';
+import { UserService } from '../../identity/user/user.service';
 import { OUTLET_AUDIT_ACTIONS } from './outlet-audit-actions';
 import { OutletWithRelations } from './outlet.repository';
 import { OutletService } from './outlet.service';
@@ -60,7 +63,27 @@ export class OutletController {
     private readonly outletService: OutletService,
     private readonly auditService: AuditService,
     private readonly config: ConfigService,
+    private readonly userService: UserService,
   ) {}
+
+  /**
+   * Sprint 36 — Collection Point "responsible representative" picker. Declared before
+   * `:id` (route order matters) so it is never swallowed by that param route. The exact
+   * `MaintenanceOverviewController.listTechnicians()` precedent (Sprint 21/20's own
+   * `AssetController.listCustodians()`): no separate "Sales Rep" role/table exists, any
+   * active organisation member can be assigned — reuses `sales.customer.view` (already
+   * required for the whole Outlet surface) rather than the heavier `identity.users.read`.
+   */
+  @Get('representatives')
+  @RequirePermission('sales.customer.view')
+  async listRepresentatives(@CurrentUser() user: TokenPayload) {
+    const items = await this.userService.listByOrganisation(user.organisationId, {
+      status: 'ACTIVE',
+    });
+    return {
+      items: items.map((u) => ({ id: u.id, firstName: u.firstName, lastName: u.lastName })),
+    };
+  }
 
   @Get()
   @RequirePermission('sales.customer.view')
@@ -183,6 +206,99 @@ export class OutletController {
     return toOutletResponse(updated);
   }
 
+  /** Sprint 36 — explicit mutations, never an arbitrary status/field write (brief
+   *  "ADMIN ACTIONS"), the exact same shape as `activate`/`deactivate` above. */
+  @Post(':id/collection-point/enable')
+  @RequirePermission('sales.customer.manage')
+  async enableCollectionPoint(
+    @Param('id') id: string,
+    @CurrentUser() user: TokenPayload,
+    @Req() req: Request,
+  ) {
+    const updated = await this.outletService.enableCollectionPoint(
+      user.organisationId,
+      id,
+      user.sub,
+    );
+
+    await this.auditService.record({
+      action: OUTLET_AUDIT_ACTIONS.COLLECTION_POINT_ENABLED,
+      entityType: 'Outlet',
+      entityId: updated.id,
+      organisationId: user.organisationId,
+      actorUserId: user.sub,
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+    });
+
+    return toOutletResponse(updated);
+  }
+
+  @Post(':id/collection-point/disable')
+  @RequirePermission('sales.customer.manage')
+  async disableCollectionPoint(
+    @Param('id') id: string,
+    @CurrentUser() user: TokenPayload,
+    @Req() req: Request,
+  ) {
+    const updated = await this.outletService.disableCollectionPoint(
+      user.organisationId,
+      id,
+      user.sub,
+    );
+
+    await this.auditService.record({
+      action: OUTLET_AUDIT_ACTIONS.COLLECTION_POINT_DISABLED,
+      entityType: 'Outlet',
+      entityId: updated.id,
+      organisationId: user.organisationId,
+      actorUserId: user.sub,
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+    });
+
+    return toOutletResponse(updated);
+  }
+
+  @Patch(':id/collection-point')
+  @RequirePermission('sales.customer.manage')
+  async updateCollectionPointConfig(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(updateCollectionPointConfigSchema))
+    body: UpdateCollectionPointConfigInput,
+    @CurrentUser() user: TokenPayload,
+    @Req() req: Request,
+  ) {
+    const before = await this.outletService.getById(user.organisationId, id);
+    const updated = await this.outletService.updateCollectionPointConfig(
+      user.organisationId,
+      id,
+      body,
+      user.sub,
+    );
+
+    await this.auditService.record({
+      action: OUTLET_AUDIT_ACTIONS.COLLECTION_POINT_CONFIG_UPDATED,
+      entityType: 'Outlet',
+      entityId: updated.id,
+      organisationId: user.organisationId,
+      actorUserId: user.sub,
+      metadata: {
+        fields: Object.keys(body),
+        before: before
+          ? {
+              collectionPointResponsibleUserId: before.collectionPointResponsibleUserId,
+              collectionPointOperatingHours: before.collectionPointOperatingHours,
+            }
+          : undefined,
+      },
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+    });
+
+    return toOutletResponse(updated);
+  }
+
   @Post(':id/photos')
   @RequirePermission('sales.customer.manage')
   @UseInterceptors(FilesInterceptor('files', MAX_PHOTOS_PER_REQUEST))
@@ -274,6 +390,9 @@ function toOutletResponse(outlet: OutletWithRelations) {
     longitude: outlet.longitude,
     status: outlet.status,
     notes: outlet.notes,
+    collectionPointStatus: outlet.collectionPointStatus,
+    collectionPointResponsibleUserId: outlet.collectionPointResponsibleUserId,
+    collectionPointOperatingHours: outlet.collectionPointOperatingHours,
     createdAt: outlet.createdAt,
     updatedAt: outlet.updatedAt,
     customer: outlet.customer,

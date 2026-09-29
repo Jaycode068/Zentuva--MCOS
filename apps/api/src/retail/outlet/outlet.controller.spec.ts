@@ -1,10 +1,11 @@
 import { BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { OutletPhoto, OutletStatus } from '@prisma/client';
+import { CollectionPointStatus, OutletPhoto, OutletStatus } from '@prisma/client';
 import { Request } from 'express';
 
 import { AuditService } from '../../identity/audit/audit.service';
 import { TokenPayload } from '../../identity/auth/ports/token.port';
+import { UserService } from '../../identity/user/user.service';
 import { OUTLET_AUDIT_ACTIONS } from './outlet-audit-actions';
 import { OutletController } from './outlet.controller';
 import { OutletWithRelations } from './outlet.repository';
@@ -35,6 +36,9 @@ describe('OutletController', () => {
     longitude: null,
     status: OutletStatus.ACTIVE,
     notes: null,
+    collectionPointStatus: CollectionPointStatus.DISABLED,
+    collectionPointResponsibleUserId: null,
+    collectionPointOperatingHours: null,
     createdById: 'user-1',
     updatedById: 'user-1',
     createdAt: new Date('2026-08-21'),
@@ -54,14 +58,20 @@ describe('OutletController', () => {
       deactivate: jest.fn(),
       addPhotos: jest.fn(),
       removePhoto: jest.fn(),
+      enableCollectionPoint: jest.fn(),
+      disableCollectionPoint: jest.fn(),
+      updateCollectionPointConfig: jest.fn(),
     } as unknown as jest.Mocked<OutletService>;
     const auditService = { record: jest.fn() } as unknown as jest.Mocked<AuditService>;
     const config = {
       get: jest.fn().mockReturnValue(2 * 1024 * 1024),
     } as unknown as jest.Mocked<ConfigService>;
+    const userService = {
+      listByOrganisation: jest.fn(),
+    } as unknown as jest.Mocked<UserService>;
 
-    const controller = new OutletController(outletService, auditService, config);
-    return { controller, outletService, auditService };
+    const controller = new OutletController(outletService, auditService, config, userService);
+    return { controller, outletService, auditService, userService };
   }
 
   const req = { ip: '127.0.0.1', headers: { 'user-agent': 'jest' } } as unknown as Request;
@@ -172,6 +182,92 @@ describe('OutletController', () => {
       expect(auditService.record).toHaveBeenCalledWith(
         expect.objectContaining({ action: OUTLET_AUDIT_ACTIONS.DEACTIVATED }),
       );
+    });
+  });
+
+  describe('collection point', () => {
+    it('enables and records an audit entry', async () => {
+      const { controller, outletService, auditService } = makeController();
+      outletService.enableCollectionPoint.mockResolvedValue({
+        ...outlet,
+        collectionPointStatus: CollectionPointStatus.ENABLED,
+      });
+
+      const result = await controller.enableCollectionPoint('outlet-1', tokenUser, req);
+
+      expect(outletService.enableCollectionPoint).toHaveBeenCalledWith(
+        'org-1',
+        'outlet-1',
+        'user-1',
+      );
+      expect(auditService.record).toHaveBeenCalledWith(
+        expect.objectContaining({ action: OUTLET_AUDIT_ACTIONS.COLLECTION_POINT_ENABLED }),
+      );
+      expect(result.collectionPointStatus).toBe('ENABLED');
+    });
+
+    it('disables and records an audit entry', async () => {
+      const { controller, outletService, auditService } = makeController();
+      outletService.disableCollectionPoint.mockResolvedValue(outlet);
+
+      await controller.disableCollectionPoint('outlet-1', tokenUser, req);
+
+      expect(outletService.disableCollectionPoint).toHaveBeenCalledWith(
+        'org-1',
+        'outlet-1',
+        'user-1',
+      );
+      expect(auditService.record).toHaveBeenCalledWith(
+        expect.objectContaining({ action: OUTLET_AUDIT_ACTIONS.COLLECTION_POINT_DISABLED }),
+      );
+    });
+
+    it('updates configuration, records an audit entry with before/after metadata, and never leaks the responsible-user id as a raw relation', async () => {
+      const { controller, outletService, auditService } = makeController();
+      outletService.getById.mockResolvedValue(outlet);
+      outletService.updateCollectionPointConfig.mockResolvedValue({
+        ...outlet,
+        collectionPointResponsibleUserId: 'user-2',
+        collectionPointOperatingHours: 'Mon-Sat 9am-6pm',
+      });
+
+      const result = await controller.updateCollectionPointConfig(
+        'outlet-1',
+        { responsibleUserId: 'user-2', operatingHours: 'Mon-Sat 9am-6pm' },
+        tokenUser,
+        req,
+      );
+
+      expect(auditService.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: OUTLET_AUDIT_ACTIONS.COLLECTION_POINT_CONFIG_UPDATED,
+          metadata: expect.objectContaining({
+            fields: ['responsibleUserId', 'operatingHours'],
+            before: { collectionPointResponsibleUserId: null, collectionPointOperatingHours: null },
+          }),
+        }),
+      );
+      expect(result.collectionPointResponsibleUserId).toBe('user-2');
+      expect(result.collectionPointOperatingHours).toBe('Mon-Sat 9am-6pm');
+    });
+  });
+
+  describe('listRepresentatives', () => {
+    it('lists only ACTIVE users as candidate responsible representatives', async () => {
+      const { controller, userService } = makeController();
+      userService.listByOrganisation.mockResolvedValue([
+        {
+          id: 'user-2',
+          firstName: 'Ada',
+          lastName: 'Okafor',
+          email: 'ada@example.com',
+        } as never,
+      ]);
+
+      const result = await controller.listRepresentatives(tokenUser);
+
+      expect(userService.listByOrganisation).toHaveBeenCalledWith('org-1', { status: 'ACTIVE' });
+      expect(result.items).toEqual([{ id: 'user-2', firstName: 'Ada', lastName: 'Okafor' }]);
     });
   });
 });

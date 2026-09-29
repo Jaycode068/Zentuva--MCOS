@@ -86,6 +86,12 @@ export type OutletTypeInput = z.infer<typeof outletTypeSchema>;
 export const outletStatusSchema = z.enum(['ACTIVE', 'INACTIVE']);
 export type OutletStatusInput = z.infer<typeof outletStatusSchema>;
 
+/** Sprint 36 — Collection Point capability (docs/domains/d2c.md). A capability of the
+ *  existing `Outlet`, never a parallel entity — mirrors `outletStatusSchema`'s own
+ *  two-value shape. */
+export const collectionPointStatusSchema = z.enum(['ENABLED', 'DISABLED']);
+export type CollectionPointStatusInput = z.infer<typeof collectionPointStatusSchema>;
+
 export const territoryStatusSchema = z.enum(['ACTIVE', 'INACTIVE']);
 export type TerritoryStatusInput = z.infer<typeof territoryStatusSchema>;
 
@@ -231,6 +237,18 @@ export const updateOutletSchema = z
     path: ['longitude'],
   });
 export type UpdateOutletInput = z.infer<typeof updateOutletSchema>;
+
+/** `PATCH /api/retail/outlets/:id/collection-point` (Sprint 36). Deliberately separate
+ *  from `updateOutletSchema` — Collection Point configuration is edited independently of
+ *  the outlet's own B2B fields, matching the brief's "explicit mutations, not an arbitrary
+ *  status/field mutation" instruction. Enabling/disabling the capability itself has no
+ *  body at all (`POST .../collection-point/enable` / `.../disable`), the same shape as
+ *  `activate`/`deactivate`. */
+export const updateCollectionPointConfigSchema = z.object({
+  responsibleUserId: optionalNullableId(),
+  operatingHours: z.string().trim().max(200).nullable().optional(),
+});
+export type UpdateCollectionPointConfigInput = z.infer<typeof updateCollectionPointConfigSchema>;
 
 /** `POST /api/retail/outlets/:id/photos` — multipart text fields alongside the uploaded
  *  files; the files themselves are validated server-side by the existing

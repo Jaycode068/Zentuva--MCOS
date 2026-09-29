@@ -56,6 +56,20 @@ export default function FieldOutletDetailPage({ params }: { params: { id: string
           )}
         </div>
 
+        {outlet.collectionPointStatus === 'ENABLED' && (
+          <div className="rounded-md border border-border bg-muted/50 p-3">
+            <div className="flex items-center gap-2">
+              <p className="text-sm font-medium text-foreground">Collection Point</p>
+              <Badge variant="success">Enabled</Badge>
+            </div>
+            {outlet.collectionPointOperatingHours && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                {outlet.collectionPointOperatingHours}
+              </p>
+            )}
+          </div>
+        )}
+
         <MultiImageUploadCard
           title="Photos"
           description="Front, signage, interior, or shelf display."

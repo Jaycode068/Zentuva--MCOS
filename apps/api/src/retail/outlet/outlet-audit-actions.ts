@@ -11,4 +11,8 @@ export const OUTLET_AUDIT_ACTIONS = {
   DEACTIVATED: 'outlet.deactivated',
   PHOTO_ADDED: 'outlet.photo_added',
   PHOTO_REMOVED: 'outlet.photo_removed',
+  /** Sprint 36 — Collection Point capability (docs/domains/d2c.md). */
+  COLLECTION_POINT_ENABLED: 'outlet.collection_point_enabled',
+  COLLECTION_POINT_DISABLED: 'outlet.collection_point_disabled',
+  COLLECTION_POINT_CONFIG_UPDATED: 'outlet.collection_point_configuration_updated',
 } as const;

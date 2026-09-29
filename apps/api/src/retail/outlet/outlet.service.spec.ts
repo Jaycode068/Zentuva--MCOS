@@ -1,5 +1,6 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import {
+  CollectionPointStatus,
   Customer,
   CustomerStatus,
   Outlet,
@@ -7,9 +8,12 @@ import {
   OutletStatus,
   Territory,
   TerritoryStatus,
+  User,
+  UserStatus,
 } from '@prisma/client';
 
 import { FileStorage } from '../../identity/organisation/ports/file-storage.port';
+import { UserService } from '../../identity/user/user.service';
 import { CustomerRepository } from '../customer/customer.repository';
 import { TerritoryRepository } from '../territory/territory.repository';
 import { OutletPhotoRepository } from './outlet-photo.repository';
@@ -73,6 +77,9 @@ describe('OutletService', () => {
     longitude: null,
     status: OutletStatus.ACTIVE,
     notes: null,
+    collectionPointStatus: CollectionPointStatus.DISABLED,
+    collectionPointResponsibleUserId: null,
+    collectionPointOperatingHours: null,
     createdById: 'user-1',
     updatedById: 'user-1',
     createdAt: new Date('2026-08-21'),
@@ -84,6 +91,35 @@ describe('OutletService', () => {
     customer: { id: 'customer-1', customerCode: 'CUS-000001', customerName: 'Bodija Supermart' },
     territory: null,
     photos: [],
+  };
+
+  /** A Collection-Point-eligible outlet: ACTIVE + a territory assigned. */
+  const eligibleOutlet: Outlet = { ...outlet, territoryId: 'territory-1' };
+  const eligibleOutletWithRelations: OutletWithRelations = {
+    ...outletWithRelations,
+    territoryId: 'territory-1',
+    territory: { id: 'territory-1', name: 'Bodija' },
+  };
+
+  const responsibleUser: User = {
+    id: 'user-2',
+    organisationId: 'org-1',
+    email: 'ada@example.com',
+    employeeCode: null,
+    firstName: 'Ada',
+    lastName: 'Okafor',
+    phoneNumber: null,
+    avatarUrl: null,
+    avatarKey: null,
+    passwordHash: 'hash',
+    status: UserStatus.ACTIVE,
+    mustChangePassword: false,
+    passwordChangedAt: null,
+    failedLoginAttempts: 0,
+    emailVerifiedAt: null,
+    lastLoginAt: null,
+    createdAt: new Date('2026-08-21'),
+    updatedAt: new Date('2026-08-21'),
   };
 
   function makeService() {
@@ -106,6 +142,9 @@ describe('OutletService', () => {
     const territoryRepository = {
       findById: jest.fn(),
     } as unknown as jest.Mocked<TerritoryRepository>;
+    const userService = {
+      getById: jest.fn(),
+    } as unknown as jest.Mocked<UserService>;
     const fileStorage = {
       upload: jest.fn(),
       delete: jest.fn().mockResolvedValue(undefined),
@@ -116,6 +155,7 @@ describe('OutletService', () => {
       outletPhotoRepository,
       customerRepository,
       territoryRepository,
+      userService,
       fileStorage,
     );
     return {
@@ -124,6 +164,7 @@ describe('OutletService', () => {
       outletPhotoRepository,
       customerRepository,
       territoryRepository,
+      userService,
       fileStorage,
     };
   }
@@ -325,6 +366,341 @@ describe('OutletService', () => {
 
       expect(result).toBeNull();
       expect(outletRepository.findByIdWithRelations).toHaveBeenCalledWith('org-2', 'outlet-1');
+    });
+  });
+
+  describe('enableCollectionPoint (Sprint 36)', () => {
+    it('enables a valid, active, territory-assigned outlet', async () => {
+      const { service, outletRepository } = makeService();
+      outletRepository.findById.mockResolvedValue(eligibleOutlet);
+      outletRepository.update.mockResolvedValue({
+        ...eligibleOutletWithRelations,
+        collectionPointStatus: CollectionPointStatus.ENABLED,
+      });
+
+      const result = await service.enableCollectionPoint('org-1', 'outlet-1', 'user-1');
+
+      expect(outletRepository.update).toHaveBeenCalledWith(
+        'org-1',
+        'outlet-1',
+        expect.objectContaining({ collectionPointStatus: CollectionPointStatus.ENABLED }),
+      );
+      expect(result.collectionPointStatus).toBe(CollectionPointStatus.ENABLED);
+    });
+
+    it('rejects an inactive outlet', async () => {
+      const { service, outletRepository } = makeService();
+      outletRepository.findById.mockResolvedValue({
+        ...eligibleOutlet,
+        status: OutletStatus.INACTIVE,
+      });
+
+      await expect(service.enableCollectionPoint('org-1', 'outlet-1', 'user-1')).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(outletRepository.update).not.toHaveBeenCalled();
+    });
+
+    it('rejects an outlet with no territory assigned', async () => {
+      const { service, outletRepository } = makeService();
+      outletRepository.findById.mockResolvedValue(outlet); // territoryId: null
+
+      await expect(service.enableCollectionPoint('org-1', 'outlet-1', 'user-1')).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(outletRepository.update).not.toHaveBeenCalled();
+    });
+
+    it('rejects a cross-tenant outlet with NotFoundException (never revealing existence)', async () => {
+      const { service, outletRepository } = makeService();
+      outletRepository.findById.mockResolvedValue(null);
+
+      await expect(service.enableCollectionPoint('org-2', 'outlet-1', 'user-1')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('rejects enabling an already-enabled Collection Point', async () => {
+      const { service, outletRepository } = makeService();
+      outletRepository.findById.mockResolvedValue({
+        ...eligibleOutlet,
+        collectionPointStatus: CollectionPointStatus.ENABLED,
+      });
+
+      await expect(service.enableCollectionPoint('org-1', 'outlet-1', 'user-1')).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(outletRepository.update).not.toHaveBeenCalled();
+    });
+
+    it('enabling never touches outletType, customerId, or any other B2B field', async () => {
+      const { service, outletRepository } = makeService();
+      outletRepository.findById.mockResolvedValue(eligibleOutlet);
+      outletRepository.update.mockResolvedValue(eligibleOutletWithRelations);
+
+      await service.enableCollectionPoint('org-1', 'outlet-1', 'user-1');
+
+      const updateData = outletRepository.update.mock.calls[0]?.[2];
+      expect(updateData).not.toHaveProperty('outletType');
+      expect(updateData).not.toHaveProperty('customerId');
+      expect(updateData).not.toHaveProperty('status');
+    });
+
+    it('final state is deterministic under concurrent enable calls', async () => {
+      const { service, outletRepository } = makeService();
+      outletRepository.findById.mockResolvedValue(eligibleOutlet);
+      outletRepository.update.mockResolvedValue({
+        ...eligibleOutletWithRelations,
+        collectionPointStatus: CollectionPointStatus.ENABLED,
+      });
+
+      const results = await Promise.allSettled([
+        service.enableCollectionPoint('org-1', 'outlet-1', 'user-1'),
+        service.enableCollectionPoint('org-1', 'outlet-1', 'user-1'),
+        service.enableCollectionPoint('org-1', 'outlet-1', 'user-1'),
+        service.enableCollectionPoint('org-1', 'outlet-1', 'user-1'),
+        service.enableCollectionPoint('org-1', 'outlet-1', 'user-1'),
+      ]);
+
+      // Every settled call that actually wrote agrees on the same final status — no
+      // torn/inconsistent state, regardless of how many raced past the read-check.
+      for (const result of results) {
+        if (result.status === 'fulfilled') {
+          expect(result.value.collectionPointStatus).toBe(CollectionPointStatus.ENABLED);
+        }
+      }
+      expect(
+        outletRepository.update.mock.calls.every(
+          (call) => call[2].collectionPointStatus === CollectionPointStatus.ENABLED,
+        ),
+      ).toBe(true);
+    });
+  });
+
+  describe('disableCollectionPoint (Sprint 36)', () => {
+    it('disables an enabled Collection Point', async () => {
+      const { service, outletRepository } = makeService();
+      const enabledOutlet = {
+        ...eligibleOutlet,
+        collectionPointStatus: CollectionPointStatus.ENABLED,
+      };
+      outletRepository.findById.mockResolvedValue(enabledOutlet);
+      outletRepository.update.mockResolvedValue({
+        ...eligibleOutletWithRelations,
+        collectionPointStatus: CollectionPointStatus.DISABLED,
+      });
+
+      const result = await service.disableCollectionPoint('org-1', 'outlet-1', 'user-1');
+
+      expect(result.collectionPointStatus).toBe(CollectionPointStatus.DISABLED);
+    });
+
+    it('rejects disabling an already-disabled Collection Point', async () => {
+      const { service, outletRepository } = makeService();
+      outletRepository.findById.mockResolvedValue(eligibleOutlet);
+
+      await expect(service.disableCollectionPoint('org-1', 'outlet-1', 'user-1')).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(outletRepository.update).not.toHaveBeenCalled();
+    });
+
+    it('never destroys collectionPointResponsibleUserId/OperatingHours configuration — only the status flips', async () => {
+      const { service, outletRepository } = makeService();
+      const enabledConfigured = {
+        ...eligibleOutlet,
+        collectionPointStatus: CollectionPointStatus.ENABLED,
+        collectionPointResponsibleUserId: 'user-2',
+        collectionPointOperatingHours: 'Mon-Sat 9am-6pm',
+      };
+      outletRepository.findById.mockResolvedValue(enabledConfigured);
+      outletRepository.update.mockResolvedValue({
+        ...eligibleOutletWithRelations,
+        ...enabledConfigured,
+        collectionPointStatus: CollectionPointStatus.DISABLED,
+      });
+
+      await service.disableCollectionPoint('org-1', 'outlet-1', 'user-1');
+
+      const updateData = outletRepository.update.mock.calls[0]?.[2];
+      expect(updateData).not.toHaveProperty('collectionPointResponsibleUserId');
+      expect(updateData).not.toHaveProperty('collectionPointOperatingHours');
+    });
+
+    it('is safe under repeated disable calls (deterministic final state, no corruption)', async () => {
+      const { service, outletRepository } = makeService();
+      const enabledOutlet = {
+        ...eligibleOutlet,
+        collectionPointStatus: CollectionPointStatus.ENABLED,
+      };
+      outletRepository.findById
+        .mockResolvedValueOnce(enabledOutlet)
+        .mockResolvedValue(eligibleOutlet);
+      outletRepository.update.mockResolvedValue({
+        ...eligibleOutletWithRelations,
+        collectionPointStatus: CollectionPointStatus.DISABLED,
+      });
+
+      await service.disableCollectionPoint('org-1', 'outlet-1', 'user-1');
+      await expect(service.disableCollectionPoint('org-1', 'outlet-1', 'user-1')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+  });
+
+  describe('updateCollectionPointConfig (Sprint 36)', () => {
+    it('updates responsibleUserId and operatingHours after validating the user', async () => {
+      const { service, outletRepository, userService } = makeService();
+      outletRepository.findById.mockResolvedValue(eligibleOutlet);
+      userService.getById.mockResolvedValue(responsibleUser);
+      outletRepository.update.mockResolvedValue({
+        ...eligibleOutletWithRelations,
+        collectionPointResponsibleUserId: 'user-2',
+        collectionPointOperatingHours: 'Mon-Sat 9am-6pm',
+      });
+
+      const result = await service.updateCollectionPointConfig(
+        'org-1',
+        'outlet-1',
+        { responsibleUserId: 'user-2', operatingHours: 'Mon-Sat 9am-6pm' },
+        'user-1',
+      );
+
+      expect(userService.getById).toHaveBeenCalledWith('org-1', 'user-2');
+      expect(result.collectionPointResponsibleUserId).toBe('user-2');
+    });
+
+    it('rejects a cross-tenant responsibleUserId', async () => {
+      const { service, outletRepository, userService } = makeService();
+      outletRepository.findById.mockResolvedValue(eligibleOutlet);
+      userService.getById.mockResolvedValue(null);
+
+      await expect(
+        service.updateCollectionPointConfig(
+          'org-1',
+          'outlet-1',
+          { responsibleUserId: 'other-org-user' },
+          'user-1',
+        ),
+      ).rejects.toThrow(BadRequestException);
+      expect(outletRepository.update).not.toHaveBeenCalled();
+    });
+
+    it('rejects an inactive/suspended responsibleUserId', async () => {
+      const { service, outletRepository, userService } = makeService();
+      outletRepository.findById.mockResolvedValue(eligibleOutlet);
+      userService.getById.mockResolvedValue({ ...responsibleUser, status: UserStatus.SUSPENDED });
+
+      await expect(
+        service.updateCollectionPointConfig(
+          'org-1',
+          'outlet-1',
+          { responsibleUserId: 'user-2' },
+          'user-1',
+        ),
+      ).rejects.toThrow(BadRequestException);
+      expect(outletRepository.update).not.toHaveBeenCalled();
+    });
+
+    it('allows explicitly clearing responsibleUserId via null', async () => {
+      const { service, outletRepository, userService } = makeService();
+      outletRepository.findById.mockResolvedValue(eligibleOutlet);
+      outletRepository.update.mockResolvedValue({
+        ...eligibleOutletWithRelations,
+        collectionPointResponsibleUserId: null,
+      });
+
+      await service.updateCollectionPointConfig(
+        'org-1',
+        'outlet-1',
+        { responsibleUserId: null },
+        'user-1',
+      );
+
+      expect(userService.getById).not.toHaveBeenCalled();
+      expect(outletRepository.update).toHaveBeenCalledWith(
+        'org-1',
+        'outlet-1',
+        expect.objectContaining({ collectionPointResponsibleUserId: null }),
+      );
+    });
+
+    it('rejects a cross-tenant outlet', async () => {
+      const { service, outletRepository } = makeService();
+      outletRepository.findById.mockResolvedValue(null);
+
+      await expect(
+        service.updateCollectionPointConfig('org-2', 'outlet-1', { operatingHours: 'x' }, 'user-1'),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('is safe under concurrent configuration updates (deterministic final state)', async () => {
+      const { service, outletRepository, userService } = makeService();
+      outletRepository.findById.mockResolvedValue(eligibleOutlet);
+      userService.getById.mockResolvedValue(responsibleUser);
+      outletRepository.update.mockResolvedValue({
+        ...eligibleOutletWithRelations,
+        collectionPointOperatingHours: 'Mon-Sat 9am-6pm',
+      });
+
+      const results = await Promise.all([
+        service.updateCollectionPointConfig(
+          'org-1',
+          'outlet-1',
+          { operatingHours: 'Mon-Sat 9am-6pm' },
+          'user-1',
+        ),
+        service.updateCollectionPointConfig(
+          'org-1',
+          'outlet-1',
+          { operatingHours: 'Mon-Sat 9am-6pm' },
+          'user-1',
+        ),
+      ]);
+
+      expect(results).toHaveLength(2);
+      expect(outletRepository.update).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('B2B regression — enabling Collection Point does not change existing behaviour', () => {
+    it('create() is entirely unaffected by the Collection Point capability', async () => {
+      const { service, outletRepository, customerRepository } = makeService();
+      customerRepository.findById.mockResolvedValue(customer);
+      outletRepository.create.mockResolvedValue(outletWithRelations);
+
+      await service.create(
+        'org-1',
+        { customerId: 'customer-1', outletType: 'SUPERMARKET', name: 'Bodija Supermart' },
+        'user-1',
+      );
+
+      const createData = outletRepository.create.mock.calls[0]?.[0];
+      expect(createData).not.toHaveProperty('collectionPointStatus');
+    });
+
+    it('activate()/deactivate() remain unaffected by Collection Point status', async () => {
+      const { service, outletRepository } = makeService();
+      const enabledInactiveCandidate = {
+        ...eligibleOutlet,
+        status: OutletStatus.INACTIVE,
+        collectionPointStatus: CollectionPointStatus.ENABLED,
+      };
+      outletRepository.findById.mockResolvedValue(enabledInactiveCandidate);
+      outletRepository.update.mockResolvedValue({
+        ...eligibleOutletWithRelations,
+        status: OutletStatus.ACTIVE,
+        collectionPointStatus: CollectionPointStatus.ENABLED,
+      });
+
+      // Reactivating an outlet whose Collection Point happens to be ENABLED must still
+      // succeed exactly as before — Collection Point status is never a gate on
+      // activate()/deactivate() (brief: enabling/disabling must not change existing
+      // outlet lifecycle behaviour).
+      const result = await service.activate('org-1', 'outlet-1', 'user-1');
+      expect(result.status).toBe(OutletStatus.ACTIVE);
+      const updateData = outletRepository.update.mock.calls[0]?.[2];
+      expect(updateData).not.toHaveProperty('collectionPointStatus');
     });
   });
 });

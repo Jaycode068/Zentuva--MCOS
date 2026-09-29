@@ -1174,3 +1174,350 @@ wired `PaymentService`/`D2CPaymentService` (not mocked) covering the full
 zero regressions). Full live verification against the real dev database,
 real OPay sandbox HTTP calls, a real browser session, and a genuinely
 second organisation — see `docs/sprint-35-completion-report.md`.
+
+---
+
+# Sprint 36 — Existing Outlet -> Collection Point Enablement
+
+## 53. Collection Point — A Capability of Outlet, Never a Parallel Entity
+
+**The central architectural decision, made explicit**: `new CollectionPoint
+entity = NO`. A Collection Point is a CAPABILITY an existing `Outlet` may
+optionally carry — three additive columns directly on `Outlet` (Pattern
+A, per the brief's own "prefer the smallest schema change" guidance), not
+a new model, table, or `/api/collection-points` resource:
+
+```
+Outlet
+  |-- normal B2B outlet (unaffected, Sprint 4.8)
+  |
+  `-- Collection Point capability (Sprint 36, additive)
+        collectionPointStatus             CollectionPointStatus @default(DISABLED)
+        collectionPointResponsibleUserId  String?  (plain id, no FK — see §55)
+        collectionPointOperatingHours     String?  (free text — see §56)
+```
+
+Pattern B (a separate one-to-one configuration model) was considered and
+rejected: three columns is not "substantial enough" configuration to
+justify a second table per the brief's own guiding principle ("do not
+introduce a new entity simply to give an existing entity additional
+capability"). Territory and contact information are REUSED from the
+existing `Outlet` fields, not duplicated (§56) — the actual Collection
+Point-specific surface is genuinely small.
+
+## 54. Audit Findings (Pre-Implementation)
+
+Before writing any code, the existing Outlet/Distribution/Territory/
+Employee/Inventory/Sales Order/Access Control/Audit architecture was
+read end-to-end. What was found and reused, verbatim, with no new
+mechanism invented:
+
+- **Outlet** (`apps/api/src/retail/outlet/`, Sprint 4.8): `OutletStatus`
+  is a two-value enum (`ACTIVE`/`INACTIVE`) — `CollectionPointStatus`
+  mirrors that exact shape. `OutletService.activate()`/`.deactivate()`
+  use dedicated named methods calling a private `setStatus()` helper,
+  never a generic "set arbitrary status" entry point —
+  `enableCollectionPoint()`/`disableCollectionPoint()` follow the
+  identical shape. `OutletRepository.update()` is a conditional
+  `updateMany` scoped to `{ id, organisationId }` — the same primitive
+  every Collection Point mutation reuses, giving concurrent mutations a
+  deterministic final state by construction (Postgres serializes
+  concurrent `UPDATE`s to one row — there is no new-row race here the way
+  there is for `Payment`/`SalesOrder` creation).
+- **Permissions**: `OutletController` has no permission key of its own —
+  every route reuses `sales.customer.view`/`sales.customer.manage`
+  (`permission-catalogue.ts`'s own comment: "customers/outlets reuse
+  Sales' existing `sales.customer.*` permissions"). Collection Point
+  routes follow the identical reuse, adding zero new catalogue entries
+  (§57).
+- **Distribution Network**: `DistributionNetworkRelationship` links
+  `Customer` to `Customer`, never `Outlet` to `Outlet`, and `SalesOrder`
+  has no FK to it at all — confirmed there is no outlet-level network
+  role to interact with or preserve.
+- **Territory**: `Outlet.territoryId` already exists (optional FK to the
+  existing `Territory` hierarchy, Sprint 4.8) — reused as-is (§58), no
+  second territory relationship added.
+- **Employee/Sales/Field**: no existing "responsible person"/"assigned
+  rep" field exists anywhere on `Outlet` or `Customer`. Two conventions
+  exist elsewhere for this concept: a plain, unenforced id (no Prisma FK)
+  — `SalesOrder.salesAgentId`, `WorkOrder.assignedToId`,
+  `Asset.custodianId` — versus a real FK relation to `Employee` — HR's
+  `Department.departmentHeadEmployeeId`. Since Collection Point is a
+  Sales/Retail record, not an HR org-chart one, the plain-id convention
+  was followed (§55).
+- **Inventory**: `InventoryStock`/`InventoryTransaction` are keyed by
+  `(organisationId, productId, locationId)` against a real
+  `InventoryLocation` model (Sprint 4.5) — but `InventoryLocation` has NO
+  link to `Outlet` anywhere, and `Outlet` has none back. This gap is
+  documented, not bridged, this sprint (§59).
+- **Sales Order**: `SalesOrderSource.D2C`/`Consumer` relationship
+  (Sprint 34) and OPay payment (Sprint 35) are both already complete and
+  untouched by this sprint — Collection Point is the next link, not a
+  change to either.
+- **Access Control**: `AccessScope`/`EffectiveAccessResolver` reused
+  unchanged; no new scope type was needed.
+- **Audit**: `AuditService.record()` reused unchanged, three new action
+  strings added to the existing `OUTLET_AUDIT_ACTIONS` map (§60).
+- **Notifications**: audited — no Collection Point notification of any
+  kind was built this sprint (out of scope, §62).
+
+## 55. Responsible Representative
+
+`Outlet.collectionPointResponsibleUserId` — an optional plain id
+referencing an existing `User` (never a new `CollectionPointAgent`
+entity), following the exact `SalesOrder.salesAgentId` convention rather
+than a real Prisma FK relation. Validated in `OutletService` — never
+trusted from the client:
+
+1. `UserService.getById(organisationId, userId)` — a tenant-scoped
+   lookup; a cross-tenant or nonexistent id returns `null`, rejected with
+   a `400` (never revealing whether the id exists in another tenant).
+2. `user.status === 'ACTIVE'` — the same convention
+   `WorkflowEligibilityService` already uses to exclude a locked/
+   suspended/deactivated user from eligibility.
+
+No separate "Sales Rep" role or table exists — any active organisation
+member can be assigned, the exact same "no separate Technician role"
+precedent `MaintenanceOverviewController.listTechnicians()` already
+established (itself modeled on `AssetController.listCustodians()`,
+Sprint 20). The admin picker (`GET /api/retail/outlets/representatives`)
+mirrors that endpoint's shape precisely: reuses `sales.customer.view`
+(already required for the whole Outlet surface) rather than the heavier
+`identity.users.read`, returns only `{id, firstName, lastName}` for
+`ACTIVE` users.
+
+## 56. Configuration — Reused, Not Duplicated
+
+**Contact**: no separate "collection contact" fields were added — the
+brief's own instruction ("prefer existing Outlet contact information...
+do not duplicate data unnecessarily") is satisfied by simply reusing the
+outlet's existing `contactPersonName`/`phoneNumber` directly. There is
+nothing to keep in sync because there is nothing duplicated.
+
+**Territory**: `Outlet.territoryId` (existing, Sprint 4.8) IS the
+Collection Point's geographic context — no second territory relationship
+was introduced, satisfying the brief's explicit instruction.
+
+**Operating hours**: `collectionPointOperatingHours String?` — free text
+(e.g. "Mon-Sat 9am-6pm"), the same "plain text now, structure later if
+ever genuinely needed" convention `Outlet.address` already uses.
+Deliberately not a scheduling engine.
+
+**Capacity and eligible products — deliberately deferred.** Neither has
+a concrete Sprint 37 requirement to design against yet (the brief
+explicitly permits deferring both in that case). Introducing either now
+would mean guessing at a shape ("number of orders? units? storage
+capacity?" for capacity; a new join table or reused SKU reference for
+product eligibility) with no real consumer to validate the guess against
+— exactly the kind of premature design the brief warns against. Deferred
+to whichever future sprint has an actual fulfilment requirement to build
+against.
+
+## 57. Authorization
+
+No new permission catalogue entries. Every Collection Point route reuses
+`sales.customer.view` (read: list/get representatives) or
+`sales.customer.manage` (write: enable/disable/configure) — the exact
+same two permissions the pre-existing Outlet routes already require,
+since enabling/configuring a Collection Point is the same administrative
+capability as editing the outlet itself. Live-verified: an unauthenticated
+request → `401`; an authenticated user lacking `sales.customer.manage`
+(this tenant's seeded Member role) → `403 Missing required permission:
+sales.customer.manage` on every mutation, and `403` on the same
+permission's own `view` route too — confirmed as pre-existing behavior
+identical to plain `GET /api/retail/outlets`, not something this sprint
+changed.
+
+## 58. Eligibility Rules — The Actual Rules Implemented
+
+Enforced in `OutletService.enableCollectionPoint()`, nothing beyond what
+the existing architecture already supports:
+
+1. **Tenant** — the outlet must belong to the caller's own organisation
+   (the same tenant-scoped lookup every domain in this codebase uses; a
+   cross-tenant id is indistinguishable from a nonexistent one).
+2. **`Outlet.status === ACTIVE`** — an `INACTIVE` outlet cannot be
+   enabled. Live-verified: `400 Outlet must be active to enable
+Collection Point`.
+3. **`Outlet.territoryId` is set** — a Collection Point's geographic
+   context is the outlet's own territory; with none set, a future
+   consumer-discovery query would have nothing to match against.
+   Live-verified: `400 Outlet must have a territory assigned to enable
+Collection Point`.
+
+No restriction on `outletType` was added — the existing docs explicitly
+document `OutletType` as "deliberately extensible — no business logic
+anywhere is keyed on a specific value," and the brief warns against
+inventing restrictions the architecture doesn't already support.
+
+## 59. Inventory Boundary — Documented, Not Bridged
+
+**The question Sprint 37 will need answered**: when a paid D2C order is
+fulfilled from a Collection Point, what existing inventory location/stock
+row does it deduct from?
+
+**The audited answer**: `InventoryStock`/`InventoryTransaction`
+(Sprint 4.5) are already keyed by `(organisationId, productId,
+locationId)` against a real `InventoryLocation` model — not a flat,
+location-less per-tenant pool. `SalesFulfilment.locationId` (the existing
+B2B fulfilment path) already deducts against exactly this same triple.
+**`InventoryLocation` has no relationship to `Outlet` today, in either
+direction** — confirmed by inspection of both models and every file
+under `apps/api/src/inventory/` and `apps/api/src/retail/`.
+
+**The smallest bridge, documented for Sprint 37, deliberately NOT
+implemented this sprint**: an optional `Outlet.inventoryLocationId ->
+InventoryLocation` FK, added only when a real fulfilment requirement
+exists to justify it — mirroring `Outlet.territoryId`'s own shape
+exactly. No stock deduction, reservation, transfer, fulfilment
+transaction, COGS, or settlement logic was written this sprint; this
+section exists purely so the answer is on record before Sprint 37 starts,
+not because any of it was built.
+
+## 60. B2B Credit Boundary — Preserved, Not Reinterpreted
+
+**A critical, explicitly-protected business boundary.** Enabling
+Collection Point on an `Outlet` changes exactly one thing:
+`collectionPointStatus`. It does NOT mean, and nothing in this sprint's
+code treats it as meaning: the outlet has paid for its existing B2B
+credit inventory, the outlet is financially settled, or a consumer's OPay
+payment (Sprint 35) belongs to the outlet. `outletType`, credit terms,
+`DistributionNetworkRelationship` rows, and B2B pricing are all
+byte-for-byte untouched by `enableCollectionPoint`/
+`disableCollectionPoint`/`updateCollectionPointConfig` — live-verified: a
+diff of the update payload sent to `OutletRepository.update()` for each
+of these three methods contains only Collection-Point-prefixed fields
+plus `updatedById`, never `outletType`/`status`/`customerId`. How a
+verified D2C payment eventually becomes a Collection Point's own
+commercial/settlement obligation is explicitly Sprint 37's design
+problem, not solved (or guessed at) here.
+
+## 61. Consumer Payment Boundary — Unchanged
+
+Sprint 35 established `Consumer -> OPay -> Zentuva` as the payment flow;
+a Collection Point does not become a payment recipient merely because it
+will eventually fulfil an order. No payment logic — creation, callback
+handling, status mapping, or otherwise — was added, modified, or
+referenced anywhere in this sprint's code. `d2c-payment-independence.spec.ts`
+(Sprint 35, unmodified) continues to pass, confirming `D2CPaymentService`
+has no knowledge of Collection Points at all.
+
+## 62. Audit Trail
+
+Three new action strings added to the existing `OUTLET_AUDIT_ACTIONS` map
+(`apps/api/src/retail/outlet/outlet-audit-actions.ts`) — no new audit
+mechanism:
+
+- `outlet.collection_point_enabled`
+- `outlet.collection_point_disabled`
+- `outlet.collection_point_configuration_updated` (metadata includes the
+  changed field names and the pre-change `responsibleUserId`/
+  `operatingHours` values)
+
+Recorded via the existing `AuditService.record()`, in the controller,
+matching every other Outlet mutation's own convention exactly (actor,
+organisation, entity, timestamp — no new fields). Live-verified: enabling
+then configuring then disabling the same outlet produced exactly three
+audit rows, each with the correct actor and before/after metadata; five
+truly concurrent enable requests against the same outlet produced exactly
+ONE `outlet.collection_point_enabled` row (the four losing requests never
+reach the audit call, since they throw before it).
+
+## 63. Disabling — Reversible, Never Destructive
+
+Disabling flips `collectionPointStatus` back to `DISABLED` and touches
+nothing else — `collectionPointResponsibleUserId`/`.OperatingHours` are
+never cleared, so re-enabling later needs no re-entry (live-verified: a
+disable→reload→re-open cycle showed the same responsible representative
+and operating hours still populated, badge correctly reading
+"Disabled"). No `SalesOrder`/`Payment` row exists yet that references a
+Collection Point (Sprint 37 territory), so there is nothing to migrate or
+reassign this sprint. A repeated `disable` call is rejected with `400
+Collection Point is already disabled for this outlet` — the exact
+`activate`/`deactivate` convention — rather than silently succeeding.
+
+**Outlet status vs. Collection Point status, deliberately kept
+independent**: deactivating the underlying `Outlet`
+(`OutletService.deactivate()`) is completely unmodified and never
+touches `collectionPointStatus` — an outlet can be `INACTIVE` with
+Collection Point still recorded as `ENABLED` in the database (its
+configuration is preserved, exactly like the disable case above). Any
+future reader (Sprint 37's own eligibility/discovery query) must treat a
+Collection Point as available only when BOTH `Outlet.status === ACTIVE`
+AND `collectionPointStatus === ENABLED` — this is a read-time
+combination, never a second persisted "effective" flag, and
+`enableCollectionPoint()` itself already refuses to enable an `INACTIVE`
+outlet in the first place (§58).
+
+## 64. Discovery Foundation
+
+A future consumer-facing "find a Collection Point" flow (Sprint 37/38)
+will need: `organisationId` + territory match + `collectionPointStatus:
+'ENABLED'` + `Outlet.status: 'ACTIVE'`. Every piece of that filter already
+exists on `Outlet` today — no new query, endpoint, or algorithm was built
+this sprint (explicitly out of scope: nearest-location matching, maps,
+GPS, a consumer-facing selection UI). The one thing added is a composite
+index, `@@index([organisationId, territoryId, collectionPointStatus])`,
+purely so that future query performs well once it exists — the data model
+supports the flow; the flow itself does not exist yet.
+
+## 65. Admin & Field UI
+
+**Admin** (`/settings/retail`, Outlets tab, edit dialog): a self-contained
+"Collection Point" section was added to the existing `OutletDialog`
+(edit mode only — needs an outlet id first, the same reasoning already
+used for photo management) with its OWN mutations
+(enable/disable/configure), deliberately never bundled into the outlet
+form's "Save Changes" submit — matching the brief's "explicit mutations,
+not an arbitrary field save" instruction and mirroring how Activate/
+Deactivate already work as instant actions elsewhere in this codebase.
+Consumer-facing language is "Collection Point"/"Enable"/"Disable" —
+never "Pickup" anywhere in the UI or API (docs brief "Terminology").
+
+**Field** (`/field/outlets/:id`): a small, read-only "Collection Point:
+Enabled" badge + operating hours was added to the existing detail page —
+shown only when `collectionPointStatus === 'ENABLED'`, live-verified
+present on an enabled outlet and absent on a plain B2B one. Deliberately
+NOT a paid-order queue, "prepare order," "ready for collection," or any
+other Sprint 37 operational workflow element — purely informational, per
+the brief's explicit boundary.
+
+## 66. Scope — Explicitly Not Built This Sprint
+
+No consumer Collection Point selection, order assignment, order
+preparation, "ready for collection"/"collected" states, inventory
+deduction/reservation/transfer, Collection Point settlement or accounting
+settlement, field-worker paid-order queue, collection notifications,
+loyalty/rewards, or payout — all explicitly Sprint 37 or later. Sprint 36
+ends at: an existing Outlet, with a Collection Point capability,
+configured, ready for Sprint 37 to connect a paid `SalesOrder` to it.
+
+## 67. Testing (Sprint 36)
+
+`apps/api/src/retail/outlet/outlet.service.spec.ts`: enable (valid
+eligible outlet; inactive-outlet rejection; no-territory rejection;
+cross-tenant `NotFoundException`; already-enabled rejection; never
+touches `outletType`/`customerId`/`status`; 5-way concurrent enable
+producing a deterministic `ENABLED` final state across every settled
+call); disable (valid; already-disabled rejection; configuration
+survives disable untouched; repeated-disable safety); configuration
+update (valid with responsible-user validation; cross-tenant
+responsible-user rejection; inactive/suspended responsible-user
+rejection; explicit `null` clears the field; cross-tenant outlet
+rejection; concurrent updates producing a deterministic final state); a
+dedicated B2B-regression block confirming `create()`/`activate()` remain
+byte-for-byte unaffected by the Collection Point capability.
+`apps/api/src/retail/outlet/outlet.controller.spec.ts`: enable/disable/
+config-update audit events (including before/after metadata); the
+`representatives` picker's `ACTIVE`-only filter. `apps/api/src/sales/
+sales-order.service.spec.ts`'s existing `Outlet` fixture was extended
+with the three new fields (compile-time regression guard only, no
+behavioural change). No new spec files were created — this sprint extends
+the existing Outlet domain's own test files, matching its "extend, don't
+parallel" architecture exactly. Full live verification against the real
+dev database, real HTTP requests (including a genuinely second
+organisation via `/auth/register`, an unauthenticated request, and the
+seeded Member role), 5 truly concurrent enable requests, 5 concurrent
+configuration updates, and a real browser session (admin dialog,
+persistence-after-reload, field detail page) — see
+`docs/sprint-36-completion-report.md`.

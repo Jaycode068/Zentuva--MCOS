@@ -30,6 +30,10 @@ export type OutletType =
 export type OutletStatus = 'ACTIVE' | 'INACTIVE';
 export type OutletPhotoType = 'FRONT' | 'SIGNAGE' | 'INTERIOR' | 'SHELF_DISPLAY' | 'OTHER';
 
+/** Sprint 36 — a CAPABILITY of the existing Outlet, never a parallel entity. Mirrors
+ *  `OutletStatus`'s own two-value shape — see docs/domains/d2c.md "Collection Point". */
+export type CollectionPointStatus = 'ENABLED' | 'DISABLED';
+
 export type TerritoryStatus = 'ACTIVE' | 'INACTIVE';
 
 export type DistributionRelationshipType =
@@ -145,11 +149,28 @@ export interface Outlet {
   longitude: number | null;
   status: OutletStatus;
   notes: string | null;
+  collectionPointStatus: CollectionPointStatus;
+  collectionPointResponsibleUserId: string | null;
+  collectionPointOperatingHours: string | null;
   createdAt: string;
   updatedAt: string;
   customer: { id: string; customerCode: string; customerName: string };
   territory: { id: string; name: string } | null;
   photos: OutletPhoto[];
+}
+
+/** `GET /api/retail/outlets/representatives` response shape — Sprint 36's Collection
+ *  Point "responsible representative" picker, the same minimal `{id, firstName, lastName}`
+ *  shape as maintenance's `listTechnicians()`. */
+export interface OutletRepresentative {
+  id: string;
+  firstName: string;
+  lastName: string;
+}
+
+export interface UpdateCollectionPointConfigPayload {
+  responsibleUserId?: string | null;
+  operatingHours?: string | null;
 }
 
 export interface CreateOutletPayload {
@@ -331,6 +352,31 @@ export function activateOutlet(id: string): Promise<Outlet> {
 
 export function deactivateOutlet(id: string): Promise<Outlet> {
   return apiFetch<Outlet>(`/retail/outlets/${id}/deactivate`, { method: 'POST' });
+}
+
+// Sprint 36 — Collection Point capability (a capability of Outlet, never a parallel
+// `/collection-points` resource — see docs/domains/d2c.md "Collection Point").
+
+export function listOutletRepresentatives(): Promise<{ items: OutletRepresentative[] }> {
+  return apiFetch<{ items: OutletRepresentative[] }>('/retail/outlets/representatives');
+}
+
+export function enableCollectionPoint(id: string): Promise<Outlet> {
+  return apiFetch<Outlet>(`/retail/outlets/${id}/collection-point/enable`, { method: 'POST' });
+}
+
+export function disableCollectionPoint(id: string): Promise<Outlet> {
+  return apiFetch<Outlet>(`/retail/outlets/${id}/collection-point/disable`, { method: 'POST' });
+}
+
+export function updateCollectionPointConfig(
+  id: string,
+  input: UpdateCollectionPointConfigPayload,
+): Promise<Outlet> {
+  return apiFetch<Outlet>(`/retail/outlets/${id}/collection-point`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
 }
 
 export function addOutletPhotos(

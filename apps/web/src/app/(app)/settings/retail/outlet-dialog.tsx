@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Button,
   Dialog,
@@ -23,9 +23,13 @@ import { captureCoordinates } from '@/lib/geolocation';
 import {
   addOutletPhotos,
   createOutlet,
+  disableCollectionPoint,
+  enableCollectionPoint,
   listCustomers,
+  listOutletRepresentatives,
   listTerritories,
   removeOutletPhoto,
+  updateCollectionPointConfig,
   updateOutlet,
   type Outlet,
 } from './api';
@@ -255,6 +259,8 @@ export function OutletDialog({
           </div>
         </details>
 
+        {isEdit && <CollectionPointSection outlet={outlet} onSaved={onSaved} />}
+
         {isEdit && (
           <MultiImageUploadCard
             title="Outlet Photos"
@@ -291,5 +297,158 @@ export function OutletDialog({
         </DialogFooter>
       </form>
     </Dialog>
+  );
+}
+
+/**
+ * Sprint 36 — Collection Point capability (docs/domains/d2c.md). Deliberately a
+ * self-contained sub-section with its OWN mutations, never bundled into the outlet form's
+ * "Save Changes" submit — the exact same "enable/disable/configure are explicit actions,
+ * not an arbitrary field save" pattern the brief asked for, matching how Activate/
+ * Deactivate already work as instant actions elsewhere in this app rather than form
+ * fields. Consumer-facing language throughout is "Collection Point"/"Collect" — never
+ * "Pickup" (docs/domains/d2c.md "Terminology").
+ */
+function CollectionPointSection({ outlet, onSaved }: { outlet: Outlet; onSaved: () => void }) {
+  const queryClient = useQueryClient();
+  // Local state mirrors the outlet prop but is updated directly from each mutation's own
+  // response — `outlet` itself is a snapshot captured by the parent at dialog-open time
+  // (`editingOutlet`) and does not live-update from the background query invalidation
+  // below, so the Enabled/Disabled badge and buttons would otherwise stay stale until the
+  // dialog is closed and reopened.
+  const [status, setStatus] = useState(outlet.collectionPointStatus);
+  const [operatingHours, setOperatingHours] = useState(outlet.collectionPointOperatingHours ?? '');
+  const [responsibleUserId, setResponsibleUserId] = useState(
+    outlet.collectionPointResponsibleUserId ?? '',
+  );
+  const isEnabled = status === 'ENABLED';
+
+  const { data: representativesData } = useQuery({
+    queryKey: ['outlet-collection-point-representatives'],
+    queryFn: () => listOutletRepresentatives(),
+  });
+  const representatives = representativesData?.items ?? [];
+
+  function afterSave(updated: Outlet) {
+    setStatus(updated.collectionPointStatus);
+    setOperatingHours(updated.collectionPointOperatingHours ?? '');
+    setResponsibleUserId(updated.collectionPointResponsibleUserId ?? '');
+    onSaved();
+    queryClient.invalidateQueries({ queryKey: ['outlets'] });
+  }
+
+  const enableMutation = useMutation({
+    mutationFn: () => enableCollectionPoint(outlet.id),
+    onSuccess: afterSave,
+  });
+  const disableMutation = useMutation({
+    mutationFn: () => disableCollectionPoint(outlet.id),
+    onSuccess: afterSave,
+  });
+  const configMutation = useMutation({
+    mutationFn: () =>
+      updateCollectionPointConfig(outlet.id, {
+        responsibleUserId: responsibleUserId || null,
+        operatingHours: operatingHours.trim() || null,
+      }),
+    onSuccess: afterSave,
+  });
+
+  const error =
+    enableMutation.error instanceof ApiError
+      ? enableMutation.error.message
+      : disableMutation.error instanceof ApiError
+        ? disableMutation.error.message
+        : configMutation.error instanceof ApiError
+          ? configMutation.error.message
+          : undefined;
+
+  return (
+    <div className="space-y-3 rounded-md border border-border p-3">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-sm font-medium text-foreground">Collection Point</p>
+          <p className="text-xs text-muted-foreground">
+            Lets consumers collect D2C orders paid online at this outlet.
+          </p>
+        </div>
+        <span
+          className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+            isEnabled
+              ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400'
+              : 'bg-muted text-muted-foreground'
+          }`}
+        >
+          {isEnabled ? 'Enabled' : 'Disabled'}
+        </span>
+      </div>
+
+      {outlet.status !== 'ACTIVE' && !isEnabled && (
+        <p className="text-xs text-muted-foreground">
+          This outlet must be active before Collection Point can be enabled.
+        </p>
+      )}
+      {!outlet.territoryId && !isEnabled && (
+        <p className="text-xs text-muted-foreground">
+          This outlet needs a territory assigned before Collection Point can be enabled.
+        </p>
+      )}
+
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-1.5">
+          <Label>Responsible Representative</Label>
+          <Select value={responsibleUserId} onChange={(e) => setResponsibleUserId(e.target.value)}>
+            <option value="">Not set</option>
+            {representatives.map((rep) => (
+              <option key={rep.id} value={rep.id}>
+                {rep.firstName} {rep.lastName}
+              </option>
+            ))}
+          </Select>
+        </div>
+        <div className="space-y-1.5">
+          <Label>Operating Hours</Label>
+          <Input
+            placeholder="e.g. Mon-Sat 9am-6pm"
+            value={operatingHours}
+            onChange={(e) => setOperatingHours(e.target.value)}
+          />
+        </div>
+      </div>
+
+      {error && <p className="text-xs text-destructive">{error}</p>}
+
+      <div className="flex flex-wrap gap-2">
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={() => configMutation.mutate()}
+          disabled={configMutation.isPending}
+        >
+          {configMutation.isPending ? 'Saving…' : 'Save Configuration'}
+        </Button>
+        {isEnabled ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => disableMutation.mutate()}
+            disabled={disableMutation.isPending}
+          >
+            {disableMutation.isPending ? 'Disabling…' : 'Disable Collection Point'}
+          </Button>
+        ) : (
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => enableMutation.mutate()}
+            disabled={enableMutation.isPending || outlet.status !== 'ACTIVE' || !outlet.territoryId}
+          >
+            {enableMutation.isPending ? 'Enabling…' : 'Enable Collection Point'}
+          </Button>
+        )}
+      </div>
+    </div>
   );
 }

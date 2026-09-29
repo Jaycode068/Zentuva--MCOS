@@ -1699,6 +1699,19 @@ enum OutletStatus {
   INACTIVE
 }
 
+/// Sprint 36 — Existing Outlet -> Collection Point Enablement (docs/domains/d2c.md
+/// "Collection Point"). A CAPABILITY of an existing `Outlet`, never a parallel entity —
+/// deliberately mirrors `OutletStatus`'s own two-value shape rather than a raw Boolean,
+/// so a future intermediate state (if ever needed) is a pure additive change. Distinct
+/// from `Outlet.status`: an `Outlet` can be `ACTIVE` with Collection Point `DISABLED`
+/// (the default, every pre-existing outlet), or `ACTIVE` with `ENABLED`. An `INACTIVE`
+/// outlet's Collection Point is treated as unavailable at read time (service-computed —
+/// never a second persisted flag) without destroying its `ENABLED` configuration.
+enum CollectionPointStatus {
+  ENABLED
+  DISABLED
+}
+
 enum TerritoryStatus {
   ACTIVE
   INACTIVE
@@ -1862,28 +1875,44 @@ model Customer {
 /// creation if the agent grants permission. There is NO continuous tracking, no
 /// `watchPosition`, no geofencing, and no route optimisation anywhere in this codebase.
 model Outlet {
-  id                String       @id @default(cuid())
-  organisationId    String
-  customerId        String
+  id                               String                @id @default(cuid())
+  organisationId                   String
+  customerId                       String
   /// Auto-generated (`OUT-000001`, ...), globally unique, immutable.
-  outletCode        String       @unique
-  outletType        OutletType
-  name              String
-  contactPersonName String?
-  phoneNumber       String?
-  address           String?
-  city              String?
-  state             String?
-  country           String?
-  territoryId       String?
-  latitude          Float?
-  longitude         Float?
-  status            OutletStatus @default(ACTIVE)
-  notes             String?
-  createdById       String?
-  updatedById       String?
-  createdAt         DateTime     @default(now())
-  updatedAt         DateTime     @updatedAt
+  outletCode                       String                @unique
+  outletType                       OutletType
+  name                             String
+  contactPersonName                String?
+  phoneNumber                      String?
+  address                          String?
+  city                             String?
+  state                            String?
+  country                          String?
+  territoryId                      String?
+  latitude                         Float?
+  longitude                        Float?
+  status                           OutletStatus          @default(ACTIVE)
+  notes                            String?
+  /// Sprint 36 — Collection Point capability (docs/domains/d2c.md). Defaults `DISABLED`
+  /// so every pre-existing and future-created-via-`POST /api/retail/outlets` outlet is
+  /// completely unaffected — no outlet ever becomes a Collection Point implicitly.
+  /// Deliberately does NOT change `outletType`/credit terms/distributor relationships/
+  /// B2B pricing/existing sales behaviour — see docs/domains/d2c.md "B2B Credit Boundary".
+  collectionPointStatus            CollectionPointStatus @default(DISABLED)
+  /// Plain id, no FK relation — the established `SalesOrder.salesAgentId`/
+  /// `WorkOrder.assignedToId` convention for "the person responsible," not the HR
+  /// `Department.departmentHeadEmployeeId` real-FK convention (this is a Sales/Retail
+  /// record, not an HR org-chart one). References a `User` — validated tenant-scoped and
+  /// `status === ACTIVE` in `OutletService`, never trusted from the client.
+  collectionPointResponsibleUserId String?
+  /// Free text (e.g. "Mon-Sat 9am-6pm") — deliberately not a structured scheduling model,
+  /// same "plain text now, structure later if ever needed" convention as `Outlet.address`.
+  /// `null` until an admin sets it; never required to enable the capability.
+  collectionPointOperatingHours    String?
+  createdById                      String?
+  updatedById                      String?
+  createdAt                        DateTime              @default(now())
+  updatedAt                        DateTime              @updatedAt
 
   organisation    Organisation     @relation(fields: [organisationId], references: [id], onDelete: Cascade)
   /// `Restrict` — an internal domain FK with no delete endpoint on either side, same
@@ -1905,6 +1934,11 @@ model Outlet {
   @@index([organisationId, status])
   @@index([organisationId, customerId])
   @@index([territoryId])
+  /// Sprint 36 — the discovery-foundation query a future consumer-facing "find a
+  /// Collection Point near me" flow (Sprint 37/38) will run: organisation + territory +
+  /// enabled, filtered further by `status: ACTIVE` in the query itself. No new query was
+  /// built this sprint — this index only ensures the data model can support one.
+  @@index([organisationId, territoryId, collectionPointStatus])
   @@map("outlets")
 }
 

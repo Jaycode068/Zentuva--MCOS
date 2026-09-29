@@ -1,8 +1,14 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { Outlet, OutletPhoto, OutletStatus } from '@prisma/client';
-import { AddOutletPhotosInput, CreateOutletInput, UpdateOutletInput } from '@zentuva/validation';
+import { CollectionPointStatus, Outlet, OutletPhoto, OutletStatus } from '@prisma/client';
+import {
+  AddOutletPhotosInput,
+  CreateOutletInput,
+  UpdateCollectionPointConfigInput,
+  UpdateOutletInput,
+} from '@zentuva/validation';
 
 import { FILE_STORAGE, FileStorage } from '../../identity/organisation/ports/file-storage.port';
+import { UserService } from '../../identity/user/user.service';
 import { CustomerRepository } from '../customer/customer.repository';
 import { TerritoryRepository } from '../territory/territory.repository';
 import { ListOutletsParams, OutletRepository, OutletWithRelations } from './outlet.repository';
@@ -33,6 +39,7 @@ export class OutletService {
     private readonly outletPhotoRepository: OutletPhotoRepository,
     private readonly customerRepository: CustomerRepository,
     private readonly territoryRepository: TerritoryRepository,
+    private readonly userService: UserService,
     @Inject(FILE_STORAGE) private readonly fileStorage: FileStorage,
   ) {}
 
@@ -136,6 +143,134 @@ export class OutletService {
       throw new BadRequestException('Outlet is already inactive');
     }
     return this.setStatus(organisationId, id, OutletStatus.INACTIVE, actorUserId);
+  }
+
+  /**
+   * Sprint 36 — Collection Point capability (docs/domains/d2c.md "Collection Point
+   * Eligibility"). A CAPABILITY of this existing Outlet, never a parallel entity — enabling
+   * it never touches `outletType`, credit terms, distributor relationships, or any other
+   * B2B field. Eligibility, the actual rules implemented (nothing beyond what the
+   * existing architecture already supports):
+   *
+   * 1. The outlet must belong to the caller's own tenant (enforced by `getByIdOrThrow`'s
+   *    tenant-scoped lookup — a cross-tenant id is indistinguishable from a nonexistent
+   *    one, same as every other domain in this codebase).
+   * 2. `Outlet.status` must be `ACTIVE` — an `INACTIVE` outlet cannot be enabled (brief
+   *    "COLLECTION POINT STATUS AND EXISTING OUTLET STATUS").
+   * 3. `Outlet.territoryId` must be set — a Collection Point's geographic context is the
+   *    outlet's own existing territory relationship (brief: "Do not introduce another
+   *    territory relationship"); with none set, a future consumer-discovery query
+   *    (Sprint 37/38) would have no territory to match against at all.
+   */
+  async enableCollectionPoint(
+    organisationId: string,
+    id: string,
+    actorUserId: string,
+  ): Promise<OutletWithRelations> {
+    const outlet = await this.getByIdOrThrow(organisationId, id);
+    if (outlet.collectionPointStatus === CollectionPointStatus.ENABLED) {
+      throw new BadRequestException('Collection Point is already enabled for this outlet');
+    }
+    if (outlet.status !== OutletStatus.ACTIVE) {
+      throw new BadRequestException('Outlet must be active to enable Collection Point');
+    }
+    if (!outlet.territoryId) {
+      throw new BadRequestException(
+        'Outlet must have a territory assigned to enable Collection Point',
+      );
+    }
+    return this.setCollectionPointStatus(
+      organisationId,
+      id,
+      CollectionPointStatus.ENABLED,
+      actorUserId,
+    );
+  }
+
+  /**
+   * Reversible, never destructive (brief "DISABLING A COLLECTION POINT"): configuration
+   * (`collectionPointResponsibleUserId`/`.OperatingHours`) is left untouched so
+   * re-enabling later needs no re-entry, and no historical `SalesOrder`/`Payment` row
+   * referencing this outlet is touched — there is nothing to migrate or reassign this
+   * sprint since D2C fulfilment from a Collection Point does not exist yet (Sprint 37).
+   */
+  async disableCollectionPoint(
+    organisationId: string,
+    id: string,
+    actorUserId: string,
+  ): Promise<OutletWithRelations> {
+    const outlet = await this.getByIdOrThrow(organisationId, id);
+    if (outlet.collectionPointStatus === CollectionPointStatus.DISABLED) {
+      throw new BadRequestException('Collection Point is already disabled for this outlet');
+    }
+    return this.setCollectionPointStatus(
+      organisationId,
+      id,
+      CollectionPointStatus.DISABLED,
+      actorUserId,
+    );
+  }
+
+  /**
+   * Configuration is intentionally editable whether the capability is currently enabled
+   * or disabled — an admin may pre-configure a responsible representative/operating hours
+   * before the first enable, or adjust them afterward, matching how `update()` already
+   * works independently of `activate`/`deactivate`. `responsibleUserId` (when supplied,
+   * including explicitly clearing it via `null`) is validated tenant-scoped and `ACTIVE`
+   * — never trusted from the client (brief "VALIDATION").
+   */
+  async updateCollectionPointConfig(
+    organisationId: string,
+    id: string,
+    input: UpdateCollectionPointConfigInput,
+    actorUserId: string,
+  ): Promise<OutletWithRelations> {
+    await this.getByIdOrThrow(organisationId, id);
+    if (input.responsibleUserId) {
+      await this.assertValidResponsibleUser(organisationId, input.responsibleUserId);
+    }
+
+    const updated = await this.outletRepository.update(organisationId, id, {
+      updatedById: actorUserId,
+      ...(input.responsibleUserId !== undefined
+        ? { collectionPointResponsibleUserId: input.responsibleUserId }
+        : {}),
+      ...(input.operatingHours !== undefined
+        ? { collectionPointOperatingHours: input.operatingHours }
+        : {}),
+    });
+    if (!updated) {
+      throw new NotFoundException('Outlet not found');
+    }
+    return updated;
+  }
+
+  private async setCollectionPointStatus(
+    organisationId: string,
+    id: string,
+    collectionPointStatus: CollectionPointStatus,
+    actorUserId: string,
+  ): Promise<OutletWithRelations> {
+    const updated = await this.outletRepository.update(organisationId, id, {
+      collectionPointStatus,
+      updatedById: actorUserId,
+    });
+    if (!updated) {
+      throw new NotFoundException('Outlet not found');
+    }
+    return updated;
+  }
+
+  private async assertValidResponsibleUser(organisationId: string, userId: string): Promise<void> {
+    const user = await this.userService.getById(organisationId, userId);
+    if (!user) {
+      throw new BadRequestException(
+        'Responsible representative must be a user in this organisation',
+      );
+    }
+    if (user.status !== 'ACTIVE') {
+      throw new BadRequestException('Responsible representative must be an active user');
+    }
   }
 
   /**

@@ -2088,6 +2088,33 @@ async function seedOutlets(
 }
 
 /**
+ * Sprint 36 — Collection Point capability (docs/domains/d2c.md). Deliberately NOT every
+ * outlet — the brief explicitly warns against automatically enabling every seeded outlet.
+ * `OUT-000003` ("Bodija Supermart — Bodija Branch") is the one, clearly-identified test
+ * fixture: an ACTIVE `SUPERMARKET` outlet that already has a territory assigned (Sprint
+ * 4.8's own `TER-000005`), satisfying Collection Point eligibility exactly. Idempotent —
+ * `update` sets the same fields on every re-run, never creating a second row. Writes
+ * directly via Prisma (matching this file's existing convention for every other fixture)
+ * rather than going through `OutletService.enableCollectionPoint`, since seed data is not
+ * expected to exercise the HTTP/service layer.
+ */
+async function seedCollectionPoints(outletsByCode: Record<string, string>): Promise<void> {
+  console.log('Seeding Collection Points (1 Boby Bites Collection Point)...');
+
+  const bodijaSupermartId = outletsByCode['OUT-000003'];
+  if (!bodijaSupermartId) {
+    return;
+  }
+  await prisma.outlet.update({
+    where: { id: bodijaSupermartId },
+    data: {
+      collectionPointStatus: 'ENABLED',
+      collectionPointOperatingHours: 'Mon-Sat 9am-6pm',
+    },
+  });
+}
+
+/**
  * Only 3 relationships across 9 customers — deliberately not a fully-mapped network
  * (brief §33). Demonstrates every kind of link the model supports (distributor ->
  * wholesaler, distributor -> a direct restaurant customer, wholesaler -> retailer)
@@ -7692,6 +7719,7 @@ async function main(): Promise<void> {
     customersByCode,
     territoriesByCode,
   );
+  await seedCollectionPoints(outletsByCode);
   await seedNetworkRelationships(organisation.id, ownerUser.id, customersByCode);
   const salesOrdersByCode = await seedSalesOrders(
     organisation.id,

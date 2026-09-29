@@ -7,6 +7,53 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 36 Existing Outlet -> Collection Point Enablement] - 2026-09-30
+
+Enables an existing `Outlet` to optionally operate as a D2C Collection
+Point — a CAPABILITY of the existing Outlet, never a parallel entity.
+Three additive columns (`collectionPointStatus`, defaulting `DISABLED`
+for every outlet; `collectionPointResponsibleUserId`;
+`collectionPointOperatingHours`) were added directly to `Outlet` — no new
+`CollectionPoint` table, and no `/api/collection-points` resource.
+Territory and contact information are reused from the outlet's own
+existing fields rather than duplicated.
+
+The pre-implementation audit found the exact conventions to reuse rather
+than invent: `OutletStatus`'s own two-value shape (mirrored by the new
+`CollectionPointStatus` enum), `activate()`/`deactivate()`'s dedicated-
+method pattern (mirrored by new `enableCollectionPoint`/
+`disableCollectionPoint` methods), and the Outlet domain's existing
+`sales.customer.view`/`.manage` permissions (reused as-is — zero new
+permission catalogue entries). No existing "responsible representative"
+concept was found anywhere on `Outlet`/`Customer`; resolved with a plain
+id referencing an existing `User`, the same convention
+`SalesOrder.salesAgentId` already established, never a new
+`CollectionPointAgent` entity.
+
+Eligibility requires the outlet to be active with a territory already
+assigned. Disabling is reversible and non-destructive: the saved
+responsible representative and operating hours remain intact so
+re-enabling needs no re-entry, and the outlet's own active/inactive
+status is tracked completely independently of the Collection Point
+capability. The inventory boundary a future fulfilment sprint will need
+was audited and documented — `InventoryLocation` has no relationship to
+`Outlet` today — without building any bridge, deduction, reservation, or
+settlement logic.
+
+Live-verified against the real dev database and a running dev server:
+5 truly concurrent enable requests against the same outlet produced
+exactly one success and a deterministic final database state with
+exactly one audit event; cross-tenant outlet access and cross-tenant
+employee assignment were both correctly rejected; a real browser session
+confirmed the admin Collection Point configuration persists across a
+full page reload, and a read-only indicator correctly appears on the
+Field outlet detail page only for an enabled outlet.
+
+227 suites / 2040 tests passing, confirming existing B2B Outlet, Customer,
+Distribution Network, and Sales Order behaviour did not regress. No order
+fulfilment, inventory deduction, consumer-facing selection, or settlement
+logic was built — that work is explicitly Sprint 37's scope.
+
 ## [Sprint 35 OPay D2C Payment Integration] - 2026-09-29
 
 Builds the first real payment gateway integration for Zentuva D2C,

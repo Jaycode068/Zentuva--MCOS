@@ -874,6 +874,7 @@ REJECTED}`) optionally linking an existing `CapitalProject`/
 - ✓ Sprint 33 — Consumer Conversation Experience Foundation
 - ✓ Sprint 34 — D2C Consumer Ordering
 - ✓ Sprint 35 — OPay D2C Payment Integration
+- ✓ Sprint 36 — Existing Outlet -> Collection Point Enablement
 
 **Current focus:** The Finance MVP (Sprints 6-19) is considered
 functionally complete. Epic 14 (Asset & Maintenance Management) is fully
@@ -1259,6 +1260,37 @@ bug was found and fixed live: the return-URL page used Next.js 15's
 load until fixed. 227 suites / 2017 tests passing. See
 [`docs/sprint-35-completion-report.md`](sprint-35-completion-report.md).
 
+Sprint 36 ("Existing Outlet -> Collection Point Enablement") enabled an
+existing `Outlet` to optionally operate as a D2C Collection Point — a
+CAPABILITY of the existing Outlet, never a parallel entity: three
+additive columns (`collectionPointStatus`/`.ResponsibleUserId`/
+`.OperatingHours`) directly on `Outlet`, reusing its existing territory
+and contact fields rather than duplicating either (`new CollectionPoint
+entity = NO`, per the audit's own explicit finding that three columns
+isn't substantial enough configuration to justify a separate model).
+`enableCollectionPoint`/`disableCollectionPoint`/
+`updateCollectionPointConfig` mirror the exact `activate`/`deactivate`
+shape `Outlet` already established; every route reuses the Outlet
+domain's own `sales.customer.view`/`.manage` permissions — zero new
+catalogue entries. Eligibility requires `Outlet.status === ACTIVE` and a
+territory assigned; disabling flips the capability off without ever
+touching the saved responsible-representative/operating-hours
+configuration, so re-enabling needs no re-entry. The audit found no
+existing "responsible representative" concept on `Outlet`/`Customer` at
+all — resolved with a plain id referencing an existing `User` (the same
+`SalesOrder.salesAgentId` convention), never a new `CollectionPointAgent`
+entity. The inventory boundary was audited and documented, not
+bridged: `InventoryLocation` has no relationship to `Outlet` today, so
+Sprint 37 will need to add one (an optional `Outlet.inventoryLocationId`
+FK is the documented smallest bridge) before any fulfilment can be
+built — no stock deduction/reservation/transfer logic exists yet.
+Live-verified with 5 truly concurrent enable requests producing exactly
+one success and a deterministic final database state, cross-tenant
+outlet and cross-tenant employee-assignment rejection, and a real browser
+session confirming configuration persistence across a full page reload.
+227 suites / 2040 tests passing. See
+[`docs/sprint-36-completion-report.md`](sprint-36-completion-report.md).
+
 Deliberately still not started: payroll, leave management, AI-driven
 recruitment automation (CV ranking, automated rejection, automated hiring
 decisions), a job-board/ATS integration, performance/KPI engines, an LMS,
@@ -1267,9 +1299,12 @@ itself (Sprint 33 built only the channel-neutral conversation layer behind
 it — no Meta API, webhooks, templates, or media handling), the Sprint 42
 consumer-facing simulator, OPay payout/RSA (settlement account)
 functionality, production OPay credentials, a payment-retry flow for a
-failed/closed payment, D2C Collection Points/fulfilment/inventory
-deduction/loyalty/promotions (Sprint 34 built ordering, Sprint 35 built
-payment — see docs/domains/d2c.md §51), digests, scheduled reminders, a real background
+failed/closed payment, D2C order fulfilment/inventory deduction/
+reservation/transfer, Collection Point settlement/accounting, Collection
+Point capacity/eligible-product restrictions, a consumer-facing
+Collection Point selection flow, loyalty/promotions (Sprint 34 built
+ordering, Sprint 35 built payment, Sprint 36 built Collection Point
+enablement — see docs/domains/d2c.md §66), digests, scheduled reminders, a real background
 worker for notification/email/WhatsApp processing, a marketing-email or
 broadcast-messaging platform of any kind, a Technician RBAC role (from Sprint 22),
 `ASSIGNED_TERRITORY`/`ASSIGNED_ASSETS` scope enforcement (no
