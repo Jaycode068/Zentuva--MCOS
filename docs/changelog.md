@@ -7,6 +7,63 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 35 OPay D2C Payment Integration] - 2026-09-29
+
+Builds the first real payment gateway integration for Zentuva D2C,
+entirely as an extension of the existing Finance `Payment` model and
+Sales Order lifecycle — never a parallel payment system:
+`Conversation Layer -> D2CPaymentService (new) -> PaymentService
+(existing, extended) + SalesOrderService.confirm (existing, widened) ->
+Payment + SalesOrder DRAFT->CONFIRMED`. OPay itself is reached only
+through a new `PaymentProvider` port, mirroring the Sprint 28/29
+`EmailProvider`/`WhatsAppProvider` pattern, so Finance never couples to
+OPay-specific JSON.
+
+The pre-implementation audit found the same kind of gap Sprint 34 already
+resolved for `SalesOrder`: `Payment.customerId` was a required FK, and a
+Consumer is not a Customer — resolved by directly reapplying that
+sprint's own mutually-exclusive nullable `customerId`/`consumerId`
+pattern (DB-level `CHECK` constraint). A deterministic, globally-unique
+payment reference (`PAY-{orderCode}`, since `orderCode` is already
+globally unique) resolves a repeated "Pay Now" click and a retried
+webhook to the same row by construction — no second payment is ever
+created for the same order. Amount and currency are always
+server-authoritative; a single naira-to-kobo conversion boundary lives
+only inside the OPay provider, guarded against floating-point drift.
+
+The webhook (`POST /api/payments/opay/webhook`, deliberately public and
+unauthenticated — OPay has no Zentuva session to present) verifies an
+HMAC-SHA512 signature via constant-time comparison, then validates
+reference/amount/currency before ever touching financial state; it is
+idempotent via the same conditional-`updateMany` primitive established in
+prior sprints. No existing Finance/GL trigger applies to an uninvoiced
+D2C order (Sprint 34's own documented limitation), so a verified payment
+deliberately stops at the existing `SalesOrder` `DRAFT -> CONFIRMED`
+transition rather than fabricating a journal entry.
+
+Live-verified repeatedly against the real OPay sandbox: real
+`cashierUrl`s returned and opened in a real browser, the Cashier UI
+correctly showing the server-computed merchant name and amount,
+idempotent checkout-session reuse across repeated "Pay Now" clicks, and 6
+duplicate/concurrent deliveries of a real signed callback producing
+exactly one `SalesOrder` confirmation. OPay's own sandbox never delivered
+its documented automatic test-wallet callback despite two real attempts
+through an independently-verified-reachable public tunnel, so the
+webhook handler's own correctness was instead proven with a callback
+signed using the real production secret key — reported honestly as
+self-constructed, never claimed as OPay-originated. A real bug was found
+and fixed during this sprint's own live browser verification: the return-
+URL page was written against Next.js 15's `use(params)` convention, but
+this codebase runs Next.js 14.2.16, where a client component's `params`
+is a plain synchronous object — the page threw an unhandled runtime error
+on every load until fixed to match this codebase's existing convention.
+
+227 suites / 2017 tests passing, confirming nothing in the pre-existing
+Finance, Sales, or Sprint 32-34 D2C behaviour regressed. Sandbox/test
+mode only — no production OPay credentials or endpoint were used; no
+payout/RSA, Collection Point, fulfilment, inventory, loyalty, or
+marketing integration was built.
+
 ## [Sprint 34 D2C Consumer Ordering] - 2026-09-28
 
 Builds D2C Consumer Ordering entirely as an extension of the existing

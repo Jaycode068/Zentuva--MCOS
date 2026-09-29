@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { PaymentStatus } from '@prisma/client';
 import { CreatePaymentInput } from '@zentuva/validation';
 
 import {
@@ -9,6 +10,7 @@ import {
 import { InvoiceRepository, PAYABLE_INVOICE_STATUSES } from './invoice.repository';
 import {
   CreatePaymentResult,
+  CreatePendingConsumerPaymentData,
   InvalidCashAccountError,
   ListPaymentsParams,
   OverPaymentError,
@@ -108,6 +110,47 @@ export class PaymentService {
       }
       throw error;
     }
+  }
+
+  // ---------------------------------------------------------------------
+  // Sprint 35 — D2C OPay Payment Integration. Thin pass-throughs to
+  // `PaymentRepository`'s new D2C-specific methods, the exact
+  // `SalesOrderService.createForConsumer`-alongside-`create()` shape
+  // (Sprint 34): the pre-existing `create()`/`void()` above are completely
+  // unchanged, and `D2CPaymentService` (never anything under `d2c/`
+  // directly) is the only caller of these three.
+  // ---------------------------------------------------------------------
+
+  createPendingForConsumer(
+    data: CreatePendingConsumerPaymentData,
+  ): Promise<{ payment: PaymentWithRelations; wasCreated: boolean }> {
+    return this.paymentRepository.createPendingForConsumer(data);
+  }
+
+  findByMerchantReference(merchantReference: string): Promise<PaymentWithRelations | null> {
+    return this.paymentRepository.findByMerchantReference(merchantReference);
+  }
+
+  attachProviderDetails(
+    organisationId: string,
+    id: string,
+    details: { providerReference?: string; checkoutUrl?: string },
+  ): Promise<PaymentWithRelations | null> {
+    return this.paymentRepository.attachProviderDetails(organisationId, id, details);
+  }
+
+  applyProviderCallback(
+    organisationId: string,
+    id: string,
+    toStatus: PaymentStatus,
+    providerReference: string,
+  ): Promise<{ payment: PaymentWithRelations; wasApplied: boolean } | null> {
+    return this.paymentRepository.applyProviderCallback(
+      organisationId,
+      id,
+      toStatus,
+      providerReference,
+    );
   }
 
   private async getInvoiceOrThrow(organisationId: string, id: string) {

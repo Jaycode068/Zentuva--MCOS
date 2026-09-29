@@ -494,3 +494,238 @@ describe('PaymentRepository (deliberate exception — real transaction logic und
     expect(invoices.get('invoice-1')!.amountPaid).toBe(0);
   });
 });
+
+/**
+ * Sprint 35 — D2C OPay Payment Integration. The four new D2C-specific
+ * methods never use `$transaction` (no Invoice/GL involvement at all — see
+ * their own doc comments), so a much simpler direct `prisma.payment.*`
+ * mock is sufficient here, independent of the `create()`/`void()` fixture
+ * above.
+ */
+describe('PaymentRepository — D2C methods (Sprint 35)', () => {
+  function makeSimplePrisma() {
+    const rows = new Map<string, Record<string, unknown>>();
+    const prisma = {
+      payment: {
+        findUnique: jest.fn(({ where }: { where: { merchantReference: string } }) =>
+          Promise.resolve(
+            [...rows.values()].find((r) => r.merchantReference === where.merchantReference) ?? null,
+          ),
+        ),
+        findFirst: jest.fn(({ where }: { where: { id: string; organisationId: string } }) =>
+          Promise.resolve(
+            [...rows.values()].find(
+              (r) => r.id === where.id && r.organisationId === where.organisationId,
+            ) ?? null,
+          ),
+        ),
+        create: jest.fn(({ data }: { data: Record<string, unknown> }) => {
+          const id = `payment-${rows.size + 1}`;
+          const row = { id, customer: null, consumer: null, allocations: [], ...data };
+          rows.set(id, row);
+          return Promise.resolve(row);
+        }),
+        updateMany: jest.fn(
+          ({ where, data }: { where: Record<string, unknown>; data: Record<string, unknown> }) => {
+            const match = [...rows.values()].find(
+              (r) =>
+                r.id === where.id &&
+                r.organisationId === where.organisationId &&
+                (where.status === undefined || r.status === where.status),
+            );
+            if (!match) return Promise.resolve({ count: 0 });
+            Object.assign(match, data);
+            return Promise.resolve({ count: 1 });
+          },
+        ),
+      },
+    } as unknown as PrismaService;
+    return { prisma, rows };
+  }
+
+  describe('createPendingForConsumer', () => {
+    it('creates a PENDING, ONLINE, OPAY-provider payment with no customerId/invoice at all', async () => {
+      const { prisma } = makeSimplePrisma();
+      const repository = new PaymentRepository(prisma);
+
+      const { payment, wasCreated } = await repository.createPendingForConsumer({
+        organisationId: 'org-1',
+        consumerId: 'consumer-1',
+        salesOrderId: 'order-1',
+        amount: 1500,
+        currency: 'NGN',
+        merchantReference: 'PAY-SO-000001',
+      });
+
+      expect(wasCreated).toBe(true);
+      expect(payment.status).toBe(PaymentStatus.PENDING);
+      expect(payment.method).toBe(PaymentMethod.ONLINE);
+      expect(payment.provider).toBe('OPAY');
+      expect(payment.customerId).toBeUndefined();
+      expect(payment.consumerId).toBe('consumer-1');
+      expect(payment.merchantReference).toBe('PAY-SO-000001');
+    });
+
+    it('is idempotent by merchantReference — a repeated call returns the existing row, never a second one', async () => {
+      const { prisma, rows } = makeSimplePrisma();
+      const repository = new PaymentRepository(prisma);
+      const input = {
+        organisationId: 'org-1',
+        consumerId: 'consumer-1',
+        salesOrderId: 'order-1',
+        amount: 1500,
+        currency: 'NGN',
+        merchantReference: 'PAY-SO-000001',
+      };
+
+      const first = await repository.createPendingForConsumer(input);
+      const second = await repository.createPendingForConsumer(input);
+
+      expect(first.wasCreated).toBe(true);
+      expect(second.wasCreated).toBe(false);
+      expect(second.payment.id).toBe(first.payment.id);
+      expect(rows.size).toBe(1);
+    });
+
+    it('recovers from a genuine P2002 race by re-fetching the winner, never surfacing the raw DB error', async () => {
+      const { prisma, rows } = makeSimplePrisma();
+      // Simulate a concurrent request having ALREADY inserted the row between our
+      // find-miss and our own create attempt.
+      const winnerRow = {
+        id: 'payment-winner',
+        organisationId: 'org-1',
+        merchantReference: 'PAY-SO-000001',
+        status: PaymentStatus.PENDING,
+        customer: null,
+        consumer: null,
+        allocations: [],
+      };
+      let createCalls = 0;
+      (prisma.payment.create as jest.Mock) = jest.fn(() => {
+        createCalls += 1;
+        rows.set('payment-winner', winnerRow);
+        const error = Object.assign(new Error('Unique constraint failed'), { code: 'P2002' });
+        return Promise.reject(error);
+      });
+      const repository = new PaymentRepository(prisma);
+
+      const { payment, wasCreated } = await repository.createPendingForConsumer({
+        organisationId: 'org-1',
+        consumerId: 'consumer-1',
+        salesOrderId: 'order-1',
+        amount: 1500,
+        currency: 'NGN',
+        merchantReference: 'PAY-SO-000001',
+      });
+
+      expect(createCalls).toBe(1);
+      expect(wasCreated).toBe(false);
+      expect(payment.id).toBe('payment-winner');
+    });
+  });
+
+  describe('applyProviderCallback', () => {
+    it('transitions a PENDING payment to RECORDED and persists the providerReference', async () => {
+      const { prisma, rows } = makeSimplePrisma();
+      rows.set('payment-1', {
+        id: 'payment-1',
+        organisationId: 'org-1',
+        status: PaymentStatus.PENDING,
+        customer: null,
+        consumer: null,
+        allocations: [],
+      });
+      const repository = new PaymentRepository(prisma);
+
+      const result = await repository.applyProviderCallback(
+        'org-1',
+        'payment-1',
+        PaymentStatus.RECORDED,
+        'OPAY-ORDER-1',
+      );
+
+      expect(result?.wasApplied).toBe(true);
+      expect(result?.payment.status).toBe(PaymentStatus.RECORDED);
+      expect(result?.payment.providerReference).toBe('OPAY-ORDER-1');
+    });
+
+    it('is idempotent — a SECOND callback for an already-resolved payment is a safe no-op (brief "CALLBACK IDEMPOTENCY")', async () => {
+      const { prisma, rows } = makeSimplePrisma();
+      rows.set('payment-1', {
+        id: 'payment-1',
+        organisationId: 'org-1',
+        status: PaymentStatus.PENDING,
+        customer: null,
+        consumer: null,
+        allocations: [],
+      });
+      const repository = new PaymentRepository(prisma);
+
+      const first = await repository.applyProviderCallback(
+        'org-1',
+        'payment-1',
+        PaymentStatus.RECORDED,
+        'OPAY-ORDER-1',
+      );
+      // A duplicate SUCCESS callback arriving again.
+      const second = await repository.applyProviderCallback(
+        'org-1',
+        'payment-1',
+        PaymentStatus.RECORDED,
+        'OPAY-ORDER-1',
+      );
+
+      expect(first?.wasApplied).toBe(true);
+      expect(second?.wasApplied).toBe(false); // never re-applied
+      expect(second?.payment.status).toBe(PaymentStatus.RECORDED); // still correct, untouched
+    });
+
+    it('never lets a late FAIL callback overwrite an already-RECORDED (SUCCESS) payment', async () => {
+      const { prisma, rows } = makeSimplePrisma();
+      rows.set('payment-1', {
+        id: 'payment-1',
+        organisationId: 'org-1',
+        status: PaymentStatus.RECORDED, // already resolved by an earlier SUCCESS callback
+        customer: null,
+        consumer: null,
+        allocations: [],
+      });
+      const repository = new PaymentRepository(prisma);
+
+      const result = await repository.applyProviderCallback(
+        'org-1',
+        'payment-1',
+        PaymentStatus.FAILED,
+        'OPAY-ORDER-1',
+      );
+
+      expect(result?.wasApplied).toBe(false);
+      expect(result?.payment.status).toBe(PaymentStatus.RECORDED); // unchanged
+    });
+
+    it('never matches a payment belonging to a different organisation (tenant safety)', async () => {
+      const { prisma, rows } = makeSimplePrisma();
+      rows.set('payment-1', {
+        id: 'payment-1',
+        organisationId: 'org-A',
+        status: PaymentStatus.PENDING,
+        customer: null,
+        consumer: null,
+        allocations: [],
+      });
+      const repository = new PaymentRepository(prisma);
+
+      const result = await repository.applyProviderCallback(
+        'org-B',
+        'payment-1',
+        PaymentStatus.RECORDED,
+        'OPAY-ORDER-1',
+      );
+
+      // Wrong tenant resolves to nothing at all — never even a "wasApplied:
+      // false" shape that would confirm the payment exists under org-A.
+      expect(result).toBeNull();
+      expect(rows.get('payment-1')!.status).toBe(PaymentStatus.PENDING); // untouched
+    });
+  });
+});

@@ -2085,6 +2085,9 @@ model SalesOrder {
   invoices        Invoice[]
   /// Added Sprint 11 — Returns, Claims & Reversals (docs/domains/sales.md).
   customerReturns CustomerReturn[]
+  /// Added Sprint 35 — D2C OPay Payment Integration. See `Payment.salesOrderId`'s doc
+  /// comment — a D2C order's payment(s), targeted directly (never via `Invoice`).
+  payments        Payment[]
 
   @@unique([organisationId, idempotencyKey])
   @@index([organisationId])
@@ -2473,13 +2476,38 @@ enum PaymentMethod {
   BANK_TRANSFER
   POS
   OTHER
+  /// Added Sprint 35 — D2C OPay Payment Integration. A consumer paying
+  /// through an online payment gateway (OPay Cashier today; any future
+  /// gateway reuses this same value, not a new one) — distinct from the
+  /// four existing manually-recorded methods above.
+  ONLINE
 }
 
 /// `VOIDED` is a corrective reversal, never a delete — see `Payment`'s own
-/// doc comment.
+/// doc comment. `PENDING`/`FAILED`/`CLOSED` added Sprint 35 — see
+/// `PaymentProvider`'s doc comment: every pre-Sprint-35 `Payment` row is
+/// created directly as `RECORDED` (an already-completed, manually-recorded
+/// receipt) and never passes through these three, which exist only for a
+/// provider-initiated payment awaiting confirmation.
 enum PaymentStatus {
   RECORDED
   VOIDED
+  PENDING
+  FAILED
+  CLOSED
+}
+
+/// Added Sprint 35 — D2C OPay Payment Integration (docs/domains/d2c.md
+/// "Payment Architecture"). `null` on `Payment.provider` means the existing
+/// Sprint 6 manually-recorded path (cash/bank/POS handed to Finance staff,
+/// already complete the moment the row is created) — completely
+/// unaffected by this sprint. `OPAY` marks a payment created by
+/// `D2CPaymentService`/`OpayPaymentProvider`, deliberately one value for
+/// the same reason `ConversationChannel`/`SalesOrderSource` started with
+/// one — a future second gateway adds a value here, never a parallel
+/// Payment concept.
+enum PaymentProvider {
+  OPAY
 }
 
 /// `DRAFT → ISSUED` (applies the credit to its invoice) `→ VOID` (reverses
@@ -2601,48 +2629,111 @@ model InvoiceItem {
 /// below for why, and docs/domains/finance.md §"Payment Allocation
 /// Limitation" for the documented Sprint 6 constraint this enables lifting
 /// later without a schema rewrite.
+///
+/// Added Sprint 35 (docs/domains/d2c.md "Payment Architecture"):
+/// `customerId`/`consumerId` are mutually exclusive, the exact
+/// `SalesOrder.customerId`/`.consumerId` precedent from Sprint 34 — a B2B
+/// payment (the pre-existing, unaffected case) has `customerId` and no
+/// `consumerId`/`salesOrderId`/`provider`; a D2C payment (new this sprint)
+/// has `consumerId` + `salesOrderId` and no `customerId`/`invoiceId`
+/// allocation. This is deliberate, not an oversight: a D2C `SalesOrder` is
+/// never invoiced this sprint (Sprint 34's own boundary), so there is no
+/// `Invoice` for a D2C `Payment` to allocate against via
+/// `PaymentAllocation` — it targets its `SalesOrder` directly instead.
+/// Enforced by a DB-level CHECK constraint (hand-added to this sprint's
+/// migration — Prisma's schema DSL has no multi-column CHECK).
 model Payment {
-  id             String        @id @default(cuid())
-  organisationId String
-  customerId     String
-  paymentDate    DateTime
+  id                String           @id @default(cuid())
+  organisationId    String
+  /// Nullable since Sprint 35 — see model doc comment.
+  customerId        String?
+  /// Added Sprint 35 — a `Consumer` (Sprint 32) paying for their own D2C
+  /// `SalesOrder` (Sprint 34), never a `Customer`.
+  consumerId        String?
+  /// Added Sprint 35 — the D2C `SalesOrder` this payment is for. Required
+  /// whenever `consumerId` is set (service-enforced); a B2B payment never
+  /// sets this, since it targets an `Invoice` via `PaymentAllocation`
+  /// instead.
+  salesOrderId      String?
+  paymentDate       DateTime
   /// Total amount of this payment — may be allocated across one or more
   /// invoices via `PaymentAllocation` (Sprint 6 only ever creates exactly
   /// one allocation row per payment; the join table already supports more).
-  amount         Float
-  /// Derived server-side from the target Invoice's own snapshotted
-  /// `currency` at recording time — never client-supplied (a payment can
-  /// only ever apply to its target invoice's own currency).
-  currency       String
-  method         PaymentMethod
-  /// Free-text bank/transaction reference supplied by the customer/payer —
-  /// NOT a system-generated code (this codebase's `<PREFIX>-000001` code
-  /// numbering is reserved for `Invoice`/`CreditNote` per the brief).
-  reference      String?
-  notes          String?
-  status         PaymentStatus @default(RECORDED)
+  /// For a D2C/OPay payment (Sprint 35), this is the server-authoritative
+  /// `SalesOrder.total` — never a client-/provider-supplied value trusted
+  /// as-is (docs/domains/d2c.md "Pricing").
+  amount            Float
+  /// Derived server-side — from the target Invoice's own snapshotted
+  /// `currency` at recording time for a B2B payment, or from the target
+  /// `SalesOrder`'s own organisation currency for a D2C payment — never
+  /// client-supplied.
+  currency          String
+  method            PaymentMethod
+  /// Free-text bank/transaction reference supplied by the customer/payer for
+  /// a B2B payment — NOT a system-generated code. Unused for a D2C/OPay
+  /// payment, which uses `merchantReference`/`providerReference` instead.
+  reference         String?
+  notes             String?
+  status            PaymentStatus    @default(RECORDED)
   /// Added Sprint 14 (docs/domains/cash-management.md) — which specific
   /// `CashAccount` received the money. Nullable and optional: when absent, posting
   /// falls back to the pre-Sprint-14 behaviour of resolving the generic `CASH`/
   /// `BANK` system account from `method` alone — existing rows/flows are
   /// unaffected. When present, the posting line targets that account's own
-  /// dedicated Chart of Accounts row instead.
-  cashAccountId  String?
+  /// dedicated Chart of Accounts row instead. Never set for a D2C/OPay
+  /// payment this sprint — see docs/domains/d2c.md "Finance Boundary".
+  cashAccountId     String?
   /// Client-supplied, optional. Same double-submit protection as every
-  /// other idempotency key in this codebase.
-  idempotencyKey String?
-  createdById    String?
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+  /// other idempotency key in this codebase. Unused for a D2C/OPay payment,
+  /// which uses the deterministic, globally-unique `merchantReference`
+  /// instead (docs/domains/d2c.md "Payment Reference Design").
+  idempotencyKey    String?
+  /// Added Sprint 35 — which gateway created this payment. `null` for every
+  /// existing and future manually-recorded B2B payment.
+  provider          PaymentProvider?
+  /// Added Sprint 35 — the gateway's own identifier for this payment (OPay's
+  /// `orderNo`). Set only once the gateway has actually acknowledged the
+  /// payment attempt.
+  providerReference String?
+  /// Added Sprint 35 — Zentuva's OWN deterministic, globally unique
+  /// reference, derived from `SalesOrder.orderCode` (itself already globally
+  /// unique) and sent to the gateway as ITS `reference` field. THE stable
+  /// identity a repeated "Pay Now" click resolves to (never a new random
+  /// value per click) and the ONLY field a provider callback's reference is
+  /// looked up by — deliberately globally unique, not just per-organisation,
+  /// so a callback carrying only a reference can never be tenant-ambiguous
+  /// (docs/domains/d2c.md "Payment Reference Design" / "Tenant Isolation").
+  merchantReference String?
+  /// Added Sprint 35 — OPay's own `cashierUrl`, persisted so a repeated
+  /// "Pay Now" click while a payment is still `PENDING` can return the same
+  /// checkout link without a second call to OPay at all.
+  checkoutUrl       String?
+  createdById       String?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
 
   organisation Organisation        @relation(fields: [organisationId], references: [id], onDelete: Cascade)
-  customer     Customer            @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  customer     Customer?           @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  /// Added Sprint 35 — `Restrict`, matching `customer`'s own rationale: a
+  /// payment is a financial record and must never be silently re-pointed or
+  /// null-ed out from under a Consumer.
+  consumer     Consumer?           @relation(fields: [consumerId], references: [id], onDelete: Restrict)
+  /// Added Sprint 35 — `Restrict`, same rationale.
+  salesOrder   SalesOrder?         @relation(fields: [salesOrderId], references: [id], onDelete: Restrict)
   cashAccount  CashAccount?        @relation(fields: [cashAccountId], references: [id], onDelete: Restrict)
   allocations  PaymentAllocation[]
 
   @@unique([customerId, idempotencyKey])
+  /// Added Sprint 35 — deliberately GLOBAL, not `[organisationId,
+  /// merchantReference]`: a provider callback carries only a reference, no
+  /// tenant hint, so the lookup that resolves it must be unambiguous on the
+  /// reference alone. Safe because `merchantReference` is itself derived
+  /// from `SalesOrder.orderCode`, already globally unique.
+  @@unique([merchantReference])
   @@index([organisationId])
   @@index([organisationId, customerId])
+  @@index([organisationId, consumerId])
+  @@index([organisationId, salesOrderId])
   @@index([cashAccountId])
   @@map("payments")
 }
@@ -7579,6 +7670,9 @@ model Consumer {
   /// Added Sprint 34 — D2C Consumer Ordering. See `SalesOrder.consumerId`'s doc comment:
   /// a Consumer's own orders, structurally distinct from `Customer.salesOrders`.
   salesOrders      SalesOrder[]
+  /// Added Sprint 35 — D2C OPay Payment Integration. See `Payment.consumerId`'s doc
+  /// comment.
+  payments         Payment[]
 
   /// The core tenant-scoped identity guarantee (docs/domains/d2c.md §5):
   /// one normalized phone number identifies at most one Consumer PER

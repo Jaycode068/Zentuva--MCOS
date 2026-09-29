@@ -5,6 +5,7 @@ import { IdentityModule } from '../../identity/identity.module';
 import { TerritoryModule } from '../../retail/territory/territory.module';
 import { ConsumerModule } from '../consumer/consumer.module';
 import { D2COrderingModule } from '../ordering/d2c-ordering.module';
+import { D2CPaymentModule } from '../payment/d2c-payment.module';
 import { ConversationMessageRepository } from './conversation-message.repository';
 import { ConversationController } from './conversation.controller';
 import { ConversationRepository } from './conversation.repository';
@@ -23,9 +24,20 @@ import { ConversationService } from './conversation.service';
  * `D2COrderingService` to drive the Order Snacks flow, the exact
  * `Conversation Layer -> D2C Ordering Service -> Existing Sales Order`
  * architecture this sprint's brief describes.
+ *
+ * Added Sprint 35 — `D2CPaymentModule`, so `ConversationService` can inject
+ * `D2CPaymentService` to drive "Pay Now" the exact same way: `Conversation
+ * Layer -> D2CPaymentService -> Existing Payment/Sales Order`.
  */
 @Module({
-  imports: [IdentityModule, AuthModule, TerritoryModule, ConsumerModule, D2COrderingModule],
+  imports: [
+    IdentityModule,
+    AuthModule,
+    TerritoryModule,
+    ConsumerModule,
+    D2COrderingModule,
+    D2CPaymentModule,
+  ],
   controllers: [ConversationController],
   providers: [ConversationRepository, ConversationMessageRepository, ConversationService],
   exports: [ConversationService],

@@ -359,5 +359,12 @@ import { DecisionScenarioService } from './decision/decision-scenario.service';
     DecisionScenarioRepository,
     DecisionScenarioService,
   ],
+  /** Added Sprint 35 — `PaymentService` is now also exported so
+   *  `D2CPaymentModule` can inject it directly (never a repository bypass) to
+   *  reuse its new D2C-specific methods — the same "consume another domain
+   *  only through its exported service" convention (ADR-002)
+   *  `D2COrderingModule` already uses for `SalesOrderService` (Sprint 34).
+   *  FinanceModule exported nothing before this sprint. */
+  exports: [PaymentService],
 })
 export class FinanceModule {}

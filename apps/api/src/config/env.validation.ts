@@ -100,6 +100,31 @@ export const envSchema = baseEnvSchema
       .min(1)
       .default('zentuva_interview_scheduled'),
     WHATSAPP_INTERVIEW_SCHEDULED_TEMPLATE_LANGUAGE: z.string().trim().min(1).default('en_US'),
+
+    /** Sprint 35 — the first backend-constructed link back to `apps/web`
+     *  (OPay's `returnUrl`/`cancelUrl`). Defaults to the local dev web
+     *  server; production deploys must set this to the real public web
+     *  origin. */
+    WEB_BASE_URL: z.string().trim().url().default('http://localhost:3000'),
+
+    // --- D2C OPay Payment Integration (Sprint 35) — same "everything
+    // optional at the schema level, load-bearing only when a payment is
+    // actually attempted" contract as WhatsApp/email above
+    // (`OpayPaymentProvider` throws its own clear configuration error at
+    // construction time if a required value is missing). Never
+    // logged/printed — see docs/domains/d2c.md "Security."
+    OPAY_ENVIRONMENT: z.enum(['sandbox', 'production']).default('sandbox'),
+    OPAY_API_BASE_URL: z.string().trim().url().default('https://testapi.opaycheckout.com'),
+    OPAY_MERCHANT_ID: z.string().trim().min(1).optional(),
+    OPAY_PUBLIC_KEY: z.string().trim().min(1).optional(),
+    OPAY_SECRET_KEY: z.string().trim().min(1).optional(),
+    /** A local placeholder — OPay's sandbox cannot reach `localhost`. See
+     *  docs/domains/d2c.md "Webhook — Local Development." */
+    OPAY_WEBHOOK_URL: z
+      .string()
+      .trim()
+      .url()
+      .default('http://localhost:4000/api/payments/opay/webhook'),
   })
   .refine((env) => env.JWT_ACCESS_SECRET !== env.JWT_REFRESH_SECRET, {
     message: 'JWT_ACCESS_SECRET and JWT_REFRESH_SECRET must be different values',

@@ -10,6 +10,8 @@ import { TerritoryRepository } from '../../retail/territory/territory.repository
 import { ConsumerService } from '../consumer/consumer.service';
 import { CartItemUnavailableError, D2COrderingService } from '../ordering/d2c-ordering.service';
 import { CartLine } from '../ordering/d2c-ordering.types';
+import { D2CPaymentService } from '../payment/d2c-payment.service';
+import { PaymentProviderError } from '../payment/d2c-payment.types';
 import { CONVERSATION_AUDIT_ACTIONS } from './conversation-audit-actions';
 import { ConversationMessageRepository } from './conversation-message.repository';
 import { ConversationRepository } from './conversation.repository';
@@ -33,6 +35,8 @@ interface ConversationContext {
   cart?: CartLine[];
   pendingProductId?: string;
   checkoutIdempotencyKey?: string;
+  /** Sprint 35 — which order the `AWAITING_PAYMENT` step is for. */
+  salesOrderId?: string;
 }
 
 /**
@@ -62,6 +66,7 @@ export class ConversationService {
     private readonly auditService: AuditService,
     private readonly organisationService: OrganisationService,
     private readonly d2cOrderingService: D2COrderingService,
+    private readonly d2cPaymentService: D2CPaymentService,
   ) {}
 
   /**
@@ -664,6 +669,8 @@ export class ConversationService {
         return this.handleAwaitingRemove(organisationId, conversation, input, cart);
       case 'AWAITING_CONFIRM':
         return this.handleAwaitingConfirm(organisationId, conversation, input, cart, context);
+      case 'AWAITING_PAYMENT':
+        return this.handleAwaitingPayment(organisationId, conversation, context);
       default:
         // Unexpected/corrupted context — fail safely rather than getting stuck,
         // same convention as `handleLocationSelection`'s own fallback.
@@ -996,9 +1003,15 @@ export class ConversationService {
           metadata: { conversationId: conversation.id, orderCode: result.orderCode },
         });
       }
+      // Sprint 35 — stay in the ordering flow one more step: payment is
+      // required before this order is anything more than a DRAFT record
+      // of demand (docs/domains/d2c.md "Conversation UX"), never jump
+      // straight to MAIN_MENU as if the order were already settled.
       const updated = await this.conversationRepository.update(organisationId, conversation.id, {
-        state: 'MAIN_MENU',
-        context: Prisma.JsonNull,
+        context: {
+          step: 'AWAITING_PAYMENT',
+          salesOrderId: result.orderId,
+        } as unknown as Prisma.InputJsonValue,
       });
       return this.respond(updated!, [
         {
@@ -1009,9 +1022,15 @@ export class ConversationService {
             `Order: ${result.orderCode}`,
             `Amount: ${result.currency} ${result.total}`,
             `Status: ${formatOrderStatusForConsumer(result.status)}`,
+            '',
+            'Payment is required before we can process your order.',
           ].join('\n'),
         },
-        ...mainMenuMessages(),
+        {
+          type: 'BUTTONS',
+          text: 'Ready to pay?',
+          options: [{ value: 'PAY_NOW', label: 'Pay Now' }],
+        },
       ]);
     } catch (error) {
       if (error instanceof CartItemUnavailableError) {
@@ -1019,6 +1038,124 @@ export class ConversationService {
       }
       if (error instanceof BadRequestException) {
         return this.respond(conversation, [{ type: 'TEXT', text: this.errorMessage(error) }]);
+      }
+      throw error;
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // AWAITING_PAYMENT — Sprint 35 "Pay Now" (brief "CONVERSATION LAYER
+  // INTEGRATION"). `PAY_NOW` and a later "check my payment" both resolve
+  // through the SAME `D2CPaymentService.initiatePayment` call — it is
+  // idempotent/reentrant by construction (docs/domains/d2c.md "Payment
+  // Reference Design"), so "start paying" and "check whether I've already
+  // paid" are, from this layer's perspective, the identical operation.
+  // ---------------------------------------------------------------------
+
+  private async handleAwaitingPayment(
+    organisationId: string,
+    conversation: ConsumerConversation,
+    context: ConversationContext,
+  ): Promise<ConversationOutboundResponse> {
+    const salesOrderId = context.salesOrderId;
+    if (!salesOrderId) {
+      // Corrupted context — no order was ever pending payment; safest is
+      // the main menu rather than getting stuck.
+      const updated = await this.conversationRepository.update(organisationId, conversation.id, {
+        state: 'MAIN_MENU',
+        context: Prisma.JsonNull,
+      });
+      return this.respond(updated!, mainMenuMessages());
+    }
+
+    try {
+      const result = await this.d2cPaymentService.initiatePayment(
+        organisationId,
+        conversation.consumerId!,
+        salesOrderId,
+      );
+
+      if (result.status === 'SUCCESS') {
+        const updated = await this.conversationRepository.update(organisationId, conversation.id, {
+          state: 'MAIN_MENU',
+          context: Prisma.JsonNull,
+        });
+        return this.respond(updated!, [
+          {
+            type: 'TEXT',
+            text: `Payment successful.\nYour order ${result.orderReference} has been paid.`,
+          },
+          ...mainMenuMessages(),
+        ]);
+      }
+
+      if (result.status === 'PENDING' && result.checkoutUrl) {
+        return this.respond(conversation, [
+          {
+            type: 'PAYMENT_REQUIRED',
+            text: 'Your payment page is ready.',
+            orderReference: result.orderReference,
+            paymentReference: result.paymentReference,
+            amount: result.amount,
+            currency: result.currency,
+            checkoutUrl: result.checkoutUrl,
+          },
+          {
+            type: 'BUTTONS',
+            text: 'Already paid?',
+            options: [{ value: 'PAY_NOW', label: "I've Paid - Check Status" }],
+          },
+        ]);
+      }
+
+      if (result.status === 'PENDING') {
+        // Reused an in-flight attempt that has no checkoutUrl yet (a prior
+        // OPay call failed/timed out and this call just retried it, or
+        // OPay reported a duplicate-reference collision) — brief
+        // "Payment is still being confirmed."
+        return this.respond(conversation, [
+          {
+            type: 'TEXT',
+            text: 'Your payment is still being confirmed.\n\nWe will update your order once payment is confirmed.',
+          },
+          {
+            type: 'BUTTONS',
+            text: 'Check again?',
+            options: [{ value: 'PAY_NOW', label: 'Check Status' }],
+          },
+        ]);
+      }
+
+      // FAILED or CLOSED — a definitive, non-pending outcome. This
+      // sprint's `initiatePayment` deliberately never auto-retries a
+      // failed/closed attempt against the SAME reference (documented
+      // limitation, docs/domains/d2c.md "Deferred Scope") — offer the main
+      // menu rather than a retry button that would just return the same
+      // failed state.
+      const updated = await this.conversationRepository.update(organisationId, conversation.id, {
+        state: 'MAIN_MENU',
+        context: Prisma.JsonNull,
+      });
+      return this.respond(updated!, [
+        {
+          type: 'TEXT',
+          text:
+            result.status === 'FAILED'
+              ? 'Your payment was not successful. Please contact support to complete this order.'
+              : 'Your payment session has closed. Please contact support to complete this order.',
+        },
+        ...mainMenuMessages(),
+      ]);
+    } catch (error) {
+      if (error instanceof PaymentProviderError) {
+        return this.respond(conversation, [
+          { type: 'TEXT', text: error.message },
+          {
+            type: 'BUTTONS',
+            text: 'Try again?',
+            options: [{ value: 'PAY_NOW', label: 'Pay Now' }],
+          },
+        ]);
       }
       throw error;
     }

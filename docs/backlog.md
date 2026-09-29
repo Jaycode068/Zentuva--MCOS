@@ -873,6 +873,7 @@ REJECTED}`) optionally linking an existing `CapitalProject`/
 - ✓ Sprint 32 — Consumer Identity, Territory & Location Foundation
 - ✓ Sprint 33 — Consumer Conversation Experience Foundation
 - ✓ Sprint 34 — D2C Consumer Ordering
+- ✓ Sprint 35 — OPay D2C Payment Integration
 
 **Current focus:** The Finance MVP (Sprints 6-19) is considered
 functionally complete. Epic 14 (Asset & Maintenance Management) is fully
@@ -1223,15 +1224,52 @@ fixed before completion, covered by a new regression test. 223 suites /
 1950 tests passing. See
 [`docs/sprint-34-completion-report.md`](sprint-34-completion-report.md).
 
+Sprint 35 ("OPay D2C Payment Integration") closed the payment gap Sprint
+34 left open, entirely as an extension of the existing Finance `Payment`
+model and Sales Order lifecycle: `Conversation Layer ->
+D2CPaymentService (new) -> PaymentService (existing, extended) +
+SalesOrderService.confirm (existing, widened) -> Payment + SalesOrder
+DRAFT->CONFIRMED`. OPay itself is reached only through a new
+`PaymentProvider` port (mirroring the Sprint 28/29
+`EmailProvider`/`WhatsAppProvider` pattern), so Finance never couples to
+OPay's wire format. `Payment.customerId`/`consumerId` gained the exact
+mutually-exclusive nullable pattern Sprint 34 already proved for
+`SalesOrder`; a deterministic, globally-unique `merchantReference`
+(`PAY-{orderCode}`) resolves a repeated "Pay Now" click and a retried
+webhook to the same row by construction; amount/currency are always
+server-authoritative, converted through exactly one naira-to-kobo
+boundary inside the provider. The webhook verifies an HMAC-SHA512
+signature (constant-time comparison) plus reference/amount/currency
+before touching financial state, and is idempotent via the same
+conditional-`updateMany` primitive prior sprints established —
+live-verified with 6 duplicate/concurrent deliveries of a real signed
+callback producing exactly one `SalesOrder` confirmation. Live-verified
+repeatedly against the real OPay sandbox: real `cashierUrl`s, a real
+Cashier UI showing the correct merchant/amount, idempotent checkout
+reuse; OPay's own sandbox never delivered its documented automatic test
+callback despite two real attempts through a verified-reachable public
+tunnel, so the webhook handler's own correctness was instead proven with
+a callback signed using the real production secret key — honestly
+reported as self-constructed, not claimed as OPay-originated. No
+existing Finance/GL trigger applies to an uninvoiced D2C order (Sprint
+34's own limitation), so this sprint deliberately stops at the
+`SalesOrder` confirmation rather than fabricating a journal entry. A real
+bug was found and fixed live: the return-URL page used Next.js 15's
+`use(params)` convention in this Next.js 14 codebase, breaking on every
+load until fixed. 227 suites / 2017 tests passing. See
+[`docs/sprint-35-completion-report.md`](sprint-35-completion-report.md).
+
 Deliberately still not started: payroll, leave management, AI-driven
 recruitment automation (CV ranking, automated rejection, automated hiring
 decisions), a job-board/ATS integration, performance/KPI engines, an LMS,
 SMS/push/webhook notification channels, the real WhatsApp channel adapter
 itself (Sprint 33 built only the channel-neutral conversation layer behind
 it — no Meta API, webhooks, templates, or media handling), the Sprint 42
-consumer-facing simulator, D2C payment/Collection Points/fulfilment/
-inventory deduction/loyalty/promotions (Sprint 34 built ordering only —
-see docs/domains/d2c.md §38), digests, scheduled reminders, a real background
+consumer-facing simulator, OPay payout/RSA (settlement account)
+functionality, production OPay credentials, a payment-retry flow for a
+failed/closed payment, D2C Collection Points/fulfilment/inventory
+deduction/loyalty/promotions (Sprint 34 built ordering, Sprint 35 built
+payment — see docs/domains/d2c.md §51), digests, scheduled reminders, a real background
 worker for notification/email/WhatsApp processing, a marketing-email or
 broadcast-messaging platform of any kind, a Technician RBAC role (from Sprint 22),
 `ASSIGNED_TERRITORY`/`ASSIGNED_ASSETS` scope enforcement (no

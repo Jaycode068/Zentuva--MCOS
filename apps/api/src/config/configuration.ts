@@ -66,4 +66,20 @@ export default () => ({
     interviewScheduledTemplateLanguage:
       process.env.WHATSAPP_INTERVIEW_SCHEDULED_TEMPLATE_LANGUAGE ?? 'en_US',
   },
+  webBaseUrl: process.env.WEB_BASE_URL ?? 'http://localhost:3000',
+  opay: {
+    // Sprint 35 — D2C OPay Payment Integration. `secretKey`/`publicKey`
+    // never logged, never returned from any API response as-is — see
+    // docs/domains/d2c.md "Security."
+    environment: (process.env.OPAY_ENVIRONMENT ?? 'sandbox') as 'sandbox' | 'production',
+    apiBaseUrl: process.env.OPAY_API_BASE_URL ?? 'https://testapi.opaycheckout.com',
+    merchantId: process.env.OPAY_MERCHANT_ID,
+    publicKey: process.env.OPAY_PUBLIC_KEY,
+    secretKey: process.env.OPAY_SECRET_KEY,
+    // A local placeholder cannot receive a real OPay callback — see
+    // docs/domains/d2c.md "Webhook — Local Development." Configurable so a
+    // developer can point it at a temporary HTTPS tunnel without a code
+    // change, and so production can point it at the real public API host.
+    webhookUrl: process.env.OPAY_WEBHOOK_URL ?? 'http://localhost:4000/api/payments/opay/webhook',
+  },
 });

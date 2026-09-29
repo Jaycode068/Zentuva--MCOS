@@ -224,6 +224,19 @@ feature is built configurably so it can be reused by future tenants without code
 > find-then-create-then-recover-from-P2002 idempotency recipe already
 > proven for Consumer/Conversation creation, live-verified with 5
 > genuinely concurrent order confirmations producing exactly one order.
+> The most recent sprint closed the payment gap that left open: a
+> Consumer can now pay a confirmed D2C order through a real OPay sandbox
+> Cashier, reached only through a new provider port so Finance never
+> couples to OPay's own JSON, with a deterministic reference
+> (`PAY-{orderCode}`) that resolves a repeated "Pay Now" click and a
+> retried webhook to the same row, server-authoritative amounts converted
+> through one guarded naira-to-kobo boundary, and an HMAC-signed, idempotent
+> webhook that reuses the existing Sales Order confirmation rather than a
+> new payment-specific status — live-verified with real OPay sandbox
+> `cashierUrl`s, a real browser checkout, and 6 duplicate/concurrent signed
+> callbacks producing exactly one confirmation. OPay's own sandbox never
+> delivered its documented automatic test callback in two real attempts, so
+> that one leg was reported honestly as unverified rather than assumed.
 > See
 > [docs/domains/README.md](docs/domains/README.md) for the
 > current status of every domain and [docs/roadmap.md](docs/roadmap.md) for the full

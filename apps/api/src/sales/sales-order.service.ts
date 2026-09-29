@@ -222,11 +222,14 @@ export class SalesOrderService {
   }
 
   /** `POST /:id/confirm` — the only path from `DRAFT` to `CONFIRMED`. Never deducts or
-   *  reserves inventory (brief §19/§39: "Inventory is not silently deducted"). */
+   *  reserves inventory (brief §19/§39: "Inventory is not silently deducted"). Added
+   *  Sprint 35 — `actorUserId` may be `null`: a verified D2C OPay payment confirms its
+   *  own `SalesOrder` this exact way (docs/domains/d2c.md "Sales Order Payment State"),
+   *  with no human actor to attribute the transition to. */
   async confirm(
     organisationId: string,
     id: string,
-    actorUserId: string,
+    actorUserId: string | null,
   ): Promise<SalesOrderWithRelations> {
     const existing = await this.getByIdOrThrow(organisationId, id);
     if (existing.status === SalesOrderStatus.CONFIRMED) {

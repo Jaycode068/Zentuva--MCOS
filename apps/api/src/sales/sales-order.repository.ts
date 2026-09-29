@@ -165,7 +165,11 @@ export class SalesOrderRepository {
     id: string,
     fromStatuses: SalesOrderStatus[],
     toStatus: SalesOrderStatus,
-    actorUserId: string,
+    /** Added Sprint 35 — `null` when the transition is system-triggered
+     *  (a verified OPay payment confirming a D2C order), never a human
+     *  actor — same `null`-means-"no human actor" convention `createdById`
+     *  already uses throughout this codebase. */
+    actorUserId: string | null,
   ): Promise<SalesOrderWithRelations | null> {
     const result = await this.prisma.salesOrder.updateMany({
       where: { id, organisationId, status: { in: fromStatuses } },

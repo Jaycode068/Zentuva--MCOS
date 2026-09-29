@@ -1,5 +1,11 @@
 import { Injectable } from '@nestjs/common';
-import { InvoiceStatus, Payment, PaymentMethod, PaymentStatus } from '@prisma/client';
+import {
+  InvoiceStatus,
+  Payment,
+  PaymentMethod,
+  PaymentProvider,
+  PaymentStatus,
+} from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service';
 import { SYSTEM_ACCOUNT_KEYS } from './accounting/chart-of-account-keys';
@@ -13,15 +19,38 @@ export interface ListPaymentsParams {
 
 const CUSTOMER_SELECT = { id: true, customerCode: true, customerName: true };
 
+/** Added Sprint 35 — `null` for a B2B payment. */
+const CONSUMER_SELECT = { id: true, consumerCode: true, fullName: true };
+
 export type PaymentWithRelations = Payment & {
-  customer: { id: string; customerCode: string; customerName: string };
+  /** `null` for a D2C payment (Sprint 35) — see `consumer` below. */
+  customer: { id: string; customerCode: string; customerName: string } | null;
+  /** Added Sprint 35 — `null` for a B2B payment. */
+  consumer: { id: string; consumerCode: string; fullName: string } | null;
   allocations: { id: string; invoiceId: string; amount: number }[];
 };
 
 const RELATIONS_INCLUDE = {
   customer: { select: CUSTOMER_SELECT },
+  consumer: { select: CONSUMER_SELECT },
   allocations: true,
 };
+
+/** Sprint 35 — D2C OPay Payment Integration. `createPendingForConsumer`'s
+ *  input: deliberately has no `unitPrice`/`amount`-from-client field beyond
+ *  what the caller (`D2CPaymentService`) has ALREADY derived from the
+ *  authoritative `SalesOrder.total` — this repository trusts its caller
+ *  exactly as much as `SalesOrderService.createForConsumer` trusts
+ *  `D2COrderingService` (an internal, same-request, already-validated
+ *  boundary — see Sprint 34's identical reasoning). */
+export interface CreatePendingConsumerPaymentData {
+  organisationId: string;
+  consumerId: string;
+  salesOrderId: string;
+  amount: number;
+  currency: string;
+  merchantReference: string;
+}
 
 export interface CreatePaymentData {
   organisationId: string;
@@ -300,6 +329,136 @@ export class PaymentRepository {
       return { payment, invoiceId: allocation?.invoiceId ?? '' };
     });
   }
+
+  // ---------------------------------------------------------------------
+  // Sprint 35 — D2C OPay Payment Integration. A structurally different
+  // creation path from `create()` above: no `Invoice`/`PaymentAllocation`
+  // (a D2C `SalesOrder` is never invoiced — Sprint 34's own boundary), no
+  // journal posting (there is no existing Finance/AR mechanism this
+  // genuinely triggers yet — see docs/domains/d2c.md "Finance Boundary"),
+  // and starts life `PENDING` rather than `RECORDED` (money has not been
+  // received yet; the whole point of this path is a payment ATTEMPT
+  // awaiting provider confirmation — the opposite of `create()`'s
+  // already-completed-cash-receipt assumption). Never touches
+  // `SalesOrder`/`SalesOrderItem`/`InventoryStock` — see
+  // `d2c-payment-independence.spec.ts`.
+  // ---------------------------------------------------------------------
+
+  /** Looks up a payment by its globally-unique `merchantReference` —
+   *  THE lookup a provider callback (which carries only a reference, no
+   *  tenant hint) uses to resolve both the payment AND its organisation at
+   *  once, closing the cross-tenant-ambiguity risk by construction. */
+  findByMerchantReference(merchantReference: string): Promise<PaymentWithRelations | null> {
+    return this.prisma.payment.findUnique({
+      where: { merchantReference },
+      include: RELATIONS_INCLUDE,
+    });
+  }
+
+  /** `POST /d2c/conversations/messages`'s "Pay Now" path, via
+   *  `D2CPaymentService`. Idempotent by `merchantReference` exactly like
+   *  `ConsumerRepository`/`ConversationRepository`/
+   *  `SalesOrderService.createForConsumer` (Sprints 30/32/33/34): check,
+   *  then create, and on a `P2002` race (two concurrent "Pay Now" clicks),
+   *  re-fetch and return the winner. */
+  async createPendingForConsumer(
+    data: CreatePendingConsumerPaymentData,
+  ): Promise<{ payment: PaymentWithRelations; wasCreated: boolean }> {
+    const existing = await this.findByMerchantReference(data.merchantReference);
+    if (existing) {
+      return { payment: existing, wasCreated: false };
+    }
+
+    try {
+      const payment = await this.prisma.payment.create({
+        data: {
+          organisationId: data.organisationId,
+          consumerId: data.consumerId,
+          salesOrderId: data.salesOrderId,
+          paymentDate: new Date(),
+          amount: data.amount,
+          currency: data.currency,
+          method: PaymentMethod.ONLINE,
+          status: PaymentStatus.PENDING,
+          provider: PaymentProvider.OPAY,
+          merchantReference: data.merchantReference,
+        },
+        include: RELATIONS_INCLUDE,
+      });
+      return { payment, wasCreated: true };
+    } catch (error) {
+      if (isUniqueConstraintViolation(error)) {
+        const winner = await this.findByMerchantReference(data.merchantReference);
+        if (winner) {
+          return { payment: winner, wasCreated: false };
+        }
+      }
+      throw error;
+    }
+  }
+
+  /** Persists the gateway's own identifier and/or the returned cashier URL
+   *  onto an already-`PENDING` payment — never widens the WHERE beyond this
+   *  organisation+payment, and never touches `status` (that transition is
+   *  `applyProviderCallback`'s job, driven only by a verified callback). */
+  async attachProviderDetails(
+    organisationId: string,
+    id: string,
+    details: { providerReference?: string; checkoutUrl?: string },
+  ): Promise<PaymentWithRelations | null> {
+    const result = await this.prisma.payment.updateMany({
+      where: { id, organisationId },
+      data: details,
+    });
+    if (result.count === 0) {
+      return null;
+    }
+    return this.findById(organisationId, id);
+  }
+
+  /**
+   * The webhook's own write path. Tenant-safe by construction (the caller
+   * already resolved `organisationId` FROM this exact payment via
+   * `findByMerchantReference`, never from the callback itself). Idempotent
+   * AND concurrency-safe via a conditional `updateMany` scoped to
+   * `status: PENDING` — the exact "conditional update as concurrency
+   * primitive" convention used throughout this codebase
+   * (`SalesOrderRepository.updateStatus`, etc.): a callback arriving after
+   * the payment has ALREADY resolved (a duplicate SUCCESS callback, or a
+   * late FAIL arriving after an earlier SUCCESS already applied) matches
+   * zero rows and is treated as an idempotent no-op, never a second
+   * transition or a corruption of an already-final status.
+   */
+  async applyProviderCallback(
+    organisationId: string,
+    id: string,
+    toStatus: PaymentStatus,
+    providerReference: string,
+  ): Promise<{ payment: PaymentWithRelations; wasApplied: boolean } | null> {
+    const result = await this.prisma.payment.updateMany({
+      where: { id, organisationId, status: PaymentStatus.PENDING },
+      data: { status: toStatus, providerReference },
+    });
+    const payment = await this.findById(organisationId, id);
+    if (!payment) {
+      return null;
+    }
+    return { payment, wasApplied: result.count > 0 };
+  }
+}
+
+const UNIQUE_CONSTRAINT_VIOLATION = 'P2002';
+
+/** Same `P2002` check as `ConsumerRepository`/`ConversationRepository`/
+ *  `SalesOrderService`'s own race-recovery, applied here to `Payment`'s
+ *  `merchantReference` unique constraint (Sprint 35). */
+function isUniqueConstraintViolation(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code?: unknown }).code === UNIQUE_CONSTRAINT_VIOLATION
+  );
 }
 
 /** `(amountPaid+amountCredited) >= total ? PAID : (...) > 0 ? PARTIALLY_PAID : unchanged`

@@ -34,6 +34,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { SalesModule } from './sales/sales.module';
 import { SupplierModule } from './suppliers/supplier/supplier.module';
 import { WorkflowModule } from './workflow/workflow.module';
+import { PaymentsModule } from './payments/payments.module';
 
 @Module({
   imports: [
@@ -70,6 +71,7 @@ import { WorkflowModule } from './workflow/workflow.module';
     RecruitmentModule,
     ConsumerModule,
     ConversationModule,
+    PaymentsModule,
     AccessControlModule,
     WorkflowModule,
     NotificationsModule,

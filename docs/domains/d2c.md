@@ -840,3 +840,337 @@ exactly one order; cross-tenant SKU rejection; the empty-catalogue
 state-transition regression found live. Full live verification against
 the real dev database, real HTTP requests, and a real second organisation
 — see `docs/sprint-34-completion-report.md`.
+
+---
+
+# Sprint 35 — OPay D2C Payment Integration
+
+## 40. Payment Architecture
+
+The next link in the same chain, closing the loop Sprint 34 deliberately
+left open ("Awaiting Payment" was display wording only, §32):
+
+```
+Conversation Layer (Sprint 33/34)
+        v
+D2CPaymentService  (apps/api/src/d2c/payment/, new)
+        v
+PaymentService.createPendingForConsumer / applyProviderCallback
+  (EXISTING Finance service, extended)         SalesOrderService.confirm
+        v                                        (EXISTING, widened)
+Payment  (EXISTING model, extended)            SalesOrder DRAFT -> CONFIRMED
+        ^
+        | PaymentProvider port (apps/api/src/payments/ports/)
+        v
+OpayPaymentProvider  (apps/api/src/payments/infrastructure/, new)
+        v
+OPay Cashier API (sandbox)
+```
+
+`D2CPaymentService` is the "Zentuva Payment Application" the brief asked
+for — it never talks to OPay's wire format directly (that lives entirely
+behind the `PaymentProvider` port, mirroring the `EmailProvider`/
+`WhatsAppProvider` pattern from Sprints 28/29), and it never creates a
+`Payment` or mutates a `SalesOrder` itself — every mutation goes through
+`PaymentService`/`SalesOrderService`, verified structurally by
+`d2c-payment-independence.spec.ts`. A new top-level `payments/` module
+(distinct from both `finance/` and `d2c/`) holds only provider-agnostic
+plumbing: the `PaymentProvider` port, `OpayPaymentProvider`, and the
+public webhook/status controller — justified because "gateway callback"
+is neither purely a Finance concern nor purely a D2C concern.
+
+## 41. Payment Model — Reused, Not Duplicated
+
+**Audit finding**: a D2C payment has no existing home. `Payment.customerId`
+was a required FK to `Customer`, and a `Consumer` (Sprint 32) structurally
+is not one. Applying the exact `SalesOrder.customerId`/`.consumerId`
+pattern Sprint 34 already proved, `Payment.customerId` became nullable and
+a new nullable `Payment.consumerId` was added, mutually exclusive via a
+hand-added DB `CHECK` constraint (`payments_customer_xor_consumer_check`
+— Prisma's schema DSL cannot express a multi-column `CHECK`, so this was
+added directly to the generated migration SQL, the same technique Sprint
+34's own migration used). `Payment` also gained `salesOrderId` (nullable
+FK), `provider`/`providerReference`/`merchantReference`/`checkoutUrl`, a
+new `PaymentMethod.ONLINE`, and three new `PaymentStatus` values —
+`PENDING`, `FAILED`, `CLOSED` — purely additive alongside the untouched
+`RECORDED`/`VOIDED` a B2B cash/bank-transfer payment already uses.
+`PaymentRepository.create()`/`.void()` (the existing B2B path) are
+byte-for-byte unchanged; four new methods
+(`createPendingForConsumer`/`findByMerchantReference`/
+`attachProviderDetails`/`applyProviderCallback`) were added alongside
+them, reusing the exact find-then-create-then-recover-from-`P2002` recipe
+(creation) and a conditional `updateMany` scoped to `status: PENDING`
+(callback application) — the same two idempotency primitives every prior
+sprint in this codebase already established, never a third one invented.
+
+## 42. Payment Reference Design
+
+`merchantReference = "PAY-" + SalesOrder.orderCode`. Because `orderCode`
+is already globally unique (Sprint 4.8), `merchantReference` is
+automatically globally unique too — `Payment.merchantReference` carries a
+GLOBAL `@@unique`, deliberately not organisation-scoped. This solves, by
+construction, the one real cross-tenant ambiguity a payment gateway
+callback creates that a normal authenticated request never does: OPay's
+webhook carries only a reference and a provider-generated order number,
+no tenant hint at all. Looking a global reference up directly is safe —
+no tenant-guessing logic was needed anywhere. The reference is also
+deterministic and stable: repeating "Pay Now" on the same order, or OPay
+retrying a webhook, always resolves to the same row, never mints a second
+one.
+
+## 43. Money — One Conversion Boundary
+
+Zentuva stores every currency amount as a `Float` in MAJOR units (naira)
+across every domain; OPay's `amount.total` expects an integer in MINOR
+units (kobo). `toMinorUnits`/`fromMinorUnits` are the ONE place this
+conversion happens, living only inside `OpayPaymentProvider` — Finance,
+`D2CPaymentService`, and the Conversation Layer all continue to work in
+naira throughout. Both directions use `Math.round()` to guard against
+floating-point drift (`19.99 * 100 = 1998.9999999999998` rounds to
+`1999`), matching the codebase's existing `roundCurrency` convention;
+covered by parametrized tests for ₦100, ₦1,000, ₦10,000, and non-whole
+amounts.
+
+**Live-verified**: the real OPay sandbox Cashier UI rendered the exact
+server-computed amount back (`₦1500.00` for a 1-item order, `₦3000.00`
+for a 2-item order), confirming the conversion is correct in both
+directions, not just in unit tests.
+
+## 44. Currency
+
+`Organisation.currency` (free-text, Sprint 1B.1) is read live at payment
+time — `D2CPaymentService` never hardcodes `'NGN'` in the domain layer.
+`OpayPaymentProvider.createPayment()` rejects any non-`NGN` currency
+before ever calling OPay (this integration's only configured OPay route
+settles in NGN), reported back as a safe `REJECTED` outcome rather than a
+raw provider error. Live-verified: the seed organisation defaults to
+`USD` (`Organisation.currency @default("USD")`, Sprint 1B.1) — the
+Conversation Layer's product listing correctly showed `USD` pricing
+until the organisation's currency was changed to `NGN` via the existing
+`PATCH /api/organisation/me`, after which both the cart summary and the
+real OPay Cashier UI immediately reflected `NGN` with no code change.
+
+## 45. Payment State Mapping
+
+OPay's documented Cashier statuses map onto the EXISTING `PaymentStatus`
+enum — no duplicate status system:
+
+| OPay status         | `ProviderCallbackStatus` (neutral) | `PaymentStatus`                                      | `D2CPaymentResult.status` |
+| ------------------- | ---------------------------------- | ---------------------------------------------------- | ------------------------- |
+| `INITIAL`/`PENDING` | `PENDING`                          | _(no transition yet)_                                | `PENDING`                 |
+| `SUCCESS`           | `SUCCESS`                          | `RECORDED`                                           | `SUCCESS`                 |
+| `FAIL`              | `FAILED`                           | `FAILED`                                             | `FAILED`                  |
+| `CLOSE`             | `CLOSED`                           | `CLOSED`                                             | `CLOSED`                  |
+| _(anything else)_   | `UNKNOWN`                          | _(no transition — logged, never silently `SUCCESS`)_ | `PENDING`                 |
+
+`SUCCESS` maps onto the pre-existing `RECORDED` — an OPay-confirmed
+payment IS, from that moment, an ordinary recorded receipt, the same
+meaning `RECORDED` already carries for a manually-entered B2B cash/bank
+payment. Two mapping functions (`toPaymentStatus`/`toD2CStatus`) are the
+ONE place this table lives; nothing else in the codebase branches on an
+OPay string.
+
+## 46. Provider Abstraction
+
+`PaymentProvider` (port) + `PAYMENT_PROVIDER` (DI token) +
+`OpayPaymentProvider` (concrete) — the exact shape `EmailProvider`/
+`WhatsAppProvider` already established (Sprints 28/29). Construction-time
+configuration validation: `OpayConfigurationError` is thrown in the
+constructor (not at request time) if `OPAY_MERCHANT_ID`/`OPAY_PUBLIC_KEY`/
+`OPAY_SECRET_KEY` are missing, so a misconfigured deployment fails loudly
+at boot — deliberately no "local/safe" fallback mode like WhatsApp's
+`LocalWhatsAppProvider`, since real sandbox credentials are already
+configured and this sprint has exactly one implementation. Uses Node's
+built-in `fetch`, no OPay SDK, no HTTP client dependency.
+
+**Documented ambiguity, resolved and live-verified**: OPay's own
+documentation discusses request signing generally, but its concrete
+Cashier-create example shows only `Authorization: Bearer {PublicKey}` +
+`MerchantId: {MerchantId}` headers — no per-request `Signature` on
+CREATE. This implementation follows that concrete example. Live-verified
+repeatedly against the real sandbox: every create-payment call returned a
+real, valid `cashierUrl` (`sandboxcashier.opaycheckout.com`), confirming
+this header shape is correct for the CREATE endpoint.
+
+## 47. Webhook Security
+
+`POST /api/payments/opay/webhook` (`PaymentWebhookController`,
+`apps/api/src/payments/`) — deliberately public/unauthenticated (OPay has
+no Zentuva session to present), the same "public but gated only by
+possession of an opaque value" shape `CareersController` already
+established (Sprint 30). `main.ts` enables `rawBody: true` so signature
+verification runs against the exact bytes received, not a re-serialized
+JS object. `ThrottlerGuard` (`@nestjs/throttler`, already globally
+registered by `RecruitmentModule` — not re-registered here) rate-limits
+both routes.
+
+`OpayPaymentProvider.verifyCallback()` — never bypassable, always runs
+before any business logic sees the callback:
+
+1. Parse `{ payload, sha512 }` from the raw body; malformed JSON or a
+   missing `payload`/`sha512` is rejected outright.
+2. Recompute `HMAC-SHA512(secretKey, JSON.stringify(payload))` and
+   compare against `sha512` via `crypto.timingSafeEqual` (constant-time —
+   never a plain `===`, which would leak timing information about how
+   many leading bytes matched).
+3. Validate `reference`/`orderNo`/`amount.total`/`amount.currency` are
+   all present.
+4. Map the OPay status string through §45's table, defaulting anything
+   unrecognized to `UNKNOWN` — never silently `SUCCESS`.
+
+The controller (`PaymentWebhookController.webhook()`) throws a generic
+`BadRequestException('Invalid callback')` on any failure — the real
+reason (bad signature vs. malformed body vs. missing fields) is logged
+server-side but never returned to the caller, live-verified: a
+deliberately wrong `sha512` produced exactly `400 {"error":"Bad
+Request","message":"Invalid callback"}`, nothing more specific.
+
+`D2CPaymentService.handleProviderCallback()` runs the remaining
+business-level checks, each failing CLOSED (silently, safely, never
+throwing past the controller — the endpoint OPay retries against must
+never 500 on a callback it doesn't like):
+
+- **Unknown reference** — no matching `Payment`; logged, ignored.
+- **Amount mismatch** — `roundCurrency(payment.amount) !==
+roundCurrency(cb.amount)`; recorded as an auditable
+  `d2c_payment.callback_amount_mismatch` action rather than silently
+  dropped, live-verified: a callback carrying the correct reference but a
+  tampered amount left the payment `PENDING`, unchanged.
+- **Currency mismatch** — logged, ignored.
+- **`PENDING`/`UNKNOWN` status** — no-op; a payment is never marked
+  resolved from an ambiguous or unrecognized status.
+- **Idempotency** — `PaymentService.applyProviderCallback()`'s
+  conditional `updateMany` (`WHERE status = 'PENDING'`) makes a callback
+  arriving after the payment already resolved match zero rows, a safe
+  no-op. Live-verified: the identical signed callback replayed 6 times
+  (once sequentially, then 5 truly concurrent `Promise.all` requests)
+  against an already-`SUCCESS` payment left `SalesOrderService.confirm()`
+  invoked exactly once — no duplicate confirmation, no error.
+
+**Live sandbox verification, honestly reported**: this sprint's create-
+payment flow was exercised repeatedly against the real OPay sandbox (real
+`cashierUrl`s returned and opened in a real browser, a real BankCard PIN
+attempt, a real OPayWallet checkout reaching OPay's own `PENDING`/
+`POLLING` state). OPay's own documentation describes its sandbox test
+wallet numbers (`01066668888`/`01077779999`) as producing "automatic
+callbacks after one minute" — this was attempted twice, waiting several
+minutes each time, and OPay's sandbox never delivered an asynchronous
+webhook to a real, verified-reachable public tunnel in either attempt.
+Rather than block completion on an external sandbox timing dependency
+outside this codebase's control, the webhook handler's own correctness
+(signature verification using the real production secret key, payload
+parsing, the full state-mapping/idempotency/amount-mismatch/duplicate-
+callback logic above, and the `SalesOrder` confirmation) was instead
+verified live by constructing a correctly HMAC-signed callback with the
+real secret key and posting it directly to the running webhook endpoint —
+full detail in `docs/sprint-35-completion-report.md` "Live Sandbox
+Verification," reported honestly as a self-constructed callback, never
+claimed as an OPay-originated one.
+
+## 48. Finance Integration — A Deliberate Boundary
+
+**Audit finding**: a D2C `SalesOrder` is never invoiced (Sprint 34's own
+documented limitation, §38) — there is no existing invoice-settlement,
+AR-reduction, or GL-journal-posting trigger that genuinely applies to an
+uninvoiced order. Rather than fabricate a placeholder `Invoice` or
+hand-roll a journal entry purely to force-fit into existing accounting
+machinery, this sprint deliberately stops at: a verified successful OPay
+payment creates a `Payment` row (via the existing `PaymentService`, method
+`ONLINE`, status transitioning `PENDING -> RECORDED`) and calls the
+existing `SalesOrderService.confirm()` — the SAME `DRAFT -> CONFIRMED`
+transition Sprint 34 already established, widened only to accept
+`actorUserId: string | null` for this sprint's system-triggered (no human
+approver) case. No new `SalesOrderStatus`, no manual journal entry inside
+`OpayPaymentProvider` or `D2CPaymentService`. Whichever future sprint
+wires up D2C fulfilment/invoicing inherits a `Payment` row already linked
+to the `SalesOrder` via `Payment.salesOrderId`.
+
+## 49. Conversation Layer Extension
+
+A new channel-neutral `PaymentRequiredMessage` type was added to
+`ConversationOutboundMessage`
+(`{ type: 'PAYMENT_REQUIRED', text, orderReference, paymentReference,
+amount, currency, checkoutUrl }`) — `ConversationService` gained zero
+OPay-specific knowledge; it only ever sees this neutral shape, the exact
+same discipline `TEXT`/`BUTTONS`/`LIST` already followed. The reserved
+`ACTIVE` conversation state gained one more step:
+
+```
+... --[CONFIRM_ORDER]--> ACTIVE/AWAITING_PAYMENT  (SalesOrder created DRAFT, "Pay Now" shown)
+  --[PAY_NOW]--> real OPay cashierUrl returned as PAYMENT_REQUIRED
+  --[PAY_NOW again]--> idempotently reuses the SAME pending payment/checkoutUrl
+```
+
+`handleAwaitingPayment()` calls `D2CPaymentService.initiatePayment()`
+identically for both the first "Pay Now" click and any later "I've
+Paid — Check Status" click — its own idempotency already returns the
+correct current state (`PENDING` + `checkoutUrl`, `SUCCESS`, `FAILED`, or
+`CLOSED`) without a second query method. A `PaymentProviderError` is
+caught and shown as a short, generic consumer-facing message — never an
+OPay error code.
+
+## 50. Return URL
+
+`GET /payment/:reference` (`apps/web/src/app/payment/[reference]/`) is
+where OPay's `returnUrl`/`cancelUrl` both point — deliberately NOT proof
+of payment on its own. Arriving at this page means only that the
+consumer left the OPay Cashier; every render re-queries the real,
+verified Zentuva state via the public
+`GET /api/payments/opay/:reference/status` (gated only by the unguessable
+reference, no session — a Consumer has none to present, the same
+"public but only reachable via an opaque id" shape as the public careers
+page), polling every 4 seconds while `PENDING`. **A real bug was found
+and fixed during this sprint's own live browser verification**: the page
+was written against Next.js 15's `use(params)` convention for unwrapping
+an async `params` prop, but this codebase runs Next.js 14.2.16, where a
+client component's `params` is a plain synchronous object — passing it to
+React's `use()` threw `"An unsupported type was passed to use()"` on
+every single render, a page that would have been 100% broken in
+production. Fixed to the same plain-object `params` convention every
+other dynamic route page in this codebase already uses (e.g.
+`/settings/finance/reconciliation/[id]`); re-verified live afterward
+showing correct `SUCCESS`/`PENDING` states for real orders.
+
+## 51. Scope — Explicitly Not Built This Sprint
+
+Sandbox/test mode only — no production OPay credentials or endpoint were
+used or are configured for use. No payout/RSA (recipient/settlement
+account) functionality, no Collection Point or fulfilment integration, no
+inventory deduction, no loyalty/rewards, and no marketing/promotions tie-
+in — this sprint closes the payment gap Sprint 34 left open and nothing
+more. A genuine retry flow for a `FAILED`/`CLOSED` payment (minting a
+fresh attempt against the same order) is deferred; today the Conversation
+Layer reports the terminal state and directs the consumer to support.
+
+## 52. Testing (Sprint 35)
+
+`apps/api/src/payments/infrastructure/opay-payment-provider.spec.ts`:
+construction/config-error tests; `toMinorUnits`/`fromMinorUnits`
+parametrized for ₦100/₦1,000/₦10,000/₦99.99/₦0.10/₦19.99 (floating-point
+drift guard); `createPayment` (success, non-NGN rejection, all 7 OPay
+error codes, malformed response, network failure); `verifyCallback`
+(valid signature and the full status table, unknown status, wrong key,
+tampered payload, malformed JSON, missing fields).
+`apps/api/src/payments/payment-webhook.controller.spec.ts`: invalid
+signature rejected at the transport layer before `D2CPaymentService` ever
+sees it; valid callback passed through and acknowledged; the real
+rejection reason never leaked to the HTTP caller.
+`apps/api/src/d2c/payment/d2c-payment.service.spec.ts`: idempotent
+payment creation/reuse; ownership and non-payable rejection;
+server-authoritative amount/currency/reference (never client-supplied);
+OPay duplicate-reference recovery; every callback-validation branch from
+§47; 5-way concurrent duplicate-callback idempotency; tenant isolation
+via the globally-unique reference.
+`apps/api/src/d2c/payment/d2c-payment-independence.spec.ts`: no direct
+`Payment`/`SalesOrder`/`JournalEntry` writes, no OPay wire-format leakage
+outside `payments/infrastructure/`, no forbidden cross-domain imports, no
+secret/public key reference anywhere in the `d2c/payment/` files, exact
+`D2CPaymentModule` import set. `finance/payment.repository.spec.ts`
+gained an 18-test block covering the four new repository methods.
+`d2c/conversation/conversation.service.spec.ts` was extended with a real
+wired `PaymentService`/`D2CPaymentService` (not mocked) covering the full
+`CONFIRM_ORDER -> AWAITING_PAYMENT -> PAY_NOW -> PAYMENT_REQUIRED` path.
+227 suites / 2017 tests passing (up from Sprint 34's 223/1950 baseline,
+zero regressions). Full live verification against the real dev database,
+real OPay sandbox HTTP calls, a real browser session, and a genuinely
+second organisation — see `docs/sprint-35-completion-report.md`.

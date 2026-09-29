@@ -709,7 +709,7 @@ Finance` role `hr.recruitment.hiring_request.manage`/`.view` and
 - [x] **Sprint 33 — Consumer Conversation Experience Foundation.** The
       channel-neutral Conversation Layer between a future WhatsApp adapter
       and Sprint 32's D2C services: `WhatsApp → Channel Adapter →
-  Conversation Layer → D2C Services → Existing Domains`.
+Conversation Layer → D2C Services → Existing Domains`.
       `ConversationService.handleInboundMessage()` is the single,
       channel-neutral entry point — no real WhatsApp integration, no
       generic workflow engine, no second Consumer/Territory/phone-
@@ -744,8 +744,8 @@ Finance` role `hr.recruitment.hiring_request.manage`/`.view` and
       Order domain — never a parallel order system — so a registered
       Consumer can browse, cart, and confirm an order through the
       Conversation Layer: `Conversation Layer -> D2COrderingService (new)
-    -> SalesOrderService.createForConsumer (new entry point on the
-    EXISTING service) -> SalesOrder`. Audit found two real gaps: no
+  -> SalesOrderService.createForConsumer (new entry point on the
+  EXISTING service) -> SalesOrder`. Audit found two real gaps: no
       pricing field existed anywhere in the Product Catalogue (added
       `Product.sellingPrice`, nullable/opt-in, exposed through the
       existing product endpoints — not a pricing engine), and
@@ -765,6 +765,38 @@ Finance` role `hr.recruitment.hiring_request.manage`/`.view` and
       click misrouted as a product selection) was found live and fixed
       before completion. 223 suites / 1950 tests passing — see
       [`docs/sprint-34-completion-report.md`](sprint-34-completion-report.md)
+- [x] **Sprint 35 — OPay D2C Payment Integration.** Closes the payment gap
+      Sprint 34 left open, entirely as an extension of the existing
+      Finance `Payment` model and Sales Order lifecycle — never a parallel
+      payment system: `Conversation Layer -> D2CPaymentService (new) ->
+  PaymentService (existing, extended) + SalesOrderService.confirm
+  (existing, widened) -> Payment + SalesOrder DRAFT->CONFIRMED`, with
+      OPay itself reached only through a new `PaymentProvider` port
+      (mirroring the Sprint 28/29 `EmailProvider`/`WhatsAppProvider`
+      pattern) so Finance never couples to OPay's wire format. A
+      deterministic, globally-unique payment reference
+      (`PAY-{orderCode}`) resolves both a repeated "Pay Now" click and a
+      retried webhook to the same row by construction; amount/currency
+      are always server-authoritative and converted through exactly one
+      naira-to-kobo boundary inside the provider. The webhook verifies an
+      HMAC-SHA512 signature (constant-time comparison) plus
+      reference/amount/currency before ever touching financial state, and
+      is idempotent via the same conditional-`updateMany` primitive prior
+      sprints established — live-verified with 6 duplicate/concurrent
+      deliveries of a real signed callback producing exactly one
+      `SalesOrder` confirmation. Live-verified repeatedly against the real
+      OPay sandbox: real `cashierUrl`s, a real Cashier UI showing the
+      correct merchant/amount, idempotent checkout reuse, and (after
+      OPay's own sandbox never delivered its documented automatic test
+      callback despite two real attempts) the webhook handler's own
+      correctness proven with a callback signed using the real production
+      secret key — honestly reported as self-constructed, not claimed as
+      OPay-originated. A real bug was found and fixed live: the return-URL
+      page used Next.js 15's `use(params)` convention in a Next.js 14
+      codebase, breaking on every load until fixed to the plain-object
+      convention every other dynamic route already uses. 227 suites /
+      2017 tests passing — see
+      [`docs/sprint-35-completion-report.md`](sprint-35-completion-report.md)
 - [ ] Retail Portal (mobile)
 - [ ] Sales Rep mobile workflows
 - [ ] Business Intelligence dashboards

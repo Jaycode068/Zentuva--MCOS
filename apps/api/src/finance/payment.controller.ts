@@ -108,6 +108,8 @@ export function toPaymentResponse(payment: PaymentWithRelations) {
   return {
     id: payment.id,
     customer: payment.customer,
+    /** Added Sprint 35 — `null` for a B2B payment. */
+    consumer: payment.consumer,
     paymentDate: payment.paymentDate,
     amount: payment.amount,
     currency: payment.currency,
@@ -117,6 +119,9 @@ export function toPaymentResponse(payment: PaymentWithRelations) {
     status: payment.status,
     invoiceId: payment.allocations[0]?.invoiceId ?? null,
     cashAccountId: payment.cashAccountId,
+    /** Added Sprint 35 — `null` for a B2B payment; `'OPAY'` for a D2C payment. */
+    provider: payment.provider,
+    salesOrderId: payment.salesOrderId,
     createdAt: payment.createdAt,
   };
 }

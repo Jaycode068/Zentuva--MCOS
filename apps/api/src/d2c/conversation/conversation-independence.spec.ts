@@ -73,7 +73,7 @@ describe('D2C Consumer Conversation domain independence (Sprint 33)', () => {
     }
   });
 
-  it('structural guard: ConversationModule imports only IdentityModule/AuthModule/TerritoryModule/ConsumerModule/D2COrderingModule (Sprint 34)', () => {
+  it('structural guard: ConversationModule imports only IdentityModule/AuthModule/TerritoryModule/ConsumerModule/D2COrderingModule/D2CPaymentModule (Sprints 34/35)', () => {
     const source = readFileSync(join(__dirname, 'conversation.module.ts'), 'utf-8');
     expect(source).not.toMatch(/^import .*NotificationsModule.*from/m);
     expect(source).not.toMatch(/^import .*WorkflowModule.*from/m);
@@ -89,6 +89,7 @@ describe('D2C Consumer Conversation domain independence (Sprint 33)', () => {
         'TerritoryModule',
         'ConsumerModule',
         'D2COrderingModule',
+        'D2CPaymentModule',
       ]),
     );
   });

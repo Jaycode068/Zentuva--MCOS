@@ -7,9 +7,18 @@ import {
   Territory,
 } from '@prisma/client';
 
+import { ConfigService } from '@nestjs/config';
+
 import { ProductRepository } from '../../catalogue/product/product.repository';
+import { PaymentService } from '../../finance/payment.service';
+import { PaymentRepository, PaymentWithRelations } from '../../finance/payment.repository';
 import { AuditService } from '../../identity/audit/audit.service';
 import { OrganisationService } from '../../identity/organisation/organisation.service';
+import {
+  CreateProviderPaymentRequest,
+  CreateProviderPaymentResult,
+  PaymentProvider,
+} from '../../payments/ports/payment-provider.port';
 import { TerritoryRepository } from '../../retail/territory/territory.repository';
 import { CustomerRepository } from '../../retail/customer/customer.repository';
 import { OutletRepository } from '../../retail/outlet/outlet.repository';
@@ -17,6 +26,7 @@ import { SalesOrderRepository, SalesOrderWithRelations } from '../../sales/sales
 import { SalesOrderService } from '../../sales/sales-order.service';
 import { ConsumerService } from '../consumer/consumer.service';
 import { D2COrderingService } from '../ordering/d2c-ordering.service';
+import { D2CPaymentService } from '../payment/d2c-payment.service';
 import { ConversationMessageRepository } from './conversation-message.repository';
 import { ConversationRepository } from './conversation.repository';
 import { ConversationService } from './conversation.service';
@@ -468,6 +478,108 @@ describe('ConversationService', () => {
     return { service, orders, productRepository };
   }
 
+  /** A small in-memory `PaymentRepository`-shaped fake covering only the four
+   *  Sprint 35 D2C methods `PaymentService` delegates to — mirrors the exact
+   *  find-then-create-then-P2002-recover semantics of the real repository,
+   *  so `D2CPaymentService`'s own idempotency logic runs for real. */
+  function makePaymentRepositoryFake() {
+    const rows: PaymentWithRelations[] = [];
+    let seq = 0;
+
+    const findByMerchantReference = (merchantReference: string) =>
+      Promise.resolve(rows.find((p) => p.merchantReference === merchantReference) ?? null);
+
+    return {
+      repo: {
+        findByMerchantReference,
+        createPendingForConsumer: jest.fn(
+          async (data: {
+            organisationId: string;
+            consumerId: string;
+            salesOrderId: string;
+            amount: number;
+            currency: string;
+            merchantReference: string;
+          }) => {
+            const existing = await findByMerchantReference(data.merchantReference);
+            if (existing) return { payment: existing, wasCreated: false };
+            seq += 1;
+            const payment = {
+              id: `payment-${seq}`,
+              organisationId: data.organisationId,
+              customerId: null,
+              consumerId: data.consumerId,
+              salesOrderId: data.salesOrderId,
+              paymentDate: new Date(),
+              amount: data.amount,
+              currency: data.currency,
+              method: 'ONLINE',
+              reference: null,
+              notes: null,
+              status: 'PENDING',
+              cashAccountId: null,
+              idempotencyKey: null,
+              provider: 'OPAY',
+              providerReference: null,
+              merchantReference: data.merchantReference,
+              checkoutUrl: null,
+              createdById: null,
+              createdAt: new Date(),
+              updatedAt: new Date(),
+              customer: null,
+              consumer: null,
+              allocations: [],
+            } as unknown as PaymentWithRelations;
+            rows.push(payment);
+            return { payment, wasCreated: true };
+          },
+        ),
+        attachProviderDetails: jest.fn(
+          async (organisationId: string, id: string, details: Record<string, unknown>) => {
+            const row = rows.find((p) => p.id === id && p.organisationId === organisationId);
+            if (!row) return null;
+            Object.assign(row, details);
+            return row;
+          },
+        ),
+        applyProviderCallback: jest.fn(
+          async (
+            organisationId: string,
+            id: string,
+            toStatus: string,
+            providerReference: string,
+          ) => {
+            const row = rows.find((p) => p.id === id && p.organisationId === organisationId);
+            if (!row) return null;
+            if (row.status !== 'PENDING') {
+              return { payment: row, wasApplied: false };
+            }
+            (row as unknown as { status: string }).status = toStatus;
+            (row as unknown as { providerReference: string }).providerReference = providerReference;
+            return { payment: row, wasApplied: true };
+          },
+        ),
+      } as unknown as PaymentRepository,
+      rows,
+    };
+  }
+
+  /** A controllable fake `PaymentProvider` — always returns a successful
+   *  `CREATED` cashier response unless the test overrides `createPayment`. */
+  function makeFakePaymentProvider(): jest.Mocked<PaymentProvider> {
+    return {
+      name: 'opay',
+      createPayment: jest.fn(
+        async (request: CreateProviderPaymentRequest): Promise<CreateProviderPaymentResult> => ({
+          outcome: 'CREATED',
+          checkoutUrl: `https://sandbox.opaycheckout.com/pay/${request.reference}`,
+          providerReference: `OPAY-${request.reference}`,
+        }),
+      ),
+      verifyCallback: jest.fn(),
+    } as unknown as jest.Mocked<PaymentProvider>;
+  }
+
   function makeHarness(organisationId = ORG_A, productRowsOverride?: Product[]) {
     const territoryRows = makeTerritoryFixture(organisationId);
     const territoryRepository = makeTerritoryRepository(territoryRows);
@@ -494,6 +606,26 @@ describe('ConversationService', () => {
       salesOrderService,
     );
 
+    const { repo: paymentRepository, rows: payments } = makePaymentRepositoryFake();
+    const paymentService = new PaymentService(paymentRepository, {} as never);
+    const paymentProvider = makeFakePaymentProvider();
+    const config = {
+      get: jest.fn((key: string) =>
+        key === 'webBaseUrl'
+          ? 'http://localhost:3000'
+          : 'http://localhost:4000/api/payments/opay/webhook',
+      ),
+    } as unknown as ConfigService;
+    const d2cPaymentService = new D2CPaymentService(
+      paymentProvider,
+      paymentService,
+      salesOrderService,
+      consumerService,
+      organisationService,
+      auditService,
+      config,
+    );
+
     const service = new ConversationService(
       conversationRepository,
       messageRepository,
@@ -502,8 +634,18 @@ describe('ConversationService', () => {
       auditService,
       organisationService,
       d2cOrderingService,
+      d2cPaymentService,
     );
-    return { service, consumers, auditService, conversationRepository, orders, productRows };
+    return {
+      service,
+      consumers,
+      auditService,
+      conversationRepository,
+      orders,
+      productRows,
+      payments,
+      paymentProvider,
+    };
   }
 
   describe('full registration flow (new consumer)', () => {
@@ -661,12 +803,17 @@ describe('ConversationService', () => {
         externalConversationId: phone,
         input: { type: 'BUTTON', value: 'CONFIRM_ORDER' },
       });
-      expect(confirm.state).toBe('MAIN_MENU');
+      // Sprint 35 — order confirmation now stops at "awaiting payment,"
+      // never MAIN_MENU, until a payment actually succeeds.
+      expect(confirm.state).toBe('ACTIVE');
       const confirmationText = confirm.messages.find(
         (m) => m.type === 'TEXT' && m.text.includes('Order created successfully'),
       ) as { text: string };
       expect(confirmationText.text).toContain('SO-000001');
       expect(confirmationText.text).toContain('Awaiting Payment');
+      expect(confirm.messages.some((m) => m.type === 'BUTTONS' && m.text === 'Ready to pay?')).toBe(
+        true,
+      );
 
       expect(orders).toHaveLength(1);
       expect(orders[0]!.source).toBe('D2C');
@@ -676,6 +823,24 @@ describe('ConversationService', () => {
       expect(orders[0]!.items).toHaveLength(1);
       expect(orders[0]!.items[0]!.quantity).toBe(2);
       expect(orders[0]!.items[0]!.unitPrice).toBe(500);
+
+      // Sprint 35 — "Pay Now" creates a real D2C Payment and returns OPay's
+      // (fake, in this test) checkoutUrl via a PAYMENT_REQUIRED message.
+      const payNow = await service.handleInboundMessage(ORG_A, {
+        channel: 'WHATSAPP',
+        externalConversationId: phone,
+        input: { type: 'BUTTON', value: 'PAY_NOW' },
+      });
+      expect(payNow.state).toBe('ACTIVE');
+      const paymentRequired = payNow.messages.find((m) => m.type === 'PAYMENT_REQUIRED') as Extract<
+        (typeof payNow.messages)[number],
+        { type: 'PAYMENT_REQUIRED' }
+      >;
+      expect(paymentRequired).toBeDefined();
+      expect(paymentRequired.orderReference).toBe('SO-000001');
+      expect(paymentRequired.amount).toBe(1000);
+      expect(paymentRequired.currency).toBe('NGN');
+      expect(paymentRequired.checkoutUrl).toContain('PAY-SO-000001');
     });
 
     it('rejects an invalid quantity and re-prompts without corrupting the cart', async () => {
