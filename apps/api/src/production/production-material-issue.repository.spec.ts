@@ -98,25 +98,38 @@ function makeFakeDb(options: {
         const key = JSON.stringify(where);
         return inventoryStocks.get(key) ?? null;
       }),
-      upsert: jest.fn(
+      // Sprint 37.1 — replaces the fake's own `upsert` with an `updateMany` that
+      // mirrors the real atomic-conditional-decrement semantics
+      // `decrementStockIfAvailable` relies on: only mutates (and only reports
+      // `count: 1`) when a row exists AND its `quantityOnHand` already satisfies the
+      // `gte` filter — exactly what a real Postgres `UPDATE ... WHERE quantityOnHand
+      // >= $x` would do.
+      updateMany: jest.fn(
         async ({
           where,
-          create,
-          update,
+          data,
         }: {
-          where: unknown;
-          create: { quantityOnHand: number };
-          update: { quantityOnHand: number };
+          where: {
+            organisationId: string;
+            productId: string;
+            locationId: string;
+            quantityOnHand: { gte: number };
+          };
+          data: { quantityOnHand: { decrement: number } };
         }) => {
-          const key = JSON.stringify(where);
+          const key = JSON.stringify({
+            organisationId_productId_locationId: {
+              organisationId: where.organisationId,
+              productId: where.productId,
+              locationId: where.locationId,
+            },
+          });
           const existing = inventoryStocks.get(key);
-          if (existing) {
-            existing.quantityOnHand = update.quantityOnHand;
-            return existing;
+          if (!existing || existing.quantityOnHand < where.quantityOnHand.gte) {
+            return { count: 0 };
           }
-          const created = { quantityOnHand: create.quantityOnHand, averageUnitCost: 0 };
-          inventoryStocks.set(key, created);
-          return created;
+          existing.quantityOnHand -= data.quantityOnHand.decrement;
+          return { count: 1 };
         },
       ),
     },

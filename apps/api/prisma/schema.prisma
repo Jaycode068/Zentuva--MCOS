@@ -266,6 +266,8 @@ model Organisation {
   /// (docs/domains/d2c.md).
   d2cConsumerConversations              ConsumerConversation[]
   d2cConversationMessages               ConsumerConversationMessage[]
+  /// Added Sprint 37 — Collection Point Fulfillment (docs/domains/d2c.md).
+  d2cCollectionPointFulfillments        CollectionPointFulfillment[]
 
   @@map("organisations")
 }
@@ -1021,6 +1023,10 @@ model InventoryLocation {
   /// docs/domains/procurement.md).
   customerReturns  CustomerReturn[]
   supplierReturns  SupplierReturn[]
+  /// Added Sprint 37 — Collection Point Fulfillment (docs/domains/d2c.md). The audited
+  /// bridge to `Outlet`: several Collection Points may share one location, so this is
+  /// deliberately a one-to-many, not one-to-one.
+  outlets          Outlet[]
 
   @@index([organisationId])
   @@index([organisationId, status])
@@ -1909,26 +1915,44 @@ model Outlet {
   /// same "plain text now, structure later if ever needed" convention as `Outlet.address`.
   /// `null` until an admin sets it; never required to enable the capability.
   collectionPointOperatingHours    String?
+  /// Sprint 37 — the audited "smallest bridge" between a Collection Point and the
+  /// EXISTING Inventory domain (docs/domains/d2c.md "Inventory Integration Decision").
+  /// `InventoryLocation` (Sprint 4.5) has no relationship to `Outlet` in either direction
+  /// today; this optional FK is that missing link, added only now that a real fulfilment
+  /// requirement exists to justify it. Deliberately NOT `@unique` — several small
+  /// Collection Points may legitimately draw from one shared warehouse location, the same
+  /// many-outlets-to-one-location reality `SalesFulfilment.locationId` already assumes for
+  /// B2B. A Collection Point cannot be assigned any D2C fulfilment work until this is set
+  /// (`CollectionPointFulfillmentService`'s own eligibility check) — enabling the
+  /// capability itself (Sprint 36) never required it. `Restrict`, matching every other
+  /// `InventoryLocation` FK in this codebase (a location once referenced can never be
+  /// silently deleted out from under it).
+  inventoryLocationId              String?
   createdById                      String?
   updatedById                      String?
   createdAt                        DateTime              @default(now())
   updatedAt                        DateTime              @updatedAt
 
-  organisation    Organisation     @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  organisation                Organisation                 @relation(fields: [organisationId], references: [id], onDelete: Cascade)
   /// `Restrict` — an internal domain FK with no delete endpoint on either side, same
   /// default as `ProductVariant.productFamilyId`. An outlet belongs to exactly one
   /// customer; `customerId` is immutable on update (service-enforced) since moving it
   /// would rewrite sales-order attribution.
-  customer        Customer         @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  territory       Territory?       @relation(fields: [territoryId], references: [id], onDelete: SetNull)
-  photos          OutletPhoto[]
-  salesOrders     SalesOrder[]
+  customer                    Customer                     @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  territory                   Territory?                   @relation(fields: [territoryId], references: [id], onDelete: SetNull)
+  inventoryLocation           InventoryLocation?           @relation(fields: [inventoryLocationId], references: [id], onDelete: Restrict)
+  photos                      OutletPhoto[]
+  salesOrders                 SalesOrder[]
+  /// Sprint 37 — docs/domains/d2c.md "Order Assignment Model". At most one per D2C
+  /// SalesOrder (`CollectionPointFulfillment.salesOrderId` is `@unique`); an Outlet may be
+  /// assigned many orders over time.
+  collectionPointFulfillments CollectionPointFulfillment[]
   /// Added Sprint 5 — Distribution & Delivery (docs/domains/distribution.md).
-  dispatches      Dispatch[]
+  dispatches                  Dispatch[]
   /// Added Sprint 6 — Finance (docs/domains/finance.md).
-  invoices        Invoice[]
+  invoices                    Invoice[]
   /// Added Sprint 11 — Returns, Claims & Reversals (docs/domains/sales.md).
-  customerReturns CustomerReturn[]
+  customerReturns             CustomerReturn[]
 
   @@index([organisationId])
   @@index([organisationId, status])
@@ -2100,28 +2124,33 @@ model SalesOrder {
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
 
-  organisation    Organisation      @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  organisation               Organisation                @relation(fields: [organisationId], references: [id], onDelete: Cascade)
   /// `Restrict` on both — a sales order is history and must never be silently re-pointed
   /// or null-ed out. `outletId` is optional but deliberately declared `Restrict` rather
   /// than letting it default to `SetNull`, which would rewrite history.
-  customer        Customer?         @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  outlet          Outlet?           @relation(fields: [outletId], references: [id], onDelete: Restrict)
+  customer                   Customer?                   @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  outlet                     Outlet?                     @relation(fields: [outletId], references: [id], onDelete: Restrict)
   /// Added Sprint 34 — `Restrict`, matching `customer`'s own rationale: a D2C order is
   /// history and must never be silently re-pointed or null-ed out from under a Consumer.
-  consumer        Consumer?         @relation(fields: [consumerId], references: [id], onDelete: Restrict)
-  items           SalesOrderItem[]
-  fulfilments     SalesFulfilment[]
+  consumer                   Consumer?                   @relation(fields: [consumerId], references: [id], onDelete: Restrict)
+  items                      SalesOrderItem[]
+  fulfilments                SalesFulfilment[]
   /// Added Sprint 5 — Distribution & Delivery (docs/domains/distribution.md). Denormalised
   /// inverse of `Dispatch.salesOrderId`.
-  dispatches      Dispatch[]
+  dispatches                 Dispatch[]
   /// Added Sprint 6 — Finance (docs/domains/finance.md). Denormalised inverse of
   /// `Invoice.salesOrderId`.
-  invoices        Invoice[]
+  invoices                   Invoice[]
   /// Added Sprint 11 — Returns, Claims & Reversals (docs/domains/sales.md).
-  customerReturns CustomerReturn[]
+  customerReturns            CustomerReturn[]
   /// Added Sprint 35 — D2C OPay Payment Integration. See `Payment.salesOrderId`'s doc
   /// comment — a D2C order's payment(s), targeted directly (never via `Invoice`).
-  payments        Payment[]
+  payments                   Payment[]
+  /// Added Sprint 37 — Collection Point Fulfillment. At most one per order (`@@unique`
+  /// on `CollectionPointFulfillment.salesOrderId`) — a D2C order is assigned to exactly
+  /// one Collection Point, never re-parented. `null` for a B2B order and for a D2C order
+  /// not yet assigned (e.g. no eligible Collection Point existed at payment time).
+  collectionPointFulfillment CollectionPointFulfillment?
 
   @@unique([organisationId, idempotencyKey])
   @@index([organisationId])
@@ -2275,6 +2304,71 @@ model SalesFulfilmentItem {
   @@index([productId])
   @@index([salesOrderItemId])
   @@map("sales_fulfilment_items")
+}
+
+// ============================================================================
+// Sprint 37 — Collection Point Fulfillment & Inventory Reconciliation
+// (docs/domains/d2c.md)
+// ============================================================================
+
+/// Strictly sequential — enforced in `CollectionPointFulfillmentService`, each transition
+/// method only accepts the immediately-prior status (the same guarded, no-arbitrary-edit
+/// shape as `AssetService.transition()`'s `fromStatuses` allow-list). Deliberately does
+/// NOT include `FULFILLED` — that remains `SalesOrder.status`'s own value, reached by
+/// calling the EXISTING `SalesFulfilmentService.fulfil()` the instant a fulfillment here
+/// reaches `COLLECTED`. This enum only ever describes the operational sub-workflow that
+/// happens BETWEEN an order becoming `CONFIRMED` (Sprint 35) and `FULFILLED` (pre-existing,
+/// Sprint 4.9) — it is subordinate to `SalesOrder`, never a competing order lifecycle.
+enum CollectionPointFulfillmentStatus {
+  ASSIGNED
+  PREPARING
+  READY_FOR_COLLECTION
+  COLLECTED
+}
+
+/// THE record of "which Collection Point is fulfilling this paid D2C order, and how far
+/// along" — subordinate to the EXISTING `SalesOrder` (never a parallel order entity, never
+/// a `CollectionOrder`/`D2CFulfillmentOrder`). `SalesOrder` remains authoritative for
+/// whether the order itself is done (`status: FULFILLED`, set via the existing
+/// `SalesFulfilmentService.fulfil()` the moment this record reaches `COLLECTED` — see
+/// docs/domains/d2c.md "Fulfillment State Model" for why a dedicated model was introduced
+/// at all: the existing `SalesOrderStatus` enum (`DRAFT`/`CONFIRMED`/
+/// `PARTIALLY_FULFILLED`/`FULFILLED`/`CANCELLED`) has no way to represent "assigned to
+/// Collection Point X and being prepared" — that is genuinely new information, not a
+/// relabelling of an existing status.
+model CollectionPointFulfillment {
+  id             String                           @id @default(cuid())
+  organisationId String
+  /// One Collection Point fulfillment per order — a D2C order is assigned once, never
+  /// re-parented to a different Collection Point this sprint (brief §4: "reassignment, if
+  /// supported" was left optional; not built — see docs/domains/d2c.md "Known
+  /// Limitations").
+  salesOrderId   String                           @unique
+  /// The assigned Collection Point. `Restrict` — this row is a fulfillment history record
+  /// and must never be silently re-pointed or orphaned if the outlet were ever deactivated
+  /// (deactivating an Outlet already leaves existing rows referencing it untouched
+  /// elsewhere in this codebase — same convention here).
+  outletId       String
+  status         CollectionPointFulfillmentStatus @default(ASSIGNED)
+  assignedAt     DateTime                         @default(now())
+  preparingAt    DateTime?
+  readyAt        DateTime?
+  collectedAt    DateTime?
+  /// Plain id, no FK relation — the same `SalesOrder.salesAgentId`/`Outlet
+  /// .collectionPointResponsibleUserId` convention. The authenticated Collection Point
+  /// user who confirmed collection (brief "COLLECTION CONFIRMATION" — an authorized
+  /// action is the proof, never a consumer-facing OTP/QR/signature).
+  collectedById  String?
+  createdAt      DateTime                         @default(now())
+  updatedAt      DateTime                         @updatedAt
+
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  salesOrder   SalesOrder   @relation(fields: [salesOrderId], references: [id], onDelete: Restrict)
+  outlet       Outlet       @relation(fields: [outletId], references: [id], onDelete: Restrict)
+
+  @@index([organisationId])
+  @@index([organisationId, outletId, status])
+  @@map("collection_point_fulfillments")
 }
 
 // ============================================================================

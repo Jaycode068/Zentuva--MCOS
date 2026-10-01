@@ -107,21 +107,28 @@ function makeRepository(options?: {
           return stock.get(stockKey(where.organisationId_productId_locationId)) ?? null;
         },
       ),
-      upsert: jest.fn(
+      // Sprint 37.1 — replaces the fake's own `upsert` with an `updateMany` that
+      // mirrors the real atomic-conditional-decrement semantics
+      // `decrementStockIfAvailable` relies on: only mutates (and only reports
+      // `count: 1`) when a row exists AND its `quantityOnHand` already satisfies the
+      // `gte` filter — exactly what a real Postgres `UPDATE ... WHERE quantityOnHand
+      // >= $x` would do.
+      updateMany: jest.fn(
         async ({
           where,
-          create,
-          update,
+          data,
         }: {
-          where: { organisationId_productId_locationId: StockKey };
-          create: Record<string, unknown>;
-          update: Record<string, unknown>;
+          where: StockKey & { quantityOnHand: { gte: number } };
+          data: { quantityOnHand: { decrement: number } };
         }) => {
-          const key = stockKey(where.organisationId_productId_locationId);
-          const existing = stock.get(key);
-          const row = existing ? { ...existing, ...update } : { ...create };
-          stock.set(key, row);
-          return row;
+          const key = stockKey(where);
+          const existing = stock.get(key) as
+            { quantityOnHand: number; averageUnitCost: number } | undefined;
+          if (!existing || existing.quantityOnHand < where.quantityOnHand.gte) {
+            return { count: 0 };
+          }
+          existing.quantityOnHand -= data.quantityOnHand.decrement;
+          return { count: 1 };
         },
       ),
     },

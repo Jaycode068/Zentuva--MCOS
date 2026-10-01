@@ -6,6 +6,7 @@ import { Badge, Input } from '@zentuva/ui';
 
 import { FieldCard } from '@/components/field/FieldCard';
 
+import { listMyCollectionPointOutlets } from './collection-point/api';
 import { getSalesOrderPartyName, listCustomers, listSalesOrders } from './api';
 import { SALES_ORDER_STATUS_LABELS, SALES_ORDER_STATUS_VARIANT } from './labels';
 
@@ -24,6 +25,14 @@ export default function FieldHomePage() {
     queryKey: ['sales-orders'],
     queryFn: () => listSalesOrders(),
   });
+  // Sprint 37 — Collection Point Fulfillment. Only shown to a user actually assigned as a
+  // Collection Point's responsible representative (or an admin) — never a persistent
+  // bottom-nav item every field user sees, most of whom aren't Collection Point staff.
+  const { data: collectionPointOutletsData } = useQuery({
+    queryKey: ['my-collection-point-outlets'],
+    queryFn: listMyCollectionPointOutlets,
+  });
+  const hasCollectionPoints = (collectionPointOutletsData?.items.length ?? 0) > 0;
 
   const recentCustomers = (customersData?.items ?? []).slice(0, 5);
   const recentOrders = (ordersData?.items ?? []).slice(0, 5);
@@ -68,6 +77,15 @@ export default function FieldHomePage() {
           New Order
         </Link>
       </div>
+
+      {hasCollectionPoints && (
+        <Link
+          href="/field/collection-point"
+          className="block rounded-xl border border-primary bg-primary/10 p-3 text-sm font-medium text-primary shadow-sm active:bg-primary/20"
+        >
+          Collection Point — view your fulfilment queue →
+        </Link>
+      )}
 
       <section>
         <div className="mb-2 flex items-center justify-between">

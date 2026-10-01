@@ -1,7 +1,7 @@
 module.exports = {
   root: true,
   extends: [require.resolve('@zentuva/config/eslint/nestjs.js')],
-  ignorePatterns: ['.eslintrc.js', 'jest.config.js'],
+  ignorePatterns: ['.eslintrc.js', 'jest.config.js', 'jest.integration.config.js'],
   overrides: [
     {
       // tsconfig.json's rootDir is ./src, so type-aware linting can't apply to

@@ -11,6 +11,7 @@ import {
 } from '../../payments/ports/payment-provider.port';
 import { SalesOrderService } from '../../sales/sales-order.service';
 import { ConsumerService } from '../consumer/consumer.service';
+import { CollectionPointFulfillmentService } from '../fulfillment/collection-point-fulfillment.service';
 import { D2CPaymentService } from './d2c-payment.service';
 import { OrderNotPayableError, PaymentProviderError } from './d2c-payment.types';
 
@@ -157,6 +158,9 @@ describe('D2CPaymentService', () => {
           : 'http://localhost:4000/api/payments/opay/webhook',
       ),
     } as unknown as ConfigService;
+    const collectionPointFulfillmentService = {
+      autoAssign: jest.fn().mockResolvedValue(undefined),
+    } as unknown as jest.Mocked<CollectionPointFulfillmentService>;
 
     const service = new D2CPaymentService(
       provider,
@@ -166,8 +170,17 @@ describe('D2CPaymentService', () => {
       organisationService,
       auditService,
       config,
+      collectionPointFulfillmentService,
     );
-    return { service, salesOrderService, paymentService, payments, auditService, provider };
+    return {
+      service,
+      salesOrderService,
+      paymentService,
+      payments,
+      auditService,
+      provider,
+      collectionPointFulfillmentService,
+    };
   }
 
   describe('initiatePayment', () => {

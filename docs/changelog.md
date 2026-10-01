@@ -7,6 +7,91 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 37.1 Inventory Fulfillment Concurrency Integrity Hardening] - 2026-09-30
+
+Fixes the lost-update race Sprint 37 found and reported live: two concurrent orders
+competing for the same limited stock could both be marked fulfilled while the
+warehouse record was only ever decremented once. Before writing any code, every
+`InventoryStock` mutation in the codebase was audited (not just the one confirmed call
+site) — 5 call sites (Sales Fulfilment, Supplier Return, Production Material Issue,
+Maintenance Part Usage, and the general Inventory Adjustment) shared the exact same
+read-then-write-a-precomputed-value defect. All 5 were converted to a single shared
+atomic primitive, `decrementStockIfAvailable`/`applyStockAdjustmentIfNonNegative`
+(`apps/api/src/inventory/inventory-stock-concurrency.util.ts`) — a single conditional
+`UPDATE ... WHERE quantityOnHand >= $x`, following the same non-injected,
+transaction-scoped utility shape `postSystemJournalEntry(tx, ...)` already established
+for Finance. The database's own row lock is the concurrency guard now, never a value
+read moments earlier in application code. Each converted call site kept its own
+pre-existing error class and message unchanged.
+
+Three other call sites (Customer Return, Goods Receipt, Production Run) share the same
+underlying "read outside the write" structure but also recompute a moving-weighted-
+average cost on increment — a genuinely different shape needing its own
+single-statement fix — and were deliberately left unconverted, documented as a
+confirmed, open finding rather than folded into this hardening pass under time
+pressure.
+
+Proven with a new real-PostgreSQL integration test suite
+(`inventory-stock-concurrency.integration.spec.ts`, run via the new `pnpm run
+test:integration` script, deliberately excluded from the default mocked suite since no
+other spec in this codebase requires a live database) covering two-way and three-way
+stock contention, a single-request-exceeds-stock case, a ten-way stress test, the
+bidirectional adjustment primitive, and a multi-item transaction-rollback test. The
+exact original 23-vs-15+15 live scenario was then re-run end-to-end through the real
+running application: one order now succeeds, the other is cleanly and retryably
+rejected with a clear "Insufficient stock" error — zero lost updates, zero stranded
+records. Weighted-average costing and journal posting were verified unchanged for the
+successful order.
+
+232 suites / 2089 tests passing, 0 regressions against the Sprint 37 baseline
+(231/2084). See
+[`docs/sprint-37.1-completion-report.md`](sprint-37.1-completion-report.md).
+
+## [Sprint 37 Collection Point Fulfillment & Inventory Reconciliation] - 2026-09-30
+
+Connects a paid D2C `SalesOrder` to the Sprint 36 Collection Point
+capability through a real operational workflow: Paid → Eligible
+Collection Point → Assigned → Preparing → Ready for Collection →
+Collected → Fulfilled → Inventory Reconciled. One new, deliberately
+subordinate model (`CollectionPointFulfillment`, `salesOrderId` unique
+FK) tracks the D2C-specific operational sub-state between
+`SalesOrder.CONFIRMED` and `.FULFILLED` — no parallel order entity. The
+actual inventory deduction is performed entirely by the pre-existing,
+unmodified `SalesFulfilmentService.fulfil()`; `Outlet.inventoryLocationId`
+(nullable, non-unique, mirroring how `SalesFulfilment.locationId` already
+treats location-to-outlet) bridges Collection Point to the existing
+Inventory domain, exactly the open question Sprint 36 had flagged.
+
+Auto-assignment fires from `D2CPaymentService`'s own verified-payment
+callback (best-effort, logged-not-thrown, matching Sprint 35's "a
+callback must never crash the webhook" philosophy); a manual admin
+fallback exists for the no-eligible-outlet case. Every state transition
+reuses this codebase's own conditional-`updateMany`-as-concurrency-guard
+pattern.
+
+Two genuine bugs were found and fixed by live verification against the
+real running application (neither was reachable by unit tests alone):
+`confirmCollection()` flipped its own status to the terminal `COLLECTED`
+state BEFORE calling `fulfil()`, so a `fulfil()` failure (reproduced live
+via a stale dev-environment accounting-period gap) permanently stranded
+the fulfilment while the order was never actually fulfilled — fixed with
+a compensating rollback to `READY_FOR_COLLECTION` on failure; and the new
+module was missing `AuthModule`, so the real application failed to boot
+despite every unit test passing.
+
+Live concurrency testing also empirically confirmed a pre-existing,
+previously-only-theoretical lost-update race in the shared
+`SalesFulfilmentRepository.create()` stock decrement: two orders racing
+for the same limited stock can both be marked fully fulfilled while
+warehouse stock is decremented only once. This predates Sprint 37 and is
+shared by every B2B and D2C fulfilment path — reported in full rather
+than hidden, and flagged as dedicated follow-up work rather than patched
+under time pressure.
+
+231 suites / 2084 tests passing, 0 regressions against the Sprint 36
+baseline (227/2040). See
+[`docs/sprint-37-completion-report.md`](sprint-37-completion-report.md).
+
 ## [Sprint 36 Existing Outlet -> Collection Point Enablement] - 2026-09-30
 
 Enables an existing `Outlet` to optionally operate as a D2C Collection

@@ -10,6 +10,11 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { SYSTEM_ACCOUNT_KEYS } from '../finance/accounting/chart-of-account-keys';
 import { postSystemJournalEntry } from '../finance/accounting/journal-posting';
+import {
+  decrementStockIfAvailable,
+  getCurrentAverageUnitCost,
+  getCurrentQuantityOnHand,
+} from '../inventory/inventory-stock-concurrency.util';
 
 const PRODUCT_SELECT = { id: true, code: true, name: true, unit: true };
 
@@ -226,44 +231,32 @@ export class ProductionMaterialIssueRepository {
 
       let totalValue = 0;
       for (const item of data.items) {
-        const existing = await tx.inventoryStock.findUnique({
-          where: {
-            organisationId_productId_locationId: {
-              organisationId: data.organisationId,
-              productId: item.componentProductId,
-              locationId: data.locationId,
-            },
-          },
-        });
-        const currentQuantity = existing?.quantityOnHand ?? 0;
-        const newQuantity = roundQuantity(currentQuantity - item.quantity);
-        if (newQuantity < 0) {
-          throw new InsufficientStockError(
-            `Insufficient stock for component ${item.componentProductId} (available: ${currentQuantity}, requested: ${item.quantity})`,
-          );
-        }
+        const stockRef = {
+          organisationId: data.organisationId,
+          productId: item.componentProductId,
+          locationId: data.locationId,
+        };
         // Sprint 9 — the component's cost is read here, at the moment of
         // consumption, not passed in by the caller: three issues at three different
         // times can legitimately value the same component differently if stock was
         // replenished at a different price in between — the correct, standard
-        // behaviour of a moving weighted average.
-        totalValue += item.quantity * (existing?.averageUnitCost ?? 0);
-        await tx.inventoryStock.upsert({
-          where: {
-            organisationId_productId_locationId: {
-              organisationId: data.organisationId,
-              productId: item.componentProductId,
-              locationId: data.locationId,
-            },
-          },
-          create: {
-            organisationId: data.organisationId,
-            productId: item.componentProductId,
-            locationId: data.locationId,
-            quantityOnHand: newQuantity,
-          },
-          update: { quantityOnHand: newQuantity },
-        });
+        // behaviour of a moving weighted average. Never races against the decrement
+        // below — no issue path writes `averageUnitCost` (see
+        // `getCurrentAverageUnitCost`'s own doc comment).
+        totalValue += item.quantity * (await getCurrentAverageUnitCost(tx, stockRef));
+
+        // Sprint 37.1 — atomic conditional decrement, the database's own row lock is
+        // the concurrency guard (see `inventory-stock-concurrency.util.ts`). Replaces a
+        // read-then-upsert-with-precomputed-value pattern that shared the exact defect
+        // class live-verified in `SalesFulfilmentRepository.create()`
+        // (docs/domains/d2c.md §78).
+        const decremented = await decrementStockIfAvailable(tx, stockRef, item.quantity);
+        if (!decremented) {
+          const currentQuantity = await getCurrentQuantityOnHand(tx, stockRef);
+          throw new InsufficientStockError(
+            `Insufficient stock for component ${item.componentProductId} (available: ${currentQuantity}, requested: ${item.quantity})`,
+          );
+        }
       }
 
       const materialIssue = await tx.productionMaterialIssue.create({
@@ -421,12 +414,6 @@ export class ProductionMaterialIssueRepository {
       totalAmount: roundCurrency(journalEntry.lines.reduce((sum, line) => sum + line.debit, 0)),
     }));
   }
-}
-
-/** Rounds to 6 decimal places purely to clear floating-point noise — same convention as
- *  `InventoryStockRepository.adjustStock`'s own rounding helper. */
-function roundQuantity(value: number): number {
-  return Math.round(value * 1_000_000) / 1_000_000;
 }
 
 /** Same 2-decimal-place money rounding convention as every other file that computes

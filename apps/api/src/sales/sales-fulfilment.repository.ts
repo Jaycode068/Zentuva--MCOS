@@ -9,6 +9,11 @@ import {
 
 import { SYSTEM_ACCOUNT_KEYS } from '../finance/accounting/chart-of-account-keys';
 import { postSystemJournalEntry } from '../finance/accounting/journal-posting';
+import {
+  decrementStockIfAvailable,
+  getCurrentAverageUnitCost,
+  getCurrentQuantityOnHand,
+} from '../inventory/inventory-stock-concurrency.util';
 import { PrismaService } from '../prisma/prisma.service';
 import { SalesOrderWithRelations } from './sales-order.repository';
 
@@ -127,11 +132,12 @@ export class SalesFulfilmentConflictError extends Error {}
  * `create()` runs the entire "physically supply this order" operation inside a single
  * `$transaction`, mirroring `ProductionMaterialIssueRepository.issue()`'s shape exactly:
  * an idempotency check-then-return, a conditional read re-validating the order is still
- * eligible, a per-item read-guard-write against `InventoryStock` (evaluated *inside* the
- * transaction, not from a pre-check the caller already did — closing the race between two
- * concurrent fulfilments a stale pre-check couldn't), the paired `InventoryTransaction`
- * `ISSUE` rows, and the order's own status recomputation — all rolled back together on any
- * failure.
+ * eligible, a per-item ATOMIC conditional decrement against `InventoryStock` via
+ * `decrementStockIfAvailable` (Sprint 37.1 — the database's own row lock on the
+ * conditional `UPDATE` is the actual concurrency guard, not a value read moments earlier
+ * in application code; see `inventory-stock-concurrency.util.ts`), the paired
+ * `InventoryTransaction` `ISSUE` rows, and the order's own status recomputation — all
+ * rolled back together on any failure.
  *
  * Writing directly to `inventory_stock`/`inventory_transactions` here is the same
  * deliberate, narrow exception to ADR-002's domain-ownership convention that
@@ -244,45 +250,39 @@ export class SalesFulfilmentRepository {
       const itemCosts = new Map<string, { unitCost: number; costAmount: number }>();
 
       for (const item of data.items) {
-        const existingStock = await tx.inventoryStock.findUnique({
-          where: {
-            organisationId_productId_locationId: {
-              organisationId: data.organisationId,
-              productId: item.productId,
-              locationId: data.locationId,
-            },
-          },
-        });
-        const currentQuantity = existingStock?.quantityOnHand ?? 0;
-        const newQuantity = roundQuantity(currentQuantity - item.quantity);
-        if (newQuantity < 0) {
-          throw new InsufficientStockError(
-            `Insufficient stock for product ${item.productId} (available: ${currentQuantity}, requested: ${item.quantity})`,
-          );
-        }
-        const unitCost = existingStock?.averageUnitCost ?? 0;
+        const stockRef = {
+          organisationId: data.organisationId,
+          productId: item.productId,
+          locationId: data.locationId,
+        };
+        // Cost is read here, at the moment of consumption (Sprint 10's own documented
+        // moving-weighted-average behaviour, unchanged) — this read never races against
+        // the decrement below, since no issue/decrement path ever WRITES
+        // `averageUnitCost` (see `getCurrentAverageUnitCost`'s own doc comment).
+        const unitCost = await getCurrentAverageUnitCost(tx, stockRef);
         const costAmount = roundCurrency(item.quantity * unitCost);
         // Running rounded sum, not a single round of the raw grand total at the
         // end — guarantees the sum of every item's own costAmount always equals
         // exactly the journal's posted total, with no rounding-drift gap.
         totalCogsValue = roundCurrency(totalCogsValue + costAmount);
         itemCosts.set(item.productId, { unitCost, costAmount });
-        await tx.inventoryStock.upsert({
-          where: {
-            organisationId_productId_locationId: {
-              organisationId: data.organisationId,
-              productId: item.productId,
-              locationId: data.locationId,
-            },
-          },
-          create: {
-            organisationId: data.organisationId,
-            productId: item.productId,
-            locationId: data.locationId,
-            quantityOnHand: newQuantity,
-          },
-          update: { quantityOnHand: newQuantity },
-        });
+
+        // Sprint 37.1 — the atomic conditional decrement IS the concurrency guard now,
+        // not a pre-read value. Two concurrent fulfilments of the same product+location
+        // are serialized by Postgres's own row lock on this UPDATE; whichever commits
+        // second re-evaluates `quantityOnHand >= item.quantity` against the
+        // already-decremented row, not a stale snapshot — see
+        // `inventory-stock-concurrency.util.ts` for the full rationale and
+        // docs/domains/d2c.md §78 for the live-verified defect this replaces.
+        const decremented = await decrementStockIfAvailable(tx, stockRef, item.quantity);
+        if (!decremented) {
+          // Non-authoritative re-read purely to build a helpful error message — the
+          // decision was already made atomically above.
+          const currentQuantity = await getCurrentQuantityOnHand(tx, stockRef);
+          throw new InsufficientStockError(
+            `Insufficient stock for product ${item.productId} (available: ${currentQuantity}, requested: ${item.quantity})`,
+          );
+        }
       }
 
       const fulfilment = await tx.salesFulfilment.create({
@@ -469,12 +469,6 @@ export class SalesFulfilmentRepository {
       totalCogs: roundCurrency(group._sum.costAmount ?? 0),
     }));
   }
-}
-
-/** Rounds to 6 decimal places purely to clear floating-point noise — same convention as
- *  `InventoryStockRepository.adjustStock`'s own rounding helper. */
-function roundQuantity(value: number): number {
-  return Math.round(value * 1_000_000) / 1_000_000;
 }
 
 /** Rounds to 2 decimal places (currency) — same convention as every other file's own

@@ -9,6 +9,7 @@ import {
 } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service';
+import { applyStockAdjustmentIfNonNegative } from './inventory-stock-concurrency.util';
 
 export interface ListInventoryStockParams {
   /** Simple case-insensitive substring match against the product's name or code (same
@@ -148,38 +149,30 @@ export class InventoryStockRepository {
    *  closing the race between two concurrent adjustments a pre-check alone couldn't. */
   async adjustStock(data: AdjustStockData): Promise<AdjustStockResult> {
     return this.prisma.$transaction(async (tx) => {
-      const existing = await tx.inventoryStock.findUnique({
-        where: {
-          organisationId_productId_locationId: {
-            organisationId: data.organisationId,
-            productId: data.productId,
-            locationId: data.locationId,
-          },
-        },
-      });
-      const currentQuantity = existing?.quantityOnHand ?? 0;
-      const newQuantity = roundQuantity(currentQuantity + data.quantity);
-      if (newQuantity < 0) {
+      const stockRef = {
+        organisationId: data.organisationId,
+        productId: data.productId,
+        locationId: data.locationId,
+      };
+      // Sprint 37.1 — atomic conditional adjustment, the database's own row lock is the
+      // concurrency guard (see `inventory-stock-concurrency.util.ts`). Replaces a
+      // read-then-upsert-with-precomputed-value pattern that shared the exact defect
+      // class live-verified in `SalesFulfilmentRepository.create()`
+      // (docs/domains/d2c.md §78) — two concurrent negative adjustments against the
+      // same row could previously both read the same balance and lose one decrement.
+      const applied = await applyStockAdjustmentIfNonNegative(tx, stockRef, data.quantity);
+      if (!applied) {
+        const current = await tx.inventoryStock.findUnique({
+          where: { organisationId_productId_locationId: stockRef },
+          select: { quantityOnHand: true },
+        });
         throw new NegativeStockError(
-          `Adjustment would result in negative stock (current: ${currentQuantity}, adjustment: ${data.quantity})`,
+          `Adjustment would result in negative stock (current: ${current?.quantityOnHand ?? 0}, adjustment: ${data.quantity})`,
         );
       }
 
-      const stock = await tx.inventoryStock.upsert({
-        where: {
-          organisationId_productId_locationId: {
-            organisationId: data.organisationId,
-            productId: data.productId,
-            locationId: data.locationId,
-          },
-        },
-        create: {
-          organisationId: data.organisationId,
-          productId: data.productId,
-          locationId: data.locationId,
-          quantityOnHand: newQuantity,
-        },
-        update: { quantityOnHand: newQuantity },
+      const stock = await tx.inventoryStock.findUniqueOrThrow({
+        where: { organisationId_productId_locationId: stockRef },
         include: { product: { select: PRODUCT_SELECT }, location: { select: LOCATION_SELECT } },
       });
 
@@ -201,10 +194,4 @@ export class InventoryStockRepository {
       return { stock, transaction };
     });
   }
-}
-
-/** Rounds to 6 decimal places to clear floating-point noise — same convention and
- *  rationale as `InventoryService`'s own quantity rounding (Sprint 4.4.1). */
-function roundQuantity(value: number): number {
-  return Math.round(value * 1_000_000) / 1_000_000;
 }

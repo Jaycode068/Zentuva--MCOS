@@ -13,6 +13,10 @@ import {
 import { SYSTEM_ACCOUNT_KEYS } from '../finance/accounting/chart-of-account-keys';
 import { postSystemJournalEntry } from '../finance/accounting/journal-posting';
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  decrementStockIfAvailable,
+  getCurrentQuantityOnHand,
+} from './inventory-stock-concurrency.util';
 
 const PRODUCT_SELECT = { id: true, code: true, name: true, unit: true };
 
@@ -285,38 +289,27 @@ export class SupplierReturnRepository {
           },
         });
 
-        const existingStock = await tx.inventoryStock.findUnique({
-          where: {
-            organisationId_productId_locationId: {
-              organisationId: data.organisationId,
-              productId: resolved.goodsReceiptItem.productId,
-              locationId: data.locationId,
-            },
-          },
-        });
-        const currentQuantity = existingStock?.quantityOnHand ?? 0;
-        const newQuantity = roundQuantity(currentQuantity - resolved.quantityReturned);
-        if (newQuantity < 0) {
+        // Sprint 37.1 — atomic conditional decrement, the database's own row lock is
+        // the concurrency guard (see `inventory-stock-concurrency.util.ts`). Replaces a
+        // read-then-upsert-with-precomputed-value pattern that shared the exact defect
+        // class live-verified in `SalesFulfilmentRepository.create()`
+        // (docs/domains/d2c.md §78).
+        const stockRef = {
+          organisationId: data.organisationId,
+          productId: resolved.goodsReceiptItem.productId,
+          locationId: data.locationId,
+        };
+        const decremented = await decrementStockIfAvailable(
+          tx,
+          stockRef,
+          resolved.quantityReturned,
+        );
+        if (!decremented) {
+          const currentQuantity = await getCurrentQuantityOnHand(tx, stockRef);
           throw new InsufficientReturnableStockError(
             `Insufficient stock to return ${resolved.quantityReturned} of product ${resolved.goodsReceiptItem.productId} (available: ${currentQuantity})`,
           );
         }
-        await tx.inventoryStock.upsert({
-          where: {
-            organisationId_productId_locationId: {
-              organisationId: data.organisationId,
-              productId: resolved.goodsReceiptItem.productId,
-              locationId: data.locationId,
-            },
-          },
-          create: {
-            organisationId: data.organisationId,
-            productId: resolved.goodsReceiptItem.productId,
-            locationId: data.locationId,
-            quantityOnHand: newQuantity,
-          },
-          update: { quantityOnHand: newQuantity },
-        });
         await tx.inventoryTransaction.create({
           data: {
             organisationId: data.organisationId,

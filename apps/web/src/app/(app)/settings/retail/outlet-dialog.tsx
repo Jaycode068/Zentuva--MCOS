@@ -20,6 +20,8 @@ import { MultiImageUploadCard } from '@/components/app/multi-image-upload-card';
 import { ApiError } from '@/lib/api-client';
 import { captureCoordinates } from '@/lib/geolocation';
 
+import { listInventoryLocations } from '../inventory/api';
+
 import {
   addOutletPhotos,
   createOutlet,
@@ -321,6 +323,7 @@ function CollectionPointSection({ outlet, onSaved }: { outlet: Outlet; onSaved: 
   const [responsibleUserId, setResponsibleUserId] = useState(
     outlet.collectionPointResponsibleUserId ?? '',
   );
+  const [inventoryLocationId, setInventoryLocationId] = useState(outlet.inventoryLocationId ?? '');
   const isEnabled = status === 'ENABLED';
 
   const { data: representativesData } = useQuery({
@@ -328,11 +331,17 @@ function CollectionPointSection({ outlet, onSaved }: { outlet: Outlet; onSaved: 
     queryFn: () => listOutletRepresentatives(),
   });
   const representatives = representativesData?.items ?? [];
+  const { data: inventoryLocationsData } = useQuery({
+    queryKey: ['inventory-locations-for-collection-point'],
+    queryFn: () => listInventoryLocations(),
+  });
+  const inventoryLocations = inventoryLocationsData?.items ?? [];
 
   function afterSave(updated: Outlet) {
     setStatus(updated.collectionPointStatus);
     setOperatingHours(updated.collectionPointOperatingHours ?? '');
     setResponsibleUserId(updated.collectionPointResponsibleUserId ?? '');
+    setInventoryLocationId(updated.inventoryLocationId ?? '');
     onSaved();
     queryClient.invalidateQueries({ queryKey: ['outlets'] });
   }
@@ -350,6 +359,7 @@ function CollectionPointSection({ outlet, onSaved }: { outlet: Outlet; onSaved: 
       updateCollectionPointConfig(outlet.id, {
         responsibleUserId: responsibleUserId || null,
         operatingHours: operatingHours.trim() || null,
+        inventoryLocationId: inventoryLocationId || null,
       }),
     onSuccess: afterSave,
   });
@@ -413,6 +423,23 @@ function CollectionPointSection({ outlet, onSaved }: { outlet: Outlet; onSaved: 
             value={operatingHours}
             onChange={(e) => setOperatingHours(e.target.value)}
           />
+        </div>
+        <div className="space-y-1.5">
+          <Label>Inventory Location</Label>
+          <Select
+            value={inventoryLocationId}
+            onChange={(e) => setInventoryLocationId(e.target.value)}
+          >
+            <option value="">Not set</option>
+            {inventoryLocations.map((location) => (
+              <option key={location.id} value={location.id}>
+                {location.name}
+              </option>
+            ))}
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            Stock deducted on collection is drawn from this location.
+          </p>
         </div>
       </div>
 

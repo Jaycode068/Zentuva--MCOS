@@ -9,6 +9,7 @@ import {
 
 import { FILE_STORAGE, FileStorage } from '../../identity/organisation/ports/file-storage.port';
 import { UserService } from '../../identity/user/user.service';
+import { InventoryLocationRepository } from '../../inventory/inventory-location.repository';
 import { CustomerRepository } from '../customer/customer.repository';
 import { TerritoryRepository } from '../territory/territory.repository';
 import { ListOutletsParams, OutletRepository, OutletWithRelations } from './outlet.repository';
@@ -40,6 +41,7 @@ export class OutletService {
     private readonly customerRepository: CustomerRepository,
     private readonly territoryRepository: TerritoryRepository,
     private readonly userService: UserService,
+    private readonly inventoryLocationRepository: InventoryLocationRepository,
     @Inject(FILE_STORAGE) private readonly fileStorage: FileStorage,
   ) {}
 
@@ -229,6 +231,9 @@ export class OutletService {
     if (input.responsibleUserId) {
       await this.assertValidResponsibleUser(organisationId, input.responsibleUserId);
     }
+    if (input.inventoryLocationId) {
+      await this.assertValidInventoryLocation(organisationId, input.inventoryLocationId);
+    }
 
     const updated = await this.outletRepository.update(organisationId, id, {
       updatedById: actorUserId,
@@ -237,6 +242,9 @@ export class OutletService {
         : {}),
       ...(input.operatingHours !== undefined
         ? { collectionPointOperatingHours: input.operatingHours }
+        : {}),
+      ...(input.inventoryLocationId !== undefined
+        ? { inventoryLocationId: input.inventoryLocationId }
         : {}),
     });
     if (!updated) {
@@ -270,6 +278,25 @@ export class OutletService {
     }
     if (user.status !== 'ACTIVE') {
       throw new BadRequestException('Responsible representative must be an active user');
+    }
+  }
+
+  /** Sprint 37 — the audited Outlet<->InventoryLocation bridge
+   *  (docs/domains/d2c.md "Inventory Integration Decision"). Tenant-scoped, same
+   *  convention as `assertTerritoryExists`; does not require `ACTIVE` status here (an
+   *  admin may configure the link before the location itself is activated) — eligibility
+   *  for actually ASSIGNING fulfilment work checks the location's live status instead
+   *  (`CollectionPointFulfillmentService`). */
+  private async assertValidInventoryLocation(
+    organisationId: string,
+    inventoryLocationId: string,
+  ): Promise<void> {
+    const location = await this.inventoryLocationRepository.findById(
+      organisationId,
+      inventoryLocationId,
+    );
+    if (!location) {
+      throw new BadRequestException('Inventory location not found');
     }
   }
 

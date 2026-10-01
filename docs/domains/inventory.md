@@ -842,3 +842,70 @@ narrow consumer reading a table it already owned.
   `quantityOnHand`, `quantityReserved`, ledger `quantity`) are stored as `Float`, not an
   arbitrary-precision `Decimal` — same convention (and rationale) as Procurement's
   monetary fields.
+
+## 12. Concurrent Stock Mutation (Sprint 37.1 — Inventory Fulfillment Concurrency Integrity Hardening)
+
+**The defect.** Sprint 37 (D2C Collection Point Fulfillment) live-verified a genuine
+data-integrity bug in `SalesFulfilmentRepository.create()` (Sprint 4.9): its stock
+decrement read `InventoryStock.quantityOnHand`, computed a new value in application
+code, then wrote that precomputed absolute value back via `upsert`. Under Postgres's
+default READ COMMITTED isolation, two concurrent transactions decrementing the SAME
+row could both read the same starting quantity and both commit — the second's write
+silently overwrote the first's already-applied decrement. Reproduced live: two D2C
+orders (15 units each) against 23 units on hand both reported success and were both
+marked fully fulfilled (30 units "consumed"), while `quantityOnHand` only ever dropped
+to 8 (one decrement, not two) — a genuine, unrecoverable 15-unit inventory
+discrepancy with no error and no audit flag.
+
+**The audit.** Before any fix, every `InventoryStock` write path in the codebase was
+read end to end and classified:
+
+| Call site                                                | Shape                                                       | Fixed this sprint?                          |
+| -------------------------------------------------------- | ----------------------------------------------------------- | ------------------------------------------- |
+| `SalesFulfilmentRepository.create()` (Sales)             | Decrement + insufficient-stock guard, no cost recompute     | Yes — the confirmed, live-reproduced defect |
+| `SupplierReturnRepository` (Inventory)                   | Decrement + insufficient-stock guard, no cost recompute     | Yes — identical shape                       |
+| `ProductionMaterialIssueRepository.issue()` (Production) | Decrement + insufficient-stock guard, no cost recompute     | Yes — identical shape                       |
+| `MaintenancePartUsageRepository.issue()` (Maintenance)   | Decrement + insufficient-stock guard, no cost recompute     | Yes — identical shape                       |
+| `InventoryStockRepository.adjustStock()` (Inventory)     | Bidirectional delta + non-negative guard, no cost recompute | Yes — same guard technique, both directions |
+| `CustomerReturnRepository` (Sales)                       | Increment + moving-weighted-average cost recompute          | **No** — different shape, see below         |
+| `GoodsReceiptRepository.receive()` (Inventory)           | Increment + moving-weighted-average cost recompute          | **No** — different shape, see below         |
+| `ProductionRunRepository.complete()` (Production)        | Increment + moving-weighted-average cost recompute          | **No** — different shape, see below         |
+
+**The fix.** `inventory-stock-concurrency.util.ts` (a plain, transaction-scoped utility
+function taking `tx: Prisma.TransactionClient` directly — the same non-injected-service
+shape `postSystemJournalEntry(tx, ...)` already establishes for Finance, chosen for the
+same reason: it must participate in the CALLER's own transaction, not open its own)
+provides `decrementStockIfAvailable`/`applyStockAdjustmentIfNonNegative`. Both replace
+the read-then-write with a single conditional `UPDATE ... WHERE quantityOnHand >= $x`
+— the database's own row lock on that statement is the concurrency guard now, not a
+value read moments earlier in application code. Each of the five call sites above keeps
+its OWN domain-specific error class and message (`InsufficientStockError` is
+deliberately three separate local classes in Sales/Production/Maintenance, unchanged);
+only the underlying atomic primitive is shared. `averageUnitCost` is read separately
+(via `getCurrentAverageUnitCost`) and is never touched by any decrement/issue path, so
+this read never races against the guarded write.
+
+**Why the three increment-with-cost-recompute call sites were NOT converted.** A plain
+conditional `increment` cannot express "new weighted average = f(prior quantity, prior
+cost, incoming quantity, incoming cost)" atomically the same way a guarded decrement
+can — that requires its own single-statement SQL expression (or an explicit row lock)
+and deserves dedicated review, not a rushed fold into this hardening pass. These three
+are CONFIRMED to share the same underlying "read outside the write" structure and are
+therefore theoretically exposed to an equivalent lost-update risk on `averageUnitCost`
+(and, less severely, on quantity) under genuine concurrent receipts/returns/completions
+of the SAME product+location — this is documented here as a known, open finding, not
+fixed.
+
+**Verification.** A real-PostgreSQL integration test suite
+(`inventory-stock-concurrency.integration.spec.ts`, run via `pnpm run test:integration`
+— deliberately excluded from the default `pnpm test` run, since it needs a live
+database no other spec in this codebase requires) proves the fix under genuine
+concurrent transactions: two/three-way contention at various stock levels, a
+single-request-exceeds-stock case, a ten-way stress test, the bidirectional adjustment
+primitive, and a multi-item transaction rollback test (an earlier item's successful
+decrement is correctly undone when a later item in the SAME transaction fails). The
+original live defect scenario (23 on hand, two 15-unit D2C orders racing through the
+real HTTP API) was re-run after the fix: one order succeeded (stock 23 → 8, `SalesOrder`
+`FULFILLED`), the other was cleanly rejected (`400 Insufficient stock...`, left
+`READY_FOR_COLLECTION`, fully retryable — not stranded), and a subsequent retry after
+restocking succeeded cleanly. See `docs/sprint-37.1-completion-report.md`.

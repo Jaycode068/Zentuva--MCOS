@@ -2097,8 +2097,15 @@ async function seedOutlets(
  * directly via Prisma (matching this file's existing convention for every other fixture)
  * rather than going through `OutletService.enableCollectionPoint`, since seed data is not
  * expected to exercise the HTTP/service layer.
+ *
+ * Sprint 37 — also configures `inventoryLocationId` (the audited Outlet<->
+ * InventoryLocation bridge) against the existing "Main Warehouse" location, making this
+ * one fixture fully eligible for real D2C fulfilment, not just Collection Point display.
  */
-async function seedCollectionPoints(outletsByCode: Record<string, string>): Promise<void> {
+async function seedCollectionPoints(
+  outletsByCode: Record<string, string>,
+  locationsByName: Record<string, string>,
+): Promise<void> {
   console.log('Seeding Collection Points (1 Boby Bites Collection Point)...');
 
   const bodijaSupermartId = outletsByCode['OUT-000003'];
@@ -2110,6 +2117,7 @@ async function seedCollectionPoints(outletsByCode: Record<string, string>): Prom
     data: {
       collectionPointStatus: 'ENABLED',
       collectionPointOperatingHours: 'Mon-Sat 9am-6pm',
+      inventoryLocationId: locationsByName['Main Warehouse'] ?? null,
     },
   });
 }
@@ -7635,6 +7643,21 @@ async function main(): Promise<void> {
     skipDuplicates: true,
   });
 
+  // Sprint 37 — Collection Point Fulfillment (docs/domains/d2c.md "Authorization").
+  // Deliberately ALSO granted to Member (not just Administrator, which already has it via
+  // the blanket grant above) — the exact same reasoning Sprint 36 already established for
+  // `collectionPointResponsibleUserId` itself: any active organisation member may be
+  // assigned to operate a Collection Point, no special role required. The actual
+  // "only YOUR assigned Collection Point" restriction is enforced as a resource-ownership
+  // check inside `CollectionPointFulfillmentService`, not by this permission's own scope —
+  // `ORGANISATION` here only means "this role is the KIND of user who can attempt these
+  // actions at all," matching how the permission is described in the catalogue.
+  console.log('Granting Collection Point fulfilment permissions to the Member role...');
+  await grantRolePermissions(memberRole.id, permissionByKey, [
+    { key: 'd2c.collection_point.view', scope: 'ORGANISATION' },
+    { key: 'd2c.collection_point.fulfil', scope: 'ORGANISATION' },
+  ]);
+
   console.log('Seeding development accounts (Owner, Administrator, Member)...');
   const ownerUser = await seedUser({
     organisationId: organisation.id,
@@ -7719,7 +7742,7 @@ async function main(): Promise<void> {
     customersByCode,
     territoriesByCode,
   );
-  await seedCollectionPoints(outletsByCode);
+  await seedCollectionPoints(outletsByCode, locationsByName);
   await seedNetworkRelationships(organisation.id, ownerUser.id, customersByCode);
   const salesOrdersByCode = await seedSalesOrders(
     organisation.id,

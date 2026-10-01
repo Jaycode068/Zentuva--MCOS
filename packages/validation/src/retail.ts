@@ -247,6 +247,11 @@ export type UpdateOutletInput = z.infer<typeof updateOutletSchema>;
 export const updateCollectionPointConfigSchema = z.object({
   responsibleUserId: optionalNullableId(),
   operatingHours: z.string().trim().max(200).nullable().optional(),
+  /** Added Sprint 37 — the audited Outlet<->InventoryLocation bridge
+   *  (docs/domains/d2c.md "Inventory Integration Decision"). Required before a Collection
+   *  Point is eligible for any D2C fulfilment work — see
+   *  `CollectionPointFulfillmentService`'s own eligibility check. */
+  inventoryLocationId: optionalNullableId(),
 });
 export type UpdateCollectionPointConfigInput = z.infer<typeof updateCollectionPointConfigSchema>;
 

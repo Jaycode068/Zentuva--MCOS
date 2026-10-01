@@ -14,6 +14,7 @@ import {
 
 import { FileStorage } from '../../identity/organisation/ports/file-storage.port';
 import { UserService } from '../../identity/user/user.service';
+import { InventoryLocationRepository } from '../../inventory/inventory-location.repository';
 import { CustomerRepository } from '../customer/customer.repository';
 import { TerritoryRepository } from '../territory/territory.repository';
 import { OutletPhotoRepository } from './outlet-photo.repository';
@@ -80,6 +81,7 @@ describe('OutletService', () => {
     collectionPointStatus: CollectionPointStatus.DISABLED,
     collectionPointResponsibleUserId: null,
     collectionPointOperatingHours: null,
+    inventoryLocationId: null,
     createdById: 'user-1',
     updatedById: 'user-1',
     createdAt: new Date('2026-08-21'),
@@ -145,6 +147,9 @@ describe('OutletService', () => {
     const userService = {
       getById: jest.fn(),
     } as unknown as jest.Mocked<UserService>;
+    const inventoryLocationRepository = {
+      findById: jest.fn(),
+    } as unknown as jest.Mocked<InventoryLocationRepository>;
     const fileStorage = {
       upload: jest.fn(),
       delete: jest.fn().mockResolvedValue(undefined),
@@ -156,6 +161,7 @@ describe('OutletService', () => {
       customerRepository,
       territoryRepository,
       userService,
+      inventoryLocationRepository,
       fileStorage,
     );
     return {
@@ -165,6 +171,7 @@ describe('OutletService', () => {
       customerRepository,
       territoryRepository,
       userService,
+      inventoryLocationRepository,
       fileStorage,
     };
   }

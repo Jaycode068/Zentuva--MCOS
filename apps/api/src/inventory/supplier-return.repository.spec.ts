@@ -170,28 +170,38 @@ function makeFakeTx(options: {
       findUnique: jest.fn(async ({ where }: { where: unknown }) => {
         return inventoryStocks.get(JSON.stringify(where)) ?? null;
       }),
-      upsert: jest.fn(
+      // Sprint 37.1 — replaces the fake's own `upsert` with an `updateMany` that
+      // mirrors the real atomic-conditional-decrement semantics
+      // `decrementStockIfAvailable` relies on: only mutates (and only reports
+      // `count: 1`) when a row exists AND its `quantityOnHand` already satisfies the
+      // `gte` filter — exactly what a real Postgres `UPDATE ... WHERE quantityOnHand
+      // >= $x` would do.
+      updateMany: jest.fn(
         async ({
           where,
-          create,
-          update,
+          data,
         }: {
-          where: unknown;
-          create: { quantityOnHand: number; averageUnitCost?: number };
-          update: { quantityOnHand: number; averageUnitCost?: number };
-        }) => {
-          const key = JSON.stringify(where);
-          const existing = inventoryStocks.get(key);
-          if (existing) {
-            existing.quantityOnHand = update.quantityOnHand;
-            return existing;
-          }
-          const created = {
-            quantityOnHand: create.quantityOnHand,
-            averageUnitCost: create.averageUnitCost ?? 0,
+          where: {
+            organisationId: string;
+            productId: string;
+            locationId: string;
+            quantityOnHand: { gte: number };
           };
-          inventoryStocks.set(key, created);
-          return created;
+          data: { quantityOnHand: { decrement: number } };
+        }) => {
+          const key = JSON.stringify({
+            organisationId_productId_locationId: {
+              organisationId: where.organisationId,
+              productId: where.productId,
+              locationId: where.locationId,
+            },
+          });
+          const existing = inventoryStocks.get(key);
+          if (!existing || existing.quantityOnHand < where.quantityOnHand.gte) {
+            return { count: 0 };
+          }
+          existing.quantityOnHand -= data.quantityOnHand.decrement;
+          return { count: 1 };
         },
       ),
     },

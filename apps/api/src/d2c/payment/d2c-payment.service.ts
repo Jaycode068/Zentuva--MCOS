@@ -13,6 +13,7 @@ import {
 } from '../../payments/ports/payment-provider.port';
 import { SalesOrderService } from '../../sales/sales-order.service';
 import { ConsumerService } from '../consumer/consumer.service';
+import { CollectionPointFulfillmentService } from '../fulfillment/collection-point-fulfillment.service';
 import { D2C_PAYMENT_AUDIT_ACTIONS } from './d2c-payment-audit-actions';
 import {
   D2CPaymentResult,
@@ -90,6 +91,7 @@ export class D2CPaymentService {
     private readonly organisationService: OrganisationService,
     private readonly auditService: AuditService,
     private readonly config: ConfigService,
+    private readonly collectionPointFulfillmentService: CollectionPointFulfillmentService,
   ) {}
 
   /**
@@ -400,6 +402,24 @@ export class D2CPaymentService {
         organisationId: payment.organisationId,
         metadata: { merchantReference: cb.reference, providerReference: cb.providerReference },
       });
+      // Sprint 37 — best-effort Collection Point auto-assignment (docs/domains/d2c.md
+      // "Order Assignment Model"). Deliberately never allowed to fail this webhook: "no
+      // eligible Collection Point" is a real, expected, already-audited outcome inside
+      // `autoAssign()` itself, not an exception; anything else here is logged, never
+      // thrown, matching this handler's own "an invalid/unexpected callback must never
+      // crash the endpoint OPay is retrying against" rule.
+      try {
+        await this.collectionPointFulfillmentService.autoAssign(
+          payment.organisationId,
+          payment.salesOrderId!,
+        );
+      } catch (error) {
+        this.logger.error(
+          `Collection Point auto-assignment failed for payment ${payment.id}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
     } else {
       await this.auditService.record({
         action: D2C_PAYMENT_AUDIT_ACTIONS.PAYMENT_RESOLVED,

@@ -5,6 +5,7 @@ import { IdentityModule } from '../../identity/identity.module';
 import { PaymentProviderModule } from '../../payments/infrastructure/payment-provider.module';
 import { SalesModule } from '../../sales/sales.module';
 import { ConsumerModule } from '../consumer/consumer.module';
+import { CollectionPointFulfillmentModule } from '../fulfillment/collection-point-fulfillment.module';
 import { D2CPaymentService } from './d2c-payment.service';
 
 /**
@@ -22,9 +23,22 @@ import { D2CPaymentService } from './d2c-payment.service';
  * `PaymentsModule`'s webhook controller (the provider callback) — the
  * exact architecture this sprint's brief describes: `Conversation Layer ->
  * D2CPaymentService -> Existing Payment/Sales Order`.
+ *
+ * `CollectionPointFulfillmentModule` (Sprint 37) — added so a verified payment can
+ * trigger best-effort Collection Point auto-assignment immediately after
+ * `SalesOrderService.confirm()` succeeds (docs/domains/d2c.md "Order Assignment Model").
+ * `D2CPaymentService` itself gained zero payment-architecture changes — see
+ * docs/domains/d2c.md "Payment Boundary".
  */
 @Module({
-  imports: [PaymentProviderModule, FinanceModule, SalesModule, ConsumerModule, IdentityModule],
+  imports: [
+    PaymentProviderModule,
+    FinanceModule,
+    SalesModule,
+    ConsumerModule,
+    IdentityModule,
+    CollectionPointFulfillmentModule,
+  ],
   providers: [D2CPaymentService],
   exports: [D2CPaymentService],
 })

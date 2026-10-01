@@ -39,6 +39,7 @@ describe('OutletController', () => {
     collectionPointStatus: CollectionPointStatus.DISABLED,
     collectionPointResponsibleUserId: null,
     collectionPointOperatingHours: null,
+    inventoryLocationId: null,
     createdById: 'user-1',
     updatedById: 'user-1',
     createdAt: new Date('2026-08-21'),
@@ -243,7 +244,11 @@ describe('OutletController', () => {
           action: OUTLET_AUDIT_ACTIONS.COLLECTION_POINT_CONFIG_UPDATED,
           metadata: expect.objectContaining({
             fields: ['responsibleUserId', 'operatingHours'],
-            before: { collectionPointResponsibleUserId: null, collectionPointOperatingHours: null },
+            before: {
+              collectionPointResponsibleUserId: null,
+              collectionPointOperatingHours: null,
+              inventoryLocationId: null,
+            },
           }),
         }),
       );

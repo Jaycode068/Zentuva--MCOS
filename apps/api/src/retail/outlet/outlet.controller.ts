@@ -289,6 +289,7 @@ export class OutletController {
           ? {
               collectionPointResponsibleUserId: before.collectionPointResponsibleUserId,
               collectionPointOperatingHours: before.collectionPointOperatingHours,
+              inventoryLocationId: before.inventoryLocationId,
             }
           : undefined,
       },
@@ -393,6 +394,7 @@ function toOutletResponse(outlet: OutletWithRelations) {
     collectionPointStatus: outlet.collectionPointStatus,
     collectionPointResponsibleUserId: outlet.collectionPointResponsibleUserId,
     collectionPointOperatingHours: outlet.collectionPointOperatingHours,
+    inventoryLocationId: outlet.inventoryLocationId,
     createdAt: outlet.createdAt,
     updatedAt: outlet.updatedAt,
     customer: outlet.customer,

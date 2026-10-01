@@ -152,6 +152,7 @@ export interface Outlet {
   collectionPointStatus: CollectionPointStatus;
   collectionPointResponsibleUserId: string | null;
   collectionPointOperatingHours: string | null;
+  inventoryLocationId: string | null;
   createdAt: string;
   updatedAt: string;
   customer: { id: string; customerCode: string; customerName: string };
@@ -171,6 +172,7 @@ export interface OutletRepresentative {
 export interface UpdateCollectionPointConfigPayload {
   responsibleUserId?: string | null;
   operatingHours?: string | null;
+  inventoryLocationId?: string | null;
 }
 
 export interface CreateOutletPayload {

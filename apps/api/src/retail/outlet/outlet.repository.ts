@@ -1,5 +1,12 @@
 import { Injectable } from '@nestjs/common';
-import { Outlet, OutletPhoto, OutletStatus, OutletType, Prisma } from '@prisma/client';
+import {
+  CollectionPointStatus,
+  Outlet,
+  OutletPhoto,
+  OutletStatus,
+  OutletType,
+  Prisma,
+} from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
 
@@ -8,6 +15,10 @@ export interface ListOutletsParams {
   outletType?: OutletType;
   customerId?: string;
   territoryId?: string;
+  /** Added Sprint 37 — the discovery-foundation query Sprint 36 prepared an index for
+   *  (`@@index([organisationId, territoryId, collectionPointStatus])`), now actually used
+   *  by `CollectionPointFulfillmentService`'s auto-assignment eligibility search. */
+  collectionPointStatus?: CollectionPointStatus;
   /** Simple case-insensitive substring match against name or code — same convention as
    *  `ProductRepository.findManyByOrganisation`. */
   search?: string;
@@ -66,6 +77,9 @@ export class OutletRepository {
         ...(params.outletType ? { outletType: params.outletType } : {}),
         ...(params.customerId ? { customerId: params.customerId } : {}),
         ...(params.territoryId ? { territoryId: params.territoryId } : {}),
+        ...(params.collectionPointStatus
+          ? { collectionPointStatus: params.collectionPointStatus }
+          : {}),
         ...(params.search
           ? {
               OR: [

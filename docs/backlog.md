@@ -875,6 +875,8 @@ REJECTED}`) optionally linking an existing `CapitalProject`/
 - ✓ Sprint 34 — D2C Consumer Ordering
 - ✓ Sprint 35 — OPay D2C Payment Integration
 - ✓ Sprint 36 — Existing Outlet -> Collection Point Enablement
+- ✓ Sprint 37 — Collection Point Fulfillment & Inventory Reconciliation
+- ✓ Sprint 37.1 — Inventory Fulfillment Concurrency Integrity Hardening
 
 **Current focus:** The Finance MVP (Sprints 6-19) is considered
 functionally complete. Epic 14 (Asset & Maintenance Management) is fully
@@ -1291,6 +1293,58 @@ session confirming configuration persistence across a full page reload.
 227 suites / 2040 tests passing. See
 [`docs/sprint-36-completion-report.md`](sprint-36-completion-report.md).
 
+Sprint 37 ("Collection Point Fulfillment & Inventory Reconciliation")
+connected a paid D2C `SalesOrder` to the Sprint 36 Collection Point
+capability: Paid → Eligible Collection Point → Assigned → Preparing →
+Ready for Collection → Collected → Fulfilled → Inventory Reconciled. One
+new, subordinate model (`CollectionPointFulfillment`) tracks the
+D2C-specific operational sub-state; the actual inventory deduction is
+performed entirely by the pre-existing, unmodified
+`SalesFulfilmentService.fulfil()`. `Outlet.inventoryLocationId` bridges
+Collection Point to Inventory, exactly the bridge Sprint 36 had
+documented as needed. Two genuine bugs were found and fixed by live
+verification — `confirmCollection()` flipping status to `COLLECTED`
+before calling `fulfil()` (stranding the record forever if `fulfil()`
+ever failed; fixed with a compensating rollback) and a missing
+`AuthModule` import that only surfaced when the real application was
+booted, not in unit tests. Live concurrency testing also empirically
+confirmed a pre-existing, previously-only-theoretical lost-update race in
+the shared `SalesFulfilmentRepository.create()` stock decrement (two
+orders racing for the same limited stock can both be marked fulfilled
+while stock is decremented only once) — reported honestly and flagged as
+separate follow-up work rather than patched under time pressure, since it
+predates this sprint and is shared by every B2B and D2C fulfilment path.
+231 suites / 2084 tests passing, 0 regressions. See
+[`docs/sprint-37-completion-report.md`](sprint-37-completion-report.md).
+
+Sprint 37.1 ("Inventory Fulfillment Concurrency Integrity Hardening") fixed
+the lost-update race Sprint 37 found. A full audit of every `InventoryStock`
+mutation in the codebase (not just the one confirmed call site) found 5
+call sites sharing the exact same read-then-write-a-precomputed-value
+defect — Sales Fulfilment, Supplier Return, Production Material Issue,
+Maintenance Part Usage, and the general Inventory Adjustment — all
+converted to one shared atomic primitive
+(`decrementStockIfAvailable`/`applyStockAdjustmentIfNonNegative`, a
+single conditional `UPDATE ... WHERE quantityOnHand >= $x`; the
+database's own row lock is the concurrency guard now, never a value
+read moments earlier in application code), while each call site kept
+its own pre-existing error class/message unchanged. Three OTHER call
+sites (Customer Return, Goods Receipt, Production Run) share the same
+underlying structure but also recompute a moving-weighted-average cost
+on increment — a genuinely different shape requiring its own
+single-statement fix — and were deliberately left unconverted,
+documented as a confirmed, open finding rather than folded into this
+hardening pass under time pressure. Proven with a new real-PostgreSQL
+integration test suite (`pnpm run test:integration`, deliberately
+excluded from the default mocked suite since no other spec in this
+codebase needs a live database) covering two/three-way stock
+contention, a ten-way stress test, and a multi-item transaction-
+rollback test, then the exact original 23-vs-15+15 scenario was
+re-run live end-to-end: one order now succeeds, the other is cleanly
+and retryably rejected, zero lost updates. 232 suites / 2089 tests
+passing, 0 regressions. See
+[`docs/sprint-37.1-completion-report.md`](sprint-37.1-completion-report.md).
+
 Deliberately still not started: payroll, leave management, AI-driven
 recruitment automation (CV ranking, automated rejection, automated hiring
 decisions), a job-board/ATS integration, performance/KPI engines, an LMS,
@@ -1299,12 +1353,21 @@ itself (Sprint 33 built only the channel-neutral conversation layer behind
 it — no Meta API, webhooks, templates, or media handling), the Sprint 42
 consumer-facing simulator, OPay payout/RSA (settlement account)
 functionality, production OPay credentials, a payment-retry flow for a
-failed/closed payment, D2C order fulfilment/inventory deduction/
-reservation/transfer, Collection Point settlement/accounting, Collection
-Point capacity/eligible-product restrictions, a consumer-facing
-Collection Point selection flow, loyalty/promotions (Sprint 34 built
-ordering, Sprint 35 built payment, Sprint 36 built Collection Point
-enablement — see docs/domains/d2c.md §66), digests, scheduled reminders, a real background
+failed/closed payment, an atomic fix for the three increment-with-
+weighted-average-cost-recompute inventory mutation paths (Customer
+Return, Goods Receipt, Production Run — confirmed by Sprint 37.1's own
+audit to share the same "read outside the write" structure the Sprint
+37.1 fix addressed for decrement-only paths, but requiring their own
+single-statement SQL fix; see docs/domains/inventory.md §12), Collection
+Point settlement/accounting,
+Collection Point capacity/eligible-product restrictions, a
+consumer-facing Collection Point selection flow (nearest-location/GPS
+matching), Collection Point consumer notification ("your order is
+ready" — the Notification system is User-only and the Conversation
+Layer has no proactive capability, per Sprint 37's own audit), loyalty/
+promotions (Sprint 34 built ordering, Sprint 35 built payment, Sprint 36
+built Collection Point enablement, Sprint 37 built Collection Point
+fulfilment — see docs/domains/d2c.md §81), digests, scheduled reminders, a real background
 worker for notification/email/WhatsApp processing, a marketing-email or
 broadcast-messaging platform of any kind, a Technician RBAC role (from Sprint 22),
 `ASSIGNED_TERRITORY`/`ASSIGNED_ASSETS` scope enforcement (no

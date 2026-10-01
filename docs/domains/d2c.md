@@ -1521,3 +1521,351 @@ seeded Member role), 5 truly concurrent enable requests, 5 concurrent
 configuration updates, and a real browser session (admin dialog,
 persistence-after-reload, field detail page) — see
 `docs/sprint-36-completion-report.md`.
+
+## 68. Sprint 37 — Collection Point Fulfillment & Inventory Reconciliation
+
+Sprint 36 gave an existing `Outlet` a Collection Point _capability_.
+Sprint 37 connects a real, paid D2C `SalesOrder` to that capability and
+carries it through to an actual inventory deduction — Paid → Eligible
+Collection Point → Assigned → Preparing → Ready for Collection →
+Collected → Fulfilled → Inventory Reconciled. No parallel order entity
+(`ConsumerOrder`/`CollectionOrder`/`CollectionPointOrder`/
+`D2CFulfillmentOrder`) was created — `SalesOrder` remains the one
+authoritative order record end to end, exactly as it already was for
+B2B.
+
+## 69. The Inventory Bridge — Decided, Then Built
+
+Sprint 36 (§59) deliberately left this open as "Sprint 37's design
+problem." The audited answer, unchanged from that section's own
+reasoning: `InventoryLocation` had zero relationship to `Outlet` in
+either direction, while `SalesFulfilment.locationId` already treats a
+plain `(organisationId, productId, locationId)` triple as the unit of
+truth for B2B. Sprint 37 adds exactly the bridge Sprint 36 already
+named: `Outlet.inventoryLocationId String?` (nullable — most outlets are
+never a Collection Point; NOT unique — multiple outlets may share one
+warehouse, mirroring how several B2B customers already share
+`SalesFulfilment.locationId` today), `onDelete: Restrict` (a location
+with an outlet depending on it cannot be silently deleted out from under
+it). No reservation, transfer, or second stock ledger was introduced —
+an outlet configured this way draws from the exact same `InventoryStock`
+row any B2B fulfilment at that location already draws from.
+
+## 70. Eligibility — The Actual Rules Implemented
+
+An outlet is an eligible Collection Point for a consumer's order when,
+at read time, ALL of:
+
+- `Outlet.status === 'ACTIVE'`
+- `collectionPointStatus === 'ENABLED'`
+- `Outlet.inventoryLocationId` is set (an enabled Collection Point with
+  no configured location cannot fulfil anything — it is excluded from
+  auto-assignment, not treated as an error)
+- `Outlet.territoryId === Consumer.territoryId` (the same territory match
+  Sprint 36's discovery foundation, §64, already named)
+
+When more than one outlet in a territory qualifies, the oldest
+(`createdAt` ascending) is chosen — deterministic, no scoring/ranking
+algorithm, no nearest-location/GPS matching (explicitly out of scope,
+§76). A consumer with no territory, or a territory with no eligible
+outlet, results in a recorded `assignment_failed` audit row (§75) and no
+`CollectionPointFulfillment` row — never a thrown error surfaced to the
+paying consumer, since the payment itself already succeeded by this
+point.
+
+## 71. Order Assignment Model
+
+Two paths reach the same `CollectionPointFulfillmentService.assignManually`
+outcome:
+
+- **Automatic** (the primary path): `D2CPaymentService.handleProviderCallback()`'s
+  success branch calls `autoAssign()` immediately after a verified OPay
+  payment, wrapped in try/catch that only logs — an assignment failure
+  must never crash the webhook endpoint OPay retries against (the exact
+  Sprint 35 "invalid callback must never 500" philosophy, §47, extended
+  to a new failure mode).
+- **Manual** (`POST /d2c/collection-point-fulfillments/assign`): the
+  admin fallback for the "no eligible outlet existed at payment time" or
+  "assign a specific outlet" cases. `outletId` is optional — omitted, the
+  server re-runs the same territory match; supplied, the server still
+  re-validates eligibility (§70) rather than trusting the caller's
+  choice.
+
+A `SalesOrder` can be assigned at most once — `CollectionPointFulfillment.salesOrderId`
+is unique, enforced at the database level, not merely checked in
+application code before insert.
+
+## 72. Fulfillment State Model — One New, Deliberately Subordinate Model
+
+**Audited before building anything**: `SalesOrderStatus`
+(DRAFT/CONFIRMED/PARTIALLY_FULFILLED/FULFILLED/CANCELLED) already fully
+answers "is this order done," but cannot represent the D2C-specific
+_operational_ sub-workflow between CONFIRMED and FULFILLED — knowing an
+order is "being prepared at the counter" vs. "sitting ready for the
+consumer to walk in" is genuinely new information no existing field
+carries. A single new model, `CollectionPointFulfillment`
+(`CollectionPointFulfillmentStatus`: ASSIGNED → PREPARING →
+READY_FOR_COLLECTION → COLLECTED), was added — one row per assigned
+`SalesOrder`, always subordinate to it (`salesOrderId` unique FK), never
+a second order record. Every transition uses the same conditional
+`updateMany` guard this codebase already uses everywhere else for state
+machines (`OutletRepository.update()`, `SalesOrderRepository.updateStatus()`):
+scope the `WHERE` to `{id, organisationId, status: {in: fromStatuses}}`,
+check the affected row count, re-fetch on success.
+
+## 73. Inventory Mutation Boundary — Reused, Never Reinvented
+
+The only place inventory is actually deducted is the pre-existing,
+completely unmodified `SalesFulfilmentService.fulfil()` (Sprint 4.9) —
+the same call the B2B "record a fulfilment" flow already makes.
+`CollectionPointFulfillmentService.confirmCollection()` calls it at the
+exact moment status reaches `COLLECTED`, passing `outlet.inventoryLocationId`
+as the fulfilment location and a deterministic
+`idempotencyKey: \`collection-point-fulfillment:${cpf.id}\``— a second,
+independent safety net beyond the`CollectionPointFulfillment`status
+guard, specifically against a retried`fulfil()` call itself. No new
+stock table, no new mutation path, no new COGS/journal logic — a
+Collection Point fulfilment posts the exact same accounting entries a
+B2B one does, through the exact same code.
+
+**Ordering matters, and was gotten wrong on the first pass — see §74.**
+
+## 74. A Genuine Bug Found (and Fixed) by Live Verification
+
+The first implementation flipped `CollectionPointFulfillment.status` to
+`COLLECTED` _before_ calling `fulfil()`. Live verification against the
+real dev database caught this immediately: the dev environment's
+accounting periods didn't cover "today" (a pre-existing environmental
+gap, unrelated to this sprint — see §80), so `fulfil()` threw
+`NoOpenPeriodError`. But the status had already committed as `COLLECTED`
+— a terminal state — before the throw. Every subsequent retry then hit
+`confirmCollection()`'s own idempotency short-circuit ("already
+COLLECTED, return success, never re-deduct") and silently reported
+success forever, while the `SalesOrder` was never actually fulfilled and
+stock was never actually deducted. Reproduced live: `SO-000024` shows
+`CollectionPointFulfillment.status = COLLECTED` with
+`SalesOrder.status = CONFIRMED` and `quantityFulfilled: 0` permanently,
+in this dev database, as a preserved artifact of the bug being found.
+
+**The fix**: `confirmCollection()` now calls `fulfil()` _inside_ a
+try/catch that sits between the optimistic status flip and the audit
+record. If `fulfil()` throws for any reason, the status flip is
+explicitly reverted back to `READY_FOR_COLLECTION` (clearing
+`collectedAt`/`collectedById`) before re-throwing the original error —
+the operation is left genuinely retryable rather than stranded. The
+original 5-way concurrency guarantee (§77) is unaffected: the same
+conditional `updateMany` still ensures only one concurrent caller ever
+proceeds past the guard to attempt `fulfil()` at all; the other callers
+still short-circuit as an idempotent no-op _before_ touching inventory.
+A dedicated regression test
+(`collection-point-fulfillment.service.spec.ts`, "reverts to
+READY_FOR_COLLECTION... when fulfil() fails") asserts the rollback call
+shape directly. Re-verified live end to end afterward (`SO-000025`):
+`fulfil()` failure now correctly reverts and remains retryable; on
+retry, stock deducted exactly once (27 → 24 for a 3-unit order),
+`SalesOrder.status` correctly reached `FULFILLED`.
+
+## 75. Audit Trail
+
+New action strings on `COLLECTION_POINT_FULFILLMENT_AUDIT_ACTIONS`,
+recorded via the existing `AuditService.record()` — no new audit
+mechanism: assignment (auto and manual), each status transition, and
+`assignment_failed` (metadata: `{reason: 'no eligible Collection Point
+in territory'}` or `'consumer has no territory'`) for the case where a
+paid order finds nowhere to go. Live-verified: disabling a Collection
+Point mid-territory and then placing a new order produced exactly one
+`assignment_failed` row with the correct reason, and the order remained
+unassigned (not silently dropped) until an admin manually assigned it
+once the outlet was re-enabled.
+
+## 76. Authorization
+
+Two new permissions, `d2c.collection_point.view`/`.fulfil`
+(`SCOPABLE`), granted broadly at seed time (Administrator automatically;
+Member explicitly) — a coarse gate only, since Sprint 36 already
+established that a Collection Point's responsible representative can be
+any active member with no special role. The actual restriction is a
+resource-ownership check layered on top, new to this codebase (§ per
+Sprint 36's own audit finding that no `AccessScope` mechanism does this):
+the caller must either hold `sales.customer.manage` (the same permission
+that already governs Collection Point configuration) or be the specific
+outlet's `collectionPointResponsibleUserId`. Live-verified: the seeded
+Owner/Administrator account could act on the Collection Point despite
+having no `collectionPointResponsibleUserId` set on the outlet (via the
+`sales.customer.manage` bypass), confirming the admin-oversight path
+works independent of per-outlet assignment.
+
+## 77. Idempotency & Concurrency
+
+Every transition (`startPreparing`, `markReadyForCollection`,
+`confirmCollection`) uses the conditional-`updateMany`-as-concurrency-guard
+pattern (§72). Live-verified with genuine concurrency against the real
+Postgres database, not mocks:
+
+- **8 truly concurrent `confirmCollection` calls on the same record**
+  (`SO-000027`) all returned `HTTP 201 COLLECTED`; stock decremented by
+  exactly 1 unit (24 → 23), `SalesOrder` reached `FULFILLED` with
+  `quantityFulfilled: 1` — no double-deduction, no error surfaced to any
+  of the 8 concurrent callers.
+- **A duplicate `confirmCollection` call after success** (`SO-000025`)
+  returned the same `COLLECTED` result with no further stock change.
+- **Disabling a Collection Point mid-flight** correctly blocked new
+  auto-assignment (§75) without disturbing in-flight fulfilments already
+  assigned to it.
+- **Insufficient stock** (`SO-000026`, 500 units ordered against 24
+  available): `markReadyForCollection` correctly rejected with `400
+Insufficient stock at this Collection Point for: ...`, leaving the
+  fulfilment at `PREPARING` (not silently advanced) and stock untouched.
+
+## 78. A Confirmed, Pre-Existing Inventory Concurrency Defect (Not Introduced by This Sprint)
+
+**Fixed in Sprint 37.1** (`docs/domains/inventory.md` §12,
+`docs/sprint-37.1-completion-report.md`) — this section is kept exactly as originally
+written, as the historical record of how the defect was found; it no longer describes
+current behavior.
+
+Sprint 36's audit (referenced in the prior sprint's own notes) flagged a
+_theoretical_ lost-update risk in `SalesFulfilmentRepository.create()`:
+it reads `InventoryStock.quantityOnHand`, computes `newQuantity` in
+application code, then `upsert`s that precomputed absolute value — a
+classic read-modify-write with no row lock and no atomic/conditional
+decrement, under Postgres's default READ COMMITTED isolation.
+
+Sprint 37's own concurrency testing (§77) exercises the _guard in front
+of_ this mechanism, not the mechanism itself — and the brief's own
+required scenario, "competing orders draining last stock units," reaches
+straight through that guard into the shared mechanism underneath. It was
+tested live: two different D2C `SalesOrder`s (`SO-000028`, `SO-000029`),
+each for 15 units of a product with only 23 units on hand (each
+individually passed `markReadyForCollection`'s pre-check, since that
+pre-check reads stock independently per order and does not reserve),
+fired at `confirmCollection` truly concurrently. **Both returned success.
+Both `SalesOrder`s reached `FULFILLED` with `quantityFulfilled: 15`
+each — 30 units recorded as fulfilled — while `InventoryStock.quantityOnHand`
+ended at 8 (23 − 15, i.e. only one of the two decrements actually took
+effect; the second transaction's read was stale and its write silently
+overwrote the first transaction's committed decrement).** Stock never
+went negative, but the underlying accounting is wrong: the warehouse
+record now understates how much was actually promised to consumers by
+15 units, with no error and no audit flag raised anywhere.
+
+**This is a real, now-empirically-confirmed defect in
+`SalesFulfilmentRepository.create()`** — pre-existing Sprint 4.9 shared
+infrastructure used by every B2B and D2C fulfilment path alike, not code
+this sprint introduced or was asked to fix. Sprint 37's own brief was
+explicit that the existing inventory mutation mechanism should be reused,
+not reinvented or re-architected mid-sprint, and a correct fix (an
+atomic conditional decrement following the same `updateMany`-guard
+pattern used everywhere else in this codebase) has a blast radius across
+every consumer of `.create()` and deserves its own dedicated,
+carefully-tested piece of work rather than a rushed patch bundled into a
+D2C completion report. It has been flagged separately as a follow-up
+task. Reported here in full rather than glossed over, per this sprint's
+own explicit instruction never to claim a concurrency guarantee that
+wasn't actually verified.
+
+## 79. B2B Credit Boundary — Preserved
+
+Unchanged from Sprint 36 (§60): nothing in this sprint's code reads or
+writes `outletType`, credit terms, `DistributionNetworkRelationship`
+rows, or B2B pricing. `CollectionPointFulfillmentService` only ever
+touches `SalesOrder`/`CollectionPointFulfillment`/`InventoryStock` rows
+scoped to the D2C order it was given — it never queries or mutates an
+outlet's B2B state. `sales-fulfilment.service.spec.ts` (Sprint 4.9,
+unmodified) and the existing B2B fulfilment live-verification path both
+continue to pass unmodified.
+
+## 80. Known Limitations
+
+- **The pre-existing inventory concurrency defect, §78** — not fixed
+  this sprint; flagged as dedicated follow-up work. **Update: fixed in
+  Sprint 37.1** — see `docs/domains/inventory.md` §12.
+- **Accounting period gap in this dev environment**: the seeded
+  `AccountingPeriod` rows didn't cover the date live verification was
+  run on (only "August 2026" was `OPEN`; a rolled-forward "September
+  2026" period had to be created via the existing, ordinary
+  `finance/accounting-periods` admin endpoint to exercise the real
+  `fulfil()`/journal-posting path). This is a routine monthly bookkeeping
+  gap in seed/dev data, not a Sprint 37 defect — but it is exactly the
+  kind of failure `fulfil()` can throw, which is precisely what exposed
+  the bug in §74.
+- **Minor response staleness**: `confirmCollection()`'s own HTTP
+  response embeds `salesOrderStatus` from the `CollectionPointFulfillment`
+  row fetched _before_ `fulfil()` ran, so the single synchronous response
+  to that one call can show the pre-fulfilment `SalesOrder` status (e.g.
+  `CONFIRMED`) for one beat — the very next `GET` (and the Field UI's own
+  15-second poll) shows the correct post-fulfilment status (e.g.
+  `FULFILLED`). Not fixed — no caller of this API currently depends on
+  that field from the mutation response specifically, and refetching the
+  order purely to correct one display field after a successful mutation
+  did not meet the bar for added complexity.
+- **Consumer notification** — audited and confirmed unbuildable within
+  this sprint's own boundaries (Notification system is User-only;
+  Conversation Layer has no proactive/outbound capability, per Sprint 36
+  era audit findings). Not extended this sprint; a consumer currently
+  learns their order is ready only by physically checking or being told
+  in person at the Collection Point.
+- **Tenant isolation** — enforced identically to every other
+  organisation-scoped resource in this codebase (`organisationId` scoping
+  on every repository query, verified structurally by
+  `collection-point-fulfillment-independence.spec.ts`) but not
+  live-verified against a second real organisation this sprint, unlike
+  Sprint 36's own live cross-tenant test (§67). The mechanism is the same
+  one already live-verified there.
+
+## 81. Scope — Explicitly Not Built This Sprint
+
+Loyalty/rewards/campaigns/marketing, settlement/payout, new geography or
+territory concepts, new payment or notification systems, WhatsApp
+integration, nearest-location/GPS-based Collection Point selection, a
+consumer-facing Collection Point picker UI, and a fix for the
+pre-existing inventory concurrency defect (§78, tracked separately) —
+all explicitly out of scope, per the brief's own boundary.
+
+## 82. Testing (Sprint 37)
+
+`apps/api/src/d2c/fulfillment/`: `collection-point-fulfillment.repository.spec.ts`
+(CRUD + the conditional-`updateMany` guard), `collection-point-fulfillment.service.spec.ts`
+(eligibility, both assignment paths, every state transition, the
+`confirmCollection`/`fulfil()` rollback-on-failure path added in §74, the
+idempotent-duplicate path, 5 mocked genuinely-concurrent
+`confirmCollection` calls resulting in exactly one `fulfil()` call, and
+authorization), `collection-point-fulfillment.controller.spec.ts`, and
+`collection-point-fulfillment-independence.spec.ts` (structural guards:
+no forbidden cross-domain imports, exact module import set including the
+`AuthModule` dependency discovered during live verification — see §83).
+Existing spec files extended for the new `inventoryLocationId` field
+(`outlet.service.spec.ts`, `outlet.controller.spec.ts`,
+`sales-order.service.spec.ts`) and the `D2CPaymentService`/`OutletService`
+constructor arity changes. Full suite: 231 suites / 2084 tests passing,
+zero regressions against the Sprint 36 baseline (227 suites / 2040
+tests).
+
+Live verification against the real dev database and a real running API
+(not mocks) covered: a full consumer conversation → payment → webhook →
+auto-assignment → Preparing → Ready → Collected → real stock deduction →
+`SalesOrder.FULFILLED` path (twice — the first run surfaced and confirmed
+the §74 bug, the second confirmed the fix); insufficient-stock rejection;
+a disabled Collection Point correctly blocking new auto-assignment while
+leaving in-flight work untouched; the admin manual-assignment fallback
+correctly rejecting an ineligible outlet and succeeding once eligible;
+idempotent duplicate confirmation; 8 genuinely concurrent
+`confirmCollection` calls on one record; and 2 genuinely concurrent
+`confirmCollection` calls for different orders competing for the same
+limited stock (which surfaced the pre-existing §78 defect). See
+`docs/sprint-37-completion-report.md`.
+
+## 83. A Second Bug Found by Live Verification: Missing `AuthModule` Import
+
+`CollectionPointFulfillmentModule` initially imported `IdentityModule`
+but not `AuthModule`. The module compiled and every unit test passed
+(unit tests mock the guard's dependencies directly), but booting the
+real Nest application failed immediately: `JwtAuthGuard` needs
+`TOKEN_SERVICE`, which is provided by `AuthModule`, not `IdentityModule`
+— the exact same pattern `OutletModule`/`SalesModule` already import both
+for. Fixed by adding `AuthModule` to the module's imports; the structural
+independence spec's exact-import-`Set` assertion was updated to match,
+with a comment explaining why. A reminder that a controller-bearing
+module's dependency wiring is only fully proven by actually booting the
+application, not by unit tests alone — which is exactly why this
+sprint's live-verification phase exists.

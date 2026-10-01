@@ -5,6 +5,11 @@ import {
   MaintenancePartUsageType,
 } from '@prisma/client';
 
+import {
+  decrementStockIfAvailable,
+  getCurrentAverageUnitCost,
+  getCurrentQuantityOnHand,
+} from '../inventory/inventory-stock-concurrency.util';
 import { PrismaService } from '../prisma/prisma.service';
 
 export interface RecordPartUsageData {
@@ -62,10 +67,6 @@ export class InsufficientStockError extends Error {}
 
 function roundCurrency(value: number): number {
   return Math.round(value * 100) / 100;
-}
-
-function roundQuantity(value: number): number {
-  return Math.round(value * 1000) / 1000;
 }
 
 /**
@@ -185,41 +186,28 @@ export class MaintenancePartUsageRepository {
         );
       }
 
-      const existingStock = await tx.inventoryStock.findUnique({
-        where: {
-          organisationId_productId_locationId: {
-            organisationId: data.organisationId,
-            productId: partUsage.productId,
-            locationId: data.locationId,
-          },
-        },
-      });
-      const currentQuantity = existingStock?.quantityOnHand ?? 0;
-      const newQuantity = roundQuantity(currentQuantity - partUsage.quantity);
-      if (newQuantity < 0) {
+      const stockRef = {
+        organisationId: data.organisationId,
+        productId: partUsage.productId,
+        locationId: data.locationId,
+      };
+      // Never races against the decrement below — no issue path writes
+      // `averageUnitCost` (see `getCurrentAverageUnitCost`'s own doc comment).
+      const unitCost = await getCurrentAverageUnitCost(tx, stockRef);
+      const totalCost = roundCurrency(partUsage.quantity * unitCost);
+
+      // Sprint 37.1 — atomic conditional decrement, the database's own row lock is the
+      // concurrency guard (see `inventory-stock-concurrency.util.ts`). Replaces a
+      // read-then-upsert-with-precomputed-value pattern that shared the exact defect
+      // class live-verified in `SalesFulfilmentRepository.create()`
+      // (docs/domains/d2c.md §78).
+      const decremented = await decrementStockIfAvailable(tx, stockRef, partUsage.quantity);
+      if (!decremented) {
+        const currentQuantity = await getCurrentQuantityOnHand(tx, stockRef);
         throw new InsufficientStockError(
           `Insufficient stock for product ${partUsage.productId} (available: ${currentQuantity}, requested: ${partUsage.quantity})`,
         );
       }
-      const unitCost = existingStock?.averageUnitCost ?? 0;
-      const totalCost = roundCurrency(partUsage.quantity * unitCost);
-
-      await tx.inventoryStock.upsert({
-        where: {
-          organisationId_productId_locationId: {
-            organisationId: data.organisationId,
-            productId: partUsage.productId,
-            locationId: data.locationId,
-          },
-        },
-        create: {
-          organisationId: data.organisationId,
-          productId: partUsage.productId,
-          locationId: data.locationId,
-          quantityOnHand: newQuantity,
-        },
-        update: { quantityOnHand: newQuantity },
-      });
 
       const inventoryTransaction = await tx.inventoryTransaction.create({
         data: {

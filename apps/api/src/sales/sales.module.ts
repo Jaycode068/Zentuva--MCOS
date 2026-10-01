@@ -71,7 +71,17 @@ import { SalesOrderService } from './sales-order.service';
    *  `D2COrderingModule` can inject it directly (never a repository bypass) to reuse
    *  `createForConsumer`'s pricing/idempotency/order-creation logic — the same
    *  "consume another domain only through its exported service/repository" convention
-   *  (ADR-002) `DistributionModule` already uses for the two repositories below. */
-  exports: [SalesOrderRepository, SalesFulfilmentRepository, SalesOrderService],
+   *  (ADR-002) `DistributionModule` already uses for the two repositories below.
+   *  Added Sprint 37 — `SalesFulfilmentService` is now also exported so the new
+   *  `CollectionPointFulfillmentModule` can call its existing, authoritative `fulfil()`
+   *  for D2C Collection Point fulfilment — THE only inventory-deducting write path,
+   *  reused unmodified rather than duplicated (docs/domains/d2c.md "Inventory
+   *  Mutation Boundary"). */
+  exports: [
+    SalesOrderRepository,
+    SalesFulfilmentRepository,
+    SalesOrderService,
+    SalesFulfilmentService,
+  ],
 })
 export class SalesModule {}

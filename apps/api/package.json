@@ -11,6 +11,7 @@
     "lint": "eslint \"{src,test}/**/*.ts\"",
     "type-check": "tsc --noEmit",
     "test": "jest --passWithNoTests",
+    "test:integration": "jest --config jest.integration.config.js --passWithNoTests --runInBand",
     "clean": "rm -rf dist",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",

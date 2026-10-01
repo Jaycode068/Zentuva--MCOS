@@ -420,4 +420,23 @@ export const PERMISSION_CATALOGUE: PermissionCatalogueEntry[] = [
     'SCOPABLE',
     'Register/edit consumers, update their location, and manage location-not-found requests',
   ),
+
+  // --- D2C: Collection Point Fulfilment (Sprint 37 — docs/domains/d2c.md).
+  // Deliberately its own permission pair, not `sales.customer.*` — operating
+  // a Collection Point's fulfilment queue (an assigned staff member's job)
+  // is a materially different capability from administering Outlet/Customer
+  // records, and per Sprint 36's own precedent a Collection Point's
+  // responsible user needs no other role/permission to be assigned. Granted
+  // to Member (not just Administrator) at seed time for exactly that reason
+  // — see prisma/seed.ts. The actual "only YOUR assigned Collection Point"
+  // restriction is enforced as a resource-ownership check in
+  // `CollectionPointFulfillmentService`, not by this permission's scope
+  // (this codebase's `AccessScope.ASSIGNED_RECORDS`/`ASSIGNED_TERRITORY`
+  // remain "recorded, not enforced" — see access-control.md §6). ---
+  entry('d2c.collection_point.view', 'SCOPABLE', 'View Collection Point fulfilment queues'),
+  entry(
+    'd2c.collection_point.fulfil',
+    'SCOPABLE',
+    'Assign, prepare, and confirm collection for D2C orders at a Collection Point',
+  ),
 ];

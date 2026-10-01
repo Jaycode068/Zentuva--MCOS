@@ -133,3 +133,23 @@ export const sendConversationMessageSchema = z.object({
   input: conversationInputSchema,
 });
 export type SendConversationMessageInput = z.infer<typeof sendConversationMessageSchema>;
+
+// ---------------------------------------------------------------------------
+// Sprint 37 — Collection Point Fulfillment (docs/domains/d2c.md).
+// ---------------------------------------------------------------------------
+
+/**
+ * `POST /d2c/collection-point-fulfillments/assign` — the manual/admin fallback path
+ * (brief §4 "D2C Order -> Collection Point Assignment"). Automatic assignment
+ * (`D2CPaymentService`'s own success path, no HTTP schema needed) is the primary path;
+ * this exists only for the case where no eligible Collection Point existed at payment
+ * time, or an admin wants to assign a SPECIFIC outlet rather than the auto-selected one.
+ * `outletId` is optional — omitted, the server re-runs the same territory-match
+ * auto-selection; supplied, the server validates THAT specific outlet's eligibility
+ * instead of auto-selecting.
+ */
+export const assignCollectionPointSchema = z.object({
+  salesOrderId: z.string().trim().min(1, 'salesOrderId is required'),
+  outletId: z.string().trim().min(1).optional(),
+});
+export type AssignCollectionPointInput = z.infer<typeof assignCollectionPointSchema>;

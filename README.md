@@ -237,7 +237,7 @@ feature is built configurably so it can be reused by future tenants without code
 > callbacks producing exactly one confirmation. OPay's own sandbox never
 > delivered its documented automatic test callback in two real attempts, so
 > that one leg was reported honestly as unverified rather than assumed.
-> The most recent sprint then let an existing Outlet optionally operate as a
+> The next sprint then let an existing Outlet optionally operate as a
 > D2C Collection Point — a capability of that same Outlet, never a parallel
 > entity — reusing its existing territory and contact fields, its existing
 > activate/deactivate mutation shape, and its existing permissions rather
@@ -248,7 +248,35 @@ feature is built configurably so it can be reused by future tenants without code
 > and documented rather than built early. Live-verified with 5 truly
 > concurrent enable requests producing exactly one success and a
 > deterministic database state, and cross-tenant outlet/employee rejection.
-> See
+> The next sprint then connected a paid D2C order to that same
+> Collection Point through a real operational workflow, ending in an actual
+> inventory deduction performed entirely by the existing, unmodified sales
+> fulfilment mechanism rather than a new one — one new, deliberately
+> subordinate record tracks only the D2C-specific "preparing/ready/collected"
+> steps an existing order status genuinely couldn't represent. Live
+> verification found and fixed two real bugs no unit test could have caught
+> — a status flip that happened before, instead of after, the actual
+> inventory-deducting call, which could permanently strand a fulfilment if
+> that call ever failed, and a missing module dependency that only broke the
+> real running application, never a mocked test — and it also caught the
+> shared inventory system doing the wrong thing under genuine concurrency:
+> two orders racing for the same limited stock could both be marked
+> fulfilled while the warehouse record was only ever decremented once. That
+> last one predated this sprint and wasn't fixed there — it was reported in
+> full and handed off as its own piece of work, rather than patched in a
+> hurry inside a change that was about something else. The most recent
+> sprint was that piece of work: an audit of every place inventory gets
+> mutated anywhere in the system — not just the one place already caught
+> in the act — found four more spots with the exact same flaw (read a
+> number, do arithmetic on it in code, write the result back, with nothing
+> stopping two requests from doing that at the same instant), fixed all
+> five through one shared, database-enforced guard, and left three
+> genuinely different ones (which also recompute a cost average, not just
+> a quantity) explicitly written up rather than rushed. Proved it with real
+> concurrent requests against the real database, not a simulation — then
+> reran the exact original failure from scratch and watched it come out
+> right: one request succeeds, the other is turned away cleanly instead of
+> silently losing count. See
 > [docs/domains/README.md](docs/domains/README.md) for the
 > current status of every domain and [docs/roadmap.md](docs/roadmap.md) for the full
 > build order.

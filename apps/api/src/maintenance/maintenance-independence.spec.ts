@@ -115,8 +115,14 @@ describe('Maintenance Management independence (Sprint 21-22)', () => {
     // Sprint 22: issue() legitimately deducts stock and creates the
     // InventoryTransaction row (decision #2), inside its own transaction —
     // the exact narrow ADR-002 exception Sales/Production's own
-    // stock-issuing writers already establish.
-    expect(exceptionSource).toMatch(/tx\.inventoryStock\.upsert\(/);
+    // stock-issuing writers already establish. Sprint 37.1 — the actual
+    // `inventoryStock` write now happens inside the shared, Inventory-domain-owned
+    // `decrementStockIfAvailable` utility (an atomic conditional decrement fixing a
+    // live-verified lost-update race, docs/domains/d2c.md §78), called FROM this file
+    // rather than a literal `tx.inventoryStock.upsert(...)` inlined here — the ADR-002
+    // exception is unchanged (this is still the only maintenance file that CAUSES an
+    // inventoryStock write), only the call shape moved into a shared primitive.
+    expect(exceptionSource).toMatch(/decrementStockIfAvailable\(/);
     expect(exceptionSource).toMatch(/tx\.inventoryTransaction\.create\(/);
 
     for (const fileName of MAINTENANCE_FILES) {

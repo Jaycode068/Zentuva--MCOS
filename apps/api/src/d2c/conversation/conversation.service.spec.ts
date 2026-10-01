@@ -26,6 +26,7 @@ import { SalesOrderRepository, SalesOrderWithRelations } from '../../sales/sales
 import { SalesOrderService } from '../../sales/sales-order.service';
 import { ConsumerService } from '../consumer/consumer.service';
 import { D2COrderingService } from '../ordering/d2c-ordering.service';
+import { CollectionPointFulfillmentService } from '../fulfillment/collection-point-fulfillment.service';
 import { D2CPaymentService } from '../payment/d2c-payment.service';
 import { ConversationMessageRepository } from './conversation-message.repository';
 import { ConversationRepository } from './conversation.repository';
@@ -616,6 +617,9 @@ describe('ConversationService', () => {
           : 'http://localhost:4000/api/payments/opay/webhook',
       ),
     } as unknown as ConfigService;
+    const collectionPointFulfillmentService = {
+      autoAssign: jest.fn().mockResolvedValue(undefined),
+    } as unknown as jest.Mocked<CollectionPointFulfillmentService>;
     const d2cPaymentService = new D2CPaymentService(
       paymentProvider,
       paymentService,
@@ -624,6 +628,7 @@ describe('ConversationService', () => {
       organisationService,
       auditService,
       config,
+      collectionPointFulfillmentService,
     );
 
     const service = new ConversationService(

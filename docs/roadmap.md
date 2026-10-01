@@ -825,6 +825,61 @@ PaymentService (existing, extended) + SalesOrderService.confirm
       (`InventoryLocation` has no link to `Outlet` today) without
       building it. 227 suites / 2040 tests passing — see
       [`docs/sprint-36-completion-report.md`](sprint-36-completion-report.md)
+- [x] **Sprint 37 — Collection Point Fulfillment & Inventory
+      Reconciliation.** Connects a paid D2C `SalesOrder` to the Sprint 36
+      Collection Point capability through a real operational workflow —
+      Paid → Eligible Collection Point → Assigned → Preparing → Ready for
+      Collection → Collected → Fulfilled → Inventory Reconciled. One new,
+      deliberately subordinate model (`CollectionPointFulfillment`) tracks
+      the D2C-specific sub-state; the actual inventory deduction is
+      performed entirely by the pre-existing, unmodified
+      `SalesFulfilmentService.fulfil()` — never a new stock mutation path.
+      `Outlet.inventoryLocationId` bridges Collection Point to the
+      existing Inventory domain, exactly as Sprint 36 had flagged. Two
+      genuine bugs were found and fixed by live verification: (1)
+      `confirmCollection()` flipped its own status to the terminal
+      `COLLECTED` state BEFORE calling `fulfil()`, so a `fulfil()` failure
+      permanently stranded the record while the order was never actually
+      fulfilled — fixed with a compensating rollback that reverts to
+      `READY_FOR_COLLECTION` on failure, keeping the operation retryable;
+      (2) the new module was missing `AuthModule`, so the real application
+      failed to boot despite every unit test passing. Live concurrency
+      testing against the real database also empirically confirmed a
+      pre-existing, previously-only-theoretical lost-update race in the
+      shared `SalesFulfilmentRepository.create()` stock decrement (two
+      orders racing for the same limited stock can both be marked
+      fulfilled while stock is decremented only once) — honestly reported
+      rather than hidden, and flagged as dedicated follow-up work rather
+      than patched under time pressure, since it is pre-existing Sprint
+      4.9 infrastructure shared by every B2B and D2C fulfilment path.
+      231 suites / 2084 tests passing, 0 regressions — see
+      [`docs/sprint-37-completion-report.md`](sprint-37-completion-report.md)
+- [x] **Sprint 37.1 — Inventory Fulfillment Concurrency Integrity Hardening.**
+      Fixed the lost-update race Sprint 37 found and reported: an
+      audit of every `InventoryStock` mutation in the codebase found 5
+      call sites (Sales Fulfilment, Supplier Return, Production Material
+      Issue, Maintenance Part Usage, Inventory Adjustment) sharing the
+      exact same read-then-write-a-precomputed-value defect; all 5 were
+      converted to a single shared atomic primitive
+      (`decrementStockIfAvailable`/`applyStockAdjustmentIfNonNegative`,
+      a conditional `UPDATE ... WHERE quantityOnHand >= $x` — the
+      database's own row lock is the concurrency guard now, not a value
+      read moments earlier in application code) while each call site
+      kept its own error class/message unchanged. Three OTHER call sites
+      (Customer Return, Goods Receipt, Production Run) share the same
+      underlying structure but recompute a moving-weighted-average cost
+      on increment — a genuinely different shape needing its own
+      single-statement fix — and were deliberately left unconverted,
+      documented as a confirmed, open follow-up rather than rushed.
+      Proven with a new real-PostgreSQL integration test suite (run via
+      `pnpm run test:integration`, deliberately excluded from the
+      default mocked suite) covering two/three-way contention, a
+      ten-way stress test, and a multi-item transaction-rollback test —
+      then the exact original 23-vs-15+15 live scenario was re-run
+      end-to-end: one order now succeeds, the other is cleanly and
+      retryably rejected, with zero lost updates. 232 suites / 2089
+      tests passing, 0 regressions — see
+      [`docs/sprint-37.1-completion-report.md`](sprint-37.1-completion-report.md)
 - [ ] Retail Portal (mobile)
 - [ ] Sales Rep mobile workflows
 - [ ] Business Intelligence dashboards
