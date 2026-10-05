@@ -1869,3 +1869,242 @@ with a comment explaining why. A reminder that a controller-bearing
 module's dependency wiring is only fully proven by actually booting the
 application, not by unit tests alone — which is exactly why this
 sprint's live-verification phase exists.
+
+## 84. Sprint 38 — Field Operations & Collection Point Mobile Experience
+
+Turns the D2C backend capability built across Sprints 32–37.1 into a practical
+mobile field-operations workflow. Not a new business domain — a UX/operations
+sprint extending the EXISTING Field experience (`apps/web/src/app/(field)/`)
+and the EXISTING D2C/Sales/Inventory/Collection-Point services. No new
+CollectionPoint/order/inventory entity; the existing Sprint 37 state machine
+and services are reused exactly as built.
+
+## 85. The Missing Bridge: `Employee.territoryId`
+
+**Audited before writing any code**: this sprint's own audit confirmed what
+`sales-order.controller.ts`'s own doc comment already stated — no server-side
+data linked a `User`/`Employee` to a `Territory` anywhere in this codebase.
+`AccessScope.ASSIGNED_TERRITORY` is recorded at role-grant time but never
+enforced; the one real per-person scoping mechanism that exists
+(`Outlet.collectionPointResponsibleUserId`) is a plain ownership field, not a
+territory concept at all. Without SOME link, a field Sales Representative's
+D2C visibility could not be scoped to "their territory" at all — the brief's
+own required architecture (`User → Employee → Territory → permitted D2C
+orders/Collection Points`) had no foundation to enforce.
+
+The fix: `Employee.territoryId String?`, a plain nullable FK to `Territory`
+with `onDelete: SetNull` — the exact shape `Customer.territoryId`/
+`Outlet.territoryId` already established, never a new generic
+Territory-assignment system. A dedicated `assignTerritory` method
+(`EmployeeService`/`EmployeeRepository`/`POST /hr/employees/:id/territory`)
+mirrors the existing `assignDepartment`/`assignPosition`/`assignManager`/
+`assignWorkSchedule` dedicated-method shape exactly. Existence validation is
+a direct, read-only cross-table Prisma query inside `EmployeeRepository`
+(scoped by `organisationId`, closing the tenant-isolation gap a bare foreign
+key alone would leave open) rather than an injected `TerritoryRepository` —
+`HrModule` deliberately imports no other domain's module
+(`hr-independence.spec.ts`'s own structural guard), and this sprint's fix
+preserves that boundary rather than punching a hole in it.
+
+## 86. Field D2C Overview — the Sales Representative's Territory-Scoped View
+
+A new, purely read-only aggregation layer, `FieldD2COverviewService`/
+`FieldD2COverviewController` (`/api/d2c/field-overview/orders`,
+`/api/d2c/field-overview/collection-points`) — composed entirely from
+EXISTING repositories (`SalesOrderRepository`, extended with `source`/
+`consumerTerritoryId` filter params; `CollectionPointFulfillmentRepository`,
+extended with a batch `findManyBySalesOrderIds` lookup; `OutletRepository`,
+whose `territoryId` filter already existed). No new table, no new domain
+service with business logic — this layer only reads and merges.
+
+Territory scoping is enforced server-side, mirroring the EXACT
+"resource-ownership check, not `AccessScope`" shape
+`CollectionPointFulfillmentService.getMyOutlets` already established: an
+admin (`isOwnerBypass` or `sales.customer.manage`) sees every territory
+tenant-wide; anyone else sees only their own `Employee.territoryId`'s data;
+a caller with no territory assigned (or no `Employee` record at all) sees
+nothing — deny-by-default, never falls back to unrestricted. Live-verified:
+a field rep scoped to "Bodija" saw exactly the 2 Bodija Collection Points and
+excluded a genuinely-existing third Collection Point in "Mokola" territory,
+while an admin querying the identical endpoint saw all 3 — proving real
+server-side filtering, not a coincidental absence of other-territory data.
+
+Each endpoint reuses the EXISTING permission that already gates the kind of
+data it returns — `d2c.consumer.view` for the order list, `d2c.collection
+_point.view` for the Collection Point list — no new permission pair; this
+sprint's own audit found no genuine authorization gap that would justify
+one. `d2c.consumer.view` was additionally granted to the Member role at seed
+time (it existed since Sprint 32 but was never granted to Member), since
+without it no field Sales Representative could reach the new endpoint at
+all.
+
+**Deliberately NOT included in the order list response**: a `paymentStatus`
+field. Fetching it would require widening `SalesOrderRepository`'s shared
+`RELATIONS_INCLUDE` with a `payments` join used by every B2B caller of that
+repository too, for a field only this one list view needs — explicitly
+scoped out rather than accepted as unavoidable collateral. The richer detail
+view a Collection Point representative actually opens (§87) carries real
+`paymentStatus`/`paidAt`, scoped narrowly to where it matters operationally.
+
+## 87. Collection Point Representative — Dashboard, Inventory View, Order Detail
+
+Three additions to the existing Sprint 37 `/field/collection-point` screen
+and its API (`CollectionPointFulfillmentService`/`Controller`), all reusing
+Sprint 37's own data and authorization boundary — no new permission, no new
+ownership check:
+
+- **A Today dashboard and Attention Required section** — computed entirely
+  client-side from data the backend already returned and already
+  authorized (counts by status, a "waiting too long" highlight). Never a
+  new server-side business rule. The "waiting too long" threshold is a
+  documented UI-only constant, `ATTENTION_WAITING_MINUTES = 30`
+  (`apps/web/.../collection-point/page.tsx`) — no existing configured
+  threshold was found anywhere in the codebase for this, so rather than
+  inventing a silent one, this sprint picks one reasonable default and
+  names it explicitly, never enforced server-side.
+- **A Collection Point inventory view** —
+  `GET /d2c/collection-point-fulfillments/outlet/:outletId/inventory`
+  (`CollectionPointFulfillmentService.getInventoryViewForOutlet`), reusing
+  the EXACT `InventoryStockRepository.findManyByProductsAndLocation`
+  primitive `SalesFulfilmentService.getAvailability` already uses for B2B —
+  never a new stock-reading mechanism, and READ-ONLY (a structural guard in
+  `collection-point-fulfillment-independence.spec.ts` confirms no write
+  method is ever called on it). `required` sums ordered quantity across
+  every NOT-YET-COLLECTED fulfilment at the outlet — a `COLLECTED` order's
+  stock was already deducted via `confirmCollection`'s own call into
+  `SalesFulfilmentService.fulfil()`, so counting it again would double-count
+  already-spent stock as still "required." Same authorization boundary as
+  the existing queue endpoint (`assertActorAuthorizedForOutlet`) — live-
+  verified rejecting a non-owner with 403 and succeeding for the assigned
+  rep and for an admin.
+- **An order detail page** (`/field/collection-point/[id]`), using the
+  EXISTING `GET /d2c/collection-point-fulfillments/:id` endpoint, enriched
+  this sprint with `paymentStatus`/`paidAt` (derived from `SalesOrder
+.payments`, Sprint 35 — the latest payment's `status`/`paymentDate`; `null`
+  only if an admin manually assigned an order with no payment row at all)
+  and `consumer.territoryName`. Shows exactly the ONE action valid for the
+  order's current `CollectionPointFulfillmentStatus` — the backend's own
+  guarded state machine (Sprint 37) remains the sole authority; the page
+  only mirrors it for display. A confirmation step (brief "confirmation
+  before irreversible operational actions") gates Confirm Collection, the
+  one action that triggers real inventory deduction.
+
+## 88. Authorization & Scoping — Live-Verified
+
+- **Collection Point ownership** (Sprint 37's own boundary, unchanged):
+  live-verified that a Member-role user with `d2c.collection_point.view`
+  but no ownership of a specific outlet is rejected with 403 on both the
+  existing detail endpoint and the new inventory-view endpoint; the same
+  user succeeds on both once made the outlet's
+  `collectionPointResponsibleUserId`.
+- **Field D2C territory scope** (new this sprint): live-verified end to
+  end — a field rep assigned to "Bodija" territory saw 13 real D2C orders
+  and 2 real Collection Points, all correctly scoped; a genuinely separate
+  organisation (`/auth/register`-created tenant) saw zero orders, zero
+  Collection Points, and received `404` (not `403`, matching this
+  codebase's existing cross-tenant concealment convention) on both the
+  direct fulfilment-detail and inventory-view endpoints for Org A's real
+  resource ids.
+- **Manipulated-ID resistance**: tested directly — a cross-tenant outlet
+  id, a cross-tenant fulfilment id, and an unrelated (non-owned) outlet id
+  were all rejected server-side; the frontend never performs an
+  authorization decision, it only renders what the backend already decided
+  to return.
+
+## 89. Concurrency — Unchanged, Re-Verified
+
+Sprint 38 touches none of the Sprint 37/37.1 state-transition or inventory-
+deduction logic — only `toResult()`'s read-side enrichment and new read-only
+endpoints. Re-verified live rather than assumed: two genuinely concurrent
+`confirmCollection` requests (one as the assigned rep, one as an admin)
+against the same `READY_FOR_COLLECTION` order both returned `201` with
+identical final state; stock decremented by exactly the order's own quantity
+(one decrement, not two); the Sprint 37.1 real-PostgreSQL integration suite
+(`inventory-stock-concurrency.integration.spec.ts`) still passes all 7 tests
+unchanged.
+
+## 90. Audit & Notifications
+
+No new audit mechanism — `hr.employee.territory_assigned` was added to the
+existing `HR_AUDIT_ACTIONS` map, recorded via the existing `AuditService
+.record()`, matching every other Employee `assignX` action's own convention
+exactly. Every Collection Point operational mutation (assignment, prepare,
+ready, collect) already had audit coverage from Sprint 37 — confirmed by
+re-reading `collection-point-fulfillment-audit-actions.ts`, not duplicated.
+
+Notifications were audited, not built: the Notification system remains
+User-only (confirmed again this sprint — no change), and the Conversation
+Layer still has no proactive/outbound capability. Sprint 38 does not
+integrate with either — the Field UI's own 15/30-second polling is the
+mechanism by which a rep and a Sales Rep each see new activity, exactly the
+Sprint 37 precedent. A future "Order Ready" → Notification → WhatsApp flow
+(brief's own suggested future flow) remains a documented integration point
+for a later sprint, not built here.
+
+## 91. Known Limitations
+
+- **No `paymentStatus` in the Sales Rep's order list** (§86) — a deliberate
+  scope trim to avoid widening a shared, heavily-reused repository include.
+- **The "waiting too long" threshold (30 minutes) is a UI-only constant**,
+  not configurable, not enforced server-side, and not based on any existing
+  business rule (none was found to exist) — documented explicitly rather
+  than silently invented.
+- **Consumer contact (phone number) is surfaced to the Collection Point
+  representative but no in-app call/WhatsApp action was built** — the
+  existing Notification/WhatsApp infrastructure cannot yet push to a
+  Consumer (Sprint 37's own audit finding, unchanged), so this sprint
+  stops at surfacing the already-authorized phone number as plain text,
+  per the brief's own "otherwise simply surface the relevant information"
+  instruction.
+- **No dedicated admin UI for assigning `Employee.territoryId`** — settable
+  today via the new `POST /hr/employees/:id/territory` endpoint (and
+  exercised that way for this sprint's live verification), but no HR
+  admin-screen Territory picker was built, given this sprint's explicit
+  Field-operations (not D2C/HR-administration) scope.
+- **Cross-tenant `Employee.territoryId` rejection was unit-tested but not
+  separately live-verified** (would require creating an Employee record in
+  a second live tenant purely for this one check) — the underlying
+  `organisationId`-scoped Prisma query is the same established pattern used
+  throughout this codebase and is covered by `employee.service.spec.ts`.
+
+## 92. Scope Boundaries — Explicitly Not Built
+
+Real WhatsApp API/webhook integration, consumer chatbot changes, a new
+payment provider or OPay changes, loyalty/rewards, marketing campaigns,
+consumer segmentation/analytics, Collection Point settlement/payout,
+accounting settlement, a new inventory or order architecture, a new
+CollectionPoint entity, a full inventory management UI, a full CRM, or any
+analytics dashboard — all explicitly out of scope, per the brief's own
+boundary.
+
+## 93. Testing (Sprint 38)
+
+New: `field-d2c-overview.service.spec.ts` (territory scoping — admin
+bypass via `isOwnerBypass`/`sales.customer.manage`, scoped territory filter,
+deny-by-default for no-territory and no-Employee-record callers, order/
+Collection-Point merging logic), `field-d2c-overview.controller.spec.ts`.
+Extended: `collection-point-fulfillment.service.spec.ts` (+13 tests:
+`getInventoryViewForOutlet`'s SUFFICIENT/SHORT/multi-order-summing/no-stock-
+row/no-location/empty-queue/authorization cases; `getById`'s new
+`paymentStatus`/`paidAt`/`territoryName` mapping), `collection-point
+-fulfillment.controller.spec.ts` (+2), `collection-point-fulfillment
+-independence.spec.ts` (updated to allow the new read-only
+`InventoryStockRepository` dependency while still forbidding any write
+call through it), `employee.service.spec.ts` (+4, `assignTerritory`).
+Full suite: 234 suites / 2120 tests passing, zero regressions against the
+Sprint 37.1 baseline (232/2089); the Sprint 37.1 real-PostgreSQL
+integration suite (7/7) re-run unchanged.
+
+Live verification against the real dev database and a real running
+application (API + web, mobile viewport) covered: the full Collection Point
+representative flow end to end (a fresh consumer conversation → payment →
+auto-assignment → Preparing → Ready → Confirm Collection → real inventory
+deduction, 23→21 units for a 2-unit order), the dashboard/attention/
+inventory-view sections rendering real data correctly on a 375px mobile
+viewport, the order detail page showing enriched payment/territory fields,
+the Sales Representative's territory-scoped D2C overview (13 real orders,
+2 real Collection Points, correctly excluding a third-territory Collection
+Point), two genuinely concurrent `confirmCollection` calls producing exactly
+one stock decrement, and cross-tenant/cross-ownership/manipulated-id
+rejection in every case tested. See `docs/sprint-38-completion-report.md`
+for the full record.

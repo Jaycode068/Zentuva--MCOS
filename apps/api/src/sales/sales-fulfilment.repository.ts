@@ -70,7 +70,15 @@ const RELATIONS_INCLUDE = {
 const ORDER_RELATIONS_INCLUDE = {
   customer: { select: { id: true, customerCode: true, customerName: true } },
   outlet: { select: { id: true, outletCode: true, name: true } },
-  consumer: { select: { id: true, consumerCode: true, fullName: true } },
+  consumer: {
+    select: {
+      id: true,
+      consumerCode: true,
+      fullName: true,
+      territoryId: true,
+      territory: { select: { name: true } },
+    },
+  },
   items: {
     include: { product: { select: PRODUCT_SELECT } },
     orderBy: { createdAt: 'asc' as const },

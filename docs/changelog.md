@@ -7,6 +7,68 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 38 Field Operations & Collection Point Mobile Experience] - 2026-10-02
+
+Turns the D2C backend built across Sprints 32–37.1 into a practical mobile
+field-operations workflow. An operations/UX sprint, not a new business
+domain: no new CollectionPoint/order/inventory entity, no new fulfilment
+system — the existing Sprint 37 state machine and services are reused
+exactly as built.
+
+The audit found one genuine architectural gap: no server-side data linked a
+`User`/`Employee` to a `Territory` anywhere in this codebase (confirmed by
+`sales-order.controller.ts`'s own doc comment), so a field Sales
+Representative's D2C visibility could not be scoped at all. Fixed with the
+minimal bridge `Employee.territoryId` — a plain nullable FK, the exact
+`Customer.territoryId`/`Outlet.territoryId` shape already established,
+never a new generic Territory-assignment system. A dedicated
+`assignTerritory` method mirrors the existing `assignDepartment`/
+`assignPosition`/`assignManager`/`assignWorkSchedule` shape exactly;
+existence is validated via a direct, read-only cross-table Prisma query
+rather than importing a Retail module into HR, preserving
+`hr-independence.spec.ts`'s own structural boundary.
+
+A new, purely read-only `FieldD2COverviewService`
+(`/api/d2c/field-overview/orders`/`collection-points`) composes EXISTING
+repositories (`SalesOrderRepository`, `CollectionPointFulfillmentRepository`,
+`OutletRepository`) to give a Sales Representative a territory-scoped view
+of D2C orders and Collection Points. Territory scoping is enforced
+server-side with the exact "resource-ownership check, not `AccessScope`"
+shape Sprint 37's Collection Point ownership check already established:
+an admin sees every territory tenant-wide, anyone else sees only their own
+assigned territory, and a caller with no territory sees nothing —
+deny-by-default. Each endpoint reuses an existing permission
+(`d2c.consumer.view`/`d2c.collection_point.view`) rather than a new pair.
+
+The Collection Point representative's own screen (`/field/collection-point`)
+gained a Today dashboard, an Attention Required section (orders awaiting
+preparation, waiting too long, or facing an inventory shortfall — all
+computed client-side from data the backend already authorized, never a new
+server-side business rule), a compact inventory view (reusing the exact
+`InventoryStockRepository` primitive the B2B fulfilment path already uses),
+and a new order detail page (`/field/collection-point/[id]`) enriched with
+real payment status, paid timestamp, and consumer territory — showing only
+the one action valid for the order's current state, with a confirmation
+step before the one irreversible action (Confirm Collection).
+
+Live-verified end to end on a real mobile viewport (375px) against the real
+dev database: a fresh consumer order flowed through payment →
+auto-assignment → Preparing → Ready → Confirm Collection → real inventory
+deduction (23 → 21 units for a 2-unit order); a field rep scoped to one
+territory correctly saw exactly that territory's 13 D2C orders and 2
+Collection Points while a genuinely separate organisation saw zero and
+received `404` (not `403`) on direct resource access; two genuinely
+concurrent collection confirmations (one as the assigned rep, one as an
+admin) produced exactly one stock decrement, proving Sprint 37.1's atomic
+inventory protection remains fully intact; a non-owner was correctly
+rejected with `403` on both the fulfilment detail and inventory-view
+endpoints.
+
+234 suites / 2120 tests passing, 0 regressions against the Sprint 37.1
+baseline (232/2089); the Sprint 37.1 real-PostgreSQL integration suite
+(7/7) re-run unchanged. See
+[`docs/sprint-38-completion-report.md`](sprint-38-completion-report.md).
+
 ## [Sprint 37.1 Inventory Fulfillment Concurrency Integrity Hardening] - 2026-09-30
 
 Fixes the lost-update race Sprint 37 found and reported live: two concurrent orders

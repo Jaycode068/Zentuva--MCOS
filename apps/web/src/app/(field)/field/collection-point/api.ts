@@ -23,13 +23,31 @@ export interface CollectionPointFulfillment {
   readyAt: string | null;
   collectedAt: string | null;
   salesOrderStatus: string;
-  consumer: { name: string; phoneNumber: string } | null;
+  /** Added Sprint 38 — derived from the order's most recent `Payment` (`null` only in
+   *  the rare case of an admin manual-assignment against an order with no payment row
+   *  at all). */
+  paymentStatus: string | null;
+  paidAt: string | null;
+  consumer: { name: string; phoneNumber: string; territoryName: string | null } | null;
   items: { productName: string; quantity: number; unit: string }[];
 }
 
 export interface MyCollectionPointOutlet {
   id: string;
   name: string;
+}
+
+/** Added Sprint 38 — the Field Collection Point inventory view (brief §10): "do I have
+ *  enough on hand for what's queued." Read-only, operational only — never a full
+ *  inventory management surface. */
+export interface CollectionPointInventoryRow {
+  productId: string;
+  productName: string;
+  unit: string;
+  available: number;
+  required: number;
+  shortfall: number;
+  status: 'SUFFICIENT' | 'SHORT';
 }
 
 export function listMyCollectionPointOutlets(): Promise<{ items: MyCollectionPointOutlet[] }> {
@@ -43,6 +61,18 @@ export function listCollectionPointQueue(
 ): Promise<{ items: CollectionPointFulfillment[] }> {
   return apiFetch<{ items: CollectionPointFulfillment[] }>(
     `/d2c/collection-point-fulfillments/outlet/${outletId}`,
+  );
+}
+
+export function getCollectionPointFulfillment(id: string): Promise<CollectionPointFulfillment> {
+  return apiFetch<CollectionPointFulfillment>(`/d2c/collection-point-fulfillments/${id}`);
+}
+
+export function getCollectionPointInventory(
+  outletId: string,
+): Promise<{ items: CollectionPointInventoryRow[] }> {
+  return apiFetch<{ items: CollectionPointInventoryRow[] }>(
+    `/d2c/collection-point-fulfillments/outlet/${outletId}/inventory`,
   );
 }
 

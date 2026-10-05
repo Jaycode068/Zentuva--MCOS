@@ -877,6 +877,7 @@ REJECTED}`) optionally linking an existing `CapitalProject`/
 - ✓ Sprint 36 — Existing Outlet -> Collection Point Enablement
 - ✓ Sprint 37 — Collection Point Fulfillment & Inventory Reconciliation
 - ✓ Sprint 37.1 — Inventory Fulfillment Concurrency Integrity Hardening
+- ✓ Sprint 38 — Field Operations & Collection Point Mobile Experience
 
 **Current focus:** The Finance MVP (Sprints 6-19) is considered
 functionally complete. Epic 14 (Asset & Maintenance Management) is fully
@@ -1345,6 +1346,38 @@ and retryably rejected, zero lost updates. 232 suites / 2089 tests
 passing, 0 regressions. See
 [`docs/sprint-37.1-completion-report.md`](sprint-37.1-completion-report.md).
 
+Sprint 38 ("Field Operations & Collection Point Mobile Experience") turned
+the D2C backend built across Sprints 32–37.1 into a practical mobile
+field-operations workflow — an operations/UX sprint, not a new business
+domain: no new CollectionPoint/order/inventory entity, the existing Sprint
+37 state machine and services reused exactly as built. The audit found one
+genuine gap: no server-side data linked a `User`/`Employee` to a `Territory`
+anywhere in this codebase, so a field Sales Representative's D2C visibility
+could not be scoped at all. Fixed with the minimal bridge
+`Employee.territoryId` (a plain nullable FK, the exact
+`Customer.territoryId`/`Outlet.territoryId` shape, never a new
+Territory-assignment system), validated via a direct read-only cross-table
+query rather than importing a Retail module into HR — preserving
+`hr-independence.spec.ts`'s own structural boundary. A new, purely
+read-only `FieldD2COverviewService` composes EXISTING repositories to give
+a Sales Rep a territory-scoped view of D2C orders and Collection Points,
+reusing existing `d2c.consumer.view`/`d2c.collection_point.view`
+permissions — no new permission pair. The Collection Point representative's
+own screen gained a Today dashboard, an Attention Required section
+(computed client-side from already-authorized data, never a new
+server-side rule), a Collection Point inventory view (reusing the exact
+`InventoryStockRepository` primitive B2B already uses), and an order detail
+page enriched with real payment status and consumer territory.
+Live-verified end to end on a real mobile viewport: a fresh consumer order
+flowed through payment → auto-assignment → Preparing → Ready → Confirm
+Collection → real inventory deduction; a field rep scoped to one territory
+correctly saw only that territory's data while a second, genuinely
+separate organisation saw nothing; two genuinely concurrent collection
+confirmations produced exactly one stock decrement, proving Sprint 37.1's
+atomic protection remains fully intact. 234 suites / 2120 tests passing, 0
+regressions. See
+[`docs/sprint-38-completion-report.md`](sprint-38-completion-report.md).
+
 Deliberately still not started: payroll, leave management, AI-driven
 recruitment automation (CV ranking, automated rejection, automated hiring
 decisions), a job-board/ATS integration, performance/KPI engines, an LMS,
@@ -1370,8 +1403,13 @@ built Collection Point enablement, Sprint 37 built Collection Point
 fulfilment — see docs/domains/d2c.md §81), digests, scheduled reminders, a real background
 worker for notification/email/WhatsApp processing, a marketing-email or
 broadcast-messaging platform of any kind, a Technician RBAC role (from Sprint 22),
-`ASSIGNED_TERRITORY`/`ASSIGNED_ASSETS` scope enforcement (no
-server-side assignment relationship exists yet to prove them from),
+generic `AccessScope.ASSIGNED_TERRITORY`/`ASSIGNED_ASSETS` enforcement
+(Sprint 38 added the first server-side `User`/`Employee`→`Territory`
+relationship, `Employee.territoryId`, but enforces it with a bespoke
+resource-ownership check in `FieldD2COverviewService` — the same shape
+Sprint 37's Collection Point ownership check already used — not by wiring
+up the generic `AccessScope` enum value itself; `ASSIGNED_ASSETS` still has
+no relationship to prove it from at all),
 permission-aware frontend navigation filtering, automatic escalation/
 SLA/delegation, parallel/branching approval, and a second Workflow
 domain integration (Supplier Payment, Sales Order, Purchase

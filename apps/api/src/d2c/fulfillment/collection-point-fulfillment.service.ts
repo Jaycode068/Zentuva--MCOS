@@ -9,6 +9,7 @@ import { CollectionPointFulfillmentStatus } from '@prisma/client';
 
 import { EffectiveAccessResolver } from '../../identity/authorization/effective-access-resolver';
 import { AuditService } from '../../identity/audit/audit.service';
+import { InventoryStockRepository } from '../../inventory/inventory-stock.repository';
 import { OutletRepository } from '../../retail/outlet/outlet.repository';
 import { SalesFulfilmentService } from '../../sales/sales-fulfilment.service';
 import { SalesOrderRepository } from '../../sales/sales-order.repository';
@@ -21,6 +22,7 @@ import {
 import {
   AlreadyAssignedError,
   CollectionPointFulfillmentResult,
+  CollectionPointInventoryRow,
   CollectionPointNotEligibleError,
   InvalidFulfillmentTransitionError,
   NoEligibleCollectionPointError,
@@ -50,6 +52,7 @@ export class CollectionPointFulfillmentService {
     private readonly consumerService: ConsumerService,
     private readonly auditService: AuditService,
     private readonly effectiveAccessResolver: EffectiveAccessResolver,
+    private readonly inventoryStockRepository: InventoryStockRepository,
   ) {}
 
   /**
@@ -391,6 +394,79 @@ export class CollectionPointFulfillmentService {
   }
 
   /**
+   * Sprint 38 — "do I have enough stock to prepare what's queued right now." Same
+   * authorization boundary as `getQueueForOutlet` (the exact ownership check, not a
+   * second mechanism). `available` is read via the EXISTING
+   * `InventoryStockRepository.findManyByProductsAndLocation` primitive —
+   * `SalesFulfilmentService.getAvailability`'s own read path for B2B — never a new
+   * stock-reading mechanism. `required` sums ordered quantity across every
+   * NOT-YET-COLLECTED fulfilment at this outlet (`COLLECTED` orders have already
+   * consumed their stock via `confirmCollection`'s own call into
+   * `SalesFulfilmentService.fulfil()`, so they are correctly excluded here — counting
+   * them again would double-count already-deducted stock as still "required").
+   */
+  async getInventoryViewForOutlet(
+    organisationId: string,
+    outletId: string,
+    actorUserId: string,
+  ): Promise<CollectionPointInventoryRow[]> {
+    const outlet = await this.outletRepository.findById(organisationId, outletId);
+    if (!outlet) {
+      throw new NotFoundException('Outlet not found');
+    }
+    await this.assertActorAuthorizedForOutlet(organisationId, outlet, actorUserId);
+    if (!outlet.inventoryLocationId) {
+      return [];
+    }
+
+    const queued = await this.repository.findManyByOutlet(organisationId, outletId, [
+      CollectionPointFulfillmentStatus.ASSIGNED,
+      CollectionPointFulfillmentStatus.PREPARING,
+      CollectionPointFulfillmentStatus.READY_FOR_COLLECTION,
+    ]);
+
+    const required = new Map<string, { productName: string; unit: string; quantity: number }>();
+    for (const cpf of queued) {
+      for (const item of cpf.salesOrder.items) {
+        const existing = required.get(item.product.id);
+        if (existing) {
+          existing.quantity += item.quantity;
+        } else {
+          required.set(item.product.id, {
+            productName: item.product.name,
+            unit: item.product.unit,
+            quantity: item.quantity,
+          });
+        }
+      }
+    }
+    if (required.size === 0) {
+      return [];
+    }
+
+    const stockRows = await this.inventoryStockRepository.findManyByProductsAndLocation(
+      organisationId,
+      [...required.keys()],
+      outlet.inventoryLocationId,
+    );
+    const stockByProduct = new Map(stockRows.map((row) => [row.productId, row.quantityOnHand]));
+
+    return [...required.entries()].map(([productId, info]) => {
+      const available = stockByProduct.get(productId) ?? 0;
+      const shortfall = Math.max(0, info.quantity - available);
+      return {
+        productId,
+        productName: info.productName,
+        unit: info.unit,
+        available,
+        required: info.quantity,
+        shortfall,
+        status: shortfall > 0 ? 'SHORT' : 'SUFFICIENT',
+      };
+    });
+  }
+
+  /**
    * The Field screen's own entry point (brief "COLLECTION POINT / FIELD UX") — a field
    * user has no reason to know their outlet's id up front. Returns every
    * Collection-Point-enabled outlet the caller may operate: outlets where
@@ -504,6 +580,9 @@ export class CollectionPointFulfillmentService {
   }
 
   private toResult(cpf: CollectionPointFulfillmentWithRelations): CollectionPointFulfillmentResult {
+    // Sprint 38 — the most recent payment row for this order, if any. `payments` is
+    // already ordered `paymentDate desc` (RELATIONS_INCLUDE), so [0] is the latest.
+    const latestPayment = cpf.salesOrder.payments[0] ?? null;
     return {
       id: cpf.id,
       orderReference: cpf.salesOrder.orderCode,
@@ -517,10 +596,13 @@ export class CollectionPointFulfillmentService {
       readyAt: cpf.readyAt,
       collectedAt: cpf.collectedAt,
       salesOrderStatus: cpf.salesOrder.status,
+      paymentStatus: latestPayment?.status ?? null,
+      paidAt: latestPayment?.status === 'RECORDED' ? latestPayment.paymentDate : null,
       consumer: cpf.salesOrder.consumer
         ? {
             name: cpf.salesOrder.consumer.fullName,
             phoneNumber: cpf.salesOrder.consumer.phoneNumber,
+            territoryName: cpf.salesOrder.consumer.territory?.name ?? null,
           }
         : null,
       items: cpf.salesOrder.items.map((item) => ({

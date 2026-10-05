@@ -8,7 +8,12 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 
 export type CollectionPointFulfillmentWithRelations = CollectionPointFulfillment & {
-  outlet: { id: string; name: string; collectionPointResponsibleUserId: string | null };
+  outlet: {
+    id: string;
+    name: string;
+    collectionPointResponsibleUserId: string | null;
+    territoryId: string | null;
+  };
   salesOrder: {
     id: string;
     orderCode: string;
@@ -16,13 +21,28 @@ export type CollectionPointFulfillmentWithRelations = CollectionPointFulfillment
     consumerId: string | null;
     orderDate: Date;
     total: number;
-    consumer: { id: string; fullName: string; phoneNumber: string } | null;
+    consumer: {
+      id: string;
+      fullName: string;
+      phoneNumber: string;
+      territoryId: string | null;
+      territory: { name: string } | null;
+    } | null;
     items: { id: string; quantity: number; product: { id: string; name: string; unit: string } }[];
+    /// Added Sprint 38 — the only existing path to a D2C order's payment status/date
+    /// reachable from a `CollectionPointFulfillment` row (`SalesOrder.payments Payment[]`
+    /// already existed, Sprint 35 — never a new relation). A row only ever gets HERE
+    /// (assigned to a Collection Point) after a verified payment in the common
+    /// auto-assign path, but the admin manual-assign fallback does not itself re-check
+    /// payment status, so this is surfaced honestly rather than assumed.
+    payments: { status: string; paymentDate: Date }[];
   };
 };
 
 const RELATIONS_INCLUDE = {
-  outlet: { select: { id: true, name: true, collectionPointResponsibleUserId: true } },
+  outlet: {
+    select: { id: true, name: true, collectionPointResponsibleUserId: true, territoryId: true },
+  },
   salesOrder: {
     select: {
       id: true,
@@ -31,13 +51,25 @@ const RELATIONS_INCLUDE = {
       consumerId: true,
       orderDate: true,
       total: true,
-      consumer: { select: { id: true, fullName: true, phoneNumber: true } },
+      consumer: {
+        select: {
+          id: true,
+          fullName: true,
+          phoneNumber: true,
+          territoryId: true,
+          territory: { select: { name: true } },
+        },
+      },
       items: {
         select: {
           id: true,
           quantity: true,
           product: { select: { id: true, name: true, unit: true } },
         },
+      },
+      payments: {
+        select: { status: true, paymentDate: true },
+        orderBy: { paymentDate: 'desc' as const },
       },
     },
   },
@@ -80,6 +112,25 @@ export class CollectionPointFulfillmentRepository {
   ): Promise<CollectionPointFulfillmentWithRelations | null> {
     return this.prisma.collectionPointFulfillment.findFirst({
       where: { salesOrderId, organisationId },
+      include: RELATIONS_INCLUDE,
+    });
+  }
+
+  /** Sprint 38 — batch lookup for the Field D2C overview's territory-scoped order list
+   *  (one query instead of N per visible order). Read-only; the caller
+   *  (`FieldD2COverviewService`) has already computed WHICH `salesOrderId`s the actor
+   *  may see (via the territory-scoped `SalesOrder` query) before calling this — this
+   *  method itself still scopes by `organisationId` as defense in depth, matching every
+   *  other method in this file. */
+  findManyBySalesOrderIds(
+    organisationId: string,
+    salesOrderIds: string[],
+  ): Promise<CollectionPointFulfillmentWithRelations[]> {
+    if (salesOrderIds.length === 0) {
+      return Promise.resolve([]);
+    }
+    return this.prisma.collectionPointFulfillment.findMany({
+      where: { organisationId, salesOrderId: { in: salesOrderIds } },
       include: RELATIONS_INCLUDE,
     });
   }

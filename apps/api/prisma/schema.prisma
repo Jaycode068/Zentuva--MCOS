@@ -1798,6 +1798,14 @@ model Territory {
   /// The EXISTING hierarchy is reused as-is for D2C structured location —
   /// no separate Location/ConsumerTerritory model (docs/domains/d2c.md §3).
   d2cConsumers     Consumer[]
+  /// Added Sprint 38 — Field Operations & Collection Point Mobile Experience. The
+  /// first (and, as of this sprint, only) link from a `User`/`Employee` to a
+  /// `Territory` anywhere in this codebase — confirmed by audit that no such bridge
+  /// existed (`access-control.md` §6/`sales-order.controller.ts`'s own doc comment:
+  /// "no server-side data links a `User` to a `Territory`"). A plain optional FK,
+  /// mirroring `Customer.territoryId`/`Outlet.territoryId` exactly — never a new
+  /// generic assignment/join entity.
+  employees        Employee[]
 
   @@index([organisationId])
   @@index([organisationId, status])
@@ -5938,6 +5946,15 @@ model Employee {
   /// Historical schedule-assignment tracking is deferred (documented in
   /// docs/domains/hr.md).
   workScheduleId    String?
+  /// Added Sprint 38 — Field Operations & Collection Point Mobile Experience. The
+  /// field this sprint's own audit found missing: nothing server-side linked a
+  /// `User`/`Employee` to a `Territory`, so a field Sales Representative's D2C
+  /// visibility could not be scoped at all. A plain optional FK — the exact
+  /// `departmentId`/`positionId`/`workScheduleId` shape already established on this
+  /// model — never a new generic Territory-assignment system. `null` means "no D2C
+  /// field scope," not "sees everything" (deny-by-default, enforced in
+  /// `FieldD2COverviewService`).
+  territoryId       String?
 
   employmentType   EmploymentType
   employmentStatus EmploymentStatus @default(DRAFT)
@@ -5964,6 +5981,8 @@ model Employee {
   documents              EmployeeDocument[]
   onboarding             EmployeeOnboarding?
   workSchedule           WorkSchedule?                 @relation(fields: [workScheduleId], references: [id])
+  /// Added Sprint 38 — see `territoryId`'s own doc comment above.
+  territory              Territory?                    @relation(fields: [territoryId], references: [id], onDelete: SetNull)
   attendanceRecords      AttendanceRecord[]
   requestedCorrections   AttendanceCorrectionRequest[] @relation("AttendanceCorrectionRequestedByEmployee")
   policyAcknowledgements PolicyAcknowledgement[]
@@ -5982,6 +6001,7 @@ model Employee {
   @@index([positionId])
   @@index([managerEmployeeId])
   @@index([workScheduleId])
+  @@index([territoryId])
   @@map("hr_employees")
 }
 

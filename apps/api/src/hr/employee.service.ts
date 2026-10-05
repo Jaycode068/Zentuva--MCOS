@@ -220,6 +220,30 @@ export class EmployeeService {
     return updated;
   }
 
+  /** Sprint 38 — Field Operations & Collection Point Mobile Experience. See
+   *  `EmployeeRepository.assignTerritory`'s own doc comment for why this validates
+   *  existence via a direct cross-table read rather than an injected
+   *  `TerritoryRepository` (`HrModule` imports no other domain's module). */
+  async assignTerritory(
+    organisationId: string,
+    id: string,
+    territoryId: string | null,
+  ): Promise<Employee> {
+    await this.getByIdOrThrow(organisationId, id);
+    const { employee, invalidTerritory } = await this.employeeRepository.assignTerritory(
+      organisationId,
+      id,
+      territoryId,
+    );
+    if (invalidTerritory) {
+      throw new BadRequestException('Territory not found in this organisation');
+    }
+    if (!employee) {
+      throw new NotFoundException('Employee not found');
+    }
+    return employee;
+  }
+
   async linkUser(organisationId: string, id: string, userId: string): Promise<Employee> {
     await this.getByIdOrThrow(organisationId, id);
 

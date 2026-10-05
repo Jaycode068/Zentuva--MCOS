@@ -7658,6 +7658,20 @@ async function main(): Promise<void> {
     { key: 'd2c.collection_point.fulfil', scope: 'ORGANISATION' },
   ]);
 
+  // Sprint 38 — Field Operations & Collection Point Mobile Experience
+  // (docs/domains/d2c.md). `d2c.consumer.view` already existed (Sprint 32) but was never
+  // granted to Member — without it, no field Sales Representative (a Member-role user in
+  // practice) could ever reach the new territory-scoped D2C orders overview
+  // (`FieldD2COverviewController`'s `GET orders` route), making the feature
+  // unreachable for its actual target audience. The real restriction remains the
+  // server-side territory check inside `FieldD2COverviewService` — this grant only
+  // means "this role is the kind of user who can attempt to view D2C orders at all,"
+  // the same `ORGANISATION`-as-coarse-gate shape every other Member grant here uses.
+  console.log('Granting d2c.consumer.view to the Member role...');
+  await grantRolePermissions(memberRole.id, permissionByKey, [
+    { key: 'd2c.consumer.view', scope: 'ORGANISATION' },
+  ]);
+
   console.log('Seeding development accounts (Owner, Administrator, Member)...');
   const ownerUser = await seedUser({
     organisationId: organisation.id,

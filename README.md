@@ -264,19 +264,31 @@ feature is built configurably so it can be reused by future tenants without code
 > fulfilled while the warehouse record was only ever decremented once. That
 > last one predated this sprint and wasn't fixed there — it was reported in
 > full and handed off as its own piece of work, rather than patched in a
-> hurry inside a change that was about something else. The most recent
-> sprint was that piece of work: an audit of every place inventory gets
-> mutated anywhere in the system — not just the one place already caught
-> in the act — found four more spots with the exact same flaw (read a
-> number, do arithmetic on it in code, write the result back, with nothing
-> stopping two requests from doing that at the same instant), fixed all
-> five through one shared, database-enforced guard, and left three
-> genuinely different ones (which also recompute a cost average, not just
-> a quantity) explicitly written up rather than rushed. Proved it with real
-> concurrent requests against the real database, not a simulation — then
-> reran the exact original failure from scratch and watched it come out
-> right: one request succeeds, the other is turned away cleanly instead of
-> silently losing count. See
+> hurry inside a change that was about something else. The next sprint was
+> that piece of work: an audit of every place inventory gets mutated
+> anywhere in the system — not just the one place already caught in the
+> act — found four more spots with the exact same flaw (read a number, do
+> arithmetic on it in code, write the result back, with nothing stopping
+> two requests from doing that at the same instant), fixed all five through
+> one shared, database-enforced guard, and left three genuinely different
+> ones (which also recompute a cost average, not just a quantity)
+> explicitly written up rather than rushed. Proved it with real concurrent
+> requests against the real database, not a simulation — then reran the
+> exact original failure from scratch and watched it come out right: one
+> request succeeds, the other is turned away cleanly instead of silently
+> losing count. The most recent sprint turned all of that backend work into
+> something a field team can actually use on a phone: a dashboard that
+> answers "what do I need to do next" instead of dumping raw data, an
+> inventory check right where the person preparing an order needs it, and
+> a Sales Rep's own view of their territory's D2C activity — built only
+> after discovering the one real gap, that nothing anywhere connected a
+> person to a territory, and closing it with the smallest possible field
+> rather than a new access-control system. Proved end to end on an actual
+> phone-sized screen against the real database: a live order moving from
+> payment through to collection with stock genuinely decreasing, a rep
+> seeing only their own territory's orders while a second company saw
+> none of it, and two people tapping "confirm" on the same order at once
+> without anything going wrong. See
 > [docs/domains/README.md](docs/domains/README.md) for the
 > current status of every domain and [docs/roadmap.md](docs/roadmap.md) for the full
 > build order.

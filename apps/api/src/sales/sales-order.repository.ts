@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma, SalesOrder, SalesOrderStatus } from '@prisma/client';
+import { Prisma, SalesOrder, SalesOrderSource, SalesOrderStatus } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -19,6 +19,15 @@ export interface ListSalesOrdersParams {
   /** Simple case-insensitive substring match against the order code or the customer's
    *  name — same convention as every other domain's `search` filter. */
   search?: string;
+  /** Added Sprint 38 — the Field D2C overview's own filter (`B2B`/`D2C`, Sprint 34's
+   *  `SalesOrderSource`). No existing caller passed this before; every pre-existing
+   *  query is unaffected. */
+  source?: SalesOrderSource;
+  /** Added Sprint 38 — the server-enforced territory scope for a field Sales
+   *  Representative's D2C order visibility (`FieldD2COverviewService`). Filters by the
+   *  D2C order's own `Consumer.territoryId` — never trusted from a request, always
+   *  computed server-side from the caller's own `Employee.territoryId`. */
+  consumerTerritoryId?: string;
 }
 
 const PRODUCT_SELECT = { id: true, code: true, name: true, unit: true };
@@ -29,7 +38,13 @@ export type SalesOrderWithRelations = SalesOrder & {
   customer: { id: string; customerCode: string; customerName: string } | null;
   outlet: { id: string; outletCode: string; name: string } | null;
   /** Added Sprint 34 — `null` for a `B2B` order. */
-  consumer: { id: string; consumerCode: string; fullName: string } | null;
+  consumer: {
+    id: string;
+    consumerCode: string;
+    fullName: string;
+    territoryId: string | null;
+    territory: { name: string } | null;
+  } | null;
   items: {
     id: string;
     productId: string;
@@ -46,7 +61,15 @@ export type SalesOrderWithRelations = SalesOrder & {
 const RELATIONS_INCLUDE = {
   customer: { select: { id: true, customerCode: true, customerName: true } },
   outlet: { select: { id: true, outletCode: true, name: true } },
-  consumer: { select: { id: true, consumerCode: true, fullName: true } },
+  consumer: {
+    select: {
+      id: true,
+      consumerCode: true,
+      fullName: true,
+      territoryId: true,
+      territory: { select: { name: true } },
+    },
+  },
   items: {
     include: { product: { select: PRODUCT_SELECT } },
     orderBy: { createdAt: 'asc' as const },
@@ -104,6 +127,10 @@ export class SalesOrderRepository {
         ...(params.outletId ? { outletId: params.outletId } : {}),
         ...(params.salesAgentId ? { salesAgentId: params.salesAgentId } : {}),
         ...(params.salesAgentIds ? { salesAgentId: { in: params.salesAgentIds } } : {}),
+        ...(params.source ? { source: params.source } : {}),
+        ...(params.consumerTerritoryId
+          ? { consumer: { territoryId: params.consumerTerritoryId } }
+          : {}),
         ...(params.search
           ? {
               OR: [

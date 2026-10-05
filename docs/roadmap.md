@@ -880,8 +880,42 @@ PaymentService (existing, extended) + SalesOrderService.confirm
       retryably rejected, with zero lost updates. 232 suites / 2089
       tests passing, 0 regressions — see
       [`docs/sprint-37.1-completion-report.md`](sprint-37.1-completion-report.md)
+- [x] **Sprint 38 — Field Operations & Collection Point Mobile Experience.**
+      Turns the D2C backend built across Sprints 32–37.1 into a practical
+      mobile field-operations workflow — an operations/UX sprint, not a new
+      business domain: no new CollectionPoint/order/inventory entity, the
+      existing Sprint 37 state machine and services reused exactly as built.
+      The audit found one genuine gap: no server-side data linked a
+      `User`/`Employee` to a `Territory` anywhere in this codebase, so a
+      field Sales Representative's D2C visibility could not be scoped at
+      all. Fixed with the minimal bridge `Employee.territoryId` (a plain
+      nullable FK, the exact `Customer.territoryId`/`Outlet.territoryId`
+      shape, never a new Territory-assignment system), validated via a
+      direct read-only cross-table query rather than importing a Retail
+      module into HR — preserving `hr-independence.spec.ts`'s own
+      structural boundary. A new, purely read-only
+      `FieldD2COverviewService` (`/api/d2c/field-overview/orders`/
+      `collection-points`) composes EXISTING repositories to give a Sales
+      Rep a territory-scoped view of D2C orders and Collection Points,
+      reusing existing `d2c.consumer.view`/`d2c.collection_point.view`
+      permissions — no new permission pair. The Collection Point
+      representative's own screen gained a Today dashboard, an Attention
+      Required section (computed client-side from already-authorized data,
+      never a new server-side rule — including one explicitly documented,
+      non-enforced 30-minute "waiting too long" UI constant), a Collection
+      Point inventory view (reusing the exact `InventoryStockRepository`
+      primitive B2B already uses), and an order detail page enriched with
+      real payment status and consumer territory. Live-verified end to end
+      on a real mobile viewport: a fresh consumer order flowed through
+      payment → auto-assignment → Preparing → Ready → Confirm Collection →
+      real inventory deduction; a field rep scoped to one territory
+      correctly saw only that territory's orders/Collection Points while a
+      second, genuinely separate organisation saw nothing; two genuinely
+      concurrent collection confirmations produced exactly one stock
+      decrement, proving Sprint 37.1's atomic protection remains fully
+      intact. 234 suites / 2120 tests passing, 0 regressions — see
+      [`docs/sprint-38-completion-report.md`](sprint-38-completion-report.md)
 - [ ] Retail Portal (mobile)
-- [ ] Sales Rep mobile workflows
 - [ ] Business Intelligence dashboards
 
 ## Future

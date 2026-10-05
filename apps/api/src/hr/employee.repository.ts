@@ -74,6 +74,7 @@ export class EmployeeRepository {
         position: true,
         manager: { select: { id: true, employeeCode: true, firstName: true, lastName: true } },
         user: { select: { id: true, email: true, status: true } },
+        territory: { select: { id: true, name: true } },
         _count: { select: { directReports: true } },
       },
     });
@@ -154,6 +155,7 @@ export class EmployeeRepository {
           position: { select: { id: true, title: true } },
           manager: { select: { id: true, firstName: true, lastName: true } },
           user: { select: { id: true } },
+          territory: { select: { id: true, name: true } },
         },
         orderBy: { employeeCode: 'asc' },
         skip: (params.page - 1) * params.pageSize,
@@ -239,6 +241,35 @@ export class EmployeeRepository {
     workScheduleId: string | null,
   ): Promise<Employee | null> {
     return this.updateMatching(organisationId, id, { workScheduleId });
+  }
+
+  /** Sprint 38 — existence of `territoryId` is checked with a direct, read-only Prisma
+   *  query against `territory` (scoped by `organisationId`, closing the tenant-isolation
+   *  gap a bare foreign-key constraint alone would leave open — the FK only proves the
+   *  row exists SOMEWHERE, not that it belongs to this tenant), never a
+   *  `TerritoryRepository`/Retail-module import. `HrModule` deliberately imports no
+   *  other domain's module (`hr.module.ts`'s own doc comment,
+   *  `hr-independence.spec.ts`'s structural guard) — a plain cross-table READ through
+   *  the already-injected, globally-shared `PrismaService` is not a module import and
+   *  does not cross that boundary, the same narrow-exception reasoning already
+   *  documented extensively elsewhere in this codebase (e.g.
+   *  `SalesFulfilmentRepository` writing directly to `inventoryStock`). */
+  async assignTerritory(
+    organisationId: string,
+    id: string,
+    territoryId: string | null,
+  ): Promise<{ employee: Employee | null; invalidTerritory: boolean }> {
+    if (territoryId) {
+      const territory = await this.prisma.territory.findFirst({
+        where: { id: territoryId, organisationId },
+        select: { id: true },
+      });
+      if (!territory) {
+        return { employee: null, invalidTerritory: true };
+      }
+    }
+    const employee = await this.updateMatching(organisationId, id, { territoryId });
+    return { employee, invalidTerritory: false };
   }
 
   async linkUser(

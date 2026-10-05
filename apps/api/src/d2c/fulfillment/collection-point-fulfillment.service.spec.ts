@@ -3,6 +3,7 @@ import { CollectionPointFulfillmentStatus } from '@prisma/client';
 
 import { AuditService } from '../../identity/audit/audit.service';
 import { EffectiveAccessResolver } from '../../identity/authorization/effective-access-resolver';
+import { InventoryStockRepository } from '../../inventory/inventory-stock.repository';
 import { OutletRepository } from '../../retail/outlet/outlet.repository';
 import { SalesFulfilmentService } from '../../sales/sales-fulfilment.service';
 import { SalesOrderRepository } from '../../sales/sales-order.repository';
@@ -66,10 +67,17 @@ describe('CollectionPointFulfillmentService', () => {
       consumerId: 'consumer-1',
       orderDate: new Date('2026-01-01'),
       total: 3000,
-      consumer: { id: 'consumer-1', fullName: 'Ada Okafor', phoneNumber: '+2348012345678' },
+      consumer: {
+        id: 'consumer-1',
+        fullName: 'Ada Okafor',
+        phoneNumber: '+2348012345678',
+        territoryId: 'territory-1',
+        territory: { name: 'Bodija' },
+      },
       items: [
         { id: 'item-1', quantity: 2, product: { id: 'product-1', name: 'Snack', unit: 'pack' } },
       ],
+      payments: [{ status: 'RECORDED', paymentDate: new Date('2026-01-01') }],
     },
   };
 
@@ -99,6 +107,9 @@ describe('CollectionPointFulfillmentService', () => {
     const effectiveAccessResolver = {
       resolve: jest.fn().mockResolvedValue({ isOwnerBypass: false, grants: new Map() }),
     } as unknown as jest.Mocked<EffectiveAccessResolver>;
+    const inventoryStockRepository = {
+      findManyByProductsAndLocation: jest.fn().mockResolvedValue([]),
+    } as unknown as jest.Mocked<InventoryStockRepository>;
 
     const service = new CollectionPointFulfillmentService(
       repository,
@@ -108,6 +119,7 @@ describe('CollectionPointFulfillmentService', () => {
       consumerService,
       auditService,
       effectiveAccessResolver,
+      inventoryStockRepository,
     );
     return {
       service,
@@ -118,6 +130,7 @@ describe('CollectionPointFulfillmentService', () => {
       consumerService,
       auditService,
       effectiveAccessResolver,
+      inventoryStockRepository,
     };
   }
 
@@ -582,6 +595,50 @@ describe('CollectionPointFulfillmentService', () => {
     });
   });
 
+  describe('getById — Sprint 38 enriched detail fields', () => {
+    it('maps paymentStatus/paidAt from the most recent payment, and consumer.territoryName', async () => {
+      const { service, repository } = makeService();
+      repository.findById.mockResolvedValue(cpf as never);
+
+      const result = await service.getById(orgId, 'cpf-1', 'rep-1');
+
+      expect(result.paymentStatus).toBe('RECORDED');
+      expect(result.paidAt).toEqual(new Date('2026-01-01'));
+      expect(result.consumer?.territoryName).toBe('Bodija');
+    });
+
+    it('reports paidAt as null when the latest payment is not RECORDED', async () => {
+      const { service, repository } = makeService();
+      const unpaid = {
+        ...cpf,
+        salesOrder: {
+          ...cpf.salesOrder,
+          payments: [{ status: 'PENDING', paymentDate: new Date('2026-01-02') }],
+        },
+      };
+      repository.findById.mockResolvedValue(unpaid as never);
+
+      const result = await service.getById(orgId, 'cpf-1', 'rep-1');
+
+      expect(result.paymentStatus).toBe('PENDING');
+      expect(result.paidAt).toBeNull();
+    });
+
+    it('reports paymentStatus/paidAt as null when the order has no payment row at all', async () => {
+      const { service, repository } = makeService();
+      const noPayment = {
+        ...cpf,
+        salesOrder: { ...cpf.salesOrder, payments: [] },
+      };
+      repository.findById.mockResolvedValue(noPayment as never);
+
+      const result = await service.getById(orgId, 'cpf-1', 'rep-1');
+
+      expect(result.paymentStatus).toBeNull();
+      expect(result.paidAt).toBeNull();
+    });
+  });
+
   describe('getQueueForOutlet — resource-ownership enforcement', () => {
     it('returns the queue for the assigned representative', async () => {
       const { service, outletRepository, repository } = makeService();
@@ -608,6 +665,137 @@ describe('CollectionPointFulfillmentService', () => {
       await expect(service.getQueueForOutlet(orgId, 'outlet-1', 'rep-1')).rejects.toThrow(
         NotFoundException,
       );
+    });
+  });
+
+  describe('getInventoryViewForOutlet — Sprint 38 Field inventory view', () => {
+    const queuedCpf = {
+      ...cpf,
+      status: CollectionPointFulfillmentStatus.PREPARING,
+      salesOrder: {
+        ...cpf.salesOrder,
+        items: [
+          { id: 'item-1', quantity: 10, product: { id: 'product-1', name: 'Snack', unit: 'pack' } },
+        ],
+      },
+    };
+
+    it('reports SUFFICIENT when available stock covers required quantity', async () => {
+      const { service, outletRepository, repository, inventoryStockRepository } = makeService();
+      outletRepository.findById.mockResolvedValue(eligibleOutlet as never);
+      repository.findManyByOutlet.mockResolvedValue([queuedCpf] as never);
+      inventoryStockRepository.findManyByProductsAndLocation.mockResolvedValue([
+        { productId: 'product-1', quantityOnHand: 24 },
+      ] as never);
+
+      const result = await service.getInventoryViewForOutlet(orgId, 'outlet-1', 'rep-1');
+
+      expect(result).toEqual([
+        {
+          productId: 'product-1',
+          productName: 'Snack',
+          unit: 'pack',
+          available: 24,
+          required: 10,
+          shortfall: 0,
+          status: 'SUFFICIENT',
+        },
+      ]);
+    });
+
+    it('reports SHORT with the correct shortfall when available stock is insufficient', async () => {
+      const { service, outletRepository, repository, inventoryStockRepository } = makeService();
+      outletRepository.findById.mockResolvedValue(eligibleOutlet as never);
+      repository.findManyByOutlet.mockResolvedValue([queuedCpf] as never);
+      inventoryStockRepository.findManyByProductsAndLocation.mockResolvedValue([
+        { productId: 'product-1', quantityOnHand: 4 },
+      ] as never);
+
+      const result = await service.getInventoryViewForOutlet(orgId, 'outlet-1', 'rep-1');
+
+      expect(result).toEqual([
+        expect.objectContaining({ available: 4, required: 10, shortfall: 6, status: 'SHORT' }),
+      ]);
+    });
+
+    it('sums required quantity across multiple queued orders for the same product', async () => {
+      const { service, outletRepository, repository, inventoryStockRepository } = makeService();
+      outletRepository.findById.mockResolvedValue(eligibleOutlet as never);
+      const second = { ...queuedCpf, id: 'cpf-2' };
+      repository.findManyByOutlet.mockResolvedValue([queuedCpf, second] as never);
+      inventoryStockRepository.findManyByProductsAndLocation.mockResolvedValue([
+        { productId: 'product-1', quantityOnHand: 24 },
+      ] as never);
+
+      const result = await service.getInventoryViewForOutlet(orgId, 'outlet-1', 'rep-1');
+
+      expect(result).toEqual([expect.objectContaining({ required: 20, available: 24 })]);
+    });
+
+    it('treats a product with no InventoryStock row as 0 available', async () => {
+      const { service, outletRepository, repository, inventoryStockRepository } = makeService();
+      outletRepository.findById.mockResolvedValue(eligibleOutlet as never);
+      repository.findManyByOutlet.mockResolvedValue([queuedCpf] as never);
+      inventoryStockRepository.findManyByProductsAndLocation.mockResolvedValue([] as never);
+
+      const result = await service.getInventoryViewForOutlet(orgId, 'outlet-1', 'rep-1');
+
+      expect(result).toEqual([expect.objectContaining({ available: 0, shortfall: 10 })]);
+    });
+
+    it('returns an empty list when the outlet has no inventory location configured', async () => {
+      const { service, outletRepository, repository } = makeService();
+      outletRepository.findById.mockResolvedValue({
+        ...eligibleOutlet,
+        inventoryLocationId: null,
+      } as never);
+
+      const result = await service.getInventoryViewForOutlet(orgId, 'outlet-1', 'rep-1');
+
+      expect(result).toEqual([]);
+      expect(repository.findManyByOutlet).not.toHaveBeenCalled();
+    });
+
+    it('returns an empty list when nothing is queued', async () => {
+      const { service, outletRepository, repository } = makeService();
+      outletRepository.findById.mockResolvedValue(eligibleOutlet as never);
+      repository.findManyByOutlet.mockResolvedValue([] as never);
+
+      const result = await service.getInventoryViewForOutlet(orgId, 'outlet-1', 'rep-1');
+
+      expect(result).toEqual([]);
+    });
+
+    it('rejects a caller who is neither the assigned rep nor an admin', async () => {
+      const { service, outletRepository } = makeService();
+      outletRepository.findById.mockResolvedValue(eligibleOutlet as never);
+
+      await expect(
+        service.getInventoryViewForOutlet(orgId, 'outlet-1', 'stranger'),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('rejects a cross-tenant outlet id with NotFoundException', async () => {
+      const { service, outletRepository } = makeService();
+      outletRepository.findById.mockResolvedValue(null);
+
+      await expect(service.getInventoryViewForOutlet(orgId, 'outlet-1', 'rep-1')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('queries only ASSIGNED/PREPARING/READY_FOR_COLLECTION fulfilments, never COLLECTED (already-deducted stock must not be double-counted as still required)', async () => {
+      const { service, outletRepository, repository } = makeService();
+      outletRepository.findById.mockResolvedValue(eligibleOutlet as never);
+      repository.findManyByOutlet.mockResolvedValue([] as never);
+
+      await service.getInventoryViewForOutlet(orgId, 'outlet-1', 'rep-1');
+
+      expect(repository.findManyByOutlet).toHaveBeenCalledWith(orgId, 'outlet-1', [
+        'ASSIGNED',
+        'PREPARING',
+        'READY_FOR_COLLECTION',
+      ]);
     });
   });
 });

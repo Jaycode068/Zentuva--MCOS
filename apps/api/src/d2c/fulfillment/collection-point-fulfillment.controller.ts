@@ -79,6 +79,24 @@ export class CollectionPointFulfillmentController {
     }
   }
 
+  /** Sprint 38 — the Field Collection Point inventory view (brief §10). Declared before
+   *  `:id`/`outlet/:outletId` would never actually collide here (an extra path segment),
+   *  but kept alongside its sibling `outlet/:outletId` route for readability. */
+  @Get('outlet/:outletId/inventory')
+  @RequirePermission('d2c.collection_point.view')
+  async getInventoryView(@Param('outletId') outletId: string, @CurrentUser() user: TokenPayload) {
+    try {
+      const items = await this.service.getInventoryViewForOutlet(
+        user.organisationId,
+        outletId,
+        user.sub,
+      );
+      return { items };
+    } catch (error) {
+      throw toHttpException(error);
+    }
+  }
+
   @Get(':id')
   @RequirePermission('d2c.collection_point.view')
   async getOne(@Param('id') id: string, @CurrentUser() user: TokenPayload) {

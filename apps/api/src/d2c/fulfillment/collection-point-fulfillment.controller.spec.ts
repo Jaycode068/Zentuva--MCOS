@@ -18,6 +18,7 @@ describe('CollectionPointFulfillmentController', () => {
       getQueueForOutlet: jest.fn(),
       getMyOutlets: jest.fn(),
       getById: jest.fn(),
+      getInventoryViewForOutlet: jest.fn(),
       startPreparing: jest.fn(),
       markReadyForCollection: jest.fn(),
       confirmCollection: jest.fn(),
@@ -76,6 +77,36 @@ describe('CollectionPointFulfillmentController', () => {
     const result = await controller.getQueue('outlet-1', user);
     expect(result).toEqual({ items: [{ id: 'cpf-1' }] });
     expect(service.getQueueForOutlet).toHaveBeenCalledWith('org-1', 'outlet-1', 'rep-1');
+  });
+
+  it('getInventoryView: returns { items } wrapping the service result', async () => {
+    const { controller, service } = makeController();
+    service.getInventoryViewForOutlet.mockResolvedValue([
+      {
+        productId: 'product-1',
+        productName: 'Snack',
+        unit: 'pack',
+        available: 24,
+        required: 10,
+        shortfall: 0,
+        status: 'SUFFICIENT',
+      },
+    ]);
+
+    const result = await controller.getInventoryView('outlet-1', user);
+    expect(result).toEqual({
+      items: [expect.objectContaining({ productId: 'product-1', status: 'SUFFICIENT' })],
+    });
+    expect(service.getInventoryViewForOutlet).toHaveBeenCalledWith('org-1', 'outlet-1', 'rep-1');
+  });
+
+  it('getInventoryView: maps NotAuthorizedForCollectionPointError-equivalent rejection to 403 via the shared error mapper', async () => {
+    const { controller, service } = makeController();
+    service.getInventoryViewForOutlet.mockRejectedValue(
+      new NotAuthorizedForCollectionPointError('nope'),
+    );
+
+    await expect(controller.getInventoryView('outlet-1', user)).rejects.toThrow(ForbiddenException);
   });
 
   it('startPreparing / markReady / confirmCollection: all pass organisationId/id/actorUserId through', async () => {

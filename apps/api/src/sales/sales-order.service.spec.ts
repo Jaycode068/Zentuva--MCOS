@@ -397,7 +397,13 @@ describe('SalesOrderService', () => {
         idempotencyKey: 'idem-key-1',
         customer: null,
         outlet: null,
-        consumer: { id: 'consumer-1', consumerCode: 'CON-000001', fullName: 'Ada Okafor' },
+        consumer: {
+          id: 'consumer-1',
+          consumerCode: 'CON-000001',
+          fullName: 'Ada Okafor',
+          territoryId: null,
+          territory: null,
+        },
         items: [
           {
             id: 'item-d2c-1',

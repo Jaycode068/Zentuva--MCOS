@@ -18,6 +18,7 @@ import {
   AssignEmployeeDepartmentInput,
   AssignEmployeeManagerInput,
   AssignEmployeePositionInput,
+  AssignEmployeeTerritoryInput,
   AssignEmployeeWorkScheduleInput,
   CompleteOnboardingInput,
   CreateEmployeeInput,
@@ -30,6 +31,7 @@ import {
   assignEmployeeDepartmentSchema,
   assignEmployeeManagerSchema,
   assignEmployeePositionSchema,
+  assignEmployeeTerritorySchema,
   assignEmployeeWorkScheduleSchema,
   completeOnboardingSchema,
   createEmployeeSchema,
@@ -277,6 +279,36 @@ export class EmployeeController {
       organisationId: user.organisationId,
       actorUserId: user.sub,
       metadata: { workScheduleId: body.workScheduleId },
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+    });
+    return updated;
+  }
+
+  /** Sprint 38 — Field Operations & Collection Point Mobile Experience. The bridge a
+   *  field Sales Representative's D2C territory scope needs — see
+   *  `EmployeeService.assignTerritory`'s own doc comment. */
+  @Post(':id/territory')
+  @RequirePermission('hr.employee.edit')
+  async assignTerritory(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(assignEmployeeTerritorySchema))
+    body: AssignEmployeeTerritoryInput,
+    @CurrentUser() user: TokenPayload,
+    @Req() req: Request,
+  ) {
+    const updated = await this.employeeService.assignTerritory(
+      user.organisationId,
+      id,
+      body.territoryId,
+    );
+    await this.auditService.record({
+      action: HR_AUDIT_ACTIONS.EMPLOYEE_TERRITORY_ASSIGNED,
+      entityType: 'Employee',
+      entityId: updated.id,
+      organisationId: user.organisationId,
+      actorUserId: user.sub,
+      metadata: { territoryId: body.territoryId },
       ipAddress: req.ip,
       userAgent: req.headers['user-agent'],
     });

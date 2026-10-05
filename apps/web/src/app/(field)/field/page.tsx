@@ -7,6 +7,7 @@ import { Badge, Input } from '@zentuva/ui';
 import { FieldCard } from '@/components/field/FieldCard';
 
 import { listMyCollectionPointOutlets } from './collection-point/api';
+import { listFieldD2CCollectionPoints, listFieldD2COrders } from './d2c/api';
 import { getSalesOrderPartyName, listCustomers, listSalesOrders } from './api';
 import { SALES_ORDER_STATUS_LABELS, SALES_ORDER_STATUS_VARIANT } from './labels';
 
@@ -33,6 +34,21 @@ export default function FieldHomePage() {
     queryFn: listMyCollectionPointOutlets,
   });
   const hasCollectionPoints = (collectionPointOutletsData?.items.length ?? 0) > 0;
+  // Sprint 38 — Field Operations & Collection Point Mobile Experience. Only shown when
+  // the server's own territory scope (`FieldD2COverviewService`) actually returned
+  // something for this user — never a persistent nav item every field user sees
+  // regardless of whether they have a D2C territory assigned.
+  const { data: fieldD2COrdersData } = useQuery({
+    queryKey: ['field-d2c-orders'],
+    queryFn: listFieldD2COrders,
+  });
+  const { data: fieldD2CCollectionPointsData } = useQuery({
+    queryKey: ['field-d2c-collection-points'],
+    queryFn: listFieldD2CCollectionPoints,
+  });
+  const hasD2CActivity =
+    (fieldD2COrdersData?.items.length ?? 0) > 0 ||
+    (fieldD2CCollectionPointsData?.items.length ?? 0) > 0;
 
   const recentCustomers = (customersData?.items ?? []).slice(0, 5);
   const recentOrders = (ordersData?.items ?? []).slice(0, 5);
@@ -84,6 +100,15 @@ export default function FieldHomePage() {
           className="block rounded-xl border border-primary bg-primary/10 p-3 text-sm font-medium text-primary shadow-sm active:bg-primary/20"
         >
           Collection Point — view your fulfilment queue →
+        </Link>
+      )}
+
+      {hasD2CActivity && (
+        <Link
+          href="/field/d2c"
+          className="block rounded-xl border border-border bg-card p-3 text-sm font-medium shadow-sm active:bg-muted/50"
+        >
+          D2C Activity — orders &amp; Collection Points in your territory →
         </Link>
       )}
 

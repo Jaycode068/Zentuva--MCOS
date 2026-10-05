@@ -21,8 +21,35 @@ export interface CollectionPointFulfillmentResult {
   readyAt: Date | null;
   collectedAt: Date | null;
   salesOrderStatus: string;
-  consumer: { name: string; phoneNumber: string } | null;
+  /** Added Sprint 38 — derived from the most recent `Payment.status`/`.paymentDate` for
+   *  this `SalesOrder` (`SalesOrder.payments`, Sprint 35). `null` only in the
+   *  theoretical case of an admin manual-assignment against an order with no payment
+   *  row at all — never silently defaulted to "paid". */
+  paymentStatus: string | null;
+  paidAt: Date | null;
+  consumer: { name: string; phoneNumber: string; territoryName: string | null } | null;
   items: { productName: string; quantity: number; unit: string }[];
+}
+
+/**
+ * Added Sprint 38 — Field Operations & Collection Point Mobile Experience. An
+ * OPERATIONAL view only (brief §10: "Do not build a full inventory management
+ * application inside /field") — read-only, derived entirely from the EXISTING
+ * `InventoryStockRepository.findManyByProductsAndLocation` (the same primitive
+ * `SalesFulfilmentService.getAvailability` already uses for B2B) and the queued
+ * (not yet `COLLECTED`) `CollectionPointFulfillment` rows at one outlet. No new
+ * inventory table, no reservation, no mutation — a Collection Point representative
+ * preparing orders needs to know "do I have enough on hand for what's queued,"
+ * nothing more.
+ */
+export interface CollectionPointInventoryRow {
+  productId: string;
+  productName: string;
+  unit: string;
+  available: number;
+  required: number;
+  shortfall: number;
+  status: 'SUFFICIENT' | 'SHORT';
 }
 
 /** No eligible Collection Point exists for this order right now (e.g. no outlet in the

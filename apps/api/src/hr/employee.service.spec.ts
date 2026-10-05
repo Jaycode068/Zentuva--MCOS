@@ -92,6 +92,17 @@ function makeService(options?: {
       employees[id] = { ...e, ...data };
       return employees[id];
     }),
+    assignTerritory: jest.fn(async (org: string, id: string, territoryId: string | null) => {
+      const e = employees[id];
+      if (!e || e.organisationId !== org) {
+        return { employee: null, invalidTerritory: false };
+      }
+      if (territoryId === 'invalid-territory') {
+        return { employee: null, invalidTerritory: true };
+      }
+      employees[id] = { ...e, territoryId };
+      return { employee: employees[id], invalidTerritory: false };
+    }),
   };
 
   const departmentRepository = { findById: jest.fn(async () => ({ id: 'dept-1' })) };
@@ -351,5 +362,35 @@ describe('EmployeeService — Sprint 25 linked-User status sync', () => {
     });
     await service.suspend(ORG, 'emp-1');
     expect(userService.updateStatus).not.toHaveBeenCalled();
+  });
+});
+
+describe('EmployeeService.assignTerritory — Sprint 38 Field Operations', () => {
+  it('assigns a territory and returns the updated employee', async () => {
+    const { service } = makeService();
+    const updated = await service.assignTerritory(ORG, 'emp-1', 'territory-1');
+    expect(updated.territoryId).toBe('territory-1');
+  });
+
+  it('clears a territory with null', async () => {
+    const { service } = makeService({
+      employees: { 'emp-1': makeEmployee({ territoryId: 'territory-1' }) },
+    });
+    const updated = await service.assignTerritory(ORG, 'emp-1', null);
+    expect(updated.territoryId).toBeNull();
+  });
+
+  it('throws BadRequestException when the repository reports an invalid/cross-tenant territory id', async () => {
+    const { service } = makeService();
+    await expect(service.assignTerritory(ORG, 'emp-1', 'invalid-territory')).rejects.toThrow(
+      BadRequestException,
+    );
+  });
+
+  it('throws NotFoundException for a cross-tenant employee id', async () => {
+    const { service } = makeService();
+    await expect(service.assignTerritory(OTHER_ORG, 'emp-1', 'territory-1')).rejects.toThrow(
+      NotFoundException,
+    );
   });
 });

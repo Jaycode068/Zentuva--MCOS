@@ -26,7 +26,17 @@ describe('Collection Point Fulfillment domain independence (Sprint 37)', () => {
     expect(source).not.toMatch(
       /this\.(prisma)\.(salesOrder|inventoryStock|inventoryTransaction)\.(create|update|updateMany|delete|deleteMany|upsert|createMany)\(/,
     );
-    expect(source).not.toMatch(/InventoryStockRepository|InventoryTransactionRepository/);
+    // Sprint 38 — InventoryStockRepository is now a legitimate, READ-ONLY dependency
+    // (the Field Collection Point inventory view, `getInventoryViewForOutlet`, reusing
+    // the exact `findManyByProductsAndLocation` primitive `SalesFulfilmentService
+    // .getAvailability` already uses for B2B). The guard narrows to the thing that
+    // actually matters — no WRITE method is ever called on it, and
+    // InventoryTransactionRepository (a write-capable repository with no read need
+    // here) still never appears at all.
+    expect(source).not.toMatch(/InventoryTransactionRepository/);
+    expect(source).not.toMatch(
+      /this\.inventoryStockRepository\.(create|update|updateMany|delete|deleteMany|upsert|createMany)\(/,
+    );
     expect(source).toMatch(/this\.salesFulfilmentService\.fulfil\(/);
   });
 
@@ -63,7 +73,7 @@ describe('Collection Point Fulfillment domain independence (Sprint 37)', () => {
     }
   });
 
-  it('structural guard: CollectionPointFulfillmentModule imports only IdentityModule/AuthModule/OutletModule/SalesModule/ConsumerModule, no controller-less accident (it DOES have a controller — confirm exactly one)', () => {
+  it('structural guard: CollectionPointFulfillmentModule imports only IdentityModule/AuthModule/OutletModule/SalesModule/ConsumerModule/InventoryModule, no controller-less accident (it DOES have a controller — confirm exactly one)', () => {
     const source = readFileSync(join(__dirname, 'collection-point-fulfillment.module.ts'), 'utf-8');
     expect(source).toMatch(/controllers:\s*\[CollectionPointFulfillmentController\]/);
     const importsMatch = source.match(/imports:\s*\[([\s\S]*?)\],\s*controllers/);
@@ -74,8 +84,18 @@ describe('Collection Point Fulfillment domain independence (Sprint 37)', () => {
     // AuthModule is required alongside IdentityModule because the controller guards with
     // JwtAuthGuard, which needs TOKEN_SERVICE (provided by AuthModule, not IdentityModule) —
     // discovered via live verification when Nest failed to resolve JwtAuthGuard's dependency.
+    // InventoryModule added Sprint 38 — the Field inventory view injects
+    // InventoryStockRepository directly (OutletModule imports InventoryModule but does
+    // not re-export it, so this module needs its own import).
     expect(new Set(importedModules)).toEqual(
-      new Set(['IdentityModule', 'AuthModule', 'OutletModule', 'SalesModule', 'ConsumerModule']),
+      new Set([
+        'IdentityModule',
+        'AuthModule',
+        'OutletModule',
+        'SalesModule',
+        'ConsumerModule',
+        'InventoryModule',
+      ]),
     );
   });
 });

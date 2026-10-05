@@ -34,6 +34,7 @@ export const HR_AUDIT_ACTIONS = {
   WORK_SCHEDULE_ACTIVATED: 'hr.work_schedule.activated',
   WORK_SCHEDULE_DEACTIVATED: 'hr.work_schedule.deactivated',
   EMPLOYEE_WORK_SCHEDULE_ASSIGNED: 'hr.employee.work_schedule_assigned',
+  EMPLOYEE_TERRITORY_ASSIGNED: 'hr.employee.territory_assigned',
   ATTENDANCE_SIGNED_IN: 'hr.attendance.signed_in',
   ATTENDANCE_SIGNED_OUT: 'hr.attendance.signed_out',
   ATTENDANCE_ADMINISTRATIVE_ENTRY: 'hr.attendance.administrative_entry',

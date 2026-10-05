@@ -134,6 +134,20 @@ export const assignEmployeeManagerSchema = z.object({
 });
 export type AssignEmployeeManagerInput = z.infer<typeof assignEmployeeManagerSchema>;
 
+/**
+ * Added Sprint 38 — Field Operations & Collection Point Mobile Experience. The
+ * dedicated-method `assignX` shape every other single-field Employee relation
+ * already uses (`assignDepartment`/`assignPosition`/`assignManager`/
+ * `assignWorkSchedule`) — never folded into the generic `updateEmployeeSchema`.
+ * Existence is validated at the database's own foreign-key constraint, not a
+ * pre-check service call — `HrModule` deliberately imports no Retail/Territory
+ * module (see `hr.module.ts`'s own doc comment and `hr-independence.spec.ts`).
+ */
+export const assignEmployeeTerritorySchema = z.object({
+  territoryId: z.string().trim().min(1).nullable(),
+});
+export type AssignEmployeeTerritoryInput = z.infer<typeof assignEmployeeTerritorySchema>;
+
 export const linkEmployeeUserSchema = z.object({
   userId: z.string().trim().min(1),
 });
