@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -17,9 +18,11 @@ import {
 import { registerConsumerSchema, type RegisterConsumerInput } from '@zentuva/validation';
 import { useForm } from 'react-hook-form';
 
+import { D2cTabs } from '@/components/app/d2c-tabs';
 import { ApiError } from '@/lib/api-client';
 
 import { listTerritories } from '../../retail/api';
+import { listCollectionPointFulfillments, listD2COrders, listPaymentsForConsumer } from '../api';
 import {
   activateConsumer,
   deactivateConsumer,
@@ -34,18 +37,27 @@ import {
 
 /**
  * Sprint 32 — Consumer Identity, Territory & Location Foundation
- * (docs/domains/d2c.md). Minimal internal/admin verification surface —
- * NOT the eventual Sprint 39 D2C Sales Administration dashboard, and NOT
- * the future WhatsApp/consumer-facing UI. Just enough to register a
- * consumer, confirm phone identity/dedup, assign a structured location,
- * and change status, using the existing settings shell/component kit —
- * same "lightweight list/detail/location view" scope the brief allows.
+ * (docs/domains/d2c.md), extended Sprint 39 with the Consumer detail's Order
+ * History / Payment History / Collection History sections (the D2C Sales
+ * Administration dashboard brief's own Consumer Detail requirement) — the
+ * list/register/status/location surface built here in Sprint 32 is reused
+ * as-is, not duplicated into a second Consumer screen. NOT the future
+ * WhatsApp/consumer-facing UI.
  */
 export default function ConsumersPage() {
+  return (
+    <Suspense fallback={null}>
+      <ConsumersPageContent />
+    </Suspense>
+  );
+}
+
+function ConsumersPageContent() {
+  const searchParams = useSearchParams();
   const [statusFilter, setStatusFilter] = useState<'' | ConsumerStatus>('');
   const [search, setSearch] = useState('');
   const [registerOpen, setRegisterOpen] = useState(false);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(searchParams.get('id'));
   const queryClient = useQueryClient();
 
   const { data, isLoading, isError, error, refetch } = useQuery({
@@ -75,6 +87,8 @@ export default function ConsumersPage() {
         </div>
         <Button onClick={() => setRegisterOpen(true)}>Register Consumer</Button>
       </div>
+
+      <D2cTabs />
 
       <div className="flex flex-wrap gap-3">
         <Input
@@ -378,7 +392,111 @@ function ConsumerDetailDialog({
             </p>
           )}
         </div>
+
+        <ConsumerHistorySections consumerId={id} />
       </div>
     </Dialog>
+  );
+}
+
+/** Added Sprint 39 — the D2C Admin Consumer Detail's Order History / Payment History /
+ *  Collection History sections (the brief's own requirement), each composing an EXISTING
+ *  read (never a new "consumer activity" aggregate): `GET /d2c/admin/orders?consumerId=`,
+ *  `GET /finance/payments?consumerId=`, `GET /d2c/collection-point-fulfillments?consumerId=`. */
+function ConsumerHistorySections({ consumerId }: { consumerId: string }) {
+  const { data: ordersData } = useQuery({
+    queryKey: ['d2c-consumer-orders', consumerId],
+    queryFn: () => listD2COrders({ consumerId, pageSize: 20 }),
+  });
+  const { data: paymentsData } = useQuery({
+    queryKey: ['d2c-consumer-payments', consumerId],
+    queryFn: () => listPaymentsForConsumer(consumerId),
+  });
+  const { data: collectionData } = useQuery({
+    queryKey: ['d2c-consumer-collections', consumerId],
+    queryFn: () => listCollectionPointFulfillments({ consumerId, pageSize: 20 }),
+  });
+
+  const orders = ordersData?.items ?? [];
+  const payments = paymentsData?.items ?? [];
+  const collections = collectionData?.items ?? [];
+
+  return (
+    <div className="space-y-4 border-t border-border pt-4">
+      <div>
+        <Label>Order History ({orders.length})</Label>
+        {orders.length === 0 ? (
+          <p className="mt-1 text-sm text-muted-foreground">No orders yet.</p>
+        ) : (
+          <ul className="mt-1 space-y-1 text-sm">
+            {orders.map((order) => (
+              <li key={order.id} className="flex items-center justify-between">
+                <a
+                  href={`/settings/d2c/orders/${order.id}`}
+                  className="font-mono text-primary hover:underline"
+                >
+                  {order.orderCode}
+                </a>
+                <span className="text-muted-foreground">
+                  {order.total.toLocaleString()} · {order.status.replace(/_/g, ' ')}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <div>
+        <Label>Payment History ({payments.length})</Label>
+        {payments.length === 0 ? (
+          <p className="mt-1 text-sm text-muted-foreground">No payments yet.</p>
+        ) : (
+          <ul className="mt-1 space-y-1 text-sm">
+            {payments.map((payment) => (
+              <li key={payment.id} className="flex items-center justify-between">
+                <span>
+                  {payment.amount.toLocaleString()} {payment.currency} ·{' '}
+                  {new Date(payment.paymentDate).toLocaleDateString()}
+                </span>
+                <Badge
+                  variant={
+                    payment.status === 'RECORDED'
+                      ? 'success'
+                      : payment.status === 'FAILED'
+                        ? 'destructive'
+                        : 'default'
+                  }
+                >
+                  {payment.status}
+                </Badge>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <div>
+        <Label>Collection History ({collections.length})</Label>
+        {collections.length === 0 ? (
+          <p className="mt-1 text-sm text-muted-foreground">No Collection Point assignments yet.</p>
+        ) : (
+          <ul className="mt-1 space-y-1 text-sm">
+            {collections.map((row) => (
+              <li key={row.id} className="flex items-center justify-between">
+                <a
+                  href={`/settings/d2c/orders/${row.salesOrderId}`}
+                  className="text-primary hover:underline"
+                >
+                  {row.orderReference}
+                </a>
+                <span className="text-muted-foreground">
+                  {row.outletName} · {row.status.replace(/_/g, ' ')}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
   );
 }

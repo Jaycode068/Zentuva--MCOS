@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 
 import { AssetsModule } from './assets/assets.module';
 import { ProductModule } from './catalogue/product/product.module';
+import { D2CAdminModule } from './d2c/admin/d2c-admin.module';
 import { ConsumerModule } from './d2c/consumer/consumer.module';
 import { ConversationModule } from './d2c/conversation/conversation.module';
 import { CollectionPointFulfillmentModule } from './d2c/fulfillment/collection-point-fulfillment.module';
@@ -76,6 +77,7 @@ import { PaymentsModule } from './payments/payments.module';
     PaymentsModule,
     CollectionPointFulfillmentModule,
     FieldD2COverviewModule,
+    D2CAdminModule,
     AccessControlModule,
     WorkflowModule,
     NotificationsModule,

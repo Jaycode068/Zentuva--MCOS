@@ -11,6 +11,16 @@ export interface ListConsumersParams {
   search?: string;
 }
 
+/** Added Sprint 39 — the D2C Admin Consumer list's own pagination contract
+ *  (docs/domains/d2c.md), same `page`/`pageSize` shape as `EmployeeRepository.list`. A
+ *  separate method (`findManyPaginated` below) from `findManyByOrganisation` — the
+ *  existing internal `/d2c/consumers` admin surface (Sprint 32) keeps returning every
+ *  matching row unpaginated, exactly as today; nothing about its behavior changes. */
+export interface ListConsumersPaginatedParams extends ListConsumersParams {
+  page: number;
+  pageSize: number;
+}
+
 export interface CreateConsumerData {
   organisationId: string;
   consumerCode: string;
@@ -69,6 +79,40 @@ export class ConsumerRepository {
       },
       orderBy: { createdAt: 'desc' },
     });
+  }
+
+  /** Added Sprint 39 — the D2C Admin Consumer list (docs/domains/d2c.md). Same `where`
+   *  shape as `findManyByOrganisation` above, plus real pagination via `skip`/`take` and
+   *  a parallel `count`. */
+  async findManyPaginated(
+    organisationId: string,
+    params: ListConsumersPaginatedParams,
+  ): Promise<{ items: Consumer[]; total: number }> {
+    const where: Prisma.ConsumerWhereInput = {
+      organisationId,
+      ...(params.status ? { status: params.status } : {}),
+      ...(params.territoryId ? { territoryId: params.territoryId } : {}),
+      ...(params.search
+        ? {
+            OR: [
+              { fullName: { contains: params.search, mode: 'insensitive' } },
+              { consumerCode: { contains: params.search, mode: 'insensitive' } },
+              { phoneNumber: { contains: params.search, mode: 'insensitive' } },
+              { normalizedPhone: { contains: params.search, mode: 'insensitive' } },
+            ],
+          }
+        : {}),
+    };
+    const [items, total] = await Promise.all([
+      this.prisma.consumer.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (params.page - 1) * params.pageSize,
+        take: params.pageSize,
+      }),
+      this.prisma.consumer.count({ where }),
+    ]);
+    return { items, total };
   }
 
   /** Globally unique (see `Consumer.consumerCode` schema comment) — checked

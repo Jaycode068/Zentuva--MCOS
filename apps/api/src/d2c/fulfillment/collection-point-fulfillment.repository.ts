@@ -151,6 +151,96 @@ export class CollectionPointFulfillmentRepository {
     });
   }
 
+  /** Added Sprint 39 — the D2C Admin's org-wide Collection Point operational summary
+   *  (docs/domains/d2c.md). Unlike `findManyByOutlet`/`getQueueForOutlet`, this has NO
+   *  outlet/ownership restriction at the query level — `CollectionPointFulfillmentService
+   *  .listAll` is the only caller, and it enforces the admin-only check BEFORE calling
+   *  this, the same "service enforces authorization, repository just reads" split used
+   *  everywhere else in this file. */
+  async findManyPaginated(
+    organisationId: string,
+    params: {
+      status?: CollectionPointFulfillmentStatus;
+      outletId?: string;
+      territoryId?: string;
+      consumerId?: string;
+      dateFrom?: Date;
+      dateTo?: Date;
+      search?: string;
+      page: number;
+      pageSize: number;
+    },
+  ): Promise<{ items: CollectionPointFulfillmentWithRelations[]; total: number }> {
+    const where: Prisma.CollectionPointFulfillmentWhereInput = {
+      organisationId,
+      ...(params.status ? { status: params.status } : {}),
+      ...(params.outletId ? { outletId: params.outletId } : {}),
+      ...(params.territoryId ? { outlet: { territoryId: params.territoryId } } : {}),
+      ...(params.consumerId ? { salesOrder: { consumerId: params.consumerId } } : {}),
+      ...(params.dateFrom || params.dateTo
+        ? {
+            assignedAt: {
+              ...(params.dateFrom ? { gte: params.dateFrom } : {}),
+              ...(params.dateTo ? { lte: params.dateTo } : {}),
+            },
+          }
+        : {}),
+      ...(params.search
+        ? {
+            OR: [
+              { salesOrder: { orderCode: { contains: params.search, mode: 'insensitive' } } },
+              {
+                salesOrder: {
+                  consumer: { fullName: { contains: params.search, mode: 'insensitive' } },
+                },
+              },
+              { outlet: { name: { contains: params.search, mode: 'insensitive' } } },
+            ],
+          }
+        : {}),
+    };
+    const [items, total] = await Promise.all([
+      this.prisma.collectionPointFulfillment.findMany({
+        where,
+        include: RELATIONS_INCLUDE,
+        orderBy: { assignedAt: 'desc' },
+        skip: (params.page - 1) * params.pageSize,
+        take: params.pageSize,
+      }),
+      this.prisma.collectionPointFulfillment.count({ where }),
+    ]);
+    return { items, total };
+  }
+
+  /** Added Sprint 39 — the admin-only reassignment override. Conditional `updateMany`
+   *  scoped to the row's CURRENT status (only `ASSIGNED`/`PREPARING` are reassignable —
+   *  enforced by the caller passing exactly those as `fromStatuses`), the exact same
+   *  concurrency primitive as `updateStatus` above. Resets `preparingAt` to `null` and
+   *  `status` back to `ASSIGNED` at the new outlet — a clean restart of the queue state,
+   *  never a partial/ambiguous mid-state. */
+  async reassignOutlet(
+    organisationId: string,
+    id: string,
+    fromStatuses: CollectionPointFulfillmentStatus[],
+    newOutletId: string,
+  ): Promise<CollectionPointFulfillmentWithRelations | null> {
+    const result = await this.prisma.collectionPointFulfillment.updateMany({
+      where: { id, organisationId, status: { in: fromStatuses } },
+      data: {
+        outletId: newOutletId,
+        status: CollectionPointFulfillmentStatus.ASSIGNED,
+        preparingAt: null,
+      },
+    });
+    if (result.count === 0) {
+      return null;
+    }
+    return this.prisma.collectionPointFulfillment.findUniqueOrThrow({
+      where: { id },
+      include: RELATIONS_INCLUDE,
+    });
+  }
+
   /** Conditional `updateMany` scoped to the row's CURRENT status — the exact
    *  `SalesOrderRepository.updateStatus` concurrency primitive. A transition attempted
    *  from any status other than one of `fromStatuses` matches zero rows, a safe no-op the

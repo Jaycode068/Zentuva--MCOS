@@ -152,4 +152,75 @@ describe('CollectionPointFulfillmentRepository', () => {
       expect(result).toBeNull();
     });
   });
+
+  /** Added Sprint 39 — the admin reassignment override's conditional `updateMany`, the
+   *  exact same concurrency primitive as `updateStatus` above, just with a different
+   *  target field (`outletId`) and a fixed destination status. */
+  describe('reassignOutlet', () => {
+    it('moves outletId and resets to ASSIGNED+preparingAt null when the current status matches', async () => {
+      const { repository } = makeRepository();
+      const created = await repository.create({
+        organisation: { connect: { id: 'org-1' } },
+        salesOrder: { connect: { id: 'so-1' } },
+        outlet: { connect: { id: 'outlet-1' } },
+      } as never);
+      await repository.updateStatus(
+        'org-1',
+        created.id,
+        [CollectionPointFulfillmentStatus.ASSIGNED],
+        { status: CollectionPointFulfillmentStatus.PREPARING, preparingAt: new Date() },
+      );
+
+      const result = await repository.reassignOutlet(
+        'org-1',
+        created.id,
+        [CollectionPointFulfillmentStatus.ASSIGNED, CollectionPointFulfillmentStatus.PREPARING],
+        'outlet-2',
+      );
+
+      expect(result?.outletId).toBe('outlet-2');
+      expect(result?.status).toBe(CollectionPointFulfillmentStatus.ASSIGNED);
+      expect(result?.preparingAt).toBeNull();
+    });
+
+    it('returns null (no-op) when the current status is not reassignable (e.g. already COLLECTED)', async () => {
+      const { repository } = makeRepository();
+      const created = await repository.create({
+        organisation: { connect: { id: 'org-1' } },
+        salesOrder: { connect: { id: 'so-1' } },
+        outlet: { connect: { id: 'outlet-1' } },
+      } as never);
+      await repository.updateStatus(
+        'org-1',
+        created.id,
+        [CollectionPointFulfillmentStatus.ASSIGNED],
+        { status: CollectionPointFulfillmentStatus.COLLECTED },
+      );
+
+      const result = await repository.reassignOutlet(
+        'org-1',
+        created.id,
+        [CollectionPointFulfillmentStatus.ASSIGNED, CollectionPointFulfillmentStatus.PREPARING],
+        'outlet-2',
+      );
+      expect(result).toBeNull();
+    });
+
+    it('returns null for a cross-tenant id, never mutating another tenant row', async () => {
+      const { repository } = makeRepository();
+      const created = await repository.create({
+        organisation: { connect: { id: 'org-1' } },
+        salesOrder: { connect: { id: 'so-1' } },
+        outlet: { connect: { id: 'outlet-1' } },
+      } as never);
+
+      const result = await repository.reassignOutlet(
+        'org-2',
+        created.id,
+        [CollectionPointFulfillmentStatus.ASSIGNED],
+        'outlet-2',
+      );
+      expect(result).toBeNull();
+    });
+  });
 });

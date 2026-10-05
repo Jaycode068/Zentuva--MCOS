@@ -153,3 +153,17 @@ export const assignCollectionPointSchema = z.object({
   outletId: z.string().trim().min(1).optional(),
 });
 export type AssignCollectionPointInput = z.infer<typeof assignCollectionPointSchema>;
+
+// ---------------------------------------------------------------------------
+// Sprint 39 — D2C Sales Administration & Operations Dashboard
+// (docs/domains/d2c.md). Admin-only, narrowly-scoped override: moving an
+// already-assigned (but not yet READY_FOR_COLLECTION) order to a different
+// eligible Collection Point — e.g. its current outlet was disabled after
+// assignment. Never touches payment/inventory/totals (brief's explicit
+// forbidden-actions list) — only `CollectionPointFulfillment.outletId`.
+// ---------------------------------------------------------------------------
+
+export const reassignCollectionPointSchema = z.object({
+  outletId: z.string().trim().min(1, 'outletId is required'),
+});
+export type ReassignCollectionPointInput = z.infer<typeof reassignCollectionPointSchema>;

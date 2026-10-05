@@ -43,6 +43,24 @@ describe('PaymentController', () => {
     return { controller, paymentService, auditService };
   }
 
+  /** Added Sprint 39 — the `consumerId`/`salesOrderId` filters the D2C Admin
+   *  Consumer/Order detail pages use to fetch payment history. */
+  describe('list', () => {
+    it('forwards consumerId/salesOrderId through to the service alongside the existing filters', async () => {
+      const { controller, paymentService } = makeController();
+      paymentService.list.mockResolvedValue([payment]);
+
+      await controller.list(tokenUser, undefined, undefined, 'consumer-1', 'so-1');
+
+      expect(paymentService.list).toHaveBeenCalledWith('org-1', {
+        customerId: undefined,
+        invoiceId: undefined,
+        consumerId: 'consumer-1',
+        salesOrderId: 'so-1',
+      });
+    });
+  });
+
   describe('create', () => {
     it('records the payment and audits when wasCreated is true', async () => {
       const { controller, paymentService, auditService } = makeController();

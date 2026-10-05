@@ -22,6 +22,10 @@ describe('CollectionPointFulfillmentController', () => {
       startPreparing: jest.fn(),
       markReadyForCollection: jest.fn(),
       confirmCollection: jest.fn(),
+      listAll: jest.fn(),
+      getBySalesOrderId: jest.fn(),
+      reassign: jest.fn(),
+      listEligibleOutletsForReassignment: jest.fn(),
     } as unknown as jest.Mocked<CollectionPointFulfillmentService>;
     const controller = new CollectionPointFulfillmentController(service);
     return { controller, service };
@@ -122,5 +126,65 @@ describe('CollectionPointFulfillmentController', () => {
     expect(service.startPreparing).toHaveBeenCalledWith('org-1', 'cpf-1', 'rep-1');
     expect(service.markReadyForCollection).toHaveBeenCalledWith('org-1', 'cpf-1', 'rep-1');
     expect(service.confirmCollection).toHaveBeenCalledWith('org-1', 'cpf-1', 'rep-1');
+  });
+
+  /** Added Sprint 39 — the D2C Admin's org-wide Collection Point summary. */
+  it('listAll: parses pagination defaults and wraps the service result with page/pageSize', async () => {
+    const { controller, service } = makeController();
+    service.listAll.mockResolvedValue({ items: [{ id: 'cpf-1' } as never], total: 1 });
+
+    const result = await controller.listAll(user);
+
+    expect(result).toEqual({ items: [{ id: 'cpf-1' }], total: 1, page: 1, pageSize: 20 });
+    expect(service.listAll).toHaveBeenCalledWith(
+      'org-1',
+      'rep-1',
+      expect.objectContaining({ page: 1, pageSize: 20 }),
+    );
+  });
+
+  it('listAll: maps a ForbiddenException from the service straight through', async () => {
+    const { controller, service } = makeController();
+    service.listAll.mockRejectedValue(new ForbiddenException('nope'));
+
+    await expect(controller.listAll(user)).rejects.toThrow(ForbiddenException);
+  });
+
+  /** Added Sprint 39 — the D2C Admin Order Detail page's collection-status lookup. */
+  it('getBySalesOrder: wraps a null result as { item: null }, not a 404', async () => {
+    const { controller, service } = makeController();
+    service.getBySalesOrderId.mockResolvedValue(null);
+
+    const result = await controller.getBySalesOrder('so-1', user);
+    expect(result).toEqual({ item: null });
+  });
+
+  /** Added Sprint 39 — the admin-only reassignment override. */
+  it('reassign: delegates with organisationId/id/outletId/actorUserId from the token+body', async () => {
+    const { controller, service } = makeController();
+    service.reassign.mockResolvedValue({} as never);
+
+    await controller.reassign('cpf-1', { outletId: 'outlet-2' }, user);
+
+    expect(service.reassign).toHaveBeenCalledWith('org-1', 'cpf-1', 'outlet-2', 'rep-1');
+  });
+
+  it('reassign: maps a BadRequestException from the service straight through', async () => {
+    const { controller, service } = makeController();
+    service.reassign.mockRejectedValue(new BadRequestException('already there'));
+
+    await expect(controller.reassign('cpf-1', { outletId: 'outlet-2' }, user)).rejects.toThrow(
+      BadRequestException,
+    );
+  });
+
+  it('getEligibleForReassignment: returns { items } wrapping the service result', async () => {
+    const { controller, service } = makeController();
+    service.listEligibleOutletsForReassignment.mockResolvedValue([
+      { id: 'outlet-1', name: 'Bodija Supermart' },
+    ]);
+
+    const result = await controller.getEligibleForReassignment(user);
+    expect(result).toEqual({ items: [{ id: 'outlet-1', name: 'Bodija Supermart' }] });
   });
 });

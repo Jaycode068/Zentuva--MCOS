@@ -15,6 +15,16 @@ import { PAYABLE_INVOICE_STATUSES } from './invoice.repository';
 export interface ListPaymentsParams {
   customerId?: string;
   invoiceId?: string;
+  /** Added Sprint 39 — the D2C Admin Consumer/Order detail's payment history
+   *  (docs/domains/d2c.md). No existing caller passed this before. */
+  consumerId?: string;
+  salesOrderId?: string;
+  /** Added Sprint 39 — batch read for the D2C Admin order LIST (one query for a whole
+   *  page of orders' payment status, not one per order) — the same batch-read
+   *  convention as `CollectionPointFulfillmentRepository.findManyBySalesOrderIds`
+   *  (Sprint 38). Mutually exclusive with `salesOrderId` in practice; the repository
+   *  applies both independently if a caller somehow passed both. */
+  salesOrderIds?: string[];
 }
 
 const CUSTOMER_SELECT = { id: true, customerCode: true, customerName: true };
@@ -133,6 +143,9 @@ export class PaymentRepository {
         organisationId,
         ...(params.customerId ? { customerId: params.customerId } : {}),
         ...(params.invoiceId ? { allocations: { some: { invoiceId: params.invoiceId } } } : {}),
+        ...(params.consumerId ? { consumerId: params.consumerId } : {}),
+        ...(params.salesOrderId ? { salesOrderId: params.salesOrderId } : {}),
+        ...(params.salesOrderIds ? { salesOrderId: { in: params.salesOrderIds } } : {}),
       },
       include: RELATIONS_INCLUDE,
       orderBy: { createdAt: 'desc' },

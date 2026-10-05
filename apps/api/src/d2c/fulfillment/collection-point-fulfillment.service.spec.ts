@@ -88,6 +88,8 @@ describe('CollectionPointFulfillmentService', () => {
       findBySalesOrderId: jest.fn(),
       findManyByOutlet: jest.fn(),
       updateStatus: jest.fn(),
+      findManyPaginated: jest.fn(),
+      reassignOutlet: jest.fn(),
     } as unknown as jest.Mocked<CollectionPointFulfillmentRepository>;
     const outletRepository = {
       findById: jest.fn(),
@@ -595,6 +597,46 @@ describe('CollectionPointFulfillmentService', () => {
     });
   });
 
+  /** Added Sprint 39 — found via live verification: an outlet can be `ENABLED` +
+   *  `ACTIVE` but still lack a configured `inventoryLocationId`, making it appear
+   *  selectable in a naive "enabled outlets" picker while `reassign()` would reject it.
+   *  This method must apply the full eligibility check, not just `collectionPointStatus`. */
+  describe('listEligibleOutletsForReassignment', () => {
+    it('excludes an ENABLED+ACTIVE outlet with no inventory location configured', async () => {
+      const { service, outletRepository, effectiveAccessResolver } = makeService();
+      effectiveAccessResolver.resolve.mockResolvedValue({
+        isOwnerBypass: false,
+        grants: new Map([['sales.customer.manage', {}]]),
+      } as never);
+      const noInventoryLocation = {
+        ...eligibleOutlet,
+        id: 'outlet-2',
+        name: 'Mama Ngozi Provisions Shop',
+        inventoryLocationId: null,
+      };
+      outletRepository.findManyByOrganisation.mockResolvedValue([
+        eligibleOutlet,
+        noInventoryLocation,
+      ] as never);
+
+      const result = await service.listEligibleOutletsForReassignment(orgId, 'admin-1');
+
+      expect(result).toEqual([{ id: 'outlet-1', name: 'Bodija Supermart' }]);
+    });
+
+    it('rejects a non-admin caller with ForbiddenException', async () => {
+      const { service, effectiveAccessResolver } = makeService();
+      effectiveAccessResolver.resolve.mockResolvedValue({
+        isOwnerBypass: false,
+        grants: new Map(),
+      } as never);
+
+      await expect(service.listEligibleOutletsForReassignment(orgId, 'rep-1')).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+  });
+
   describe('getById — Sprint 38 enriched detail fields', () => {
     it('maps paymentStatus/paidAt from the most recent payment, and consumer.territoryName', async () => {
       const { service, repository } = makeService();
@@ -796,6 +838,145 @@ describe('CollectionPointFulfillmentService', () => {
         'PREPARING',
         'READY_FOR_COLLECTION',
       ]);
+    });
+  });
+
+  /** Added Sprint 39 — the D2C Admin's org-wide Collection Point summary. */
+  describe('listAll', () => {
+    it('rejects a non-admin caller with ForbiddenException', async () => {
+      const { service, effectiveAccessResolver } = makeService();
+      effectiveAccessResolver.resolve.mockResolvedValue({
+        isOwnerBypass: false,
+        grants: new Map(),
+      } as never);
+
+      await expect(service.listAll(orgId, 'rep-1', { page: 1, pageSize: 20 })).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+
+    it('maps every row through toResult and returns the total for an admin caller', async () => {
+      const { service, repository, effectiveAccessResolver } = makeService();
+      effectiveAccessResolver.resolve.mockResolvedValue({
+        isOwnerBypass: false,
+        grants: new Map([['sales.customer.manage', {}]]),
+      } as never);
+      repository.findManyPaginated.mockResolvedValue({ items: [cpf], total: 1 } as never);
+
+      const result = await service.listAll(orgId, 'admin-1', { page: 1, pageSize: 20 });
+      expect(result.total).toBe(1);
+      expect(result.items[0]?.id).toBe('cpf-1');
+    });
+  });
+
+  /** Added Sprint 39 — the D2C Admin Order Detail page's collection-status lookup. */
+  describe('getBySalesOrderId', () => {
+    it('returns null (not a thrown error) when the order has never been assigned', async () => {
+      const { service, repository } = makeService();
+      repository.findBySalesOrderId.mockResolvedValue(null);
+
+      const result = await service.getBySalesOrderId(orgId, 'so-unassigned', 'admin-1');
+      expect(result).toBeNull();
+    });
+
+    it('still enforces the same authorization as getById for an assigned order', async () => {
+      const { service, repository, effectiveAccessResolver } = makeService();
+      repository.findBySalesOrderId.mockResolvedValue(cpf as never);
+      effectiveAccessResolver.resolve.mockResolvedValue({
+        isOwnerBypass: false,
+        grants: new Map(),
+      } as never);
+
+      await expect(service.getBySalesOrderId(orgId, 'so-1', 'stranger')).rejects.toThrow(
+        NotAuthorizedForCollectionPointError,
+      );
+    });
+  });
+
+  /** Added Sprint 39 — the admin-only reassignment override (docs/domains/d2c.md). */
+  describe('reassign', () => {
+    const otherOutlet = { ...eligibleOutlet, id: 'outlet-2', name: 'Other Outlet' };
+
+    function mockAdmin(effectiveAccessResolver: jest.Mocked<EffectiveAccessResolver>) {
+      effectiveAccessResolver.resolve.mockResolvedValue({
+        isOwnerBypass: false,
+        grants: new Map([['sales.customer.manage', {}]]),
+      } as never);
+    }
+
+    it('rejects a non-admin caller with ForbiddenException, even one holding .fulfil for their own outlet', async () => {
+      const { service, repository, effectiveAccessResolver } = makeService();
+      repository.findById.mockResolvedValue(cpf as never);
+      effectiveAccessResolver.resolve.mockResolvedValue({
+        isOwnerBypass: false,
+        grants: new Map(),
+      } as never);
+
+      await expect(service.reassign(orgId, 'cpf-1', 'outlet-2', 'rep-1')).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+
+    it('moves the fulfilment to the new outlet and audits the reassignment', async () => {
+      const { service, repository, outletRepository, effectiveAccessResolver, auditService } =
+        makeService();
+      mockAdmin(effectiveAccessResolver);
+      repository.findById.mockResolvedValue(cpf as never);
+      outletRepository.findById.mockResolvedValue(otherOutlet as never);
+      repository.reassignOutlet.mockResolvedValue({ ...cpf, outletId: 'outlet-2' } as never);
+
+      const result = await service.reassign(orgId, 'cpf-1', 'outlet-2', 'admin-1');
+
+      expect(result.outletId).toBe('outlet-2');
+      expect(repository.reassignOutlet).toHaveBeenCalledWith(
+        orgId,
+        'cpf-1',
+        ['ASSIGNED', 'PREPARING'],
+        'outlet-2',
+      );
+      expect(auditService.record).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'collection_point_fulfillment.reassigned' }),
+      );
+    });
+
+    it('rejects reassigning to an ineligible outlet (e.g. not an enabled Collection Point)', async () => {
+      const { service, repository, outletRepository, effectiveAccessResolver } = makeService();
+      mockAdmin(effectiveAccessResolver);
+      repository.findById.mockResolvedValue(cpf as never);
+      outletRepository.findById.mockResolvedValue({
+        ...otherOutlet,
+        collectionPointStatus: 'DISABLED',
+      } as never);
+
+      await expect(service.reassign(orgId, 'cpf-1', 'outlet-2', 'admin-1')).rejects.toThrow(
+        CollectionPointNotEligibleError,
+      );
+    });
+
+    it('rejects reassigning to the same outlet the order is already at', async () => {
+      const { service, repository, outletRepository, effectiveAccessResolver } = makeService();
+      mockAdmin(effectiveAccessResolver);
+      repository.findById.mockResolvedValue(cpf as never);
+      outletRepository.findById.mockResolvedValue(eligibleOutlet as never);
+
+      await expect(service.reassign(orgId, 'cpf-1', 'outlet-1', 'admin-1')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('rejects reassignment once the order is READY_FOR_COLLECTION or later (the repository no-op path)', async () => {
+      const { service, repository, outletRepository, effectiveAccessResolver } = makeService();
+      mockAdmin(effectiveAccessResolver);
+      repository.findById.mockResolvedValue({
+        ...cpf,
+        status: CollectionPointFulfillmentStatus.READY_FOR_COLLECTION,
+      } as never);
+      outletRepository.findById.mockResolvedValue(otherOutlet as never);
+      repository.reassignOutlet.mockResolvedValue(null);
+
+      await expect(service.reassign(orgId, 'cpf-1', 'outlet-2', 'admin-1')).rejects.toThrow(
+        InvalidFulfillmentTransitionError,
+      );
     });
   });
 });

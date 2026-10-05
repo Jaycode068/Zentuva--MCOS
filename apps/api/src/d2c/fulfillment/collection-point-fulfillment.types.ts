@@ -10,6 +10,10 @@ export type CollectionPointFulfillmentStatusValue =
 
 export interface CollectionPointFulfillmentResult {
   id: string;
+  /** Added Sprint 39 — the D2C Admin's Collection Points list links each row to the
+   *  underlying order detail (`GET /sales/orders/:id`), which needs the `SalesOrder`'s
+   *  own id, not this fulfilment row's id. */
+  salesOrderId: string;
   orderReference: string;
   orderDate: Date;
   total: number;

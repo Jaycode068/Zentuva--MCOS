@@ -915,6 +915,37 @@ PaymentService (existing, extended) + SalesOrderService.confirm
       decrement, proving Sprint 37.1's atomic protection remains fully
       intact. 234 suites / 2120 tests passing, 0 regressions — see
       [`docs/sprint-38-completion-report.md`](sprint-38-completion-report.md)
+- [x] **Sprint 39 — D2C Sales Administration & Operations Dashboard.** A
+      new internal admin surface over the whole D2C chain — a pure
+      read-aggregation `D2CAdminModule`, no new table/repository/entity,
+      composing the existing SalesOrder/Consumer/CollectionPointFulfillment/
+      Outlet/Territory services exactly as built across Sprints 32–38. The
+      audit confirmed `/settings/d2c` already had Consumer/Conversation
+      sub-pages (Sprint 32/33) — both extended, never duplicated. Delivers:
+      a Dashboard (summary cards + a live-derived Attention Required view —
+      unassigned orders, failed payments, 24h-stuck fulfilments, disabled
+      Collection Points still holding a queue — every item a plain
+      filter/age-check over existing data, never a fabricated Exception
+      entity), a paginated D2C Order list/detail, a paginated Consumer admin
+      list, the existing Consumer detail extended with Order/Payment/
+      Collection History, an org-wide Collection Point operational queue,
+      and a Territory operational summary (explicitly not full Demand
+      Intelligence — that's Sprint 41). The one new mutation this sprint —
+      an audited, admin-only Collection Point reassignment, deliberately
+      left unbuilt in Sprint 37 — is reachable only from `ASSIGNED`/
+      `PREPARING`, never touches payment/inventory/totals/Consumer
+      identity, and reuses the exact conditional-`updateMany` concurrency
+      primitive used throughout this codebase. Live verification against
+      real dev data found and fixed a genuine gap (the reassignment picker
+      initially offered an outlet that would always fail eligibility
+      server-side — a real `ENABLED` outlet missing its inventory-location
+      configuration) and then confirmed the full reassignment path end to
+      end with a real audit-log entry and an unchanged underlying
+      `SalesOrder`. Admin-only authorization reuses the existing
+      `sales.customer.manage`-or-owner-bypass signal throughout — no new
+      permission. 236 suites / 2160 tests passing, 0 regressions; the
+      Sprint 37.1 PostgreSQL integration suite re-run unchanged — see
+      [`docs/sprint-39-completion-report.md`](sprint-39-completion-report.md)
 - [ ] Retail Portal (mobile)
 - [ ] Business Intelligence dashboards
 

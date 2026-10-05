@@ -33,8 +33,15 @@ export class PaymentController {
     @CurrentUser() user: TokenPayload,
     @Query('customerId') customerId?: string,
     @Query('invoiceId') invoiceId?: string,
+    @Query('consumerId') consumerId?: string,
+    @Query('salesOrderId') salesOrderId?: string,
   ) {
-    const payments = await this.paymentService.list(user.organisationId, { customerId, invoiceId });
+    const payments = await this.paymentService.list(user.organisationId, {
+      customerId,
+      invoiceId,
+      consumerId,
+      salesOrderId,
+    });
     return { items: payments.map(toPaymentResponse) };
   }
 

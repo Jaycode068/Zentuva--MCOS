@@ -376,6 +376,106 @@ export class CollectionPointFulfillmentService {
     return this.toResult(cpf);
   }
 
+  /** Added Sprint 39 — the D2C Admin Order Detail page's collection-status lookup
+   *  (docs/domains/d2c.md). `null` (not a thrown 404) when this order has never been
+   *  assigned to a Collection Point at all — a normal, expected state for a D2C order
+   *  still `CONFIRMED` awaiting assignment, not an error. Same admin-only authorization
+   *  as every other read here — a non-admin caller gets a `ForbiddenException` rather
+   *  than silently being told "no Collection Point" for an order they may not see. */
+  async getBySalesOrderId(
+    organisationId: string,
+    salesOrderId: string,
+    actorUserId: string,
+  ): Promise<CollectionPointFulfillmentResult | null> {
+    const cpf = await this.repository.findBySalesOrderId(organisationId, salesOrderId);
+    if (!cpf) {
+      return null;
+    }
+    await this.assertAuthorized(organisationId, cpf, actorUserId);
+    return this.toResult(cpf);
+  }
+
+  /** Added Sprint 39 — the D2C Admin's org-wide Collection Point operational summary
+   *  (docs/domains/d2c.md). Admin-only (the same `sales.customer.manage`-or-owner-bypass
+   *  check every other admin-oversight path in this service already uses) — there is no
+   *  "my scoped portion" of this view, so unlike `getQueueForOutlet` there is no
+   *  ownership fallback; a non-admin caller is rejected outright. */
+  async listAll(
+    organisationId: string,
+    actorUserId: string,
+    params: {
+      status?: CollectionPointFulfillmentStatus;
+      outletId?: string;
+      territoryId?: string;
+      consumerId?: string;
+      dateFrom?: Date;
+      dateTo?: Date;
+      search?: string;
+      page: number;
+      pageSize: number;
+    },
+  ): Promise<{ items: CollectionPointFulfillmentResult[]; total: number }> {
+    await this.assertAdmin(organisationId, actorUserId);
+    const { items, total } = await this.repository.findManyPaginated(organisationId, params);
+    return { items: items.map((item) => this.toResult(item)), total };
+  }
+
+  /**
+   * Added Sprint 39 — the admin-only Collection Point reassignment override (brief's
+   * "Collection Point Reassignment" — audited against Sprint 37's own
+   * `AlreadyAssignedError` doc comment, which explicitly left reassignment "optional and
+   * not built" at the time). Admin-only, no rep self-service path — unlike every other
+   * mutation in this file, which also accepts the assigned rep. Only reachable from
+   * `ASSIGNED`/`PREPARING` (never `READY_FOR_COLLECTION`/`COLLECTED` — once stock has been
+   * checked against, or physically set aside at, a specific outlet's inventory location,
+   * moving it elsewhere silently would be misleading, not a genuine queue correction).
+   * Never touches payment/inventory/totals/Consumer identity — only this row's own
+   * `outletId`/`status`/`preparingAt` (the brief's explicit forbidden-actions list).
+   */
+  async reassign(
+    organisationId: string,
+    id: string,
+    newOutletId: string,
+    actorUserId: string,
+  ): Promise<CollectionPointFulfillmentResult> {
+    await this.assertAdmin(organisationId, actorUserId);
+    const cpf = await this.getByIdOrThrow(organisationId, id);
+
+    const newOutlet = await this.outletRepository.findById(organisationId, newOutletId);
+    if (!newOutlet || !this.isEligible(newOutlet)) {
+      throw new CollectionPointNotEligibleError('This outlet is not an eligible Collection Point');
+    }
+    if (newOutlet.id === cpf.outletId) {
+      throw new BadRequestException('This order is already assigned to that Collection Point');
+    }
+
+    const updated = await this.repository.reassignOutlet(
+      organisationId,
+      id,
+      [CollectionPointFulfillmentStatus.ASSIGNED, CollectionPointFulfillmentStatus.PREPARING],
+      newOutletId,
+    );
+    if (!updated) {
+      throw new InvalidFulfillmentTransitionError(
+        'This order can no longer be reassigned — it is already ready for collection or has been collected',
+      );
+    }
+
+    await this.auditService.record({
+      action: COLLECTION_POINT_FULFILLMENT_AUDIT_ACTIONS.REASSIGNED,
+      entityType: 'CollectionPointFulfillment',
+      entityId: id,
+      organisationId,
+      actorUserId,
+      metadata: {
+        salesOrderId: cpf.salesOrderId,
+        fromOutletId: cpf.outletId,
+        toOutletId: newOutletId,
+      },
+    });
+    return this.toResult(updated);
+  }
+
   /** `GET /outlets/:outletId/queue` — the Field operational screen's own data source
    *  (brief "COLLECTION POINT / FIELD UX"). Ownership-enforced: a non-admin caller may
    *  only ever see the queue for an outlet they are the assigned representative of. */
@@ -489,6 +589,32 @@ export class CollectionPointFulfillmentService {
     return visible.map((outlet) => ({ id: outlet.id, name: outlet.name }));
   }
 
+  /**
+   * Added Sprint 39 — the admin reassignment picker's own data source. Deliberately NOT
+   * `getMyOutlets()` reused as-is: that method only filters by `collectionPointStatus`
+   * (its existing, already-live Field-app contract — widening it risks changing what the
+   * Field screen's own outlet picker shows for a rep, untouched here), while an outlet
+   * offered for REASSIGNMENT must pass the SAME full `isEligible()` check `reassign()`
+   * itself enforces (`status: ACTIVE` AND a configured `inventoryLocationId`) — found via
+   * live verification: an `ENABLED` outlet with no inventory location configured yet
+   * appeared selectable in the picker but was correctly rejected by `reassign()`,
+   * confirming the server-side check works but the picker was misleading. Admin-only,
+   * matching `reassign()`'s own authorization.
+   */
+  async listEligibleOutletsForReassignment(
+    organisationId: string,
+    actorUserId: string,
+  ): Promise<{ id: string; name: string }[]> {
+    await this.assertAdmin(organisationId, actorUserId);
+    const candidates = await this.outletRepository.findManyByOrganisation(organisationId, {
+      collectionPointStatus: 'ENABLED',
+      status: 'ACTIVE',
+    });
+    return candidates
+      .filter((outlet) => outlet.inventoryLocationId)
+      .map((outlet) => ({ id: outlet.id, name: outlet.name }));
+  }
+
   private async findEligibleOutlet(organisationId: string, territoryId: string) {
     const candidates = await this.outletRepository.findManyByOrganisation(organisationId, {
       territoryId,
@@ -553,6 +679,19 @@ export class CollectionPointFulfillmentService {
     );
   }
 
+  /** Added Sprint 39 — the admin-only check `listAll`/`reassign` require, with NO
+   *  ownership fallback (unlike `assertAuthorized`/`assertActorAuthorizedForOutlet`,
+   *  which also accept the assigned rep for THEIR OWN outlet). Reuses the exact same
+   *  `sales.customer.manage`-or-owner-bypass signal every other "is this an admin, not
+   *  just a rep" check in this service already relies on — no new permission. */
+  private async assertAdmin(organisationId: string, actorUserId: string): Promise<void> {
+    const access = await this.effectiveAccessResolver.resolve(organisationId, actorUserId);
+    if (access.isOwnerBypass || access.grants.has(SALES_CUSTOMER_MANAGE)) {
+      return;
+    }
+    throw new ForbiddenException('You are not authorized to view this organisation-wide data');
+  }
+
   private async assertActorAuthorizedForOutlet(
     organisationId: string,
     outlet: { collectionPointResponsibleUserId: string | null },
@@ -585,6 +724,7 @@ export class CollectionPointFulfillmentService {
     const latestPayment = cpf.salesOrder.payments[0] ?? null;
     return {
       id: cpf.id,
+      salesOrderId: cpf.salesOrderId,
       orderReference: cpf.salesOrder.orderCode,
       orderDate: cpf.salesOrder.orderDate,
       total: cpf.salesOrder.total,

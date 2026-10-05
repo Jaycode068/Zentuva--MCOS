@@ -79,6 +79,7 @@ export const WORKSPACE_NAV_GROUPS: WorkspaceNavGroup[] = [
       { label: 'Distribution', href: '/settings/distribution', icon: SendIcon },
       { label: 'Returns', href: '/settings/returns', icon: RotateCcwIcon },
       { label: 'Retail Network', href: '/settings/retail', icon: TruckIcon },
+      { label: 'D2C Operations', href: '/settings/d2c', icon: BarChartIcon },
       { label: 'D2C Consumers', href: '/settings/d2c/consumers', icon: UserIcon },
       { label: 'Conversation Tester', href: '/settings/d2c/conversation', icon: HelpCircleIcon },
       { label: 'Field Sales', href: '/field', icon: TrendingUpIcon },

@@ -2108,3 +2108,279 @@ Point), two genuinely concurrent `confirmCollection` calls producing exactly
 one stock decrement, and cross-tenant/cross-ownership/manipulated-id
 rejection in every case tested. See `docs/sprint-38-completion-report.md`
 for the full record.
+
+## 94. D2C Sales Administration & Operations Dashboard (Sprint 39)
+
+The internal admin surface over the whole D2C chain (Consumer → Conversation
+→ SalesOrder → Payment → CollectionPoint → FieldOps → Inventory →
+Collection) — built as a NEW `D2CAdminModule`
+(`apps/api/src/d2c/admin/`), a pure read-aggregation layer with no table,
+repository, or entity of its own (the exact `FieldD2COverviewModule`
+shape, Sprint 38). Every read composes an EXISTING service/repository
+(`SalesOrderService`, `ConsumerService`, `CollectionPointFulfillmentService`
+/`Repository`, `OutletRepository`, `TerritoryRepository`) — never a second
+"D2C order"/"D2C payment"/"Exception" entity. The ONE genuinely new
+mutation (Collection Point reassignment, §97) lives inside the EXISTING
+`CollectionPointFulfillmentService`/`Repository`, not this module.
+
+Mandatory pre-build audit confirmed `/settings/d2c` already had
+`consumers/` and `conversation/` sub-pages (Sprint 32/33) — both extended
+(§99), never duplicated. Confirmed admin-wide reads (an org-wide Collection
+Point list, pagination on Consumer/SalesOrder/Payment lists, a
+`consumerId`/`salesOrderId` filter on Payment) were genuinely missing, not
+reinventions of something already there.
+
+## 95. Admin-Only Authorization
+
+Every `D2CAdminService` method, and the two new admin-only
+`CollectionPointFulfillmentService` methods (`listAll`, `reassign`), use
+the SAME `access.isOwnerBypass || access.grants.has('sales.customer.manage')`
+signal `getMyOutlets`/`assertAuthorized` already established (Sprint 37/38)
+for "is this an admin, not just a rep" — no new permission, no new concept.
+Two layers, matching every other admin-oversight path in this codebase: the
+`@RequirePermission` decorator (`sales.order.view` for
+overview/attention/territories/orders, `d2c.consumer.view` for the
+Consumer list, `d2c.collection_point.view`/`.fulfil` for the Collection
+Point routes — confirms the caller holds the right KIND of permission) and
+an inner `assertAdmin` check inside the service (confirms org-wide scope,
+not just SOME scope — a Member holding `sales.order.view` with only
+`OWN_RECORDS` scope still gets a clean 403 from the admin surface,
+verified live: §101).
+
+## 96. New Read Endpoints
+
+All under `d2c/admin` except the Collection Point ones (kept on the
+existing `CollectionPointFulfillmentController` instead, for cohesion with
+that module's other routes):
+
+- `GET /d2c/admin/overview` — summary cards (`totalD2COrders`,
+  `consumersTotal`, `activeCollectionPoints`, `pendingPayments`,
+  `failedPayments`, `unassignedOrders`) + the Attention Required list +
+  the 10 most recent D2C orders. Every count is a LIVE query (`page:1,
+pageSize:1` against the new paginated methods below, reading only
+  `.total`) — never cached/precomputed.
+- `GET /d2c/admin/attention` — the full itemized Attention/Exception view
+  (brief's own requirement), the same computation `overview` truncates
+  into counts. Five derivations, each a plain filter/age-check over
+  EXISTING data (never a fabricated Exception entity): `UNASSIGNED_ORDER`
+  (a `CONFIRMED` D2C order with no `CollectionPointFulfillment` row —
+  resolved via the existing batch `findManyBySalesOrderIds`, never N+1),
+  `FAILED_PAYMENT` (`payments: {some: {status: 'FAILED'}}`),
+  `STUCK_FULFILLMENT` (`ASSIGNED`/`PREPARING` for over 24h — the same
+  operational threshold Sprint 38's Field "Waiting" badge used, scaled to
+  an org-wide view), `DISABLED_COLLECTION_POINT_WITH_QUEUE` (a queued
+  fulfilment whose outlet's `collectionPointStatus` is `DISABLED`).
+- `GET /d2c/admin/territories` — per-territory consumer/D2C-order/
+  Collection-Point counts (brief: "not full Demand Intelligence — that's
+  Sprint 41"). Two bounded `groupBy` queries plus one outlet query, merged
+  in memory via a consumer-id → territory-id map — never N+1 per
+  territory. Found and fixed during this sprint's own build: `Outlet
+.collectionPointStatus` defaults to `DISABLED` for EVERY outlet,
+  including ones never configured as a Collection Point at all — counting
+  "collection points per territory" by that field alone would have
+  miscounted every ordinary B2B outlet as a "disabled Collection Point".
+  Fixed by requiring `collectionPointStatus === 'ENABLED' ||
+collectionPointResponsibleUserId` (a genuine "was this outlet ever
+  configured as one" signal) before counting — caught by a dedicated unit
+  test, not live testing.
+- `GET /d2c/admin/consumers` — paginated (`ConsumerRepository
+.findManyPaginated`, NEW — the existing Sprint 32 `GET /d2c/consumers`
+  stays completely unpaginated and untouched, since that surface's own doc
+  comment already flagged it as a minimal verification screen Sprint 39
+  would extend elsewhere, not replace).
+- `GET /d2c/admin/orders` — paginated, `source: D2C` forced server-side
+  (never exposes B2B orders), filters: `status`, `consumerId`,
+  `territoryId` (via `Consumer.territoryId`), `collectionPointOutletId`
+  (resolved via a `CollectionPointFulfillment.outletId` → salesOrderId
+  lookup FIRST, then `id: {in: ...}` — `SalesOrder.outletId` itself is
+  always `null` for a D2C order, so a naive reuse of the B2B `outletId`
+  filter would have silently matched nothing), `paymentStatus` (including
+  a `'NONE'` value — `payments: {none: {}}`, genuinely distinct from
+  "attempted and failed"), `dateFrom`/`dateTo`, and a `search` widened to
+  also match `Consumer.fullName`/`.consumerCode` (the existing B2B-only
+  `search` on `SalesOrderRepository.findManyByOrganisation` is untouched).
+- `GET /d2c/collection-point-fulfillments` (no path segment — admin-only,
+  structurally distinct from `GET /:id`) — the org-wide Collection Point
+  operational summary, filterable by status/outlet/territory/consumer/
+  date/search, admin-only via `listAll`.
+- `GET /d2c/collection-point-fulfillments/by-sales-order/:salesOrderId` —
+  the Order Detail page's collection-status lookup. Returns `{item: null}`
+  (never a 404) when the order has never been assigned — a normal,
+  expected state for a `CONFIRMED` order awaiting assignment.
+- `GET /finance/payments?consumerId=`/`?salesOrderId=` — two new optional
+  filters on the EXISTING `ListPaymentsParams`/`PaymentController.list`
+  (previously only `customerId`/`invoiceId`) — additive, zero behavior
+  change for every existing caller. A new `salesOrderIds?: string[]`
+  batch filter was added to the repository too but is not yet wired to
+  any HTTP route — kept for a future batch-read need, following the exact
+  `findManyBySalesOrderIds` precedent.
+
+**Pagination convention**: every new paginated method
+(`SalesOrderRepository.findManyPaginated`, `ConsumerRepository
+.findManyPaginated`, `CollectionPointFulfillmentRepository
+.findManyPaginated`) is a SEPARATE method from the existing unpaginated
+`findManyByOrganisation`/`findManyByOutlet` — never a retrofit. Every
+pre-Sprint-39 caller of those existing methods (`FieldD2COverviewService`,
+etc.) keeps getting a bare, uncapped array, unchanged.
+
+## 97. Collection Point Reassignment (the one new mutation)
+
+Audited against Sprint 37's own `AlreadyAssignedError` doc comment, which
+explicitly states reassignment was "left optional and not built" — a
+confirmed, pre-existing, deliberately-deferred gap, not a new capability
+invented for this sprint. `CollectionPointFulfillmentService.reassign()`:
+admin-only (no rep self-service path, unlike every OTHER mutation in this
+service), reachable only from `ASSIGNED`/`PREPARING` (never
+`READY_FOR_COLLECTION`/`COLLECTED` — once stock has been checked against,
+or physically set aside at, a specific outlet, silently moving the order
+elsewhere would be misleading, not a genuine correction), validates the
+target outlet's FULL eligibility (`isEligible()` — active, enabled, AND a
+configured inventory location, the same check `assignManually` already
+uses), and is a conditional `updateMany` scoped to the row's current
+status — the identical "conditional update as concurrency guard" primitive
+used throughout this codebase. Resets `status: ASSIGNED` and
+`preparingAt: null` at the new outlet (deliberately does NOT touch
+`assignedAt` — the original queue-entry time is preserved for SLA/wait
+tracking across the correction). Fully audited
+(`collection_point_fulfillment.reassigned`, `fromOutletId`/`toOutletId`/
+`salesOrderId` in metadata). Never touches payment, inventory, totals, or
+Consumer identity — confirmed by both the structural independence guard
+(unchanged) and live verification (§101): the underlying `SalesOrder`'s
+`status`/`total` were bit-for-bit identical before and after.
+
+**A genuine gap found and fixed via live verification, not a unit test**:
+the reassignment picker's first implementation reused `getMyOutlets()` (an
+outlet list filtered only by `collectionPointStatus`). Live-testing the
+reassignment dialog against real dev data surfaced an outlet
+(`collectionPointStatus: ENABLED`, `status: ACTIVE`, but
+`inventoryLocationId: null`) that appeared selectable in the picker and
+then correctly failed server-side with "This outlet is not an eligible
+Collection Point" — the backend check was right, but the picker was
+misleading. Fixed with a NEW, narrower method,
+`listEligibleOutletsForReassignment()` (full `isEligible()` filter, not
+just `collectionPointStatus`), its own endpoint
+(`GET /d2c/collection-point-fulfillments/eligible-for-reassignment`), and
+the frontend repointed at it — `getMyOutlets()` itself (the Field app's
+own, already-live outlet picker, Sprint 38) was deliberately left
+untouched rather than widened, since changing its filter risked changing
+what a Field rep sees for their own outlet, a different and unrelated
+screen.
+
+## 98. Admin Overrides — Audited and Rejected
+
+Per the brief's own audit-first-per-override framework: "resend a
+transactional notification" was audited and found inapplicable — no
+consumer-facing notification channel exists yet (`Notification` remains
+User-only throughout this codebase); nothing to resend. "Correct a
+permitted consumer preference" (display name, marketing opt-in, location)
+was found to ALREADY be fully covered by the existing Sprint 32
+`PATCH /d2c/consumers/:id`/`:id/location` endpoints — reused as-is via the
+Consumer detail dialog, no new code. No other override was built.
+Explicitly NOT done, per the brief's own forbidden list: marking an
+unpaid order paid, manipulating inventory, altering totals, fabricating
+fulfilment, bypassing payment verification, changing immutable Consumer
+identity (`consumerCode`/`normalizedPhone`), or mutating accounting
+records directly — none of these has any code path anywhere in this
+sprint's changes.
+
+## 99. Frontend
+
+`apps/web/src/app/(app)/settings/d2c/page.tsx` (NEW, the dashboard),
+`orders/page.tsx` + `orders/[id]/page.tsx` (NEW, list + detail, the
+`settings/hr/employees` pagination/filter/table convention), `collection
+-points/page.tsx` (NEW, the org-wide queue), `territories/page.tsx` (NEW,
+the summary table), a shared `D2cTabs` sub-nav component (the
+`HrTabs`/`MaintenanceTabs` clone pattern) — and `consumers/page.tsx`
+EXTENDED (not duplicated) with the Consumer Detail's Order History/Payment
+History/Collection History sections, each composing one of the new admin
+endpoints, plus a `?id=` deep-link (wrapped in `<Suspense>`, the
+established `useSearchParams` convention in this codebase) so the Order
+Detail page's "View consumer profile →" link opens the right consumer
+directly. The Workspace nav config gained one new entry ("D2C Operations"
+→ `/settings/d2c`); the existing "D2C Consumers"/"Conversation Tester"
+entries are unchanged.
+
+## 100. Testing (Sprint 39)
+
+New: `d2c-admin.service.spec.ts` (11 tests — admin-only enforcement across
+every entry point, owner-bypass, overview assembly, all four attention
+derivations including the disabled-outlet-miscounting guard, the
+territory-summary rollup math including the never-configured-outlet
+exclusion, `listOrders`'s Collection-Point-id-resolution and its
+empty-result short-circuit), `d2c-admin.controller.spec.ts` (7). Extended:
+`collection-point-fulfillment.service.spec.ts` (+11: `listAll`,
+`getBySalesOrderId`, `reassign`'s admin-only/eligibility/same-outlet/
+wrong-status cases, `listEligibleOutletsForReassignment`'s eligibility
+filter), `.controller.spec.ts` (+4), `.repository.spec.ts` (+3,
+`reassignOutlet`'s conditional-update/no-op/cross-tenant cases — the exact
+`updateStatus` test shape), `sales-order.service.spec.ts`/`consumer
+.service.spec.ts` (+1 each, the new `listPaginated` passthroughs),
+`payment.controller.spec.ts` (+1, the new filter forwarding). Full suite:
+236 suites / 2160 tests passing, zero regressions against the Sprint 38
+baseline (234/2120); the Sprint 37.1 real-PostgreSQL integration suite
+(7/7) re-run unchanged; `prisma validate`/`migrate status` confirm zero
+schema changes this sprint; a full `next build` production build succeeds
+with every new route listed and zero warnings.
+
+## 101. Live Verification
+
+Against the real dev database and a real running application (API + web,
+desktop and 375px mobile viewports), using a real injected session token
+(the documented `localStorage` workaround from Sprint 37/38, re-used
+identically):
+
+- **Dashboard**: summary cards and the Attention Required section
+  rendered real counts (13 D2C orders, 26 consumers, 3 enabled Collection
+  Points) and correctly surfaced a GENUINELY stuck order left over from
+  Sprint 37/38's own test data (`SO-000026`, `PREPARING` for several days)
+  — confirming the 24h-stuck-fulfilment derivation works against real,
+  unscripted data, not just fixtures.
+- **Order detail**: consumer/items/payment history/collection status all
+  rendered correctly for a real order; the Reassign action appeared only
+  because the order's real status was `PREPARING` (eligible), confirming
+  the one-action-visible-per-state logic.
+- **Administrative mutation (reassignment)**: found and fixed the
+  eligible-outlet-picker gap (§97) live, then re-verified the full path
+  end to end on the SAME real order — outlet changed from "Bodija
+  Supermart" to a second outlet, status reset `PREPARING → ASSIGNED`,
+  confirmed via a direct audit-log query
+  (`collection_point_fulfillment.reassigned` with correct
+  `fromOutletId`/`toOutletId`/actor) and a direct re-fetch of the
+  underlying `SalesOrder` showing `status`/`total` bit-for-bit unchanged.
+- **Collection Points / Territories**: the org-wide queue list correctly
+  reflected the reassignment immediately (new outlet, new status, status
+  filter narrowing to exactly 1 matching row); the territory summary's
+  numbers were internally consistent with the dashboard's own totals.
+- **Consumer detail**: the `?id=` deep link from the Order Detail page
+  opened the correct consumer, and all three new history sections
+  (Order/Payment/Collection) rendered the same real order correctly.
+- **Security**: an unauthenticated request to `/d2c/admin/overview`
+  returned 401; a real Member-role account (holding no
+  `sales.customer.manage` grant) received a 403 with the exact expected
+  message; manipulated/non-existent ids against `/sales/orders/:id` and
+  `/d2c/consumers/:id` returned 404 without leaking existence, and the
+  same manipulated id against the new `by-sales-order/:id` lookup
+  correctly returned `{item: null}` with 200 (the documented "not yet
+  assigned" state, not an error).
+- **Responsive**: the dashboard re-tested at a 375px mobile viewport
+  renders correctly (2-column stat grid, wrapping attention list,
+  horizontally-scrolling tab bar) with the SAME live data, including the
+  attention message correctly reflecting the just-completed reassignment.
+
+**Known limitation**: true cross-TENANT isolation (a second organisation's
+token against this organisation's resource ids) was not separately
+live-tested this sprint — no second tenant's credentials were readily
+available in the dev seed — but every new endpoint routes through the
+SAME `(id, organisationId)`-scoped `SalesOrderService`/`ConsumerService`/
+`CollectionPointFulfillmentRepository` methods already exhaustively
+cross-tenant-tested in Sprints 32–38; no new cross-tenant surface was
+introduced.
+
+## 102. Scope Boundaries — Explicitly Not Built (Sprint 39)
+
+WhatsApp/loyalty/marketing/consumer-segmentation changes, full Demand
+Intelligence (Sprint 41), predictive analytics, settlement/payout, a new
+payment provider, a new inventory or order architecture, a CRM
+replacement, a full BI platform, or any admin override beyond the one
+audited and built (§97) — all explicitly out of scope, per the brief's
+own boundary.

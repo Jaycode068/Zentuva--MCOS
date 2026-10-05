@@ -302,7 +302,10 @@ export class ConsumerController {
  *  a FUTURE consumer-facing/WhatsApp response shape, which must be built
  *  separately and expose strictly less (no `id`, no audit actor ids, no raw
  *  `createdById`/`updatedById`) — never this same function reused as-is. */
-function toConsumerResponse(consumer: Consumer) {
+/** Exported Sprint 39 — reused as-is by `D2CAdminController`'s Consumer list so the D2C
+ *  Admin dashboard never leaks a raw Prisma `Consumer` row (internal ids, audit actor
+ *  fields) the way passing the entity straight through would. */
+export function toConsumerResponse(consumer: Consumer) {
   return {
     id: consumer.id,
     consumerCode: consumer.consumerCode,

@@ -6,7 +6,11 @@ import { normalizePhoneNumber } from '../../notifications/phone-number-normalize
 import { OrganisationService } from '../../identity/organisation/organisation.service';
 import { TerritoryRepository } from '../../retail/territory/territory.repository';
 import { ConsumerLocationRequestRepository } from './consumer-location-request.repository';
-import { ListConsumersParams, ConsumerRepository } from './consumer.repository';
+import {
+  ListConsumersPaginatedParams,
+  ListConsumersParams,
+  ConsumerRepository,
+} from './consumer.repository';
 
 const CONSUMER_CODE_PREFIX = 'CON';
 const CONSUMER_CODE_SEQUENCE_LENGTH = 6;
@@ -73,6 +77,14 @@ export class ConsumerService {
 
   list(organisationId: string, params?: ListConsumersParams): Promise<Consumer[]> {
     return this.consumerRepository.findManyByOrganisation(organisationId, params);
+  }
+
+  /** Added Sprint 39 — the D2C Admin Consumer list's paginated read. */
+  listPaginated(
+    organisationId: string,
+    params: ListConsumersPaginatedParams,
+  ): Promise<{ items: Consumer[]; total: number }> {
+    return this.consumerRepository.findManyPaginated(organisationId, params);
   }
 
   /**

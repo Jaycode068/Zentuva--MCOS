@@ -139,6 +139,7 @@ describe('SalesOrderService', () => {
       findById: jest.fn(),
       findByIdempotencyKey: jest.fn(),
       findManyByOrganisation: jest.fn(),
+      findManyPaginated: jest.fn(),
       existsByCode: jest.fn().mockResolvedValue(false),
       update: jest.fn(),
       updateStatus: jest.fn(),
@@ -698,6 +699,20 @@ describe('SalesOrderService', () => {
       salesOrderRepository.findById.mockResolvedValue(null);
 
       await expect(service.getById('org-2', 'order-1')).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  /** Added Sprint 39 — the D2C Admin order list's thin passthrough. */
+  describe('listPaginated', () => {
+    it('delegates straight to the repository, params and all', async () => {
+      const { service, salesOrderRepository } = makeService();
+      salesOrderRepository.findManyPaginated.mockResolvedValue({ items: [], total: 0 });
+
+      const params = { source: 'D2C' as const, page: 1, pageSize: 20 };
+      const result = await service.listPaginated('org-1', params);
+
+      expect(result).toEqual({ items: [], total: 0 });
+      expect(salesOrderRepository.findManyPaginated).toHaveBeenCalledWith('org-1', params);
     });
   });
 });

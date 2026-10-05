@@ -7,6 +7,59 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 39 D2C Sales Administration & Operations Dashboard] - 2026-10-05
+
+A new internal admin surface over the whole D2C chain (Consumer →
+Conversation → SalesOrder → Payment → CollectionPoint → FieldOps →
+Inventory → Collection) — a pure read-aggregation `D2CAdminModule`, no new
+table, repository, or entity, composing the existing SalesOrder/Consumer/
+CollectionPointFulfillment/Outlet/Territory services exactly as built
+across Sprints 32–38. The mandatory pre-build audit confirmed
+`/settings/d2c` already had Consumer/Conversation sub-pages (Sprint 32/33)
+— both extended, never duplicated.
+
+**New.** A D2C Admin Dashboard (`/settings/d2c`) with summary cards and a
+live-derived Attention Required view (unassigned orders, failed payments,
+24h-stuck fulfilments, disabled Collection Points still holding a queue —
+every item a plain filter/age-check over existing data, never a fabricated
+Exception entity); a paginated D2C Order list/detail
+(`/settings/d2c/orders`); a paginated Consumer admin list
+(`GET /d2c/admin/consumers`) alongside the existing Consumer detail,
+extended with Order/Payment/Collection History sections; an org-wide
+Collection Point operational queue (`/settings/d2c/collection-points`);
+and a Territory operational summary (`/settings/d2c/territories`,
+explicitly not full Demand Intelligence — that's Sprint 41). The one new
+mutation — an audited, admin-only Collection Point reassignment,
+deliberately left unbuilt in Sprint 37 — is reachable only from
+`ASSIGNED`/`PREPARING`, never touches payment/inventory/totals/Consumer
+identity, and reuses the exact conditional-`updateMany` concurrency
+primitive used throughout this codebase.
+
+**Fixed.** Live verification against real dev data found a genuine gap:
+the reassignment picker initially offered an `ENABLED`/`ACTIVE` outlet
+that had never had an inventory location configured, which then correctly
+failed server-side eligibility — the picker was misleading, not the
+check. Fixed with a dedicated, fully-eligibility-filtered endpoint; the
+unrelated, already-live Field-app outlet picker (`getMyOutlets`) was
+deliberately left untouched. Also fixed, during the Territory summary's
+own build (caught by a unit test, not live testing): `Outlet
+.collectionPointStatus` defaults to `DISABLED` for every outlet, including
+ones never configured as a Collection Point at all — an earlier draft
+would have miscounted every ordinary B2B outlet with a territory as a
+"disabled Collection Point".
+
+**Unchanged.** Every existing D2C/Sales/Finance read/write path — this
+sprint added four new paginated read methods (`SalesOrderRepository
+.findManyPaginated`, `ConsumerRepository.findManyPaginated`,
+`CollectionPointFulfillmentRepository.findManyPaginated`, plus two new
+optional `Payment` filters) as entirely separate, additive methods, never
+retrofitted onto the existing unpaginated ones every pre-Sprint-39 caller
+still relies on. 236 suites / 2160 tests passing, 0 regressions; the
+Sprint 37.1 real-PostgreSQL concurrency integration suite (7/7) re-run
+unchanged; zero schema changes this sprint (`prisma validate`/`migrate
+status` both confirm). See
+[docs/sprint-39-completion-report.md](sprint-39-completion-report.md).
+
 ## [Sprint 38 Field Operations & Collection Point Mobile Experience] - 2026-10-02
 
 Turns the D2C backend built across Sprints 32–37.1 into a practical mobile

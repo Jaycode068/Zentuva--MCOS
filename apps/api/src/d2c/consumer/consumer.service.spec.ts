@@ -21,6 +21,7 @@ describe('ConsumerService', () => {
       findById: jest.fn(),
       findByNormalizedPhone: jest.fn(),
       findManyByOrganisation: jest.fn(),
+      findManyPaginated: jest.fn(),
       existsByCode: jest.fn().mockResolvedValue(false),
       findOrCreate: jest.fn(),
       update: jest.fn(),
@@ -225,6 +226,20 @@ describe('ConsumerService', () => {
       const result = await service.suspend('org-1', 'c-1', 'user-1');
 
       expect(result.status).toBe('SUSPENDED');
+    });
+  });
+
+  /** Added Sprint 39 — the D2C Admin Consumer list's thin passthrough. */
+  describe('listPaginated', () => {
+    it('delegates straight to the repository, params and all', async () => {
+      const { service, consumerRepository } = makeService();
+      consumerRepository.findManyPaginated.mockResolvedValue({ items: [], total: 0 });
+
+      const params = { page: 1, pageSize: 20 };
+      const result = await service.listPaginated('org-1', params);
+
+      expect(result).toEqual({ items: [], total: 0 });
+      expect(consumerRepository.findManyPaginated).toHaveBeenCalledWith('org-1', params);
     });
   });
 });

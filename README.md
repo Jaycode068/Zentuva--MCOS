@@ -288,7 +288,20 @@ feature is built configurably so it can be reused by future tenants without code
 > payment through to collection with stock genuinely decreasing, a rep
 > seeing only their own territory's orders while a second company saw
 > none of it, and two people tapping "confirm" on the same order at once
-> without anything going wrong. See
+> without anything going wrong. The most recent sprint then gave the
+> business side a single place to actually run that whole chain from: a
+> dashboard surfacing what needs attention right now — unassigned orders,
+> failed payments, a fulfilment that's been sitting too long — alongside a
+> searchable order list, a consumer's full order/payment/collection
+> history in one screen, and a territory-by-territory view of coverage.
+> Built entirely by composing the services already there, with exactly one
+> new action: letting an admin move a stuck order to a different
+> Collection Point, something deliberately left unbuilt two sprints
+> earlier until a genuine need for it existed. Testing it against real
+> data caught a real gap before anyone else would have — the picker
+> offering a Collection Point that looked ready but wasn't actually
+> configured to receive stock — fixed on the spot, then proved working
+> end to end with a real reassignment and a real audit trail. See
 > [docs/domains/README.md](docs/domains/README.md) for the
 > current status of every domain and [docs/roadmap.md](docs/roadmap.md) for the full
 > build order.

@@ -317,7 +317,9 @@ function toSalesFulfilmentResponse(
   };
 }
 
-function toSalesOrderResponse(order: SalesOrderWithRelations) {
+/** Exported Sprint 39 — reused as-is by `D2CAdminController`'s order list/detail routes
+ *  so the D2C Admin dashboard's order shape never drifts from this one. */
+export function toSalesOrderResponse(order: SalesOrderWithRelations) {
   return {
     id: order.id,
     orderCode: order.orderCode,

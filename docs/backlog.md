@@ -878,6 +878,7 @@ REJECTED}`) optionally linking an existing `CapitalProject`/
 - ✓ Sprint 37 — Collection Point Fulfillment & Inventory Reconciliation
 - ✓ Sprint 37.1 — Inventory Fulfillment Concurrency Integrity Hardening
 - ✓ Sprint 38 — Field Operations & Collection Point Mobile Experience
+- ✓ Sprint 39 — D2C Sales Administration & Operations Dashboard
 
 **Current focus:** The Finance MVP (Sprints 6-19) is considered
 functionally complete. Epic 14 (Asset & Maintenance Management) is fully

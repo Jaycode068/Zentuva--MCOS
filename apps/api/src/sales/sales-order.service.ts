@@ -14,6 +14,7 @@ import { CustomerRepository } from '../retail/customer/customer.repository';
 import { OutletRepository } from '../retail/outlet/outlet.repository';
 import {
   ListSalesOrdersParams,
+  ListSalesOrdersPaginatedParams,
   SalesOrderRepository,
   SalesOrderWithRelations,
 } from './sales-order.repository';
@@ -70,6 +71,16 @@ export class SalesOrderService {
 
   list(organisationId: string, params?: ListSalesOrdersParams): Promise<SalesOrderWithRelations[]> {
     return this.salesOrderRepository.findManyByOrganisation(organisationId, params);
+  }
+
+  /** Added Sprint 39 — thin passthrough for the D2C Admin order list, the same shape as
+   *  `list()` above. A separate method (never a `list()` overload) since its return
+   *  shape (`{items, total}`) genuinely differs. */
+  listPaginated(
+    organisationId: string,
+    params: ListSalesOrdersPaginatedParams,
+  ): Promise<{ items: SalesOrderWithRelations[]; total: number }> {
+    return this.salesOrderRepository.findManyPaginated(organisationId, params);
   }
 
   /** New sales orders always start `DRAFT`. */

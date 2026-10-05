@@ -6,9 +6,17 @@ import {
   Get,
   Param,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
-import { AssignCollectionPointInput, assignCollectionPointSchema } from '@zentuva/validation';
+import { CollectionPointFulfillmentStatus } from '@prisma/client';
+import {
+  AssignCollectionPointInput,
+  ReassignCollectionPointInput,
+  assignCollectionPointSchema,
+  paginationSchema,
+  reassignCollectionPointSchema,
+} from '@zentuva/validation';
 
 import { ZodValidationPipe } from '../../identity/auth/common/zod-validation.pipe';
 import { CurrentUser } from '../../identity/auth/decorators/current-user.decorator';
@@ -59,6 +67,65 @@ export class CollectionPointFulfillmentController {
     }
   }
 
+  /** Added Sprint 39 — the D2C Admin's org-wide Collection Point operational summary
+   *  (docs/domains/d2c.md). `GET /d2c/collection-point-fulfillments` (no path segment) —
+   *  structurally distinct from `GET /:id` (one path segment), so declaration order
+   *  relative to it doesn't matter; admin-only is enforced inside the service, not here. */
+  @Get()
+  @RequirePermission('d2c.collection_point.view')
+  async listAll(
+    @CurrentUser() user: TokenPayload,
+    @Query('page') pageRaw?: string,
+    @Query('pageSize') pageSizeRaw?: string,
+    @Query('status') status?: CollectionPointFulfillmentStatus,
+    @Query('outletId') outletId?: string,
+    @Query('territoryId') territoryId?: string,
+    @Query('consumerId') consumerId?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+    @Query('search') search?: string,
+  ) {
+    const { page, pageSize } = paginationSchema.parse({ page: pageRaw, pageSize: pageSizeRaw });
+    try {
+      const { items, total } = await this.service.listAll(user.organisationId, user.sub, {
+        status,
+        outletId,
+        territoryId,
+        consumerId,
+        dateFrom: dateFrom ? new Date(dateFrom) : undefined,
+        dateTo: dateTo ? new Date(dateTo) : undefined,
+        search: search?.trim() || undefined,
+        page,
+        pageSize,
+      });
+      return { items, total, page, pageSize };
+    } catch (error) {
+      throw toHttpException(error);
+    }
+  }
+
+  /** Added Sprint 39 — the D2C Admin Order Detail page's collection-status lookup.
+   *  Declared before `:id` — a literal `by-sales-order` segment never collides with the
+   *  single-segment `:id` route, but kept adjacent to `outlet/:outletId` for
+   *  readability, matching that route's own comment. */
+  @Get('by-sales-order/:salesOrderId')
+  @RequirePermission('d2c.collection_point.view')
+  async getBySalesOrder(
+    @Param('salesOrderId') salesOrderId: string,
+    @CurrentUser() user: TokenPayload,
+  ) {
+    try {
+      const result = await this.service.getBySalesOrderId(
+        user.organisationId,
+        salesOrderId,
+        user.sub,
+      );
+      return { item: result };
+    } catch (error) {
+      throw toHttpException(error);
+    }
+  }
+
   /** Declared before `:id`/`outlet/:outletId` — route order matters (never swallowed by
    *  a param route). The Field screen's own entry point. */
   @Get('my-outlets')
@@ -66,6 +133,24 @@ export class CollectionPointFulfillmentController {
   async getMyOutlets(@CurrentUser() user: TokenPayload) {
     const items = await this.service.getMyOutlets(user.organisationId, user.sub);
     return { items };
+  }
+
+  /** Added Sprint 39 — the admin reassignment picker's own, fully-eligibility-filtered
+   *  outlet list (see `listEligibleOutletsForReassignment`'s own doc comment for why this
+   *  is NOT just `my-outlets` reused). Declared alongside its sibling for readability;
+   *  distinct literal segment, no route-order risk. */
+  @Get('eligible-for-reassignment')
+  @RequirePermission('d2c.collection_point.view')
+  async getEligibleForReassignment(@CurrentUser() user: TokenPayload) {
+    try {
+      const items = await this.service.listEligibleOutletsForReassignment(
+        user.organisationId,
+        user.sub,
+      );
+      return { items };
+    } catch (error) {
+      throw toHttpException(error);
+    }
   }
 
   @Get('outlet/:outletId')
@@ -132,6 +217,24 @@ export class CollectionPointFulfillmentController {
   async confirmCollection(@Param('id') id: string, @CurrentUser() user: TokenPayload) {
     try {
       return await this.service.confirmCollection(user.organisationId, id, user.sub);
+    } catch (error) {
+      throw toHttpException(error);
+    }
+  }
+
+  /** Added Sprint 39 — the admin-only reassignment override (docs/domains/d2c.md). Gated
+   *  by `.fulfil` (the same permission that already governs mutating this queue) PLUS
+   *  the service's own internal admin-only check — a rep holding `.fulfil` for their own
+   *  outlet still cannot reassign someone else's order away from it. */
+  @Post(':id/reassign')
+  @RequirePermission('d2c.collection_point.fulfil')
+  async reassign(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(reassignCollectionPointSchema)) body: ReassignCollectionPointInput,
+    @CurrentUser() user: TokenPayload,
+  ) {
+    try {
+      return await this.service.reassign(user.organisationId, id, body.outletId, user.sub);
     } catch (error) {
       throw toHttpException(error);
     }

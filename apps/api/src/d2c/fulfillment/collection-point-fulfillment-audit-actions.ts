@@ -9,4 +9,6 @@ export const COLLECTION_POINT_FULFILLMENT_AUDIT_ACTIONS = {
   PREPARING_STARTED: 'collection_point_fulfillment.preparing_started',
   READY_FOR_COLLECTION: 'collection_point_fulfillment.ready_for_collection',
   COLLECTED: 'collection_point_fulfillment.collected',
+  /** Added Sprint 39 — the admin-only reassignment override (docs/domains/d2c.md). */
+  REASSIGNED: 'collection_point_fulfillment.reassigned',
 } as const;
