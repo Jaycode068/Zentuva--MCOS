@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 
 import { AuthModule } from '../../identity/auth/auth.module';
 import { IdentityModule } from '../../identity/identity.module';
+import { LoyaltyModule } from '../../promotions/loyalty/loyalty.module';
 import { TerritoryModule } from '../../retail/territory/territory.module';
 import { ConsumerModule } from '../consumer/consumer.module';
 import { D2COrderingModule } from '../ordering/d2c-ordering.module';
@@ -28,6 +29,10 @@ import { ConversationService } from './conversation.service';
  * Added Sprint 35 — `D2CPaymentModule`, so `ConversationService` can inject
  * `D2CPaymentService` to drive "Pay Now" the exact same way: `Conversation
  * Layer -> D2CPaymentService -> Existing Payment/Sales Order`.
+ *
+ * Added Sprint 41 — `LoyaltyModule`, so the main menu's "My Rewards" option can inject
+ * the EXISTING `LoyaltyService` (Sprint 40) read-only — never a second rewards read
+ * path, never reward/promotion evaluation logic duplicated here.
  */
 @Module({
   imports: [
@@ -37,6 +42,7 @@ import { ConversationService } from './conversation.service';
     ConsumerModule,
     D2COrderingModule,
     D2CPaymentModule,
+    LoyaltyModule,
   ],
   controllers: [ConversationController],
   providers: [ConversationRepository, ConversationMessageRepository, ConversationService],

@@ -6,6 +6,7 @@ import { ConversationInput, SendConversationMessageInput } from '@zentuva/valida
 
 import { AuditService } from '../../identity/audit/audit.service';
 import { OrganisationService } from '../../identity/organisation/organisation.service';
+import { LoyaltyService } from '../../promotions/loyalty/loyalty.service';
 import { TerritoryRepository } from '../../retail/territory/territory.repository';
 import { ConsumerService } from '../consumer/consumer.service';
 import { CartItemUnavailableError, D2COrderingService } from '../ordering/d2c-ordering.service';
@@ -67,6 +68,7 @@ export class ConversationService {
     private readonly organisationService: OrganisationService,
     private readonly d2cOrderingService: D2COrderingService,
     private readonly d2cPaymentService: D2CPaymentService,
+    private readonly loyaltyService: LoyaltyService,
   ) {}
 
   /**
@@ -601,6 +603,14 @@ export class ConversationService {
       return this.beginOrdering(organisationId, conversation);
     }
 
+    if (value === 'MY_ORDERS') {
+      return this.showMyOrders(organisationId, conversation);
+    }
+
+    if (value === 'MY_REWARDS') {
+      return this.showMyRewards(organisationId, conversation);
+    }
+
     if (value === 'HELP') {
       return this.respond(conversation, [
         {
@@ -624,6 +634,65 @@ export class ConversationService {
   ): ConversationOutboundResponse {
     return this.respond(conversation, [
       { type: 'TEXT', text: `${greetingPrefix}, ${consumer.fullName} 👋` },
+      ...mainMenuMessages(),
+    ]);
+  }
+
+  // ---------------------------------------------------------------------
+  // MY_ORDERS / MY_REWARDS — Sprint 41. Both are pure reads over EXISTING
+  // domains (D2COrderingService/LoyaltyService, Sprints 34/40) — never a new
+  // order-history or rewards-calculation system of their own.
+  // ---------------------------------------------------------------------
+
+  private async showMyOrders(
+    organisationId: string,
+    conversation: ConsumerConversation,
+  ): Promise<ConversationOutboundResponse> {
+    const orders = await this.d2cOrderingService.listConsumerOrders(
+      organisationId,
+      conversation.consumerId!,
+    );
+    if (orders.length === 0) {
+      return this.respond(conversation, [
+        { type: 'TEXT', text: "You haven't placed any orders yet." },
+        ...mainMenuMessages(),
+      ]);
+    }
+    const lines = orders.map(
+      (order) =>
+        `${order.orderCode}\n${order.currency} ${order.total}\n${describeOrderStatusForHistory(order.status)}`,
+    );
+    return this.respond(conversation, [
+      { type: 'TEXT', text: ['📦 Your Recent Orders', '', lines.join('\n\n')].join('\n') },
+      ...mainMenuMessages(),
+    ]);
+  }
+
+  private async showMyRewards(
+    organisationId: string,
+    conversation: ConsumerConversation,
+  ): Promise<ConversationOutboundResponse> {
+    const consumerId = conversation.consumerId!;
+    const [account, ledger] = await Promise.all([
+      this.loyaltyService.getAccount(organisationId, consumerId),
+      this.loyaltyService.listLedger(organisationId, consumerId, { page: 1, pageSize: 5 }),
+    ]);
+    const balance = account?.balance ?? 0;
+    const lines = ledger.items.map((entry) => {
+      const sign = entry.amount > 0 ? '+' : '';
+      const label = entry.type === 'EARN' ? 'Points earned' : 'Adjustment';
+      return `${sign}${entry.amount} pts — ${label} (${entry.createdAt.toLocaleDateString()})`;
+    });
+    return this.respond(conversation, [
+      {
+        type: 'TEXT',
+        text: [
+          '⭐ My Rewards',
+          '',
+          `Balance: ${balance} points`,
+          ...(lines.length > 0 ? ['', 'Recent activity:', ...lines] : []),
+        ].join('\n'),
+      },
       ...mainMenuMessages(),
     ]);
   }
@@ -743,6 +812,18 @@ export class ConversationService {
       });
     }
 
+    // Re-derive the product from the EXISTING catalogue read rather than trusting the
+    // client's id blindly — the same defensive convention `handleLocationSelection`'s
+    // own `AWAITING_TERRITORY` step already established.
+    const products = await this.d2cOrderingService.getAvailableProducts(organisationId);
+    const product = products.find((p) => p.skuId === value);
+    if (!product) {
+      return this.renderBrowsing(organisationId, conversation, cart, {
+        type: 'TEXT',
+        text: "That's not a valid option. Please choose one from the list.",
+      });
+    }
+
     const updated = await this.conversationRepository.update(organisationId, conversation.id, {
       context: {
         step: 'AWAITING_QUANTITY',
@@ -750,7 +831,21 @@ export class ConversationService {
         pendingProductId: value,
       } as unknown as Prisma.InputJsonValue,
     });
-    return this.respond(updated!, [{ type: 'TEXT', text: 'How many would you like?' }]);
+    const name = `${product.displayName ?? product.productName}${
+      product.variantName ? ` - ${product.variantName}` : ''
+    }`;
+    // Sprint 41 brief §5/§18 — a short recap (name, price, and an optional product
+    // photo) before asking for quantity; `imageUrl` is channel-neutral (see
+    // `ConversationOutboundMessage`'s own doc comment) — absent gracefully falls back to
+    // text-only, never blocking ordering.
+    return this.respond(updated!, [
+      {
+        type: 'TEXT',
+        text: `${name}\n${product.currency} ${product.sellingPrice}`,
+        ...(product.imageUrl ? { imageUrl: product.imageUrl } : {}),
+      },
+      { type: 'TEXT', text: 'How many would you like?' },
+    ]);
   }
 
   private async handleAwaitingQuantity(
@@ -1263,6 +1358,18 @@ function formatOrderStatusForConsumer(status: string): string {
   return status === 'DRAFT' ? 'Awaiting Payment' : status;
 }
 
+/** Sprint 41 — brief §14 "My Orders." A payment-centric label for order HISTORY,
+ *  distinct wording from {@link formatOrderStatusForConsumer} (shown immediately after
+ *  order creation) but the SAME underlying signal: `DRAFT` means payment was never
+ *  confirmed (Sprint 35's `D2CPaymentService.handleProviderCallback` only ever
+ *  transitions `DRAFT` -> `CONFIRMED` on a verified payment) — never a second payment
+ *  query just to render a list. */
+function describeOrderStatusForHistory(status: string): string {
+  if (status === 'DRAFT') return 'Payment Pending';
+  if (status === 'CANCELLED') return 'Cancelled';
+  return 'Paid';
+}
+
 /** `organisationName` is ALWAYS the caller's real `Organisation.displayName`/
  *  `.name` — never hardcoded to any one tenant. This is the exact bug the
  *  brief's own cross-tenant live verification is designed to catch: a
@@ -1287,11 +1394,15 @@ function mainMenuMessages(): ConversationOutboundMessage[] {
       type: 'BUTTONS',
       text: 'What would you like to do?',
       options: [
-        // Sprint 34 — the one new "available now" capability (brief §11/§20: never
-        // present a capability with no backing implementation, e.g. loyalty/rewards/
-        // Collection/promotions, all still absent here).
-        { value: 'ORDER_SNACKS', label: 'Order Snacks' },
-        { value: 'MY_ACCOUNT', label: 'My Account' },
+        // Sprint 34 — the one new "available now" capability at the time (brief §11/§20:
+        // never present a capability with no backing implementation). Sprint 41 adds
+        // MY_ORDERS/MY_REWARDS now that both have a real backing read
+        // (D2COrderingService.listConsumerOrders / LoyaltyService.getAccount+listLedger)
+        // — Collection/promotions remain deliberately absent, still no backing read.
+        { value: 'ORDER_SNACKS', label: '🛒 Order Snacks' },
+        { value: 'MY_ORDERS', label: '📦 My Orders' },
+        { value: 'MY_REWARDS', label: '⭐ My Rewards' },
+        { value: 'MY_ACCOUNT', label: '👤 My Account' },
         { value: 'UPDATE_LOCATION', label: 'Update My Location' },
         { value: 'HELP', label: 'Help' },
       ],

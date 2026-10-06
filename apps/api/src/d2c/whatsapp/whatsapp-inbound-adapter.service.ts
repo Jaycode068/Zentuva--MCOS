@@ -6,6 +6,7 @@ import { normalizePhoneNumber } from '../../notifications/phone-number-normalize
 import {
   WHATSAPP_PROVIDER,
   WhatsAppProvider,
+  WhatsAppSendResult,
 } from '../../notifications/ports/whatsapp-provider.port';
 import { ConversationMessageRepository } from '../conversation/conversation-message.repository';
 import { ConversationRepository } from '../conversation/conversation.repository';
@@ -39,6 +40,20 @@ import { MetaWebhookMessage, MetaWebhookPayload, MetaWebhookStatus } from './wha
  * number or label (see `resolveConversationInput`) so a multi-turn conversation still
  * works over plain text. A real interactive-message upgrade is a documented future
  * step, not a defect — see docs/sprint-40.5-completion-report.md "Limitations."
+ *
+ * Sprint 41 — WhatsApp D2C Ordering & Commerce Conversation. A single `handleInboundMessage`
+ * response can legitimately contain TWO option-bearing messages at once (e.g.
+ * `ConversationService.renderBrowsing`'s product `LIST` plus a "View Cart & Checkout"
+ * `BUTTONS` message, once the cart is non-empty) — `sendOutboundResponse` now numbers
+ * options GLOBALLY across the whole batch (never restarting at 1 per message, which
+ * would make a numeric reply ambiguous between two separately-numbered WhatsApp bubbles),
+ * and `lastPresentedOptions` flattens every option-bearing message from the last batch
+ * into that SAME combined, order-preserving list so a reply's global index always
+ * resolves to the one option the consumer actually meant. Also added: a `TEXT` message
+ * carrying an optional `imageUrl` (Sprint 41 brief §18, e.g. a product photo at
+ * selection time) is sent via `WhatsAppProvider.sendImage` with the text as caption,
+ * falling back to a plain `sendText` of the same caption if the image send fails —
+ * never blocking the conversation on an image problem.
  */
 @Injectable()
 export class WhatsAppInboundAdapterService {
@@ -185,33 +200,65 @@ export class WhatsAppInboundAdapterService {
     if (!lastOutbound) return null;
 
     const messages = lastOutbound.payload as unknown as ConversationOutboundMessage[];
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const candidate = messages[i]!;
-      if (candidate.type === 'BUTTONS' || candidate.type === 'LIST') {
-        return candidate.options;
-      }
-    }
-    return null;
+    // Flattened in rendering order — must match `sendOutboundResponse`'s GLOBAL
+    // numbering exactly, since a reply's index is resolved against this same list.
+    const options = messages.flatMap((candidate) =>
+      candidate.type === 'BUTTONS' || candidate.type === 'LIST' ? candidate.options : [],
+    );
+    return options.length > 0 ? options : null;
   }
 
   private async sendOutboundResponse(
     toPhoneNumber: string,
     response: ConversationOutboundResponse,
   ): Promise<void> {
+    // Global, running option counter — see this class's own doc comment on why option
+    // numbering must never restart at 1 per message.
+    let optionOffset = 0;
     for (const [index, message] of response.messages.entries()) {
-      const text = renderOutboundMessageAsText(message);
-      if (!text) continue;
-      const result = await this.provider.sendText({
-        toPhoneNumber,
-        text,
-        correlationId: `${response.conversationId}-${index}`,
-      });
+      const part = renderOutboundMessagePart(message, optionOffset);
+      optionOffset += part.optionCount;
+      if (!part.text) continue;
+
+      const correlationId = `${response.conversationId}-${index}`;
+      const result = part.imageUrl
+        ? await this.sendTextOrImageFallback(toPhoneNumber, part.text, part.imageUrl, correlationId)
+        : await this.provider.sendText({ toPhoneNumber, text: part.text, correlationId });
+
       if (result.outcome !== 'ACCEPTED') {
         this.logger.warn(
           `Failed to deliver a conversation reply over WhatsApp: ${result.errorCode ?? 'unknown'}`,
         );
       }
     }
+  }
+
+  /** Sprint 41 brief §18 — "do not block ordering because an image is unavailable": a
+   *  failed image send (invalid/unreachable URL, provider error) falls back to a plain
+   *  text send of the SAME caption rather than silently dropping the message. */
+  private async sendTextOrImageFallback(
+    toPhoneNumber: string,
+    caption: string,
+    imageUrl: string,
+    correlationId: string,
+  ): Promise<WhatsAppSendResult> {
+    const result = await this.provider.sendImage({
+      toPhoneNumber,
+      imageUrl,
+      caption,
+      correlationId,
+    });
+    if (result.outcome === 'ACCEPTED') {
+      return result;
+    }
+    this.logger.warn(
+      `Product image send failed (${result.errorCode ?? 'unknown'}) — falling back to text.`,
+    );
+    return this.provider.sendText({
+      toPhoneNumber,
+      text: caption,
+      correlationId: `${correlationId}-img-fallback`,
+    });
   }
 
   private async processStatusUpdate(status: MetaWebhookStatus): Promise<void> {
@@ -224,30 +271,51 @@ export class WhatsAppInboundAdapterService {
   }
 }
 
+interface RenderedMessagePart {
+  text: string;
+  imageUrl?: string;
+  /** How many options this part numbered — the caller accumulates this across the
+   *  whole outbound batch so a SECOND option-bearing message in the same response
+   *  continues the sequence rather than restarting at 1 (see this class's own doc
+   *  comment). Always `0` for `TEXT`/`PAYMENT_REQUIRED`. */
+  optionCount: number;
+}
+
 /** Numbered plain text — see this class's own doc comment for why this is a
- *  deliberate, documented scope cut rather than Meta's real interactive JSON. */
-function renderOutboundMessageAsText(message: ConversationOutboundMessage): string {
+ *  deliberate, documented scope cut rather than Meta's real interactive JSON.
+ *  `optionOffset` is the count of options already numbered by EARLIER messages in the
+ *  same outbound batch, so this message's own options continue that global sequence. */
+function renderOutboundMessagePart(
+  message: ConversationOutboundMessage,
+  optionOffset: number,
+): RenderedMessagePart {
   switch (message.type) {
     case 'TEXT':
-      return message.text;
+      return { text: message.text, imageUrl: message.imageUrl, optionCount: 0 };
     case 'BUTTONS':
     case 'LIST':
-      return [
-        message.text,
-        '',
-        ...message.options.map((option, index) => `${index + 1}. ${option.label}`),
-        '',
-        'Reply with the number of your choice.',
-      ].join('\n');
+      return {
+        text: [
+          message.text,
+          '',
+          ...message.options.map((option, index) => `${optionOffset + index + 1}. ${option.label}`),
+          '',
+          'Reply with the number of your choice.',
+        ].join('\n'),
+        optionCount: message.options.length,
+      };
     case 'PAYMENT_REQUIRED':
-      return [
-        message.text,
-        '',
-        `Amount: ${message.currency} ${message.amount}`,
-        `Pay here: ${message.checkoutUrl}`,
-      ].join('\n');
+      return {
+        text: [
+          message.text,
+          '',
+          `Amount: ${message.currency} ${message.amount}`,
+          `Pay here: ${message.checkoutUrl}`,
+        ].join('\n'),
+        optionCount: 0,
+      };
     default:
-      return '';
+      return { text: '', optionCount: 0 };
   }
 }
 

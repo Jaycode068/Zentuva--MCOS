@@ -234,6 +234,128 @@ describe('WhatsAppInboundAdapterService', () => {
     );
   });
 
+  // Sprint 41 — WhatsApp D2C Ordering & Commerce Conversation.
+  it('numbers options GLOBALLY across a two-message batch (LIST + BUTTONS), never restarting at 1 per message', async () => {
+    const { adapter, conversationService, provider } = makeDeps();
+    (conversationService.handleInboundMessage as jest.Mock).mockResolvedValue({
+      conversationId: 'conv-1',
+      state: 'ACTIVE',
+      messages: [
+        {
+          type: 'LIST',
+          text: 'Select a product',
+          options: [
+            { value: 'sku-chips', label: 'Plantain Chips - NGN 500' },
+            { value: 'sku-nuts', label: 'Roasted Groundnuts - NGN 300' },
+          ],
+        },
+        {
+          type: 'BUTTONS',
+          text: 'You have 1 item(s) in your cart.',
+          options: [{ value: 'VIEW_CART', label: 'View Cart & Checkout' }],
+        },
+      ],
+    });
+
+    await adapter.handleWebhookPayload(textPayload('2348012345678', 'Hi'));
+
+    // The LIST is rendered first (options 1-2), the BUTTONS message continues the
+    // SAME global sequence at 3 — never restarting at 1.
+    const calls = (provider.sendText as jest.Mock).mock.calls as Array<[{ text: string }]>;
+    expect(calls[0]![0].text).toContain('1. Plantain Chips - NGN 500');
+    expect(calls[0]![0].text).toContain('2. Roasted Groundnuts - NGN 300');
+    expect(calls[1]![0].text).toContain('3. View Cart & Checkout');
+  });
+
+  it('maps a numeric reply to the correct option from a flattened two-message batch (the product LIST, not the single-option BUTTONS message)', async () => {
+    const { adapter, conversationService, conversationRepository, messageRepository } = makeDeps();
+    (conversationRepository.findByExternalId as jest.Mock).mockResolvedValue({ id: 'conv-1' });
+    (messageRepository.findLastOutbound as jest.Mock).mockResolvedValue({
+      payload: [
+        {
+          type: 'LIST',
+          text: 'Select a product',
+          options: [
+            { value: 'sku-chips', label: 'Plantain Chips' },
+            { value: 'sku-nuts', label: 'Roasted Groundnuts' },
+          ],
+        },
+        {
+          type: 'BUTTONS',
+          text: 'You have 1 item(s) in your cart.',
+          options: [{ value: 'VIEW_CART', label: 'View Cart & Checkout' }],
+        },
+      ],
+    });
+    (conversationService.handleInboundMessage as jest.Mock).mockResolvedValue({
+      conversationId: 'conv-1',
+      state: 'ACTIVE',
+      messages: [{ type: 'TEXT', text: 'How many would you like?' }],
+    });
+
+    // "2" must resolve to the SECOND product in the LIST (Roasted Groundnuts), not the
+    // first (and only) BUTTONS option — the exact ambiguity the global-numbering fix
+    // resolves. Before the fix, `lastPresentedOptions` returned only the BUTTONS
+    // message's single option, so index 2 would have been out of range entirely.
+    await adapter.handleWebhookPayload(textPayload('2348012345678', '2'));
+
+    expect(conversationService.handleInboundMessage).toHaveBeenCalledWith(
+      'org-1',
+      expect.objectContaining({ input: { type: 'BUTTON', value: 'sku-nuts' } }),
+    );
+  });
+
+  it('sends a TEXT message carrying imageUrl via sendImage, using the text as caption', async () => {
+    const { adapter, conversationService, provider } = makeDeps();
+    (provider.sendImage as jest.Mock).mockResolvedValue({
+      outcome: 'ACCEPTED',
+      providerMessageId: 'wamid.IMG1',
+    });
+    (conversationService.handleInboundMessage as jest.Mock).mockResolvedValue({
+      conversationId: 'conv-1',
+      state: 'ACTIVE',
+      messages: [
+        { type: 'TEXT', text: 'Plantain Chips\nNGN 500', imageUrl: 'https://cdn.test/chips.png' },
+        { type: 'TEXT', text: 'How many would you like?' },
+      ],
+    });
+
+    await adapter.handleWebhookPayload(textPayload('2348012345678', '1'));
+
+    expect(provider.sendImage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        imageUrl: 'https://cdn.test/chips.png',
+        caption: 'Plantain Chips\nNGN 500',
+      }),
+    );
+    // The SECOND message has no image — sent as plain text, unaffected.
+    expect(provider.sendText).toHaveBeenCalledWith(
+      expect.objectContaining({ text: 'How many would you like?' }),
+    );
+  });
+
+  it('falls back to sendText with the same caption when the image send fails — never blocks the conversation', async () => {
+    const { adapter, conversationService, provider } = makeDeps();
+    (provider.sendImage as jest.Mock).mockResolvedValue({
+      outcome: 'TERMINAL_FAILURE',
+      errorCode: 'WHATSAPP_INVALID_RECIPIENT',
+    });
+    (conversationService.handleInboundMessage as jest.Mock).mockResolvedValue({
+      conversationId: 'conv-1',
+      state: 'ACTIVE',
+      messages: [
+        { type: 'TEXT', text: 'Plantain Chips\nNGN 500', imageUrl: 'https://cdn.test/broken.png' },
+      ],
+    });
+
+    await adapter.handleWebhookPayload(textPayload('2348012345678', '1'));
+
+    expect(provider.sendImage).toHaveBeenCalled();
+    expect(provider.sendText).toHaveBeenCalledWith(
+      expect.objectContaining({ text: 'Plantain Chips\nNGN 500' }),
+    );
+  });
+
   it('audit-logs a delivery status update without touching the Conversation Layer', async () => {
     const { adapter, conversationService, auditService } = makeDeps();
     const payload: MetaWebhookPayload = {

@@ -26,6 +26,7 @@ import { SalesOrderRepository, SalesOrderWithRelations } from '../../sales/sales
 import { SalesOrderService } from '../../sales/sales-order.service';
 import { ConsumerService } from '../consumer/consumer.service';
 import { D2COrderingService } from '../ordering/d2c-ordering.service';
+import { LoyaltyService } from '../../promotions/loyalty/loyalty.service';
 import { PromotionEvaluationService } from '../../promotions/reward/promotion-evaluation.service';
 import { CollectionPointFulfillmentService } from '../fulfillment/collection-point-fulfillment.service';
 import { D2CPaymentService } from '../payment/d2c-payment.service';
@@ -469,6 +470,27 @@ describe('ConversationService', () => {
           orders.find((o) => o.id === id && o.organisationId === organisationId) ?? null,
         ),
       ),
+      // Sprint 41 — `D2COrderingService.listConsumerOrders`'s "My Orders" read.
+      findManyPaginated: jest.fn(
+        (
+          organisationId: string,
+          params: { consumerId?: string; page: number; pageSize: number },
+        ) => {
+          const matching = orders
+            .filter(
+              (o) =>
+                o.organisationId === organisationId &&
+                (!params.consumerId || o.consumerId === params.consumerId),
+            )
+            .slice()
+            .reverse(); // newest-first, mirroring the real repository's `createdAt: 'desc'`.
+          const start = (params.page - 1) * params.pageSize;
+          return Promise.resolve({
+            items: matching.slice(start, start + params.pageSize),
+            total: matching.length,
+          });
+        },
+      ),
     } as unknown as SalesOrderRepository;
 
     const service = new SalesOrderService(
@@ -636,6 +658,11 @@ describe('ConversationService', () => {
       promotionEvaluationService,
     );
 
+    const loyaltyService = {
+      getAccount: jest.fn().mockResolvedValue(null),
+      listLedger: jest.fn().mockResolvedValue({ items: [], total: 0 }),
+    } as unknown as jest.Mocked<LoyaltyService>;
+
     const service = new ConversationService(
       conversationRepository,
       messageRepository,
@@ -645,6 +672,7 @@ describe('ConversationService', () => {
       organisationService,
       d2cOrderingService,
       d2cPaymentService,
+      loyaltyService,
     );
     return {
       service,
@@ -655,6 +683,7 @@ describe('ConversationService', () => {
       productRows,
       payments,
       paymentProvider,
+      loyaltyService,
     };
   }
 
@@ -783,7 +812,13 @@ describe('ConversationService', () => {
         externalConversationId: phone,
         input: { type: 'LIST_SELECTION', value: 'product-chips-a' },
       });
+      // Sprint 41 — a product recap (name + price) now precedes the quantity prompt
+      // (brief §5/§18), channel-neutral via the new `imageUrl`-less TEXT variant.
       expect(selectProduct.messages[0]).toMatchObject({
+        type: 'TEXT',
+        text: expect.stringContaining('Plantain Chips'),
+      });
+      expect(selectProduct.messages[1]).toMatchObject({
         type: 'TEXT',
         text: 'How many would you like?',
       });
@@ -898,7 +933,13 @@ describe('ConversationService', () => {
       ).toBe(true);
     });
 
-    it('rejects an unpriced/unavailable product and an unknown SKU id', async () => {
+    it('rejects an unpriced/unavailable product and an unknown SKU id immediately at selection time', async () => {
+      // Sprint 41 — `handleBrowsing` now re-derives the selected product from the
+      // EXISTING orderable-products read (needed to show the product recap/price/image,
+      // brief §5/§18) BEFORE advancing to AWAITING_QUANTITY, so an unpriced/unavailable
+      // or genuinely unknown SKU is rejected immediately, re-presenting the list — one
+      // step earlier than the previous behavior (which let it reach quantity entry
+      // before `addItemToCart`'s own defense-in-depth check caught it there instead).
       const { service } = makeHarness();
       const phone = '08099900003';
       await registerToMainMenu(service, phone);
@@ -909,19 +950,26 @@ describe('ConversationService', () => {
       });
 
       // The unpriced product exists but is not D2C-orderable.
-      await service.handleInboundMessage(ORG_A, {
+      const rejectedUnpriced = await service.handleInboundMessage(ORG_A, {
         channel: 'WHATSAPP',
         externalConversationId: phone,
         input: { type: 'LIST_SELECTION', value: 'product-unpriced-a' },
       });
-      const rejected = await service.handleInboundMessage(ORG_A, {
+      expect(rejectedUnpriced.messages[0]).toMatchObject({
+        type: 'TEXT',
+        text: "That's not a valid option. Please choose one from the list.",
+      });
+      expect(rejectedUnpriced.messages.some((m) => m.type === 'LIST')).toBe(true);
+
+      // A genuinely unknown SKU id gets the exact same rejection.
+      const rejectedUnknown = await service.handleInboundMessage(ORG_A, {
         channel: 'WHATSAPP',
         externalConversationId: phone,
-        input: { type: 'TEXT', text: '1' },
+        input: { type: 'LIST_SELECTION', value: 'no-such-product-id' },
       });
-      expect(rejected.messages[0]).toMatchObject({
+      expect(rejectedUnknown.messages[0]).toMatchObject({
         type: 'TEXT',
-        text: 'That product is no longer available. Please choose another product.',
+        text: "That's not a valid option. Please choose one from the list.",
       });
     });
 
@@ -1134,20 +1182,17 @@ describe('ConversationService', () => {
         externalConversationId: '08099900009',
         input: { type: 'BUTTON', value: 'ORDER_SNACKS' },
       });
-      await service.handleInboundMessage(ORG_B, {
+      // Org A's own product id — must not resolve under Org B. Sprint 41:
+      // `handleBrowsing` now rejects this immediately (see the earlier test's own
+      // comment on why), never letting it reach quantity entry.
+      const selectAttempt = await service.handleInboundMessage(ORG_B, {
         channel: 'WHATSAPP',
         externalConversationId: '08099900009',
-        // Org A's own product id — must not resolve under Org B.
         input: { type: 'LIST_SELECTION', value: 'product-chips-a' },
       });
-      const quantityAttempt = await service.handleInboundMessage(ORG_B, {
-        channel: 'WHATSAPP',
-        externalConversationId: '08099900009',
-        input: { type: 'TEXT', text: '1' },
-      });
-      expect(quantityAttempt.messages[0]).toMatchObject({
+      expect(selectAttempt.messages[0]).toMatchObject({
         type: 'TEXT',
-        text: 'That product is no longer available. Please choose another product.',
+        text: "That's not a valid option. Please choose one from the list.",
       });
     });
 
@@ -1173,6 +1218,146 @@ describe('ConversationService', () => {
       // like?" as if "MY_ACCOUNT" were a product id.
       expect(nextClick.messages[0]).toMatchObject({ type: 'TEXT' });
       expect((nextClick.messages[0] as { text: string }).text).toContain('Name:');
+    });
+  });
+
+  describe('MY_ORDERS / MY_REWARDS (Sprint 41)', () => {
+    async function registerToMainMenu(service: ConversationService, phone: string) {
+      await service.handleInboundMessage(ORG_A, {
+        channel: 'WHATSAPP',
+        externalConversationId: phone,
+        input: { type: 'BUTTON', value: 'REGISTER' },
+      });
+      await service.handleInboundMessage(ORG_A, {
+        channel: 'WHATSAPP',
+        externalConversationId: phone,
+        input: { type: 'TEXT', text: 'Rewards Test Consumer' },
+      });
+      await service.handleInboundMessage(ORG_A, {
+        channel: 'WHATSAPP',
+        externalConversationId: phone,
+        input: { type: 'LIST_SELECTION', value: 't-ibn' },
+      });
+      return service.handleInboundMessage(ORG_A, {
+        channel: 'WHATSAPP',
+        externalConversationId: phone,
+        input: { type: 'LIST_SELECTION', value: 't-bodija' },
+      });
+    }
+
+    it('MY_ORDERS shows "you have no orders yet" for a brand-new consumer, reusing the EXISTING D2COrderingService read — no second order-history system', async () => {
+      const { service } = makeHarness();
+      const phone = '08099910001';
+      await registerToMainMenu(service, phone);
+
+      const myOrders = await service.handleInboundMessage(ORG_A, {
+        channel: 'WHATSAPP',
+        externalConversationId: phone,
+        input: { type: 'BUTTON', value: 'MY_ORDERS' },
+      });
+      expect(myOrders.messages[0]).toMatchObject({
+        type: 'TEXT',
+        text: "You haven't placed any orders yet.",
+      });
+    });
+
+    it('MY_ORDERS lists a real order with its payment status after one is placed', async () => {
+      const { service } = makeHarness();
+      const phone = '08099910002';
+      await registerToMainMenu(service, phone);
+      await service.handleInboundMessage(ORG_A, {
+        channel: 'WHATSAPP',
+        externalConversationId: phone,
+        input: { type: 'BUTTON', value: 'ORDER_SNACKS' },
+      });
+      await service.handleInboundMessage(ORG_A, {
+        channel: 'WHATSAPP',
+        externalConversationId: phone,
+        input: { type: 'LIST_SELECTION', value: 'product-chips-a' },
+      });
+      await service.handleInboundMessage(ORG_A, {
+        channel: 'WHATSAPP',
+        externalConversationId: phone,
+        input: { type: 'TEXT', text: '1' },
+      });
+      await service.handleInboundMessage(ORG_A, {
+        channel: 'WHATSAPP',
+        externalConversationId: phone,
+        input: { type: 'BUTTON', value: 'CHECKOUT' },
+      });
+      await service.handleInboundMessage(ORG_A, {
+        channel: 'WHATSAPP',
+        externalConversationId: phone,
+        input: { type: 'BUTTON', value: 'CONFIRM_ORDER' },
+      });
+      // `CONFIRM_ORDER` leaves the conversation in the ordering flow's own
+      // AWAITING_PAYMENT step (`confirm.state` is `ACTIVE`, not `MAIN_MENU` — see the
+      // "walks Order Snacks..." test above) — MENU returns to MAIN_MENU first, the
+      // same reset command a real consumer would use to check their orders later.
+      await service.handleInboundMessage(ORG_A, {
+        channel: 'WHATSAPP',
+        externalConversationId: phone,
+        input: { type: 'TEXT', text: 'MENU' },
+      });
+
+      const myOrders = await service.handleInboundMessage(ORG_A, {
+        channel: 'WHATSAPP',
+        externalConversationId: phone,
+        input: { type: 'BUTTON', value: 'MY_ORDERS' },
+      });
+      const ordersText = myOrders.messages.find(
+        (m) => m.type === 'TEXT' && m.text.includes('Your Recent Orders'),
+      ) as { text: string };
+      expect(ordersText).toBeDefined();
+      expect(ordersText.text).toContain('SO-000001');
+      expect(ordersText.text).toContain('Payment Pending');
+    });
+
+    it('MY_REWARDS shows a zero balance for a consumer with no LoyaltyAccount yet (null is a normal result, never an error)', async () => {
+      const { service, loyaltyService } = makeHarness();
+      const phone = '08099910003';
+      await registerToMainMenu(service, phone);
+
+      const myRewards = await service.handleInboundMessage(ORG_A, {
+        channel: 'WHATSAPP',
+        externalConversationId: phone,
+        input: { type: 'BUTTON', value: 'MY_REWARDS' },
+      });
+      expect(loyaltyService.getAccount).toHaveBeenCalled();
+      expect(myRewards.messages[0]).toMatchObject({
+        type: 'TEXT',
+        text: expect.stringContaining('Balance: 0 points'),
+      });
+    });
+
+    it('MY_REWARDS shows the real balance and recent ledger entries from the EXISTING LoyaltyService — never a second rewards calculation', async () => {
+      const { service, loyaltyService } = makeHarness();
+      const phone = '08099910004';
+      await registerToMainMenu(service, phone);
+
+      (loyaltyService.getAccount as jest.Mock).mockResolvedValue({ balance: 200 });
+      (loyaltyService.listLedger as jest.Mock).mockResolvedValue({
+        items: [
+          {
+            type: 'EARN',
+            amount: 200,
+            balanceAfter: 200,
+            reason: null,
+            createdAt: new Date('2026-10-01'),
+          },
+        ],
+        total: 1,
+      });
+
+      const myRewards = await service.handleInboundMessage(ORG_A, {
+        channel: 'WHATSAPP',
+        externalConversationId: phone,
+        input: { type: 'BUTTON', value: 'MY_REWARDS' },
+      });
+      const text = (myRewards.messages[0] as { text: string }).text;
+      expect(text).toContain('Balance: 200 points');
+      expect(text).toContain('+200 pts');
+      expect(text).toContain('Points earned');
     });
   });
 

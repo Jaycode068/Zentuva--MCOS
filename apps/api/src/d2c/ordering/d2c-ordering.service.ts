@@ -95,6 +95,7 @@ export class D2COrderingService {
         sellingPrice: product.sellingPrice!,
         currency,
         available: true as const,
+        imageUrl: product.imageUrl ?? null,
       }));
   }
 
@@ -243,6 +244,26 @@ export class D2COrderingService {
       throw new NotFoundException('Order not found');
     }
     return this.toOrderResult(organisationId, order);
+  }
+
+  /** Added Sprint 41 — brief §14 "My Orders." The consumer's own most-recent D2C orders,
+   *  newest first — reuses `SalesOrderService.listPaginated`'s EXISTING `consumerId`
+   *  filter/index (Sprint 39) rather than a new query path; never a second order-history
+   *  table. Deliberately small and unpaginated-from-the-caller's-perspective (a fixed
+   *  `limit`) — "keep this intentionally simple" (brief §14), not a full order-history
+   *  browser. */
+  async listConsumerOrders(
+    organisationId: string,
+    consumerId: string,
+    limit = 5,
+  ): Promise<D2COrderResult[]> {
+    const { items } = await this.salesOrderService.listPaginated(organisationId, {
+      consumerId,
+      source: 'D2C' as const,
+      page: 1,
+      pageSize: limit,
+    });
+    return Promise.all(items.map((order) => this.toOrderResult(organisationId, order)));
   }
 
   private async toOrderResult(

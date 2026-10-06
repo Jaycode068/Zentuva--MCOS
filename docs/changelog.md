@@ -7,6 +7,43 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 41 WhatsApp D2C Ordering & Commerce Conversation] - 2026-10-06
+
+Connected the real WhatsApp channel (Sprint 40.5) to the D2C Order Snacks flow that has
+existed in `ConversationService` since Sprint 34 — browse, select, quantity, cart,
+review, confirm, pay. The audit found this flow was already complete and already
+reachable through Sprint 40.5's generic Channel Adapter; this sprint is almost entirely
+small, targeted fixes and additions, never a rebuild — no new `WhatsAppOrder`/
+`WhatsAppProduct`/`WhatsAppPayment` entity, no parallel order state machine.
+
+**Fixed.** A genuine bug found via live testing: a single Conversation Layer response
+can carry two option-bearing messages at once (a product list plus a "View Cart &
+Checkout" button); the WhatsApp adapter numbered each independently, making a numeric
+reply ambiguous between two separately-numbered WhatsApp bubbles. Fixed with global,
+running option numbering across the whole outbound batch, proven against real Meta
+webhook traffic.
+
+**New.** `Product.imageUrl` (already in the schema) now surfaces into the D2C product
+contract and a new, channel-neutral `imageUrl` on outbound `TEXT` messages — the
+WhatsApp adapter sends it via a real image message with graceful text fallback. "My
+Orders" (`D2COrderingService.listConsumerOrders`, reusing the existing consumer-filtered
+order query) and "My Rewards" (wiring the existing, already-consumer-scoped
+`LoyaltyService` into the Conversation Layer read-only) are now real main-menu options.
+
+**Live-verified against real Meta traffic**: full registration → browse real products →
+multi-item cart (with the numbering fix proven) → a real `SalesOrder` → a real OPay
+checkout link genuinely delivered over WhatsApp → visible in the existing, unmodified
+D2C admin order list. A duplicate webhook delivery (the same Meta message id replayed 3
+times) produced exactly one order. New real-PostgreSQL concurrency proof: 5 concurrent
+order confirmations with the same idempotency key produce exactly one `SalesOrder`.
+250 suites / 2260 tests passing, 0 regressions; all three PostgreSQL integration suites
+(Sprint 37.1, Sprint 40, and this sprint's new one) re-run clean.
+
+**Schema.** No changes — zero new tables, zero migrations.
+
+See [docs/domains/d2c.md](domains/d2c.md) §115–119 and
+[docs/sprint-41-completion-report.md](sprint-41-completion-report.md).
+
 ## [Sprint 40.5 Real Meta WhatsApp Cloud API Foundation] - 2026-10-06
 
 Extended Sprint 29's `MetaWhatsAppProvider`/`LocalWhatsAppProvider` (never duplicated)

@@ -1005,6 +1005,28 @@ PaymentService (existing, extended) + SalesOrderService.confirm
       (`WhatsAppWebhookEvent`, a pure dedup ledger) — see
       [`docs/domains/whatsapp.md`](domains/whatsapp.md) and
       [`docs/sprint-40.5-completion-report.md`](sprint-40.5-completion-report.md)
+- [x] **Sprint 41 — WhatsApp D2C Ordering & Commerce Conversation.** Connected the
+      real WhatsApp channel to the D2C Order Snacks flow that has existed in
+      `ConversationService` since Sprint 34 — the audit found it already complete and
+      already reachable through Sprint 40.5's generic Channel Adapter, so this sprint
+      is almost entirely small, targeted fixes: a genuine bug found via live testing
+      (two option-bearing messages sent together made a numeric reply ambiguous — fixed
+      with global option numbering across the whole outbound batch), product images
+      surfaced into the D2C contract with a channel-neutral image-message/text-fallback
+      path, and two new main-menu options ("My Orders"/"My Rewards") wiring the
+      EXISTING, already-consumer-scoped `D2COrderingService`/`LoyaltyService` reads —
+      never a second order-history or rewards-calculation system. Live-verified against
+      real Meta traffic end to end: registration → real product browsing → a multi-item
+      cart (the numbering fix proven against real webhook traffic) → a real
+      `SalesOrder` → a real OPay checkout link genuinely delivered over WhatsApp →
+      visible in the existing, unmodified D2C admin order list; a replayed duplicate
+      webhook produced exactly one order. New real-PostgreSQL concurrency proof: 5
+      concurrent order confirmations with the same idempotency key produce exactly one
+      `SalesOrder`. 250 suites / 2260 tests passing, 0 regressions; all three
+      PostgreSQL integration suites re-run clean; zero schema changes, zero new
+      WhatsApp-specific order/product/payment entity — see
+      [`docs/domains/d2c.md`](domains/d2c.md) §115–119 and
+      [`docs/sprint-41-completion-report.md`](sprint-41-completion-report.md)
 - [ ] Retail Portal (mobile)
 - [ ] Business Intelligence dashboards
 

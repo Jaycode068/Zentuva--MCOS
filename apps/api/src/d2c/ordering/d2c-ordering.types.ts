@@ -20,6 +20,10 @@ export interface D2CProductOption {
   sellingPrice: number;
   currency: string;
   available: true;
+  /** Added Sprint 41 — `Product.imageUrl`, surfaced so a channel adapter can show a
+   *  product photo at selection time (brief §18). `null` when the product has none; a
+   *  channel adapter must fall back to text-only rather than block ordering on it. */
+  imageUrl: string | null;
 }
 
 /** The Conversation Layer's own persisted cart shape (`context.cart` — never a database

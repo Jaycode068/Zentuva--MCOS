@@ -2637,3 +2637,139 @@ message); ran the real evaluation service against a real fresh consumer
   Member-role account, which holds none of the four new permissions) and
   the Sprint 39 D2C Admin Dashboard's own existing views remain fully
   unaffected and correctly surface the new test data.
+
+## 115. WhatsApp D2C Ordering & Commerce Conversation (Sprint 41)
+
+Connects the real WhatsApp channel (Sprint 40.5) to the Order Snacks flow that has
+existed in `ConversationService` since Sprint 34 — browse, select, quantity, cart,
+review, confirm, pay. The mandatory pre-implementation audit found this flow was
+ALREADY complete and already reachable through the generic Sprint 40.5 Channel Adapter
+(which calls `handleInboundMessage` for any conversation state, not just registration)
+— so Sprint 41 is almost entirely a set of small, targeted fixes and additions, never a
+rebuild:
+
+- **A genuine bug found by the audit, not invented**: `ConversationService.renderBrowsing`
+  can send a product `LIST` AND a "View Cart & Checkout" `BUTTONS` message together once
+  the cart is non-empty — two option-bearing messages in one response. The Sprint 40.5
+  adapter numbered each message's options independently (both restarting at "1."),
+  making a numeric reply genuinely ambiguous between two separately-numbered WhatsApp
+  bubbles. Fixed by numbering options GLOBALLY across the whole outbound batch
+  (`WhatsAppInboundAdapterService.sendOutboundResponse`/`renderOutboundMessagePart`) and
+  flattening every option-bearing message from the last batch into one combined list for
+  reply matching (`lastPresentedOptions`) — proven live (§118).
+- **Product images** (`Product.imageUrl`, already in the schema since Sprint 4.1 but
+  never surfaced by `D2COrderingService.getAvailableProducts`): added to
+  `D2CProductOption`, and a new optional `imageUrl?: string` on
+  `ConversationOutboundMessage`'s `TEXT` variant — channel-neutral (a future web channel
+  renders it as `<img>`; the WhatsApp adapter sends it via `sendImage` with the text as
+  caption, falling back to plain `sendText` of the same caption if the image send fails
+  or no image exists, never blocking the conversation). `handleBrowsing` now shows a
+  short product recap (name, price, optional photo) before asking for quantity.
+- **"My Orders"**: `D2COrderingService.listConsumerOrders` — a new, small method reusing
+  `SalesOrderService.listPaginated`'s EXISTING `consumerId` filter/index (Sprint 39),
+  never a second order-history query path. A new `describeOrderStatusForHistory` helper
+  maps the real `SalesOrderStatus` (the same signal Sprint 35's payment webhook already
+  sets) to a payment-centric label for the list, distinct wording from the existing
+  `formatOrderStatusForConsumer` (shown right after order creation) but the same
+  underlying truth — no second payment query.
+- **"My Rewards"**: wires the EXISTING, already-consumer-scoped `LoyaltyService.getAccount`
+  /`.listLedger` (Sprint 40) into a new main-menu branch — `ConversationModule` now
+  imports `LoyaltyModule` (exported providers only; `conversation-independence.spec.ts`'s
+  structural guard explicitly still forbids `PromotionModule`/`RewardModule`, so "My
+  Rewards" can only ever READ, never evaluate or grant anything itself).
+- **Main menu**: `mainMenuMessages()` gains `MY_ORDERS`/`MY_REWARDS` (brief's own emoji
+  labels) now that both have a real backing read — the pre-existing inline comment on
+  `ORDER_SNACKS` ("never present a capability with no backing implementation") is the
+  exact bar both new options now clear.
+
+Order creation, pricing, totals, idempotency, concurrency, payment handoff, and admin
+visibility required ZERO changes — all already correct and already proven (§116).
+
+## 116. Idempotency & Concurrency — Already Proven, Re-Verified
+
+`D2COrderingService.confirmOrder` -> `SalesOrderService.createForConsumer` ->
+`@@unique([organisationId, idempotencyKey])` (the SalesOrder-level constraint, P2002
+race recovery) is the SAME mechanism Sprint 34 built and this sprint's own channel
+adapter rides on unchanged — a WhatsApp consumer tapping "Confirm Order" twice, or Meta
+redelivering the same inbound "Confirm" message, both resolve to exactly one order via
+this one constraint. Two independent layers protect a WhatsApp "Confirm" specifically:
+(1) the Sprint 40.5 `WhatsAppWebhookEvent` dedup ledger means a genuinely REDELIVERED
+webhook (same Meta message id) never even reaches `ConversationService` a second time;
+(2) even a distinct message (the consumer manually retyping "Confirm") reuses the SAME
+`checkoutIdempotencyKey` minted once at order review and persisted in
+`conversation.context`, so `createForConsumer` returns the original order every time.
+New real-PostgreSQL proof added this sprint:
+`d2c-ordering-concurrency.integration.spec.ts` — 5 genuinely concurrent
+`createForConsumer` calls with the same idempotency key produce exactly 1 `SalesOrder`
+row (never 5), and a different key for the same consumer/cart correctly creates a
+genuinely separate order (the guarantee is per-checkout, never per-consumer). The
+pre-existing Sprint 34 in-memory harness test (`conversation.service.spec.ts`'s
+"idempotency / concurrency (order confirmation)" block, which simulates the same P2002
+race via a fake repository) continues to pass unchanged.
+
+## 117. Payment Handoff — Unchanged Sprint 35 Architecture
+
+`ConversationService.handleAwaitingPayment` -> `D2CPaymentService.initiatePayment` ->
+`PaymentService.createPendingForConsumer` -> the real `OpayPaymentProvider` -> a real
+OPay sandbox `checkoutUrl`, exactly as Sprint 35 built it — nothing new. Already
+idempotent/reentrant (same merchant reference reused on every call for the same order;
+an existing `PENDING` payment with a `checkoutUrl` is returned as-is, never a second
+OPay call). The browser/client redirect is never treated as proof of payment — only the
+existing, separately-verified OPay webhook (`PaymentWebhookController`, HMAC-SHA512
+signature) ever confirms a payment, unchanged.
+
+## 118. Live Verification (Sprint 41)
+
+Performed against REAL Meta WhatsApp traffic (`WHATSAPP_PROVIDER_MODE=meta`), not
+simulated state, using an allow-listed test recipient and a real, already-existing
+WhatsApp Business app in Meta's development mode:
+
+1. **Registration** — "Hi" -> "Register" -> name -> territory -> location -> a real new
+   `Consumer` (`CON-000037`), MAIN_MENU shown with the new "My Orders"/"My Rewards"
+   options.
+2. **Browse** — real, un-hardcoded products from the live Boby Bites catalogue (two real
+   Plantain Chips SKUs with real prices).
+3. **Select** — a product recap (name + price) shown before the quantity prompt; no
+   image existed for these two products, so the text-only fallback was exercised for
+   real (not just simulated in a unit test).
+4. **Multi-item order, AND the global-numbering fix proven live**: after one item was in
+   the cart, the product `LIST` + "View Cart & Checkout" `BUTTONS` were sent together;
+   replying "1" correctly resolved to the SECOND product (the LIST's first entry), never
+   to "View Cart" — the exact ambiguity §115's fix resolves, confirmed against real Meta
+   webhook payloads, not a mock.
+5. **Confirm** — a real `SalesOrder` (`SO-000034`, 2 items, ₦2,100, `DRAFT`) created
+   through the unchanged `SalesOrderService`.
+6. **Duplicate webhook** — the SAME Meta message id (the "Confirm Order" reply) was
+   redelivered 3 times; exactly 1 `SalesOrder` and 1 `WhatsAppWebhookEvent` dedup row
+   resulted, confirmed via direct database query, not just an HTTP 200 response.
+7. **Payment handoff** — a real OPay sandbox `checkoutUrl` was generated and genuinely
+   delivered over WhatsApp (confirmed via `MetaWhatsAppProvider`'s own "WhatsApp
+   accepted message `wamid...`" log line, not just database state).
+8. **Admin visibility** — `SO-000034` appeared at the top of the existing, unmodified
+   `/settings/d2c/orders` admin list with zero WhatsApp-specific code — exactly as the
+   audit predicted (§115).
+9. **"My Orders"/"My Rewards" live** — both new menu options were exercised for real and
+   delivered: "My Orders" correctly showed `SO-000034 — Payment Pending`; "My Rewards"
+   correctly showed a `0`-point balance (no promotion had qualified yet — Sprint 40's
+   evaluation still fires only on confirmed payment, unchanged).
+
+A genuine, external issue was found and resolved mid-verification, documented here for
+transparency: a freshly-regenerated `WHATSAPP_TOKEN` was pasted into `.env` by
+APPENDING rather than replacing the previous value, producing one malformed, doubled
+token string that Meta correctly rejected. Diagnosed precisely (not guessed) by calling
+Meta's Graph API directly and comparing the response to the app's own classified error —
+once the `.env` line was corrected to hold the single new token, delivery worked
+immediately. A brief, separate transient `403`/code `131005` ("problem with the access
+token or permissions") self-resolved within about two minutes of the token being
+generated — confirmed via a direct, bypass-the-app `curl` call succeeding once retried,
+isolating it as a Meta-side propagation delay rather than an application defect.
+
+## 119. Known Limitations & Deferred Work (Sprint 41)
+
+No Collection Point fulfilment, inventory deduction, broadcast/marketing messaging, a
+new payment provider, or any new order/product/consumer entity — all explicitly out of
+scope per the brief, and none were touched. Real WhatsApp interactive button/list
+messages remain future work (numbered plain text continues, per Sprint 40.5's own
+documented scope cut — see `docs/domains/whatsapp.md` §9); this sprint only fixed the
+numbering/matching logic underneath that existing text-rendering convention, it did not
+change the rendering style itself.

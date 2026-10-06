@@ -42,7 +42,12 @@ export interface PaymentRequiredMessage {
 }
 
 export type ConversationOutboundMessage =
-  | { type: 'TEXT'; text: string }
+  // `imageUrl` added Sprint 41 — an optional accompanying image (e.g. a product photo
+  // shown when a product is selected), channel-neutral by design: a future WhatsApp
+  // adapter renders it as a real image message with `text` as the caption, falling back
+  // to plain text when absent or when the channel can't send it; a future web-based
+  // channel would render it as an `<img>` alongside the text. Never required.
+  | { type: 'TEXT'; text: string; imageUrl?: string }
   | { type: 'BUTTONS'; text: string; options: ConversationOption[] }
   | { type: 'LIST'; text: string; options: ConversationOption[] }
   | PaymentRequiredMessage;

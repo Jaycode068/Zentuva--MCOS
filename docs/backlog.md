@@ -881,6 +881,7 @@ REJECTED}`) optionally linking an existing `CapitalProject`/
 - ✓ Sprint 39 — D2C Sales Administration & Operations Dashboard
 - ✓ Sprint 40 — Configurable Promotions, Loyalty, Rewards & Consumer Incentives
 - ✓ Sprint 40.5 — Real Meta WhatsApp Cloud API Foundation
+- ✓ Sprint 41 — WhatsApp D2C Ordering & Commerce Conversation
 
 **Current focus:** The Finance MVP (Sprints 6-19) is considered
 functionally complete. Epic 14 (Asset & Maintenance Management) is fully

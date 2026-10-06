@@ -79,6 +79,7 @@ describe('D2COrderingService', () => {
     const salesOrderService = {
       createForConsumer: jest.fn(),
       getById: jest.fn(),
+      listPaginated: jest.fn(),
     } as unknown as jest.Mocked<SalesOrderService>;
 
     const service = new D2COrderingService(
@@ -117,6 +118,65 @@ describe('D2COrderingService', () => {
       expect(result[0]!.currency).toBe('NGN');
       expect(result[0]!.sellingPrice).toBe(500);
       expect(result[0]!.available).toBe(true);
+    });
+
+    it('surfaces Product.imageUrl when present, and null when absent (Sprint 41 brief §18)', async () => {
+      const products = [
+        makeProduct({ id: 'with-image', status: 'ACTIVE', sellingPrice: 500 }),
+        makeProduct({ id: 'without-image', status: 'ACTIVE', sellingPrice: 300 }),
+      ];
+      (products[0] as unknown as { imageUrl: string }).imageUrl = 'https://cdn.test/chips.png';
+      const { service } = makeService(products);
+
+      const result = await service.getAvailableProducts(ORG_A);
+
+      expect(result.find((p) => p.skuId === 'with-image')!.imageUrl).toBe(
+        'https://cdn.test/chips.png',
+      );
+      expect(result.find((p) => p.skuId === 'without-image')!.imageUrl).toBeNull();
+    });
+  });
+
+  describe('listConsumerOrders (Sprint 41 brief §14 "My Orders")', () => {
+    it('reuses the EXISTING SalesOrderService.listPaginated with a consumerId+source:D2C filter — never a second order-history query path', async () => {
+      const { service, salesOrderService } = makeService([]);
+      salesOrderService.listPaginated.mockResolvedValue({
+        items: [
+          {
+            id: 'order-1',
+            orderCode: 'SO-000001',
+            orderDate: new Date('2026-10-01'),
+            status: 'DRAFT',
+            subtotal: 1000,
+            total: 1000,
+            items: [],
+          } as never,
+        ],
+        total: 1,
+      });
+
+      const result = await service.listConsumerOrders(ORG_A, 'consumer-1');
+
+      expect(salesOrderService.listPaginated).toHaveBeenCalledWith(
+        ORG_A,
+        expect.objectContaining({
+          consumerId: 'consumer-1',
+          source: 'D2C',
+          page: 1,
+          pageSize: 5,
+        }),
+      );
+      expect(result).toHaveLength(1);
+      expect(result[0]!.orderCode).toBe('SO-000001');
+    });
+
+    it('defaults to an empty list for a consumer with no orders, rather than throwing', async () => {
+      const { service, salesOrderService } = makeService([]);
+      salesOrderService.listPaginated.mockResolvedValue({ items: [], total: 0 });
+
+      const result = await service.listConsumerOrders(ORG_A, 'consumer-1');
+
+      expect(result).toEqual([]);
     });
   });
 

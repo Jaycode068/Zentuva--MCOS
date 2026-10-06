@@ -190,6 +190,19 @@ array `ConversationService` already writes). A real WhatsApp interactive-message
 history lookup needed, for forward-compatibility with a future real-interactive-message
 upgrade.
 
+**Added Sprint 41** — option numbering is GLOBAL across a whole outbound response
+batch, never restarting at "1." per message. A single response can legitimately carry
+TWO option-bearing messages (e.g. `ConversationService.renderBrowsing`'s product `LIST`
+plus a "View Cart & Checkout" `BUTTONS` message once the cart is non-empty) — numbering
+each independently made a numeric reply genuinely ambiguous between two separately
+numbered WhatsApp bubbles. `sendOutboundResponse` now tracks a running option offset
+across the batch, and `lastPresentedOptions` flattens every option-bearing message from
+the last batch into one combined, order-preserving list for matching — see
+`docs/domains/d2c.md` §115/§118 for the bug's discovery and live proof of the fix. Also
+added: a `TEXT` message carrying `imageUrl` (e.g. a product photo at selection time,
+`docs/domains/d2c.md` §115) is sent via `sendImage` with the text as caption, falling
+back to plain `sendText` of the same caption if the image send fails.
+
 ## 9. Known Limitations
 
 - **Webhook signature verification is conditionally disabled.** `WHATSAPP_APP_SECRET`
