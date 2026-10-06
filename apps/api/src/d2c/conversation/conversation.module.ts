@@ -40,6 +40,9 @@ import { ConversationService } from './conversation.service';
   ],
   controllers: [ConversationController],
   providers: [ConversationRepository, ConversationMessageRepository, ConversationService],
-  exports: [ConversationService],
+  // `ConversationMessageRepository`/`ConversationRepository` exported added Sprint
+  // 40.5 — the WhatsApp inbound adapter's `findLastOutbound`/`findByExternalId`
+  // lookups (see `WhatsAppInboundAdapterService`).
+  exports: [ConversationService, ConversationMessageRepository, ConversationRepository],
 })
 export class ConversationModule {}

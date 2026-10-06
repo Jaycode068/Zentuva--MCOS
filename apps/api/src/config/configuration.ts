@@ -53,8 +53,20 @@ export default () => ({
     // Sprint 29 — never logged, never returned from any API response as-is;
     // see docs/architecture/whatsapp-delivery.md "Configuration."
     providerMode: (process.env.WHATSAPP_PROVIDER_MODE ?? 'local') as 'local' | 'meta',
-    apiBaseUrl: process.env.WHATSAPP_API_BASE_URL ?? 'https://graph.facebook.com/v20.0',
-    accessToken: process.env.WHATSAPP_ACCESS_TOKEN,
+    // Sprint 40.5 — the real deployment's `.env` already carries
+    // `WHATSAPP_TOKEN`/`WHATSAPP_GRAPH_API_VERSION`/`WHATSAPP_GRAPH_API_BASE_URL`
+    // (separate base+version) rather than Sprint 29's original
+    // `WHATSAPP_ACCESS_TOKEN`/`WHATSAPP_API_BASE_URL` (combined) names. Both
+    // conventions are honored here — the Sprint 40.5 names take priority when
+    // present, the Sprint 29 names remain a fallback — so neither an older
+    // environment nor the new one needs to change anything to boot. Never
+    // renamed/removed: the brief's own instruction is "use what's already in
+    // .env," not "migrate .env."
+    apiBaseUrl:
+      process.env.WHATSAPP_GRAPH_API_BASE_URL && process.env.WHATSAPP_GRAPH_API_VERSION
+        ? `${process.env.WHATSAPP_GRAPH_API_BASE_URL}/${process.env.WHATSAPP_GRAPH_API_VERSION}`
+        : (process.env.WHATSAPP_API_BASE_URL ?? 'https://graph.facebook.com/v20.0'),
+    accessToken: process.env.WHATSAPP_TOKEN ?? process.env.WHATSAPP_ACCESS_TOKEN,
     phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID,
     businessAccountId: process.env.WHATSAPP_BUSINESS_ACCOUNT_ID,
     approvalTemplateName:
@@ -65,6 +77,28 @@ export default () => ({
       process.env.WHATSAPP_INTERVIEW_SCHEDULED_TEMPLATE_NAME ?? 'zentuva_interview_scheduled',
     interviewScheduledTemplateLanguage:
       process.env.WHATSAPP_INTERVIEW_SCHEDULED_TEMPLATE_LANGUAGE ?? 'en_US',
+    // Sprint 40.5 — Real Meta WhatsApp Cloud API Foundation
+    // (docs/domains/whatsapp.md). Never logged, never returned from any API
+    // response as-is — same contract as `accessToken` above.
+    webhookVerifyToken: process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN,
+    // Optional — Meta's `X-Hub-Signature-256` webhook signature is computed
+    // with the Meta APP secret, a DIFFERENT credential from the access
+    // token above, and one this deployment's `.env` does not currently set.
+    // `whatsapp-webhook.controller.ts` logs a loud warning and skips
+    // signature verification when this is unset, rather than silently
+    // pretending the webhook is authenticated — see its own doc comment and
+    // docs/sprint-40.5-completion-report.md "Limitations."
+    appSecret: process.env.WHATSAPP_APP_SECRET,
+    // Sprint 40.5 — resolves which tenant a BRAND-NEW WhatsApp contact (one
+    // with no existing `Consumer` row in any organisation) belongs to, since
+    // this deployment's single Meta WhatsApp Business phone number is shared
+    // across every tenant rather than provisioned one-per-organisation (a
+    // real multi-tenant WhatsApp Business Account setup is out of this
+    // sprint's scope — see the completion report). A RETURNING contact is
+    // always resolved by matching `Consumer.normalizedPhone` instead; this
+    // default is only ever consulted for a conversation nobody has seen
+    // before.
+    defaultOrganisationId: process.env.WHATSAPP_DEFAULT_ORGANISATION_ID,
   },
   webBaseUrl: process.env.WEB_BASE_URL ?? 'http://localhost:3000',
   opay: {

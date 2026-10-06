@@ -1,13 +1,25 @@
 import { Injectable, Logger } from '@nestjs/common';
 
-import { WhatsAppSendResult, WhatsAppTemplateMessage } from '../ports/whatsapp-provider.port';
+import {
+  WhatsAppImageMessage,
+  WhatsAppSendResult,
+  WhatsAppTemplateMessage,
+  WhatsAppTextMessage,
+} from '../ports/whatsapp-provider.port';
 
 /** A message the local provider "sent," recorded for test assertions and
- *  local-dev inspection (Sprint 29 §7 "Local Provider"). */
-export interface RecordedLocalWhatsAppMessage extends WhatsAppTemplateMessage {
+ *  local-dev inspection (Sprint 29 §7 "Local Provider"). Added Sprint 40.5 —
+ *  `kind` distinguishes which of the three send methods produced this
+ *  record, since `sendText`/`sendImage` carry different fields from
+ *  `sendTemplate`. */
+export type RecordedLocalWhatsAppMessage = {
   outcome: WhatsAppSendResult['outcome'];
   sentAt: Date;
-}
+} & (
+  | ({ kind: 'TEMPLATE' } & WhatsAppTemplateMessage)
+  | ({ kind: 'TEXT' } & WhatsAppTextMessage)
+  | ({ kind: 'IMAGE' } & WhatsAppImageMessage)
+);
 
 /**
  * Sprint 29 §7 "Local Provider" (docs/architecture/whatsapp-delivery.md
@@ -36,14 +48,32 @@ export class LocalWhatsAppProvider {
   static readonly SIMULATE_TERMINAL_FAILURE_NUMBER = '+10000000002';
 
   async sendTemplate(message: WhatsAppTemplateMessage): Promise<WhatsAppSendResult> {
-    const outcome = this.classify(message.toPhoneNumber);
-    this.sent.push({ ...message, outcome, sentAt: new Date() });
     this.logger.debug(
-      `[local whatsapp provider] ${outcome} — template=${message.templateName} correlationId=${message.correlationId}`,
+      `[local whatsapp provider] template=${message.templateName} correlationId=${message.correlationId}`,
     );
+    return this.recordAndClassify({ kind: 'TEMPLATE', ...message });
+  }
+
+  /** Added Sprint 40.5. */
+  async sendText(message: WhatsAppTextMessage): Promise<WhatsAppSendResult> {
+    this.logger.debug(`[local whatsapp provider] text correlationId=${message.correlationId}`);
+    return this.recordAndClassify({ kind: 'TEXT', ...message });
+  }
+
+  /** Added Sprint 40.5. */
+  async sendImage(message: WhatsAppImageMessage): Promise<WhatsAppSendResult> {
+    this.logger.debug(`[local whatsapp provider] image correlationId=${message.correlationId}`);
+    return this.recordAndClassify({ kind: 'IMAGE', ...message });
+  }
+
+  private recordAndClassify(
+    record: Omit<RecordedLocalWhatsAppMessage, 'outcome' | 'sentAt'>,
+  ): WhatsAppSendResult {
+    const outcome = this.classify(record.toPhoneNumber);
+    this.sent.push({ ...record, outcome, sentAt: new Date() } as RecordedLocalWhatsAppMessage);
 
     if (outcome === 'ACCEPTED') {
-      return { outcome, providerMessageId: `local-wa-${Date.now()}-${message.correlationId}` };
+      return { outcome, providerMessageId: `local-wa-${Date.now()}-${record.correlationId}` };
     }
     if (outcome === 'RETRYABLE_FAILURE') {
       return {

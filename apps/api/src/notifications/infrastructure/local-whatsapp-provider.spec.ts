@@ -23,9 +23,13 @@ describe('LocalWhatsAppProvider', () => {
     await provider.sendTemplate(baseMessage('+2348012345678'));
     const sent = provider.getSentMessages();
     expect(sent).toHaveLength(1);
-    expect(sent[0]?.toPhoneNumber).toBe('+2348012345678');
-    expect(sent[0]?.templateName).toBe('zentuva_approval_required');
-    expect(sent[0]?.outcome).toBe('ACCEPTED');
+    const first = sent[0];
+    expect(first?.toPhoneNumber).toBe('+2348012345678');
+    expect(first?.kind).toBe('TEMPLATE');
+    if (first?.kind === 'TEMPLATE') {
+      expect(first.templateName).toBe('zentuva_approval_required');
+    }
+    expect(first?.outcome).toBe('ACCEPTED');
   });
 
   it('simulates a retryable failure via the reserved test number', async () => {
@@ -57,5 +61,50 @@ describe('LocalWhatsAppProvider', () => {
     await provider.sendTemplate(baseMessage('+2348012345678'));
     provider.reset();
     expect(provider.getSentMessages()).toHaveLength(0);
+  });
+
+  // Sprint 40.5 — Real Meta WhatsApp Cloud API Foundation.
+  describe('sendText', () => {
+    it('accepts a normal text message and records it', async () => {
+      const provider = new LocalWhatsAppProvider();
+      const result = await provider.sendText({
+        toPhoneNumber: '+2348012345678',
+        text: 'Hello from Zentuva',
+        correlationId: 'text-1',
+      });
+      expect(result.outcome).toBe('ACCEPTED');
+      const [first] = provider.getSentMessages();
+      expect(first?.kind).toBe('TEXT');
+      if (first?.kind === 'TEXT') {
+        expect(first.text).toBe('Hello from Zentuva');
+      }
+    });
+
+    it('still simulates failures via the reserved test numbers', async () => {
+      const provider = new LocalWhatsAppProvider();
+      const result = await provider.sendText({
+        toPhoneNumber: LocalWhatsAppProvider.SIMULATE_TERMINAL_FAILURE_NUMBER,
+        text: 'Hello',
+        correlationId: 'text-2',
+      });
+      expect(result.outcome).toBe('TERMINAL_FAILURE');
+    });
+  });
+
+  describe('sendImage', () => {
+    it('accepts a normal image message and records it', async () => {
+      const provider = new LocalWhatsAppProvider();
+      const result = await provider.sendImage({
+        toPhoneNumber: '+2348012345678',
+        imageUrl: 'https://example.com/a.png',
+        correlationId: 'image-1',
+      });
+      expect(result.outcome).toBe('ACCEPTED');
+      const [first] = provider.getSentMessages();
+      expect(first?.kind).toBe('IMAGE');
+      if (first?.kind === 'IMAGE') {
+        expect(first.imageUrl).toBe('https://example.com/a.png');
+      }
+    });
   });
 });

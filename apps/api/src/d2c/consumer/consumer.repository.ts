@@ -57,6 +57,20 @@ export class ConsumerRepository {
     return this.prisma.consumer.findFirst({ where: { organisationId, normalizedPhone } });
   }
 
+  /** Added Sprint 40.5 — Real Meta WhatsApp Cloud API Foundation
+   *  (docs/domains/whatsapp.md). A DELIBERATE, narrow exception to this
+   *  repository's own "every method scopes by organisationId" convention:
+   *  this deployment shares one Meta WhatsApp Business phone number across
+   *  every tenant (a real per-tenant WhatsApp Business Account setup is out
+   *  of scope this sprint), so resolving which organisation an inbound
+   *  WhatsApp message belongs to requires looking across tenants BEFORE an
+   *  organisationId is known — never used for anything else, and never
+   *  exposed through any authenticated/tenant-scoped endpoint. See
+   *  `WhatsAppOrganisationResolverService`, the one caller. */
+  findManyByNormalizedPhoneAcrossOrganisations(normalizedPhone: string): Promise<Consumer[]> {
+    return this.prisma.consumer.findMany({ where: { normalizedPhone } });
+  }
+
   findManyByOrganisation(
     organisationId: string,
     params: ListConsumersParams = {},

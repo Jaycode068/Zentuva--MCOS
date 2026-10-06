@@ -101,6 +101,39 @@ export const envSchema = baseEnvSchema
       .default('zentuva_interview_scheduled'),
     WHATSAPP_INTERVIEW_SCHEDULED_TEMPLATE_LANGUAGE: z.string().trim().min(1).default('en_US'),
 
+    // --- Real Meta WhatsApp Cloud API Foundation (Sprint 40.5) — this
+    // deployment's `.env` already sets these under THESE exact names
+    // (distinct from the Sprint 29 names above); `configuration.ts` prefers
+    // them when present and falls back to the Sprint 29 names otherwise, so
+    // nothing here is required for an existing environment to keep booting.
+    /** Preferred over `WHATSAPP_ACCESS_TOKEN` when both are set. */
+    WHATSAPP_TOKEN: z.string().min(1).optional(),
+    /** Paired with `WHATSAPP_GRAPH_API_BASE_URL` to build the full Graph API
+     *  base URL — preferred over the combined `WHATSAPP_API_BASE_URL` above
+     *  when both are set. */
+    WHATSAPP_GRAPH_API_VERSION: z.string().trim().min(1).optional(),
+    WHATSAPP_GRAPH_API_BASE_URL: z.string().trim().url().optional(),
+    /** Meta's `GET /api/whatsapp/webhook` verification handshake
+     *  (`hub.verify_token`) — load-bearing the moment `WHATSAPP_PROVIDER_MODE
+     *  =meta` and a real webhook is configured in the Meta dashboard; never
+     *  logged. */
+    WHATSAPP_WEBHOOK_VERIFY_TOKEN: z.string().min(1).optional(),
+    /** The Meta APP secret used to verify `X-Hub-Signature-256` on inbound
+     *  webhook POSTs — a different credential from `WHATSAPP_TOKEN`. Left
+     *  genuinely optional: unset today in this deployment's `.env`, in which
+     *  case `whatsapp-webhook.controller.ts` skips signature verification
+     *  and logs a loud warning rather than silently claiming the webhook is
+     *  authenticated — see docs/sprint-40.5-completion-report.md
+     *  "Limitations." */
+    WHATSAPP_APP_SECRET: z.string().min(1).optional(),
+    /** Which organisation owns a brand-new (never-before-seen) WhatsApp
+     *  contact, since this deployment shares one Meta WhatsApp Business
+     *  phone number across every tenant rather than provisioning one per
+     *  organisation. A RETURNING contact is always resolved by matching an
+     *  existing `Consumer.normalizedPhone` instead; this is only consulted
+     *  when no such match exists anywhere. */
+    WHATSAPP_DEFAULT_ORGANISATION_ID: z.string().trim().min(1).optional(),
+
     /** Sprint 35 — the first backend-constructed link back to `apps/web`
      *  (OPay's `returnUrl`/`cancelUrl`). Defaults to the local dev web
      *  server; production deploys must set this to the real public web

@@ -12,12 +12,16 @@ const TABS = [
   { label: 'Promotions', href: '/settings/d2c/promotions' },
   { label: 'Loyalty', href: '/settings/d2c/loyalty' },
   { label: 'Conversation Tester', href: '/settings/d2c/conversation' },
+  { label: 'WhatsApp Test', href: '/settings/d2c/whatsapp-test' },
 ];
 
 /** Shared sub-navigation for the `/settings/d2c/*` pages (Sprint 39,
  *  docs/domains/d2c.md). "Promotions"/"Loyalty" added Sprint 40
  *  (docs/domains/d2c.md "Admin Experience") — the exact `HrTabs`/`MaintenanceTabs`
- *  clone/convention. */
+ *  clone/convention. "WhatsApp Test" added Sprint 40.5
+ *  (docs/domains/whatsapp.md) — distinct from "Conversation Tester": that one drives
+ *  the simulated internal Conversation Layer endpoint, this one sends a REAL outbound
+ *  WhatsApp message through whichever provider is configured. */
 export function D2cTabs() {
   const pathname = usePathname();
 

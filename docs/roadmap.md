@@ -983,6 +983,28 @@ PaymentService (existing, extended) + SalesOrderService.confirm
       integration suite re-run unchanged alongside a new Sprint 40
       concurrency suite — see
       [`docs/sprint-40-completion-report.md`](sprint-40-completion-report.md)
+- [x] **Sprint 40.5 — Real Meta WhatsApp Cloud API Foundation.** Extended the
+      existing Sprint 29 `MetaWhatsAppProvider`/`LocalWhatsAppProvider`
+      (never duplicated) with real text/image sends and a generic
+      ordered-parameter template path, built the first real WhatsApp
+      webhook (`GET`/`POST /api/whatsapp/webhook`, signature/verify-token
+      handshake, a new idempotency ledger keyed by Meta's own message id),
+      and built the first real Channel Adapter bridging that webhook into
+      the UNCHANGED, channel-neutral `ConversationService` from Sprint 33 —
+      never a second chatbot. Live-verified against real Meta traffic: real
+      text/template/image sends accepted with genuine message ids (via both
+      the raw API and a new admin `/settings/d2c/whatsapp-test` screen),
+      and a real inbound "Hi" → "2" (Register) → name reply flowed through
+      the real webhook into a genuine new Consumer registration, exactly
+      mirroring the pre-existing internal Conversation Tester's own state
+      machine. Two real-world issues — an expired access token and a
+      non-allow-listed test recipient (Meta development-mode restriction) —
+      were found and resolved live, not simulated around. 250 suites / 2249
+      tests passing, 0 regressions; the Sprint 37.1 and Sprint 40
+      PostgreSQL integration suites re-run unchanged; one new table
+      (`WhatsAppWebhookEvent`, a pure dedup ledger) — see
+      [`docs/domains/whatsapp.md`](domains/whatsapp.md) and
+      [`docs/sprint-40.5-completion-report.md`](sprint-40.5-completion-report.md)
 - [ ] Retail Portal (mobile)
 - [ ] Business Intelligence dashboards
 

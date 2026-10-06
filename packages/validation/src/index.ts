@@ -27,5 +27,6 @@ export * from './retail';
 export * from './returns';
 export * from './sales';
 export * from './suppliers';
+export * from './whatsapp';
 export * from './workflow';
 export { z } from 'zod';

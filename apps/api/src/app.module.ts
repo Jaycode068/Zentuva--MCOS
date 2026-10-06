@@ -8,6 +8,7 @@ import { ConsumerModule } from './d2c/consumer/consumer.module';
 import { ConversationModule } from './d2c/conversation/conversation.module';
 import { CollectionPointFulfillmentModule } from './d2c/fulfillment/collection-point-fulfillment.module';
 import { FieldD2COverviewModule } from './d2c/field-overview/field-d2c-overview.module';
+import { WhatsAppModule } from './d2c/whatsapp/whatsapp.module';
 import { ProductFamilyModule } from './catalogue/product-family/product-family.module';
 import { ProductVariantModule } from './catalogue/product-variant/product-variant.module';
 import { LoyaltyModule } from './promotions/loyalty/loyalty.module';
@@ -77,6 +78,7 @@ import { PaymentsModule } from './payments/payments.module';
     RecruitmentModule,
     ConsumerModule,
     ConversationModule,
+    WhatsAppModule,
     PaymentsModule,
     CollectionPointFulfillmentModule,
     FieldD2COverviewModule,

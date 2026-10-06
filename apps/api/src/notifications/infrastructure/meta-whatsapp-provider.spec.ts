@@ -202,5 +202,112 @@ describe('MetaWhatsAppProvider', () => {
       const result = await provider.sendTemplate(baseMessage);
       expect(result.providerMessageId).toBeUndefined();
     });
+
+    // Sprint 40.5 — prefers the new ordered `bodyParameters` array over the legacy
+    // named `parameters` + fixed-order mapping when both are theoretically available.
+    it('builds positional body parameters directly from bodyParameters when provided', async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ messages: [{ id: 'wamid.XYZ' }] }),
+      });
+      const provider = new MetaWhatsAppProvider(makeConfig());
+      await provider.sendTemplate({
+        toPhoneNumber: '+2348012345678',
+        templateName: 'jaspers_market_order_confirmation_v1',
+        templateLanguage: 'en_US',
+        bodyParameters: ['John Doe', '123456', 'Oct 6, 2026'],
+        correlationId: 'test-1',
+      });
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+      expect(body.template.name).toBe('jaspers_market_order_confirmation_v1');
+      expect(body.template.components[0].parameters).toEqual([
+        { type: 'text', text: 'John Doe' },
+        { type: 'text', text: '123456' },
+        { type: 'text', text: 'Oct 6, 2026' },
+      ]);
+    });
+  });
+
+  // Sprint 40.5 — Real Meta WhatsApp Cloud API Foundation.
+  describe('sendText', () => {
+    it("sends Meta's exact text-message payload shape and returns ACCEPTED", async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ messages: [{ id: 'wamid.TEXT1' }] }),
+      });
+      const provider = new MetaWhatsAppProvider(makeConfig());
+      const result = await provider.sendText({
+        toPhoneNumber: '+2348012345678',
+        text: 'Hello from Zentuva',
+        correlationId: 'text-1',
+      });
+      expect(result).toEqual({ outcome: 'ACCEPTED', providerMessageId: 'wamid.TEXT1' });
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+      expect(body).toEqual({
+        messaging_product: 'whatsapp',
+        to: '2348012345678',
+        type: 'text',
+        text: { body: 'Hello from Zentuva' },
+      });
+    });
+
+    it('maps a failure response the same way sendTemplate does', async () => {
+      fetchMock.mockResolvedValue({
+        ok: false,
+        status: 401,
+        json: () => Promise.resolve({ error: { code: 190 } }),
+      });
+      const provider = new MetaWhatsAppProvider(makeConfig());
+      const result = await provider.sendText({
+        toPhoneNumber: '+2348012345678',
+        text: 'Hi',
+        correlationId: 'text-2',
+      });
+      expect(result.outcome).toBe('TERMINAL_FAILURE');
+      expect(result.errorCode).toBe('WHATSAPP_AUTH');
+    });
+  });
+
+  describe('sendImage', () => {
+    it("sends Meta's exact image-message payload shape including caption", async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ messages: [{ id: 'wamid.IMG1' }] }),
+      });
+      const provider = new MetaWhatsAppProvider(makeConfig());
+      const result = await provider.sendImage({
+        toPhoneNumber: '+2348012345678',
+        imageUrl: 'https://example.com/product.png',
+        caption: 'Our new snack pack',
+        correlationId: 'image-1',
+      });
+      expect(result).toEqual({ outcome: 'ACCEPTED', providerMessageId: 'wamid.IMG1' });
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+      expect(body).toEqual({
+        messaging_product: 'whatsapp',
+        to: '2348012345678',
+        type: 'image',
+        image: { link: 'https://example.com/product.png', caption: 'Our new snack pack' },
+      });
+    });
+
+    it('omits caption entirely when not provided', async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ messages: [{ id: 'wamid.IMG2' }] }),
+      });
+      const provider = new MetaWhatsAppProvider(makeConfig());
+      await provider.sendImage({
+        toPhoneNumber: '+2348012345678',
+        imageUrl: 'https://example.com/product.png',
+        correlationId: 'image-2',
+      });
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+      expect(body.image).toEqual({ link: 'https://example.com/product.png' });
+    });
   });
 });

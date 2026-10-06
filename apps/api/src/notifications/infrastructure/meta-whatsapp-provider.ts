@@ -3,9 +3,11 @@ import { ConfigService } from '@nestjs/config';
 
 import { APPROVAL_TEMPLATE_PARAMETER_ORDER } from '../whatsapp-template';
 import {
+  WhatsAppImageMessage,
   WhatsAppProvider,
   WhatsAppSendResult,
   WhatsAppTemplateMessage,
+  WhatsAppTextMessage,
 } from '../ports/whatsapp-provider.port';
 
 export interface MetaWhatsAppConfig {
@@ -71,27 +73,66 @@ export class MetaWhatsAppProvider implements WhatsAppProvider {
   }
 
   async sendTemplate(message: WhatsAppTemplateMessage): Promise<WhatsAppSendResult> {
-    const url = `${this.cfg.apiBaseUrl}/${this.cfg.phoneNumberId}/messages`;
-    const toDigitsOnly = message.toPhoneNumber.replace(/^\+/, '');
+    // Sprint 40.5 — prefer the new, unambiguous ordered-array shape when the
+    // caller supplies one; the two existing `resolveWhatsAppTemplate`-driven
+    // templates keep going through the original named-record + fixed-order
+    // mapping, completely unchanged.
+    const parameters = message.bodyParameters
+      ? message.bodyParameters.map((text) => ({ type: 'text', text }))
+      : APPROVAL_TEMPLATE_PARAMETER_ORDER.map((key) => ({
+          type: 'text',
+          text: message.parameters?.[key] ?? '',
+        }));
 
     const body = {
       messaging_product: 'whatsapp',
-      to: toDigitsOnly,
+      to: toDigitsOnly(message.toPhoneNumber),
       type: 'template',
       template: {
         name: message.templateName,
         language: { code: message.templateLanguage },
-        components: [
-          {
-            type: 'body',
-            parameters: APPROVAL_TEMPLATE_PARAMETER_ORDER.map((key) => ({
-              type: 'text',
-              text: message.parameters[key] ?? '',
-            })),
-          },
-        ],
+        components: [{ type: 'body', parameters }],
       },
     };
+
+    return this.sendRaw(body, message.toPhoneNumber, message.correlationId);
+  }
+
+  /** Added Sprint 40.5. Meta's `POST .../messages` text-message shape
+   *  (brief's own exact payload — `type: 'text', text: { body }`). */
+  async sendText(message: WhatsAppTextMessage): Promise<WhatsAppSendResult> {
+    const body = {
+      messaging_product: 'whatsapp',
+      to: toDigitsOnly(message.toPhoneNumber),
+      type: 'text',
+      text: { body: message.text },
+    };
+    return this.sendRaw(body, message.toPhoneNumber, message.correlationId);
+  }
+
+  /** Added Sprint 40.5. Meta's `POST .../messages` image-message shape —
+   *  `imageUrl` must already be public (brief "Images must use public
+   *  URLs. Do not create media storage this sprint."). */
+  async sendImage(message: WhatsAppImageMessage): Promise<WhatsAppSendResult> {
+    const body = {
+      messaging_product: 'whatsapp',
+      to: toDigitsOnly(message.toPhoneNumber),
+      type: 'image',
+      image: { link: message.imageUrl, ...(message.caption ? { caption: message.caption } : {}) },
+    };
+    return this.sendRaw(body, message.toPhoneNumber, message.correlationId);
+  }
+
+  /** The one shared `POST {apiBaseUrl}/{phoneNumberId}/messages` call —
+   *  `sendTemplate`/`sendText`/`sendImage` differ only in the request
+   *  body's shape, never in how the response is sent, parsed, or
+   *  classified. */
+  private async sendRaw(
+    body: Record<string, unknown>,
+    toPhoneNumber: string,
+    correlationId: string,
+  ): Promise<WhatsAppSendResult> {
+    const url = `${this.cfg.apiBaseUrl}/${this.cfg.phoneNumberId}/messages`;
 
     try {
       const response = await fetch(url, {
@@ -99,7 +140,7 @@ export class MetaWhatsAppProvider implements WhatsAppProvider {
         headers: {
           Authorization: `Bearer ${this.cfg.accessToken}`,
           'Content-Type': 'application/json',
-          'X-Zentuva-Correlation-Id': message.correlationId,
+          'X-Zentuva-Correlation-Id': correlationId,
         },
         body: JSON.stringify(body),
       });
@@ -110,7 +151,7 @@ export class MetaWhatsAppProvider implements WhatsAppProvider {
         const messages = payload.messages as Array<{ id?: string }> | undefined;
         const providerMessageId = messages?.[0]?.id;
         this.logger.debug(
-          `WhatsApp accepted message ${providerMessageId ?? '(no id)'} for ${message.correlationId} to ${redactPhone(message.toPhoneNumber)}`,
+          `WhatsApp accepted message ${providerMessageId ?? '(no id)'} for ${correlationId} to ${redactPhone(toPhoneNumber)}`,
         );
         return { outcome: 'ACCEPTED', providerMessageId };
       }
@@ -185,6 +226,11 @@ export class MetaWhatsAppProvider implements WhatsAppProvider {
       errorMessage: `WhatsApp failure (${errorCode})${code ? `, provider code ${code}` : ''}.`,
     };
   }
+}
+
+/** Meta's `to` field is digits-only, no leading `+`. */
+function toDigitsOnly(phone: string): string {
+  return phone.replace(/^\+/, '');
 }
 
 /** Sprint 29 §21 "Phone privacy — avoid logging complete phone numbers

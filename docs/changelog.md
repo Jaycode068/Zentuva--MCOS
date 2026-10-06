@@ -7,6 +7,44 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 40.5 Real Meta WhatsApp Cloud API Foundation] - 2026-10-06
+
+Extended Sprint 29's `MetaWhatsAppProvider`/`LocalWhatsAppProvider` (never duplicated)
+with real text/image sends and a generic ordered-parameter template path, built the
+first real WhatsApp webhook, and built the first real Channel Adapter bridging that
+webhook into the unchanged, channel-neutral `ConversationService` from Sprint 33 —
+never a second chatbot engine.
+
+**New.** `sendText`/`sendImage` on `WhatsAppProvider`; `WhatsAppTemplateMessage.bodyParameters`
+(a plain ordered array, preferred over the Sprint 29 named-record shape for any new
+caller). `GET`/`POST /api/whatsapp/webhook` — Meta's verification handshake plus
+signature-verified (when `WHATSAPP_APP_SECRET` is configured) inbound message/status
+handling, deduped via a new `WhatsAppWebhookEvent` ledger keyed by Meta's own message
+id. `WhatsAppInboundAdapterService` — the real Channel Adapter, translating inbound
+Meta webhook messages into `ConversationService.handleInboundMessage` calls and
+responses back into real `sendText` calls, rendering `BUTTONS`/`LIST` as numbered plain
+text (a documented scope cut) matched back against the last-presented options by number
+or label. `WhatsAppOrganisationResolverService` resolves which tenant an inbound
+message belongs to for this deployment's single shared WhatsApp Business phone number.
+Admin-only `POST /api/whatsapp/test/{text,template,image}` plus a new
+`/settings/d2c/whatsapp-test` admin screen, reusing the existing `d2c.consumer.manage`
+permission — no new permission introduced.
+
+**Live-verified against real Meta traffic**, not simulated state: real text/template/
+image sends accepted by Meta with genuine message ids (via both the raw API and the
+admin UI); a real inbound "Hi" → "2" (Register) → name reply flowed through the real
+webhook, the Channel Adapter, and the unchanged Conversation Layer, genuinely
+registering a new Consumer. Two real-world issues — an expired access token and a
+non-allow-listed test recipient (Meta development-mode restriction) — were found and
+resolved live. 250 suites / 2249 tests passing, 0 regressions; the Sprint 37.1 and
+Sprint 40 PostgreSQL integration suites re-run unchanged.
+
+**Schema.** One new table, `WhatsAppWebhookEvent` — a pure dedup ledger, no existing
+table altered.
+
+See [docs/domains/whatsapp.md](domains/whatsapp.md) and
+[docs/sprint-40.5-completion-report.md](sprint-40.5-completion-report.md).
+
 ## [Sprint 40 Configurable Promotions, Loyalty, Rewards & Consumer Incentives] - 2026-10-05
 
 A new top-level `promotions/` domain — the reusable, configurable

@@ -7998,6 +7998,29 @@ model ConsumerConversationMessage {
   @@map("d2c_conversation_messages")
 }
 
+/// Sprint 40.5 — Real Meta WhatsApp Cloud API Foundation. Meta redelivers a
+/// webhook call on any non-2xx/timeout response, and the same inbound
+/// message or status update can therefore arrive more than once —
+/// `externalMessageId` (Meta's own WAMID, globally unique across Meta's
+/// system) is the idempotency key, the same "unique constraint as the
+/// idempotency guard" pattern `ConsumerRewardGrant` already established
+/// (Sprint 40): insert-or-skip, never a bare "if not exists, create" check
+/// (which cannot survive two genuinely concurrent redeliveries). Deliberately
+/// has NO `organisationId` — a WAMID is unique globally, before this sprint's
+/// webhook has even resolved which tenant the message belongs to, so scoping
+/// this dedup ledger per-organisation would be meaningless.
+model WhatsAppWebhookEvent {
+  id                String   @id @default(cuid())
+  externalMessageId String   @unique
+  /// `'INBOUND_MESSAGE' | 'STATUS_UPDATE'` — recorded only for operator
+  /// triage, never branched on by application logic.
+  kind              String
+  receivedAt        DateTime @default(now())
+
+  @@index([receivedAt])
+  @@map("whatsapp_webhook_events")
+}
+
 // ---------------------------------------------------------------------------
 // Sprint 40 — Configurable Promotions, Loyalty, Rewards & Consumer Incentives
 // (docs/domains/d2c.md). The reusable foundation the brief insists on, NOT a

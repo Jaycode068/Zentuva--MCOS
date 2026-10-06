@@ -39,4 +39,21 @@ export class ConversationMessageRepository {
       orderBy: { createdAt: 'asc' },
     });
   }
+
+  /** Added Sprint 40.5 — the WhatsApp inbound adapter's only way to recover
+   *  which `BUTTONS`/`LIST` options were last presented (its own outbound
+   *  `ConversationOutboundResponse`, persisted verbatim as `payload` by
+   *  `ConversationService.handleInboundMessage`), so a plain-text WhatsApp
+   *  reply like "1" or "Register" can be translated back into the correct
+   *  `{type:'BUTTON', value}` input — real WhatsApp text messages carry no
+   *  structured option value on their own. */
+  findLastOutbound(
+    organisationId: string,
+    conversationId: string,
+  ): Promise<ConsumerConversationMessage | null> {
+    return this.prisma.consumerConversationMessage.findFirst({
+      where: { organisationId, conversationId, direction: 'OUTBOUND' },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
 }
