@@ -10,6 +10,7 @@ import {
   PaymentProvider,
 } from '../../payments/ports/payment-provider.port';
 import { SalesOrderService } from '../../sales/sales-order.service';
+import { PromotionEvaluationService } from '../../promotions/reward/promotion-evaluation.service';
 import { ConsumerService } from '../consumer/consumer.service';
 import { CollectionPointFulfillmentService } from '../fulfillment/collection-point-fulfillment.service';
 import { D2CPaymentService } from './d2c-payment.service';
@@ -161,6 +162,9 @@ describe('D2CPaymentService', () => {
     const collectionPointFulfillmentService = {
       autoAssign: jest.fn().mockResolvedValue(undefined),
     } as unknown as jest.Mocked<CollectionPointFulfillmentService>;
+    const promotionEvaluationService = {
+      evaluateOrderQualification: jest.fn().mockResolvedValue([]),
+    } as unknown as jest.Mocked<PromotionEvaluationService>;
 
     const service = new D2CPaymentService(
       provider,
@@ -171,6 +175,7 @@ describe('D2CPaymentService', () => {
       auditService,
       config,
       collectionPointFulfillmentService,
+      promotionEvaluationService,
     );
     return {
       service,
@@ -180,6 +185,7 @@ describe('D2CPaymentService', () => {
       auditService,
       provider,
       collectionPointFulfillmentService,
+      promotionEvaluationService,
     };
   }
 

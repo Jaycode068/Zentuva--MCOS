@@ -68,7 +68,7 @@ describe('D2C Payment domain independence (Sprint 35)', () => {
     }
   });
 
-  it('structural guard: D2CPaymentModule imports only PaymentProviderModule/FinanceModule/SalesModule/ConsumerModule/IdentityModule/CollectionPointFulfillmentModule, no controller', () => {
+  it('structural guard: D2CPaymentModule imports only PaymentProviderModule/FinanceModule/SalesModule/ConsumerModule/IdentityModule/CollectionPointFulfillmentModule/RewardModule, no controller', () => {
     const source = readFileSync(join(__dirname, 'd2c-payment.module.ts'), 'utf-8');
     expect(source).not.toMatch(/controllers:/);
     const importsMatch = source.match(/imports:\s*\[([\s\S]*?)\],\s*providers/);
@@ -86,6 +86,9 @@ describe('D2C Payment domain independence (Sprint 35)', () => {
         // Added Sprint 37 — best-effort Collection Point auto-assignment right after a
         // verified payment (docs/domains/d2c.md "Order Assignment Model").
         'CollectionPointFulfillmentModule',
+        // Added Sprint 40 — best-effort promotion evaluation right alongside Collection
+        // Point auto-assignment (docs/domains/d2c.md "Qualifying Events").
+        'RewardModule',
       ]),
     );
   });

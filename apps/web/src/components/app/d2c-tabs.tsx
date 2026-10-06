@@ -9,11 +9,15 @@ const TABS = [
   { label: 'Collection Points', href: '/settings/d2c/collection-points' },
   { label: 'Territories', href: '/settings/d2c/territories' },
   { label: 'Consumers', href: '/settings/d2c/consumers' },
+  { label: 'Promotions', href: '/settings/d2c/promotions' },
+  { label: 'Loyalty', href: '/settings/d2c/loyalty' },
   { label: 'Conversation Tester', href: '/settings/d2c/conversation' },
 ];
 
 /** Shared sub-navigation for the `/settings/d2c/*` pages (Sprint 39,
- *  docs/domains/d2c.md) — the exact `HrTabs`/`MaintenanceTabs` clone/convention. */
+ *  docs/domains/d2c.md). "Promotions"/"Loyalty" added Sprint 40
+ *  (docs/domains/d2c.md "Admin Experience") — the exact `HrTabs`/`MaintenanceTabs`
+ *  clone/convention. */
 export function D2cTabs() {
   const pathname = usePathname();
 

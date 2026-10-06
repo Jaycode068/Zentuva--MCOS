@@ -2384,3 +2384,256 @@ payment provider, a new inventory or order architecture, a CRM
 replacement, a full BI platform, or any admin override beyond the one
 audited and built (§97) — all explicitly out of scope, per the brief's
 own boundary.
+
+## 103. Configurable Promotions, Loyalty, Rewards & Consumer Incentives (Sprint 40)
+
+The reusable foundation the brief insists on — **promotions are
+configuration, time-based, and evaluated against their own persisted
+terms; the first-order incentive is simply the first configured
+promotion, never a permanent special case.** A new top-level domain,
+`apps/api/src/promotions/` (sibling to `d2c/`/`sales/`/`finance/`), with
+three sub-modules mirroring the brief's own conceptual separation:
+`promotion/` (Promotion + its Conditions + its Benefits — "why is a
+consumer eligible, what do they receive"), `loyalty/` (LoyaltyAccount +
+LoyaltyLedgerEntry — points as ONE benefit type, never the centre of the
+architecture), `reward/` (ConsumerRewardGrant + the reusable
+`PromotionEvaluationService` that ties the two together). Integrates with
+the EXISTING Consumer/SalesOrder/Payment/Product/Territory/Notification/
+Audit/Access-Control architecture — no parallel commerce system.
+
+## 104. Mandatory Pre-Implementation Audit — Key Findings
+
+- **No existing "effective-dated configuration" pattern matched the
+  requirement exactly, but two strong precedents did.** `PolicyVersion`
+  (HR, Sprint 24): `DRAFT → PUBLISHED → ARCHIVED`, "a published version is
+  never edited again — a material change always creates a new version."
+  `Budget` (Finance): `version`/`revisesBudgetId` self-relation, immutable
+  once revised. Adopted `PolicyVersion`'s simpler shape directly —
+  immutable-once-`ACTIVE`, enforced in `PromotionService`, never a
+  separate version-chain table — since the brief's own October/November
+  example is literally two separate `Promotion` rows, not one row revised
+  twice; a version-chain table would have been unused complexity.
+- **The snapshot convention is extensive and load-bearing throughout this
+  codebase** — `InvoiceItem.productName`/`.unitPrice`, `CustomerReturnItem
+.unitCost`, `WorkflowStepInstance`'s four `*Snapshot` columns — all
+  documented with the identical rule: "snapshot columns, never reconstruct
+  from the live source." `ConsumerRewardGrant` mirrors this exactly
+  (§107) — the actual mechanism historical grants rely on, independent of
+  and in addition to promotion immutability.
+- **No consumer-facing notification channel exists** (confirmed again,
+  consistent with Sprints 37-39's own findings) — `Notification`/
+  `EmailDelivery`/`WhatsAppDelivery` are transactional-only infrastructure
+  for `User` recipients; `Consumer.marketingOptIn` has no delivery
+  pipeline behind it at all. Sprint 40 therefore builds NO notification
+  integration (brief §22 explicitly allowed this: "only implement
+  notifications genuinely in scope") — deferred to the future Conversation
+  Layer (§112).
+- **`SalesOrderStatus`** (`DRAFT/CONFIRMED/PARTIALLY_FULFILLED/FULFILLED/
+CANCELLED`) and the exact `D2CPaymentService.handleProviderCallback`
+  hook point (where `CollectionPointFulfillmentService.autoAssign()`
+  already fires, Sprint 37) were confirmed as the correct, EXISTING
+  qualifying-event trigger — a D2C order reaches `CONFIRMED` only via a
+  verified OPay payment, never cart creation or a payment link.
+- **Permission catalogue convention**: `module.resource.action` keys,
+  `NONE`/`SCOPABLE` scope types, a `// --- Domain (Sprint N) ---` header
+  justifying any new trust boundary. `d2c.collection_point.*`'s own
+  precedent (its own pair rather than folding into `sales.customer.*`,
+  Sprint 37) directly justified giving Promotions its own `promotions.*`
+  block (§109) rather than reusing an existing permission.
+
+## 105. Promotion Architecture
+
+`Promotion` (`status: DRAFT|ACTIVE|PAUSED|EXPIRED`, `startsAt`/`endsAt`)
+is the single configuration row a business user authors. **Immutability
+rule**: `PromotionService.update()` throws `PromotionNotEditableError`
+the instant `status !== DRAFT` — the ONLY way to change a promotion's
+terms once it has ever been `ACTIVE` is to create a new `Promotion` row
+(the brief's own October/November example, realised literally). `activate
+()` requires at least one condition and exactly one benefit — an
+incomplete promotion can never be published. Evaluation (§108) ALWAYS
+checks the real `startsAt <= now <= endsAt` window directly, never
+inferring effectiveness from `status` alone (docs brief: "do not rely
+solely on the current promotion status") — a promotion whose stored
+status hasn't yet flipped to `EXPIRED` can never still grant past its own
+`endsAt`.
+
+## 106. Eligibility Architecture — A Controlled Set, Not a Rules Engine
+
+`PromotionCondition` rows, AND-combined per promotion. Exactly four
+types implemented this sprint — audited against the brief's own final
+test (§44, "Buy 3 packs of Product X in Ibadan North... between November
+1 and 15"), which needs precisely these four and nothing else:
+
+- `FIRST_QUALIFYING_ORDER` — true iff `SalesOrderRepository
+.countOtherQualifyingD2COrders` (new this sprint) finds zero OTHER
+  `CONFIRMED`-or-later D2C orders for this consumer.
+- `MINIMUM_ORDER_VALUE` — `SalesOrder.total >= minOrderValue`.
+- `PRODUCT_QUANTITY` — summed matching-line quantity `>= minQuantity`
+  (subsumes a plain "bought this product at all" condition at
+  `minQuantity: 1` — kept as one type, not two, per the brief's "use only
+  types actually required" instruction).
+- `TERRITORY` — `Consumer.territoryId === territoryId` (exact match, no
+  hierarchy traversal — see §114).
+
+Each type maps to typed, nullable columns on `PromotionCondition`
+(`minOrderValue`/`productId`/`minQuantity`/`territoryId`) — never a
+generic `value: Json` predicate. `PromotionEvaluationService`'s evaluator
+is a plain `switch` over `PromotionConditionType`; adding a fifth type
+means adding a `case` and its own typed column(s), never redesigning the
+model. **§44's final architectural test, answered**: yes — "Buy 3 packs
+of Product X in Ibadan North, Nov 1-15, 500 points" is configurable today
+with zero code changes (`PRODUCT_QUANTITY` + `TERRITORY` conditions,
+`startsAt`/`endsAt` on the promotion itself, a `BONUS_POINTS` benefit).
+
+## 107. Benefit & Reward Grant Architecture
+
+`PromotionBenefit` (`BONUS_POINTS` with `pointsValue`, or `FREE_PRODUCT`
+with `freeProductId`/`freeProductQuantity`) is a separate table from
+`Promotion` — schema-level 1:many (a future multi-benefit promotion costs
+nothing extra), though this sprint's service/UI only ever create exactly
+one. `ConsumerRewardGrant` is the historical record of what a SPECIFIC
+consumer actually received — every `*Snapshot` field
+(`promotionNameSnapshot`, `benefitTypeSnapshot`, `pointsAwardedSnapshot`,
+`conditionsSnapshot: Json`) is copied in at grant time and never re-read
+from the live `Promotion` for display (the `InvoiceItem`/
+`WorkflowStepInstance` precedent, §104). `promotionId` is kept only for
+traceability. `FREE_PRODUCT` grants are created `PENDING_FULFILLMENT` —
+schema-complete, fulfilment deliberately deferred (§113).
+
+## 108. Promotion Evaluation Service
+
+`PromotionEvaluationService.evaluateOrderQualification(organisationId,
+consumerId, salesOrderId)` — channel-neutral by construction (takes only
+plain ids, brief §13: "must not know or care whether the request came
+from WhatsApp, Simulator, Admin, or a future client"), reusable by the
+future Conversation Layer/WhatsApp adapter/simulator unchanged. Fetches
+every currently active-and-effective promotion
+(`PromotionRepository.findManyActiveEffective`), evaluates each
+independently, and grants EVERY promotion the consumer genuinely
+qualifies for — the explicit, documented **"no stacking suppression, no
+priority ranking"** default the brief asked for (§9: "do not silently
+invent complicated stacking rules"). Wired into the EXISTING
+`D2CPaymentService.handleProviderCallback()`, right alongside Collection
+Point auto-assignment (same best-effort, never-fails-the-webhook
+try/catch shape) — the instant a D2C order is genuinely `CONFIRMED` via
+verified payment, never earlier.
+
+## 109. Loyalty Ledger Architecture
+
+`LoyaltyAccount.balance` is a MAINTAINED running total — never the source
+of truth — exactly mirroring `InventoryStock.quantityOnHand`.
+`LoyaltyLedgerEntry` is the append-only ledger (`EARN`/`ADJUSTMENT` this
+sprint; `REDEEM`/`REVERSAL` deliberately deferred, §113 — no redemption
+catalogue exists to redeem against yet). No update/delete path exists
+anywhere in this domain's service layer for a ledger entry — a correction
+is always a NEW compensating row. `loyalty-ledger-concurrency.util.ts`'s
+`applyLoyaltyDelta(tx, organisationId, consumerId, delta)` is the single
+atomic primitive both `EARN` and `ADJUSTMENT` route through — a plain,
+transaction-scoped function (not an injected service), the EXACT
+`inventory-stock-concurrency.util.ts` shape (Sprint 37.1): a conditional
+`UPDATE ... WHERE balance >= -delta` for a debit, an `upsert` for a
+credit (lazily creating the account on a consumer's first-ever credit).
+
+## 110. Idempotency & Concurrency Strategy
+
+**The single most important mechanism in this sprint**:
+`@@unique([organisationId, promotionId, consumerId])` on
+`ConsumerRewardGrant` is SIMULTANEOUSLY the "once per consumer per
+promotion" limit (the only limit type implemented — both the brief's
+example promotions say exactly this) AND the database-backed idempotency
+guarantee a retried/duplicate/concurrent qualifying event needs — never a
+bare `if (!exists) create()`. `RewardGrantRepository.createWithEarn`
+wraps the `ConsumerRewardGrant` insert AND (for `BONUS_POINTS`) the
+`LoyaltyAccount` increment + `LoyaltyLedgerEntry` insert in ONE
+`$transaction`; on a unique-constraint violation the `try/catch` sits
+OUTSIDE that `$transaction` call (Postgres poisons a transaction after any
+real SQL error — catching inside and continuing would fail again), then
+re-fetches the winning row — the `ConsumerRepository.findOrCreate`/
+`PaymentRepository.createPendingForConsumer` recipe, extended here to a
+genuinely multi-table atomic write. `LoyaltyLedgerEntry.rewardGrantId`
+(`@unique`, nullable) transitively guarantees at most one `EARN` entry
+per grant. Proved with REAL PostgreSQL concurrency tests (§117), not
+mocks — a mocked repository runs to completion in one synchronous tick
+and can never demonstrate a genuine race either way.
+
+## 111. API Surface & Access Control
+
+No new HTTP framework conventions — the established NestJS module/
+controller/service/repository shape throughout. New permission domain
+`promotions.*` (§104): `promotion.view`/`.manage`, `loyalty.view`/
+`.adjust` — four entries, none granted to Member at seed time (this is an
+admin/commercial-configuration surface, unlike Collection Point
+fulfilment's operational-staff grant). Routes: `GET/POST /promotions`,
+`PATCH/:id`, `POST /:id/activate|pause|resume`; `GET /promotions/grants`
+
+- `/grants/consumer/:id` (read-only — a grant is NEVER created by a
+  direct API call, only by a genuine qualifying event); `GET /promotions
+/loyalty/accounts` + `/:consumerId` + `/:consumerId/ledger`, `POST
+/:consumerId/adjustments` (the one mutation, reason mandatory at the
+  schema level). All business rules live in `PromotionService`/
+  `LoyaltyService`/`PromotionEvaluationService` — controllers only
+  translate HTTP ⇄ service calls and record audit events.
+
+## 112. Scope Boundaries — Explicitly Not Built (Sprint 40)
+
+WhatsApp API/webhook/templates, a generic low-code rules engine, a full
+marketing campaign engine, demand intelligence, a consumer mobile app, a
+complex reward marketplace, a promotion priority/stacking engine,
+accounting valuation of loyalty points, a parallel inventory/order/
+payment system, settlement/payout, Collection Point redesign, or major
+changes to existing Sales/Finance/Inventory architecture — all explicitly
+out of scope, per the brief's own boundary (§38).
+
+## 113. Known Limitations & Deferred Work
+
+- **Redemption** — no redemption flow was built. The ledger's
+  `LoyaltyLedgerEntryType` enum (`EARN`/`ADJUSTMENT` only) is additively
+  extensible to `REDEEM`/`REVERSAL` later; no catalogue of "what a point
+  can be redeemed for" exists yet to justify building it now (brief §19:
+  "determine whether redemption is appropriate to implement fully" —
+  determined: not yet, no roadmap item defines what it would redeem
+  against).
+- **`FREE_PRODUCT` fulfilment** — the benefit/entitlement model is
+  schema-complete (`PENDING_FULFILLMENT` status, `freeProductIdSnapshot`/
+  `.freeProductQuantitySnapshot`), but no fulfilment workflow connects a
+  granted entitlement to the existing Sales/Collection Point/Inventory
+  architecture yet (brief §18 explicitly allows deferring this while
+  establishing the model).
+- **`TERRITORY` condition has no hierarchy traversal** — an exact
+  `Consumer.territoryId` match only; a consumer in a child territory of
+  the configured one does not match. Documented, not implemented, since
+  no current scenario needs it.
+- **Notification integration** — none built (§104); no consumer-facing
+  delivery channel exists in this codebase yet for ANY purpose, not just
+  promotions.
+- **Maximum-total-claims / N-times-per-consumer limits** — not
+  implemented; the current schema's `@@unique` constraint structurally
+  enforces exactly "once," which would need a count-based check instead
+  to support a configurable N. Both of this sprint's real example
+  promotions only ever needed "once."
+
+## 114. Testing & Live Verification
+
+Full detail: `docs/sprint-40-completion-report.md`. Summary: 11 new spec
+files (service/repository/controller unit tests across all three
+sub-modules, including all 10 of the brief's own "First-Order Tests"
+§32), one new REAL-PostgreSQL concurrency integration spec (first-order
+reward race, promotion grant limit race, credit/debit adjustment races,
+a debit-against-nonexistent-account rejection) — proven against genuine
+concurrent Postgres transactions, not mocks. Live-verified against the
+real dev database and a real running application: created and activated
+"First Order October" (the brief's own canonical example) through the
+admin UI; verified the promotion becomes immutable the instant it
+activates (a live `PATCH` attempt returns 400 with the exact expected
+message); ran the real evaluation service against a real fresh consumer
+
+- a real `CONFIRMED` D2C order (total 6000 >= the 5000 minimum) and
+  confirmed exactly one grant, one `EARN` ledger entry, and a balance of
+  200 — then confirmed re-evaluating produces no duplicate under two
+  different real-world re-evaluation scenarios; confirmed the admin
+  adjustment flow (-50, reasoned) correctly updates the balance and ledger
+  with a full audit trail; confirmed an adjustment that would take the
+  balance negative is rejected cleanly; confirmed 401/403 (both a real
+  Member-role account, which holds none of the four new permissions) and
+  the Sprint 39 D2C Admin Dashboard's own existing views remain fully
+  unaffected and correctly surface the new test data.

@@ -439,4 +439,33 @@ export const PERMISSION_CATALOGUE: PermissionCatalogueEntry[] = [
     'SCOPABLE',
     'Assign, prepare, and confirm collection for D2C orders at a Collection Point',
   ),
+
+  // --- Promotions, Loyalty & Rewards (Sprint 40 — docs/domains/d2c.md). Its own
+  // permission domain, not `d2c.consumer.*` — authoring a promotion affects every
+  // consumer's potential rewards organisation-wide, a materially broader capability than
+  // administering one consumer's record, the same reasoning `d2c.collection_point.*` used
+  // to justify its own pair rather than folding into `sales.customer.*` (Sprint 37).
+  // `.loyalty.adjust` is deliberately separate from `.loyalty.view` — inspecting a
+  // consumer's balance/ledger is a read; manually crediting or debiting it is a
+  // financially-adjacent mutation that warrants its own, more narrowly grantable
+  // permission (mirrors `finance.payment.view` vs `.create`/`.cancel`). Not granted to
+  // Member at seed time — this is an admin/commercial-configuration surface, not an
+  // operational task any assigned staff member performs (unlike Collection Point
+  // fulfilment). ---
+  entry('promotions.promotion.view', 'SCOPABLE', 'View promotions, their conditions and benefits'),
+  entry(
+    'promotions.promotion.manage',
+    'SCOPABLE',
+    'Create/edit promotions while draft, and activate/pause/resume them',
+  ),
+  entry(
+    'promotions.loyalty.view',
+    'SCOPABLE',
+    'View consumer loyalty accounts, ledger history, and reward grants',
+  ),
+  entry(
+    'promotions.loyalty.adjust',
+    'SCOPABLE',
+    'Make a manual, reasoned adjustment to a consumer loyalty balance',
+  ),
 ];

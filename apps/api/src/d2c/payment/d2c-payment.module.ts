@@ -3,6 +3,7 @@ import { Module } from '@nestjs/common';
 import { FinanceModule } from '../../finance/finance.module';
 import { IdentityModule } from '../../identity/identity.module';
 import { PaymentProviderModule } from '../../payments/infrastructure/payment-provider.module';
+import { RewardModule } from '../../promotions/reward/reward.module';
 import { SalesModule } from '../../sales/sales.module';
 import { ConsumerModule } from '../consumer/consumer.module';
 import { CollectionPointFulfillmentModule } from '../fulfillment/collection-point-fulfillment.module';
@@ -29,6 +30,11 @@ import { D2CPaymentService } from './d2c-payment.service';
  * `SalesOrderService.confirm()` succeeds (docs/domains/d2c.md "Order Assignment Model").
  * `D2CPaymentService` itself gained zero payment-architecture changes — see
  * docs/domains/d2c.md "Payment Boundary".
+ *
+ * `RewardModule` (Sprint 40) — added the exact same way, right alongside Collection
+ * Point auto-assignment: a verified payment triggers best-effort promotion evaluation
+ * (`PromotionEvaluationService.evaluateOrderQualification`), never allowed to fail this
+ * webhook (docs/domains/d2c.md "Qualifying Events").
  */
 @Module({
   imports: [
@@ -38,6 +44,7 @@ import { D2CPaymentService } from './d2c-payment.service';
     ConsumerModule,
     IdentityModule,
     CollectionPointFulfillmentModule,
+    RewardModule,
   ],
   providers: [D2CPaymentService],
   exports: [D2CPaymentService],

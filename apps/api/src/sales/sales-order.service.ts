@@ -83,6 +83,20 @@ export class SalesOrderService {
     return this.salesOrderRepository.findManyPaginated(organisationId, params);
   }
 
+  /** Added Sprint 40 — thin passthrough for the `FIRST_QUALIFYING_ORDER` promotion
+   *  condition. */
+  countOtherQualifyingD2COrders(
+    organisationId: string,
+    consumerId: string,
+    excludeOrderId: string,
+  ): Promise<number> {
+    return this.salesOrderRepository.countOtherQualifyingD2COrders(
+      organisationId,
+      consumerId,
+      excludeOrderId,
+    );
+  }
+
   /** New sales orders always start `DRAFT`. */
   async create(
     organisationId: string,

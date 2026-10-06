@@ -301,7 +301,22 @@ feature is built configurably so it can be reused by future tenants without code
 > data caught a real gap before anyone else would have — the picker
 > offering a Collection Point that looked ready but wasn't actually
 > configured to receive stock — fixed on the spot, then proved working
-> end to end with a real reassignment and a real audit trail. See
+> end to end with a real reassignment and a real audit trail. Most
+> recently, the business got a way to actually reward the behaviour it
+> wants to encourage — not by hard-coding "first order gives 200 points"
+> into the code, but by building a small, genuine foundation where a
+> promotion's name, dates, eligibility rule, and reward are all just data
+> an admin fills in, and a different promotion next month is a new form
+> submission, not a deploy. The architecture deliberately keeps loyalty
+> points as one possible reward, not the whole system, and keeps a
+> consumer's earned reward intact forever by snapshotting what they
+> actually qualified for at the moment they earned it — change the
+> promotion later, and nobody's history changes with it. The hardest part
+> wasn't the happy path; it was proving that two people (or two retried
+> webhook deliveries) racing to redeem the same first-order bonus at the
+> exact same instant could only ever produce one reward, never two — proved
+> by firing genuinely concurrent requests at a real database, not by
+> trusting a mock to behave politely. See
 > [docs/domains/README.md](docs/domains/README.md) for the
 > current status of every domain and [docs/roadmap.md](docs/roadmap.md) for the full
 > build order.

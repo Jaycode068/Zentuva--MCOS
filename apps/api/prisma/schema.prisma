@@ -268,6 +268,14 @@ model Organisation {
   d2cConversationMessages               ConsumerConversationMessage[]
   /// Added Sprint 37 — Collection Point Fulfillment (docs/domains/d2c.md).
   d2cCollectionPointFulfillments        CollectionPointFulfillment[]
+  /// Added Sprint 40 — Configurable Promotions, Loyalty, Rewards & Consumer Incentives
+  /// (docs/domains/d2c.md).
+  promotions                            Promotion[]
+  promotionConditions                   PromotionCondition[]
+  promotionBenefits                     PromotionBenefit[]
+  consumerRewardGrants                  ConsumerRewardGrant[]
+  loyaltyAccounts                       LoyaltyAccount[]
+  loyaltyLedgerEntries                  LoyaltyLedgerEntry[]
 
   @@map("organisations")
 }
@@ -697,6 +705,11 @@ model Product {
   /// Read-only reference — recording a maintenance part usage never
   /// deducts InventoryStock/InventoryTransaction (foundation only).
   maintenancePartUsages        MaintenancePartUsage[]
+  /// Added Sprint 40 — Configurable Promotions, Loyalty, Rewards & Consumer Incentives.
+  /// The `PRODUCT_QUANTITY` condition type and the `FREE_PRODUCT` benefit type both
+  /// reference this EXISTING SKU directly — never a parallel product reference.
+  promotionConditions          PromotionCondition[]
+  promotionFreeProductBenefits PromotionBenefit[]
 
   @@unique([organisationId, slug])
   @@index([organisationId])
@@ -1806,6 +1819,9 @@ model Territory {
   /// mirroring `Customer.territoryId`/`Outlet.territoryId` exactly — never a new
   /// generic assignment/join entity.
   employees        Employee[]
+  /// Added Sprint 40 — Configurable Promotions, Loyalty, Rewards & Consumer Incentives.
+  /// The `TERRITORY` promotion condition type reuses this EXISTING hierarchy directly.
+  promotionConditions PromotionCondition[]
 
   @@index([organisationId])
   @@index([organisationId, status])
@@ -2159,6 +2175,10 @@ model SalesOrder {
   /// one Collection Point, never re-parented. `null` for a B2B order and for a D2C order
   /// not yet assigned (e.g. no eligible Collection Point existed at payment time).
   collectionPointFulfillment CollectionPointFulfillment?
+  /// Added Sprint 40 — Configurable Promotions, Loyalty, Rewards & Consumer Incentives.
+  /// The qualifying order(s) that triggered a `ConsumerRewardGrant` — a denormalised
+  /// inverse, never a second order-state mechanism.
+  rewardGrants               ConsumerRewardGrant[]
 
   @@unique([organisationId, idempotencyKey])
   @@index([organisationId])
@@ -7821,6 +7841,11 @@ model Consumer {
   /// Added Sprint 35 — D2C OPay Payment Integration. See `Payment.consumerId`'s doc
   /// comment.
   payments         Payment[]
+  /// Added Sprint 40 — Configurable Promotions, Loyalty, Rewards & Consumer Incentives.
+  rewardGrants     ConsumerRewardGrant[]
+  /// Added Sprint 40 — one loyalty account per consumer (`@unique` on
+  /// `LoyaltyAccount.consumerId`), `null` until the first qualifying reward creates it.
+  loyaltyAccount   LoyaltyAccount?
 
   /// The core tenant-scoped identity guarantee (docs/domains/d2c.md §5):
   /// one normalized phone number identifies at most one Consumer PER
@@ -7971,4 +7996,331 @@ model ConsumerConversationMessage {
   @@index([organisationId])
   @@index([conversationId])
   @@map("d2c_conversation_messages")
+}
+
+// ---------------------------------------------------------------------------
+// Sprint 40 — Configurable Promotions, Loyalty, Rewards & Consumer Incentives
+// (docs/domains/d2c.md). The reusable foundation the brief insists on, NOT a
+// hard-coded "first order gives 200 points" feature: Promotion (why is a
+// consumer eligible) -> PromotionCondition/PromotionBenefit (configuration,
+// a controlled set of typed rows, deliberately never a generic rules engine
+// or a JSON expression blob) -> ConsumerRewardGrant (what a SPECIFIC
+// consumer actually received, snapshotting the applied terms so later
+// promotion changes can never rewrite history — the exact `InvoiceItem`/
+// `WorkflowStepInstance` "snapshot columns, never re-read the live source"
+// convention already established throughout this codebase) -> for a
+// BONUS_POINTS benefit, a LoyaltyAccount/LoyaltyLedgerEntry pair mirroring
+// `InventoryStock.quantityOnHand`+`InventoryTransaction` exactly: a
+// maintained running balance that is never itself the source of truth, plus
+// an append-only ledger a correction can only ever ADD a compensating entry
+// to, never edit or delete.
+// ---------------------------------------------------------------------------
+
+/// DRAFT: fully editable, never yet evaluated against a real consumer.
+/// ACTIVE: published — core terms (conditions/benefit) become immutable from this point
+/// on (the exact `PolicyVersion` "a published version is never edited again" rule,
+/// applied directly to `Promotion` rather than via a separate version entity — a new
+/// commercial term is a NEW `Promotion` row, e.g. "First Order October" and "First Order
+/// November" are two separate rows, never one row revised twice; see docs/domains/d2c.md
+/// "Promotion History and Version Preservation"). PAUSED: temporarily suspended,
+/// reversible back to ACTIVE, never evaluated while paused. EXPIRED: `endsAt` has
+/// passed — evaluation ALWAYS additionally checks the actual `startsAt`/`endsAt` window
+/// against the evaluation time regardless of what `status` currently says (brief: "do not
+/// rely solely on the current promotion status"), so a promotion whose stored status
+/// hasn't yet been flipped to EXPIRED can never still grant a reward past its own
+/// `endsAt`.
+enum PromotionStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  EXPIRED
+}
+
+/// A controlled, extensible set — deliberately NOT a generic rule/expression engine
+/// (brief §8). Every value here corresponds to a typed column (or pair of columns) on
+/// `PromotionCondition` below, never a JSON predicate blob. Add a new type here, plus its
+/// typed column(s), when a genuinely new eligibility shape is required — never by
+/// generalising an existing type into an arbitrary expression.
+enum PromotionConditionType {
+  /// True iff the qualifying consumer has no OTHER `CONFIRMED`-or-later `SalesOrder`
+  /// with `source: D2C` besides the one being evaluated — see
+  /// `PromotionEvaluationService`'s own doc comment for the exact query.
+  FIRST_QUALIFYING_ORDER
+  /// `PromotionCondition.minOrderValue` — the qualifying order's `SalesOrder.total` must
+  /// be `>=` this value.
+  MINIMUM_ORDER_VALUE
+  /// `PromotionCondition.productId`/`.minQuantity` — the qualifying order must contain
+  /// at least `minQuantity` units of `productId` (summed across every matching line).
+  /// Subsumes a plain "did they buy product X at all" condition (`minQuantity: 1`) —
+  /// kept as one condition type rather than two, per the brief's "use only condition
+  /// types actually required" instruction.
+  PRODUCT_QUANTITY
+  /// `PromotionCondition.territoryId` — the consumer's own `Consumer.territoryId` must
+  /// match exactly (no hierarchy traversal this sprint — a consumer in a CHILD territory
+  /// of the configured one does not match; documented as a deferred enhancement).
+  TERRITORY
+}
+
+/// A controlled, extensible set — mirrors `PromotionConditionType`'s own philosophy.
+/// `FREE_PRODUCT` is intentionally schema-complete but fulfilment-deferred this sprint
+/// (brief §18): a grant records the entitlement; physical fulfilment through the
+/// existing Sales/Collection Point/Inventory architecture is explicitly out of scope,
+/// see docs/domains/d2c.md "Known Limitations".
+enum PromotionBenefitType {
+  BONUS_POINTS
+  FREE_PRODUCT
+}
+
+/// A `Promotion` answers "why is this consumer eligible" (brief §5.1) — tenant, name,
+/// validity window, status, and the configuration its `conditions`/`benefits` carry.
+/// Deliberately has NO mutable "current terms" a grant could ever read live at display
+/// time — every `ConsumerRewardGrant` snapshots what it needs at grant time instead (see
+/// that model's own doc comment), so this row can be inspected, paused, or left to expire
+/// without ever touching a single historical grant.
+model Promotion {
+  id             String          @id @default(cuid())
+  organisationId String
+  name           String
+  description    String?
+  status         PromotionStatus @default(DRAFT)
+  /// Inclusive. Evaluation always checks `startsAt <= now <= endsAt` directly — never
+  /// inferred from `status` alone (see `PromotionStatus` doc comment).
+  startsAt       DateTime
+  endsAt         DateTime
+  createdById    String?
+  updatedById    String?
+  /// Set once, the first time `status` moves to `ACTIVE` — the moment this promotion's
+  /// conditions/benefits became immutable (service-enforced, not a DB constraint; see
+  /// `PromotionService.activate`/`.update`).
+  activatedAt    DateTime?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  organisation Organisation          @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  conditions   PromotionCondition[]
+  benefits     PromotionBenefit[]
+  grants       ConsumerRewardGrant[]
+
+  @@index([organisationId])
+  @@index([organisationId, status])
+  @@index([organisationId, startsAt, endsAt])
+  @@map("promotions")
+}
+
+/// One eligibility rule a `Promotion` requires — AND-combined with every other condition
+/// row on the same promotion (brief's own diagram: `FIRST_QUALIFYING_ORDER` AND
+/// `MINIMUM_ORDER_VALUE >= ...` AND `TERRITORY = ...`). Only the column(s) relevant to
+/// `type` are ever populated; the rest stay `null` — a controlled set of typed columns,
+/// never a generic `value: Json` predicate (brief §8's explicit anti-rules-engine
+/// instruction).
+model PromotionCondition {
+  id             String                 @id @default(cuid())
+  organisationId String
+  promotionId    String
+  type           PromotionConditionType
+  /// `MINIMUM_ORDER_VALUE` only.
+  minOrderValue  Float?
+  /// `PRODUCT_QUANTITY` only.
+  productId      String?
+  /// `PRODUCT_QUANTITY` only.
+  minQuantity    Int?
+  /// `TERRITORY` only.
+  territoryId    String?
+  createdAt      DateTime               @default(now())
+
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  promotion    Promotion    @relation(fields: [promotionId], references: [id], onDelete: Cascade)
+  /// `Restrict` — a promotion condition referencing a product is itself a historical
+  /// configuration fact (and may already have produced grants); the product it names
+  /// must never be silently deleted out from under it. No delete endpoint exists for
+  /// `Product` anyway (deactivate-only convention, matching every other catalogue entity).
+  product      Product?     @relation(fields: [productId], references: [id], onDelete: Restrict)
+  territory    Territory?   @relation(fields: [territoryId], references: [id], onDelete: Restrict)
+
+  @@index([organisationId])
+  @@index([promotionId])
+  @@map("promotion_conditions")
+}
+
+/// What a qualifying consumer receives (brief §5.2) — a `Promotion` may have more than
+/// one (the schema stays open for a future multi-benefit promotion), though this
+/// sprint's service/UI only ever creates exactly one per promotion; see
+/// `PromotionService`'s own doc comment. Only the column(s) relevant to `type` are ever
+/// populated.
+model PromotionBenefit {
+  id                  String               @id @default(cuid())
+  organisationId      String
+  promotionId         String
+  type                PromotionBenefitType
+  /// `BONUS_POINTS` only.
+  pointsValue         Int?
+  /// `FREE_PRODUCT` only.
+  freeProductId       String?
+  /// `FREE_PRODUCT` only.
+  freeProductQuantity Int?
+  createdAt           DateTime             @default(now())
+
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  promotion    Promotion    @relation(fields: [promotionId], references: [id], onDelete: Cascade)
+  freeProduct  Product?     @relation(fields: [freeProductId], references: [id], onDelete: Restrict)
+
+  @@index([organisationId])
+  @@index([promotionId])
+  @@map("promotion_benefits")
+}
+
+enum RewardGrantStatus {
+  /// The terminal state for a `BONUS_POINTS` grant — the ledger entry/balance increment
+  /// already happened atomically with this row's own creation.
+  GRANTED
+  /// A `FREE_PRODUCT` grant — the entitlement exists, but physical fulfilment through the
+  /// existing Sales/Collection Point/Inventory architecture is deferred this sprint (see
+  /// `PromotionBenefitType.FREE_PRODUCT`'s own doc comment). Never auto-transitions to
+  /// `GRANTED`; no fulfilment endpoint exists yet.
+  PENDING_FULFILLMENT
+}
+
+/// What a SPECIFIC consumer actually received (brief §5.3) — the historical record that
+/// must remain correct even after the `Promotion` it references is later paused, expires,
+/// or is superseded by a differently-configured promotion. Every `*Snapshot` field below
+/// is copied from `Promotion`/`PromotionBenefit` at the moment of grant and is NEVER
+/// re-read from the live `Promotion` afterward for display or recalculation — the exact
+/// `InvoiceItem.productName`/`WorkflowStepInstance.stepNameSnapshot` "snapshot columns,
+/// never reconstruct from the live source" convention. `promotionId` itself is kept only
+/// for traceability (e.g. "show me every grant from this promotion") — never for
+/// re-deriving what was actually granted.
+///
+/// The idempotency/limit mechanism (brief §15/§17): `@@unique([organisationId,
+/// promotionId, consumerId])` below is simultaneously (a) the ONLY limit type this sprint
+/// implements — exactly once per consumer per promotion, matching both example
+/// promotions in the brief — and (b) the database-backed idempotency guarantee a
+/// duplicate/concurrent/retried qualifying event needs: a second attempt to create this
+/// exact row hits the same unique constraint (Postgres `P2002`), is caught, and resolves
+/// to the EXISTING grant rather than a second one — the identical `ConsumerRepository
+/// .findOrCreate`/`PaymentRepository.createPendingForConsumer` check-then-create-with-
+/// race-recovery recipe already established throughout this codebase, never a bare
+/// `if (!exists) create()`.
+model ConsumerRewardGrant {
+  id                     String             @id @default(cuid())
+  organisationId         String
+  consumerId             String
+  promotionId            String
+  /// The `CONFIRMED`-or-later `SalesOrder` whose confirmation triggered evaluation —
+  /// required this sprint (the only qualifying-event source implemented is a D2C order
+  /// confirmation); a future non-order-triggered promotion would need this nullable.
+  qualifyingSalesOrderId String
+
+  promotionNameSnapshot       String
+  benefitTypeSnapshot         PromotionBenefitType
+  /// Snapshot of `PromotionBenefit.pointsValue` — `BONUS_POINTS` grants only.
+  pointsAwardedSnapshot       Int?
+  /// Snapshot of `PromotionBenefit.freeProductId`/`.freeProductQuantity` — `FREE_PRODUCT`
+  /// grants only.
+  freeProductIdSnapshot       String?
+  freeProductQuantitySnapshot Int?
+  /// The full evaluated condition set at grant time (type + whichever value actually
+  /// mattered, e.g. `{"type":"MINIMUM_ORDER_VALUE","minOrderValue":5000}`) — read-only
+  /// transparency/audit context (brief §21 "why did I receive these points"), never
+  /// re-parsed to re-derive the benefit; the typed `*Snapshot` columns above are what
+  /// every real code path reads.
+  conditionsSnapshot          Json
+
+  status     RewardGrantStatus @default(GRANTED)
+  grantedAt  DateTime          @default(now())
+
+  organisation         Organisation        @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  /// `Restrict` — a reward grant is itself a historical/financial-adjacent record (it may
+  /// have already produced a loyalty ledger entry) and must never be silently re-pointed
+  /// or orphaned, matching `SalesOrder.customer`'s own rationale.
+  consumer             Consumer            @relation(fields: [consumerId], references: [id], onDelete: Restrict)
+  promotion            Promotion           @relation(fields: [promotionId], references: [id], onDelete: Restrict)
+  qualifyingSalesOrder SalesOrder          @relation(fields: [qualifyingSalesOrderId], references: [id], onDelete: Restrict)
+  ledgerEntry          LoyaltyLedgerEntry?
+
+  @@unique([organisationId, promotionId, consumerId])
+  @@index([organisationId, consumerId])
+  @@index([organisationId, qualifyingSalesOrderId])
+  @@map("consumer_reward_grants")
+}
+
+/// One per `Consumer` (`@unique` below), created lazily on a consumer's first
+/// `BONUS_POINTS` grant — never pre-created at consumer registration (brief: no
+/// permanent `firstOrderRewardPoints`-style field on `Consumer` itself). `balance` is a
+/// MAINTAINED running total, exactly like `InventoryStock.quantityOnHand` — authoritative
+/// enough to read directly for display, but never the thing a mutation reasons FROM; see
+/// `loyalty-ledger-concurrency.util.ts`'s own doc comment for the atomic-conditional-
+/// update guarantee that keeps it correct under concurrent EARN/ADJUSTMENT writes, and
+/// `LoyaltyLedgerEntry` for the append-only ledger that is the actual source of truth.
+model LoyaltyAccount {
+  id             String   @id @default(cuid())
+  organisationId String
+  consumerId     String   @unique
+  balance        Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organisation Organisation         @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  consumer     Consumer             @relation(fields: [consumerId], references: [id], onDelete: Restrict)
+  entries      LoyaltyLedgerEntry[]
+
+  @@index([organisationId])
+  @@map("loyalty_accounts")
+}
+
+/// `EARN` — created atomically alongside a `BONUS_POINTS` `ConsumerRewardGrant`
+/// (`rewardGrantId` set, `actorUserId` null — system-triggered, the same "null means no
+/// human actor" convention `SalesOrderRepository.updateStatus`'s own `actorUserId`
+/// already establishes). `ADJUSTMENT` — an administrative correction (brief §20):
+/// `actorUserId` set, `reason` required (service-enforced), `rewardGrantId` null. Signed
+/// `amount` — positive or negative; a correction is always a NEW compensating row, never
+/// an edit to a prior one (brief §11 "do not update or delete historical ledger entries
+/// to correct the balance"). `REDEEM`/`REVERSAL` are explicitly deferred — no redemption
+/// catalogue exists yet to redeem points AGAINST (docs/domains/d2c.md "Known
+/// Limitations") — adding them later is an additive enum change, not a redesign.
+enum LoyaltyLedgerEntryType {
+  EARN
+  ADJUSTMENT
+}
+
+/// Append-only (brief §11 — "must be append-only... corrections should create
+/// compensating entries"). No update/delete path exists anywhere in this domain's
+/// service layer for this model — enforced by `promotions-independence.spec.ts`'s own
+/// structural guard, the same technique `d2c-payment-independence.spec.ts` already
+/// established for a different "this write path must never be bypassed" guarantee.
+model LoyaltyLedgerEntry {
+  id               String                 @id @default(cuid())
+  organisationId   String
+  loyaltyAccountId String
+  /// Denormalised from `LoyaltyAccount.consumerId` — same convention as
+  /// `InventoryTransaction` denormalising `organisationId`/`productId`/`locationId`
+  /// rather than requiring a join for every tenant-scoped/consumer-scoped ledger query.
+  consumerId       String
+  type             LoyaltyLedgerEntryType
+  /// Signed — positive for an EARN or a positive ADJUSTMENT, negative for a negative
+  /// ADJUSTMENT. Never redefined or recomputed after creation.
+  amount           Int
+  /// The resulting `LoyaltyAccount.balance` immediately after this entry, computed
+  /// inside the SAME atomic operation that applied it — a point-in-time snapshot for
+  /// ledger display, never re-derived from summing prior entries at read time.
+  balanceAfter     Int
+  /// Required (service-enforced) for `ADJUSTMENT`; always `null` for `EARN` — the linked
+  /// `rewardGrantId`/`promotionNameSnapshot` already explains an EARN entry on its own.
+  reason           String?
+  /// Set for `EARN` only (`@unique` — exactly one ledger entry per grant, transitively
+  /// guaranteeing no duplicate EARN entry can ever exist for the same grant). `null` for
+  /// `ADJUSTMENT`.
+  rewardGrantId    String?                @unique
+  /// `null` for a system-triggered `EARN`; set to the administrator's `User.id` for an
+  /// `ADJUSTMENT` — the same `null`-means-system convention used throughout this
+  /// codebase.
+  actorUserId      String?
+  createdAt        DateTime               @default(now())
+
+  organisation   Organisation         @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  loyaltyAccount LoyaltyAccount       @relation(fields: [loyaltyAccountId], references: [id], onDelete: Restrict)
+  rewardGrant    ConsumerRewardGrant? @relation(fields: [rewardGrantId], references: [id], onDelete: Restrict)
+
+  @@index([organisationId, loyaltyAccountId])
+  @@index([organisationId, consumerId])
+  @@map("loyalty_ledger_entries")
 }

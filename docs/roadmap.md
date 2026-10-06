@@ -946,6 +946,43 @@ PaymentService (existing, extended) + SalesOrderService.confirm
       permission. 236 suites / 2160 tests passing, 0 regressions; the
       Sprint 37.1 PostgreSQL integration suite re-run unchanged — see
       [`docs/sprint-39-completion-report.md`](sprint-39-completion-report.md)
+- [x] **Sprint 40 — Configurable Promotions, Loyalty, Rewards & Consumer
+      Incentives.** The reusable foundation the brief insisted on:
+      promotions are DATA an admin configures (validity, eligibility,
+      benefit value), never hard-coded business logic — the first-order
+      incentive is simply the first configured promotion, not a permanent
+      special case. A new top-level `promotions/` domain (`promotion/`/
+      `loyalty/`/`reward/` sub-modules): `Promotion` → `PromotionCondition`
+      /`PromotionBenefit` (a controlled set of four condition types —
+      FIRST_QUALIFYING_ORDER, MINIMUM_ORDER_VALUE, PRODUCT_QUANTITY,
+      TERRITORY — and two benefit types, never a generic rules engine) →
+      `ConsumerRewardGrant` (snapshots its applied terms at grant time,
+      the exact `InvoiceItem`/`WorkflowStepInstance` convention, so a
+      later promotion change can never rewrite history) → for
+      `BONUS_POINTS`, a `LoyaltyAccount`/`LoyaltyLedgerEntry` pair
+      mirroring `InventoryStock.quantityOnHand`+`InventoryTransaction`
+      exactly — a maintained balance, never the source of truth, backed
+      by an append-only ledger. A promotion becomes immutable the instant
+      it activates (mirroring HR's `PolicyVersion` precedent) — a new
+      commercial term is always a new promotion row. The idempotency/
+      once-per-consumer-limit mechanism is a single database unique
+      constraint, proven under genuine concurrent Postgres transactions
+      (not mocks) to produce exactly one grant and one points award, no
+      duplicates, even under 5-way contention. Wired into the EXISTING
+      `D2CPaymentService` payment-confirmation webhook, right alongside
+      Collection Point auto-assignment — never a parallel order/payment
+      system. Live-verified end to end: created and activated the brief's
+      own "First Order October" example through the admin UI, confirmed
+      it becomes uneditable the instant it activates, ran the real
+      evaluation service against a real fresh consumer and order and
+      confirmed exactly one grant/ledger entry/200-point balance, verified
+      an administrative adjustment (reasoned, audited) and its rejection
+      when it would take a balance negative, and confirmed the existing
+      Sprint 39 D2C Admin Dashboard remains fully unaffected. 244 suites /
+      2210 tests passing, 0 regressions; the Sprint 37.1 PostgreSQL
+      integration suite re-run unchanged alongside a new Sprint 40
+      concurrency suite — see
+      [`docs/sprint-40-completion-report.md`](sprint-40-completion-report.md)
 - [ ] Retail Portal (mobile)
 - [ ] Business Intelligence dashboards
 

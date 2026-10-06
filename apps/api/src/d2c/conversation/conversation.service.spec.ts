@@ -26,6 +26,7 @@ import { SalesOrderRepository, SalesOrderWithRelations } from '../../sales/sales
 import { SalesOrderService } from '../../sales/sales-order.service';
 import { ConsumerService } from '../consumer/consumer.service';
 import { D2COrderingService } from '../ordering/d2c-ordering.service';
+import { PromotionEvaluationService } from '../../promotions/reward/promotion-evaluation.service';
 import { CollectionPointFulfillmentService } from '../fulfillment/collection-point-fulfillment.service';
 import { D2CPaymentService } from '../payment/d2c-payment.service';
 import { ConversationMessageRepository } from './conversation-message.repository';
@@ -620,6 +621,9 @@ describe('ConversationService', () => {
     const collectionPointFulfillmentService = {
       autoAssign: jest.fn().mockResolvedValue(undefined),
     } as unknown as jest.Mocked<CollectionPointFulfillmentService>;
+    const promotionEvaluationService = {
+      evaluateOrderQualification: jest.fn().mockResolvedValue([]),
+    } as unknown as jest.Mocked<PromotionEvaluationService>;
     const d2cPaymentService = new D2CPaymentService(
       paymentProvider,
       paymentService,
@@ -629,6 +633,7 @@ describe('ConversationService', () => {
       auditService,
       config,
       collectionPointFulfillmentService,
+      promotionEvaluationService,
     );
 
     const service = new ConversationService(

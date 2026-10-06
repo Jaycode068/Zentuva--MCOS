@@ -879,6 +879,7 @@ REJECTED}`) optionally linking an existing `CapitalProject`/
 - ✓ Sprint 37.1 — Inventory Fulfillment Concurrency Integrity Hardening
 - ✓ Sprint 38 — Field Operations & Collection Point Mobile Experience
 - ✓ Sprint 39 — D2C Sales Administration & Operations Dashboard
+- ✓ Sprint 40 — Configurable Promotions, Loyalty, Rewards & Consumer Incentives
 
 **Current focus:** The Finance MVP (Sprints 6-19) is considered
 functionally complete. Epic 14 (Asset & Maintenance Management) is fully
@@ -1398,10 +1399,13 @@ Collection Point capacity/eligible-product restrictions, a
 consumer-facing Collection Point selection flow (nearest-location/GPS
 matching), Collection Point consumer notification ("your order is
 ready" — the Notification system is User-only and the Conversation
-Layer has no proactive capability, per Sprint 37's own audit), loyalty/
+Layer has no proactive capability, per Sprint 37's own audit) — loyalty/
 promotions (Sprint 34 built ordering, Sprint 35 built payment, Sprint 36
 built Collection Point enablement, Sprint 37 built Collection Point
-fulfilment — see docs/domains/d2c.md §81), digests, scheduled reminders, a real background
+fulfilment, Sprint 40 built the Promotion/Benefit/ConsumerRewardGrant/
+LoyaltyLedger foundation itself — see docs/domains/d2c.md §103-114 —
+still deferred: point redemption, FREE_PRODUCT fulfilment, and any
+consumer-facing promotion experience), digests, scheduled reminders, a real background
 worker for notification/email/WhatsApp processing, a marketing-email or
 broadcast-messaging platform of any kind, a Technician RBAC role (from Sprint 22),
 generic `AccessScope.ASSIGNED_TERRITORY`/`ASSIGNED_ASSETS` enforcement

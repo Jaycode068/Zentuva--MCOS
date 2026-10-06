@@ -7,6 +7,7 @@ export * from './cash';
 export * from './cashflow';
 export * from './catalogue';
 export * from './d2c';
+export * from './promotions';
 export * from './debt';
 export * from './decision';
 export * from './distribution';

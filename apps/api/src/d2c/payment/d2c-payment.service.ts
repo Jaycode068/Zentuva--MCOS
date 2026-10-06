@@ -12,6 +12,7 @@ import {
   ProviderCallbackStatus,
 } from '../../payments/ports/payment-provider.port';
 import { SalesOrderService } from '../../sales/sales-order.service';
+import { PromotionEvaluationService } from '../../promotions/reward/promotion-evaluation.service';
 import { ConsumerService } from '../consumer/consumer.service';
 import { CollectionPointFulfillmentService } from '../fulfillment/collection-point-fulfillment.service';
 import { D2C_PAYMENT_AUDIT_ACTIONS } from './d2c-payment-audit-actions';
@@ -92,6 +93,7 @@ export class D2CPaymentService {
     private readonly auditService: AuditService,
     private readonly config: ConfigService,
     private readonly collectionPointFulfillmentService: CollectionPointFulfillmentService,
+    private readonly promotionEvaluationService: PromotionEvaluationService,
   ) {}
 
   /**
@@ -416,6 +418,25 @@ export class D2CPaymentService {
       } catch (error) {
         this.logger.error(
           `Collection Point auto-assignment failed for payment ${payment.id}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+      // Sprint 40 — best-effort promotion evaluation (docs/domains/d2c.md "Qualifying
+      // Events"). The SAME integration shape as Collection Point auto-assignment above:
+      // never allowed to fail this webhook — "the consumer didn't qualify for any
+      // promotion" is a normal, expected outcome inside `evaluateOrderQualification`
+      // itself (an empty array), not an exception; anything else here is logged, never
+      // thrown.
+      try {
+        await this.promotionEvaluationService.evaluateOrderQualification(
+          payment.organisationId,
+          payment.consumerId!,
+          payment.salesOrderId!,
+        );
+      } catch (error) {
+        this.logger.error(
+          `Promotion evaluation failed for payment ${payment.id}: ${
             error instanceof Error ? error.message : String(error)
           }`,
         );

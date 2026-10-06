@@ -253,6 +253,35 @@ export class SalesOrderRepository {
     return count > 0;
   }
 
+  /** Added Sprint 40 — the `FIRST_QUALIFYING_ORDER` promotion condition
+   *  (`PromotionEvaluationService`): "has this consumer had any OTHER genuinely
+   *  qualifying D2C order besides the one being evaluated." `CONFIRMED` or later
+   *  (`PARTIALLY_FULFILLED`/`FULFILLED`) only — a `DRAFT` (never paid) or `CANCELLED`
+   *  order was never a real purchase and must never count, matching the exact
+   *  "qualifying event must be an authoritative paid/confirmed state, not merely cart
+   *  creation" rule the brief's own Sprint 40 instructions require. */
+  async countOtherQualifyingD2COrders(
+    organisationId: string,
+    consumerId: string,
+    excludeOrderId: string,
+  ): Promise<number> {
+    return this.prisma.salesOrder.count({
+      where: {
+        organisationId,
+        consumerId,
+        source: SalesOrderSource.D2C,
+        id: { not: excludeOrderId },
+        status: {
+          in: [
+            SalesOrderStatus.CONFIRMED,
+            SalesOrderStatus.PARTIALLY_FULFILLED,
+            SalesOrderStatus.FULFILLED,
+          ],
+        },
+      },
+    });
+  }
+
   /** Updates header fields and, when `items` is provided, replaces the entire item list
    *  within the same transaction (only reachable while `status === DRAFT`, enforced by
    *  `SalesOrderService`, not here). Delete-then-recreate, same shape as

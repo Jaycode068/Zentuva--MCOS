@@ -7,6 +7,52 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 40 Configurable Promotions, Loyalty, Rewards & Consumer Incentives] - 2026-10-05
+
+A new top-level `promotions/` domain — the reusable, configurable
+foundation the brief required: promotions are DATA an admin authors
+(validity window, eligibility conditions, benefit value), never
+hard-coded business logic, and the first-order incentive is simply the
+first configured promotion, never a permanent special case.
+
+**New.** `Promotion` → `PromotionCondition`/`PromotionBenefit` (a
+controlled set — four condition types: `FIRST_QUALIFYING_ORDER`,
+`MINIMUM_ORDER_VALUE`, `PRODUCT_QUANTITY`, `TERRITORY`; two benefit
+types: `BONUS_POINTS` implemented end to end, `FREE_PRODUCT`
+schema-complete with fulfilment deliberately deferred — never a generic
+rules engine) → `ConsumerRewardGrant` (snapshots its applied terms at
+grant time — the `InvoiceItem`/`WorkflowStepInstance` convention — so a
+later promotion change can never rewrite history) → for `BONUS_POINTS`,
+a `LoyaltyAccount`/`LoyaltyLedgerEntry` pair mirroring
+`InventoryStock.quantityOnHand`+`InventoryTransaction` exactly: a
+maintained balance, never the source of truth, backed by an append-only
+ledger. A promotion becomes immutable the instant it activates (mirrors
+HR's `PolicyVersion` precedent — a new commercial term is always a new
+promotion row). Admin UI at `/settings/d2c/promotions` (list/create/
+activate/pause/resume/grant-history) and `/settings/d2c/loyalty`
+(account/ledger inspection plus the one administrative mutation: a
+reasoned balance adjustment, never a silent overwrite). Wired into the
+EXISTING `D2CPaymentService` payment-confirmation webhook, right
+alongside Collection Point auto-assignment — never a parallel order or
+payment system.
+
+**Concurrency.** The idempotency/once-per-consumer-limit mechanism is a
+single database unique constraint
+(`@@unique([organisationId, promotionId, consumerId])`) — proven under
+genuine concurrent PostgreSQL transactions (not mocks) to produce exactly
+one grant and one points award under 5-way contention, with the exact
+same atomic conditional-update primitive Sprint 37.1 established for
+inventory applied here to the loyalty ledger.
+
+**Unchanged.** Every existing D2C/Sales/Finance/Inventory read/write
+path — the one new call site (`D2CPaymentService.handleProviderCallback`)
+is a best-effort addition wrapped in the identical try/catch shape
+Collection Point auto-assignment already uses, never allowed to fail the
+webhook. 244 suites / 2210 tests passing, 0 regressions; the Sprint 37.1
+PostgreSQL concurrency suite re-run unchanged alongside this sprint's new
+concurrency suite; zero unplanned schema changes. See
+[docs/sprint-40-completion-report.md](sprint-40-completion-report.md).
+
 ## [Sprint 39 D2C Sales Administration & Operations Dashboard] - 2026-10-05
 
 A new internal admin surface over the whole D2C chain (Consumer →

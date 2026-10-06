@@ -10,6 +10,9 @@ import { CollectionPointFulfillmentModule } from './d2c/fulfillment/collection-p
 import { FieldD2COverviewModule } from './d2c/field-overview/field-d2c-overview.module';
 import { ProductFamilyModule } from './catalogue/product-family/product-family.module';
 import { ProductVariantModule } from './catalogue/product-variant/product-variant.module';
+import { LoyaltyModule } from './promotions/loyalty/loyalty.module';
+import { PromotionModule } from './promotions/promotion/promotion.module';
+import { RewardModule } from './promotions/reward/reward.module';
 import configuration from './config/configuration';
 import { validateEnv } from './config/env.validation';
 import { AccountModule } from './identity/account/account.module';
@@ -78,6 +81,9 @@ import { PaymentsModule } from './payments/payments.module';
     CollectionPointFulfillmentModule,
     FieldD2COverviewModule,
     D2CAdminModule,
+    PromotionModule,
+    LoyaltyModule,
+    RewardModule,
     AccessControlModule,
     WorkflowModule,
     NotificationsModule,
