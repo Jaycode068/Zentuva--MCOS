@@ -1027,6 +1027,24 @@ PaymentService (existing, extended) + SalesOrderService.confirm
       WhatsApp-specific order/product/payment entity — see
       [`docs/domains/d2c.md`](domains/d2c.md) §115–119 and
       [`docs/sprint-41-completion-report.md`](sprint-41-completion-report.md)
+- [x] **Sprint 42 — D2C Collection Point Fulfilment & Order Completion.** Closed the
+      operational loop between a paid D2C order and the Collection Point lifecycle
+      (Sprints 36–39) — the audit found the entire lifecycle, mobile Field UI, and admin
+      visibility already complete, so this sprint is almost entirely one new,
+      channel-neutral `ConsumerNotificationPort` (reusing the existing
+      `WHATSAPP_PROVIDER` token, never a second sending mechanism) wired into the
+      existing Ready-for-Collection/Collected transitions, plus a payment-still-valid
+      re-check at every transition and "My Orders" surfacing live fulfilment status.
+      Live-verified end to end: a real order placed via real WhatsApp traffic, paid via
+      a correctly-signed simulated OPay callback, auto-assigned to a real Collection
+      Point, carried through Start Preparing → Mark Ready → Confirm Collection via the
+      real, unmodified mobile Field UI, with real inventory confirmed to deduct exactly
+      once and a real WhatsApp collection confirmation delivered with a genuine Meta
+      WAMID. New real-PostgreSQL concurrency proof: 4 scenarios all resolve to exactly
+      one winner. 251 suites / 2273 tests passing, 0 regressions; all four PostgreSQL
+      integration suites re-run clean; zero schema changes, zero new entity — see
+      [`docs/domains/d2c.md`](domains/d2c.md) §120–123 and
+      [`docs/sprint-42-completion-report.md`](sprint-42-completion-report.md)
 - [ ] Retail Portal (mobile)
 - [ ] Business Intelligence dashboards
 

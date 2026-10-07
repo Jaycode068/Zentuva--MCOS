@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ForbiddenException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
@@ -9,11 +10,16 @@ import { CollectionPointFulfillmentStatus } from '@prisma/client';
 
 import { EffectiveAccessResolver } from '../../identity/authorization/effective-access-resolver';
 import { AuditService } from '../../identity/audit/audit.service';
+import { OrganisationService } from '../../identity/organisation/organisation.service';
 import { InventoryStockRepository } from '../../inventory/inventory-stock.repository';
 import { OutletRepository } from '../../retail/outlet/outlet.repository';
 import { SalesFulfilmentService } from '../../sales/sales-fulfilment.service';
 import { SalesOrderRepository } from '../../sales/sales-order.repository';
 import { ConsumerService } from '../consumer/consumer.service';
+import {
+  CONSUMER_NOTIFICATION_PORT,
+  ConsumerNotificationPort,
+} from '../messaging/consumer-notification.port';
 import { COLLECTION_POINT_FULFILLMENT_AUDIT_ACTIONS } from './collection-point-fulfillment-audit-actions';
 import {
   CollectionPointFulfillmentRepository,
@@ -53,6 +59,9 @@ export class CollectionPointFulfillmentService {
     private readonly auditService: AuditService,
     private readonly effectiveAccessResolver: EffectiveAccessResolver,
     private readonly inventoryStockRepository: InventoryStockRepository,
+    private readonly organisationService: OrganisationService,
+    @Inject(CONSUMER_NOTIFICATION_PORT)
+    private readonly consumerNotificationPort: ConsumerNotificationPort,
   ) {}
 
   /**
@@ -180,6 +189,7 @@ export class CollectionPointFulfillmentService {
   ): Promise<CollectionPointFulfillmentResult> {
     const cpf = await this.getByIdOrThrow(organisationId, id);
     await this.assertAuthorized(organisationId, cpf, actorUserId);
+    this.assertPaymentStillValid(cpf);
 
     const updated = await this.repository.updateStatus(
       organisationId,
@@ -216,6 +226,7 @@ export class CollectionPointFulfillmentService {
   ): Promise<CollectionPointFulfillmentResult> {
     const cpf = await this.getByIdOrThrow(organisationId, id);
     await this.assertAuthorized(organisationId, cpf, actorUserId);
+    this.assertPaymentStillValid(cpf);
 
     const outlet = await this.outletRepository.findById(organisationId, cpf.outletId);
     if (!outlet?.inventoryLocationId) {
@@ -253,6 +264,15 @@ export class CollectionPointFulfillmentService {
       organisationId,
       actorUserId,
     });
+
+    // Sprint 42 brief §16 — best-effort, AFTER the transition/audit already committed;
+    // never on the replay path (a duplicate request fails `updateStatus`'s own
+    // conditional match above and never reaches here) — see this class's own
+    // `notifyReady`/`notifyCollected` doc comments.
+    if (cpf.salesOrder.consumerId) {
+      await this.notifyReady(organisationId, cpf.salesOrder.consumerId, updated, outlet);
+    }
+
     return this.toResult(updated);
   }
 
@@ -277,6 +297,7 @@ export class CollectionPointFulfillmentService {
   ): Promise<CollectionPointFulfillmentResult> {
     const cpf = await this.getByIdOrThrow(organisationId, id);
     await this.assertAuthorized(organisationId, cpf, actorUserId);
+    this.assertPaymentStillValid(cpf);
 
     const updated = await this.repository.updateStatus(
       organisationId,
@@ -363,6 +384,15 @@ export class CollectionPointFulfillmentService {
       actorUserId,
       metadata: { salesOrderId: cpf.salesOrderId },
     });
+
+    // Sprint 42 brief §20 — best-effort, AFTER the transition/inventory
+    // deduction/audit already committed; never on the idempotent-replay path (the
+    // early `current.status === COLLECTED` return above exits before this point, so a
+    // duplicate confirmation never re-sends this message — brief §28).
+    if (cpf.salesOrder.consumerId) {
+      await this.notifyCollected(organisationId, cpf.salesOrder.consumerId, updated);
+    }
+
     return this.toResult(updated);
   }
 
@@ -637,6 +667,77 @@ export class CollectionPointFulfillmentService {
       outlet.collectionPointStatus === 'ENABLED' &&
       !!outlet.inventoryLocationId
     );
+  }
+
+  /** Sprint 42 brief §22 "Payment reversed/refunded" — re-checked at every transition
+   *  (`startPreparing`/`markReadyForCollection`/`confirmCollection`), never trusted from
+   *  the snapshot taken at assignment time. `cpf.salesOrder.payments` is already fetched
+   *  (the exact same relation `toResult` reads), so this adds no new query. Only the
+   *  REVERSAL statuses block — a `null`/absent payment (the documented "admin manual
+   *  assignment with no payment row" edge case) is left unaffected, matching existing
+   *  behaviour. */
+  private assertPaymentStillValid(cpf: CollectionPointFulfillmentWithRelations): void {
+    const latestPayment = cpf.salesOrder.payments[0];
+    if (latestPayment && ['FAILED', 'VOIDED', 'CLOSED'].includes(latestPayment.status)) {
+      throw new BadRequestException('This order cannot proceed — its payment is no longer valid.');
+    }
+  }
+
+  /** Sprint 42 brief §16 "Consumer Notification" — best-effort via the channel-neutral
+   *  {@link ConsumerNotificationPort} (never a direct WhatsApp/Meta dependency here,
+   *  brief §31). Tenant name is always the real `Organisation.displayName`/`.name` —
+   *  never a hardcoded brand (the exact bug/fix precedent `ConversationService`'s own
+   *  `welcomeMessage` already established, Sprint 33). */
+  private async notifyReady(
+    organisationId: string,
+    consumerId: string,
+    cpf: CollectionPointFulfillmentWithRelations,
+    outlet: {
+      name: string;
+      address: string | null;
+      collectionPointOperatingHours: string | null;
+    },
+  ): Promise<void> {
+    const organisation = await this.organisationService.getById(organisationId);
+    const tenantName = organisation?.displayName ?? organisation?.name ?? 'us';
+    const lines = [
+      '✅ Your order is ready!',
+      '',
+      `Order: #${cpf.salesOrder.orderCode}`,
+      '',
+      'Your order is ready for collection at:',
+      '',
+      outlet.name,
+    ];
+    if (outlet.address) lines.push(outlet.address);
+    if (outlet.collectionPointOperatingHours) lines.push(outlet.collectionPointOperatingHours);
+    lines.push(
+      '',
+      'Please present your order number when you arrive.',
+      '',
+      `Thank you for choosing ${tenantName}.`,
+    );
+    await this.consumerNotificationPort.notify(organisationId, consumerId, lines.join('\n'));
+  }
+
+  /** Sprint 42 brief §20 "Consumer Confirmation." */
+  private async notifyCollected(
+    organisationId: string,
+    consumerId: string,
+    cpf: CollectionPointFulfillmentWithRelations,
+  ): Promise<void> {
+    const organisation = await this.organisationService.getById(organisationId);
+    const tenantName = organisation?.displayName ?? organisation?.name ?? 'us';
+    const message = [
+      '✅ Order collected!',
+      '',
+      `Order: #${cpf.salesOrder.orderCode}`,
+      '',
+      `Thank you for choosing ${tenantName}.`,
+      '',
+      'We hope you enjoy your order! 😊',
+    ].join('\n');
+    await this.consumerNotificationPort.notify(organisationId, consumerId, message);
   }
 
   private async recordAssignmentFailure(

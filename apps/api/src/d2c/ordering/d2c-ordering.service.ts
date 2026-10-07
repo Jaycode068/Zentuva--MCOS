@@ -6,6 +6,7 @@ import { OrganisationService } from '../../identity/organisation/organisation.se
 import { SalesOrderService } from '../../sales/sales-order.service';
 import { SalesOrderWithRelations } from '../../sales/sales-order.repository';
 import { ConsumerService } from '../consumer/consumer.service';
+import { CollectionPointFulfillmentRepository } from '../fulfillment/collection-point-fulfillment.repository';
 import {
   CartLine,
   CartSummaryResult,
@@ -43,6 +44,7 @@ export class D2COrderingService {
     private readonly consumerService: ConsumerService,
     private readonly organisationService: OrganisationService,
     private readonly salesOrderService: SalesOrderService,
+    private readonly collectionPointFulfillmentRepository: CollectionPointFulfillmentRepository,
   ) {}
 
   /** A product is D2C-orderable iff it's the tenant's own, a real SKU (never a
@@ -227,7 +229,9 @@ export class D2COrderingService {
       orderDate: new Date(),
       idempotencyKey,
     });
-    return { result: await this.toOrderResult(organisationId, order), wasCreated };
+    // A freshly-confirmed order has no Collection Point assignment yet (that happens
+    // only after payment, Sprint 37) — always `null` here, never a stale/guessed value.
+    return { result: await this.toOrderResult(organisationId, order, null), wasCreated };
   }
 
   /** brief §9/§12 — ownership-enforced order lookup: a Consumer may only ever see their
@@ -243,7 +247,11 @@ export class D2COrderingService {
     if (!order || order.consumerId !== consumerId) {
       throw new NotFoundException('Order not found');
     }
-    return this.toOrderResult(organisationId, order);
+    const fulfilment = await this.collectionPointFulfillmentRepository.findBySalesOrderId(
+      organisationId,
+      orderId,
+    );
+    return this.toOrderResult(organisationId, order, fulfilment);
   }
 
   /** Added Sprint 41 — brief §14 "My Orders." The consumer's own most-recent D2C orders,
@@ -263,12 +271,25 @@ export class D2COrderingService {
       page: 1,
       pageSize: limit,
     });
-    return Promise.all(items.map((order) => this.toOrderResult(organisationId, order)));
+    // Sprint 42 — one batch lookup for the whole page, never N queries per order
+    // (`CollectionPointFulfillmentRepository.findManyBySalesOrderIds` already exists for
+    // exactly this read shape, Sprint 38).
+    const fulfilments = await this.collectionPointFulfillmentRepository.findManyBySalesOrderIds(
+      organisationId,
+      items.map((order) => order.id),
+    );
+    const fulfilmentByOrderId = new Map(fulfilments.map((f) => [f.salesOrderId, f]));
+    return Promise.all(
+      items.map((order) =>
+        this.toOrderResult(organisationId, order, fulfilmentByOrderId.get(order.id) ?? null),
+      ),
+    );
   }
 
   private async toOrderResult(
     organisationId: string,
     order: SalesOrderWithRelations,
+    fulfilment: { status: string; outlet: { name: string } } | null,
   ): Promise<D2COrderResult> {
     const currency = await this.getCurrency(organisationId);
     return {
@@ -285,6 +306,8 @@ export class D2COrderingService {
       subtotal: order.subtotal,
       total: order.total,
       currency,
+      fulfilmentStatus: fulfilment ? describeFulfilmentStatusForConsumer(fulfilment.status) : null,
+      collectionPointName: fulfilment?.outlet.name ?? null,
     };
   }
 
@@ -298,4 +321,24 @@ export class D2COrderingService {
 /** Same rounding convention as `SalesOrderService`'s own `roundCurrency`. */
 function roundCurrency(value: number): number {
   return Math.round(value * 100) / 100;
+}
+
+/** Sprint 42 brief §32/33 "Consumer Status Refresh" — a consumer-facing label derived
+ *  from the EXISTING, authoritative `CollectionPointFulfillmentStatus` enum (Sprint 37),
+ *  never a second, independently-tracked status. Wording belongs to this presentation
+ *  layer, not the fulfilment domain — the exact same split `formatOrderStatusForConsumer`
+ *  (ConversationService, Sprint 33) already established for `SalesOrderStatus`. */
+function describeFulfilmentStatusForConsumer(status: string): string {
+  switch (status) {
+    case 'ASSIGNED':
+      return 'Collection point assigned';
+    case 'PREPARING':
+      return 'Being prepared';
+    case 'READY_FOR_COLLECTION':
+      return 'Ready for Collection';
+    case 'COLLECTED':
+      return 'Collected';
+    default:
+      return status;
+  }
 }

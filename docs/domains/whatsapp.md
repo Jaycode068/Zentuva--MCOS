@@ -241,3 +241,13 @@ back to plain `sendText` of the same caption if the image send fails.
 | `WHATSAPP_DEFAULT_ORGANISATION_ID`                           | —                                    | optional; see §7                                |
 
 See `docs/sprint-40.5-completion-report.md` for live verification evidence.
+
+## 11. Reused By Other Domains (Sprint 42)
+
+`WHATSAPP_PROVIDER`/`WhatsAppProvider` (§6) is the one outbound-sending mechanism in
+this codebase — Sprint 42 reuses it again, via a new, narrow
+`WhatsAppConsumerNotificationService` (`d2c/messaging/`) that sends D2C Collection Point
+fulfilment notifications (Ready for Collection, Collected). That service is the only
+thing that imports this token for that purpose; `CollectionPointFulfillmentService`
+itself depends only on a channel-neutral `ConsumerNotificationPort`, never on anything
+WhatsApp-specific — see `docs/domains/d2c.md` §120.

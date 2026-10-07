@@ -658,10 +658,24 @@ export class ConversationService {
         ...mainMenuMessages(),
       ]);
     }
-    const lines = orders.map(
-      (order) =>
-        `${order.orderCode}\n${order.currency} ${order.total}\n${describeOrderStatusForHistory(order.status)}`,
-    );
+    // Sprint 42 brief §32/33 "Consumer Status Refresh" — `fulfilmentStatus`/
+    // `collectionPointName` are read FRESH from `D2COrderingService` on every "My
+    // Orders" request (never a persisted/cached WhatsApp-only status), so this always
+    // reflects the real, current Collection Point state.
+    const lines = orders.map((order) => {
+      const parts = [
+        order.orderCode,
+        `${order.currency} ${order.total}`,
+        describeOrderStatusForHistory(order.status),
+      ];
+      if (order.fulfilmentStatus) {
+        parts.push(`Status: ${order.fulfilmentStatus}`);
+      }
+      if (order.collectionPointName) {
+        parts.push(`Collection Point:\n${order.collectionPointName}`);
+      }
+      return parts.join('\n');
+    });
     return this.respond(conversation, [
       { type: 'TEXT', text: ['📦 Your Recent Orders', '', lines.join('\n\n')].join('\n') },
       ...mainMenuMessages(),

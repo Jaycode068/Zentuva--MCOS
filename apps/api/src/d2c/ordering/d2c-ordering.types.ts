@@ -80,4 +80,14 @@ export interface D2COrderResult {
   subtotal: number;
   total: number;
   currency: string;
+  /** Added Sprint 42 — D2C Collection Point Fulfilment & Order Completion (brief §32/33
+   *  "Consumer Status Refresh"). A consumer-facing label derived from the EXISTING,
+   *  authoritative `CollectionPointFulfillment.status` (Sprint 37) — `null` only when
+   *  this order has never been assigned to a Collection Point at all (still awaiting
+   *  assignment, or not a Collection-Point-fulfilled order), never a second,
+   *  independently-tracked WhatsApp-only status. */
+  fulfilmentStatus: string | null;
+  /** The assigned Collection Point's own `Outlet.name` — `null` under the same condition
+   *  as `fulfilmentStatus`. */
+  collectionPointName: string | null;
 }

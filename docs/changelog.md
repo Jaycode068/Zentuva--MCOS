@@ -7,6 +7,49 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 42 D2C Collection Point Fulfilment & Order Completion] - 2026-10-07
+
+Closed the operational loop between a paid D2C consumer order and the Collection Point
+fulfilment lifecycle (Sprints 36–39): Payment Confirmed → Assigned → Preparing → Ready
+for Collection → **consumer notified** → Collected → **consumer confirmed**. The audit
+found the entire lifecycle, mobile Field UI (`/field/collection-point`), and admin
+visibility (`/settings/d2c`) already complete — zero frontend files were touched. The
+one confirmed gap: no consumer-facing WhatsApp message existed anywhere in the
+fulfilment domain.
+
+**New.** `ConsumerNotificationPort`/`CONSUMER_NOTIFICATION_PORT` (`d2c/messaging/`) — a
+narrow, channel-neutral port mirroring `WhatsAppProvider`'s own pattern, so
+`CollectionPointFulfillmentService` never imports anything WhatsApp-specific. Its one
+implementation, `WhatsAppConsumerNotificationService`, reuses the EXISTING
+`WHATSAPP_PROVIDER` token — never a second sending mechanism — and is best-effort
+(never blocks or rolls back the fulfilment transition it's attached to). Sends a real
+message with the real Collection Point name/address/hours on Ready for Collection, and
+a confirmation on Collected.
+
+**Fixed/hardened.** A payment-still-valid guard (`assertPaymentStillValid`) is now
+re-checked at every fulfilment transition, rejecting a `FAILED`/`VOIDED`/`CLOSED`
+payment rather than trusting the snapshot taken at assignment time. "My Orders"
+(Sprint 41) now surfaces live fulfilment status and Collection Point name, reusing the
+existing `CollectionPointFulfillmentRepository` read path.
+
+**Live-verified** end to end against real external systems: a real order placed via
+real WhatsApp traffic, paid via a correctly-signed simulated OPay callback, auto-assigned
+to a real Collection Point, carried through Start Preparing → Mark Ready → Confirm
+Collection via the real, unmodified mobile Field UI, with real inventory confirmed to
+deduct exactly once and a real WhatsApp "Order collected!" confirmation delivered with a
+genuine Meta WAMID. New real-PostgreSQL concurrency proof: 4 scenarios (concurrent
+start-preparing, mark-ready, confirm-collection, and reassignment) all resolve to
+exactly one winner. 251 suites / 2273 tests passing, 0 regressions; all four PostgreSQL
+integration suites re-run clean.
+
+**Schema.** No changes — zero new tables, zero migrations.
+
+**Accounting.** Audited explicitly — no new financial event is required; the existing
+Sprint 10 Sales Fulfilment posting already covers Collection Point hand-off.
+
+See [docs/domains/d2c.md](domains/d2c.md) §120–123 and
+[docs/sprint-42-completion-report.md](sprint-42-completion-report.md).
+
 ## [Sprint 41 WhatsApp D2C Ordering & Commerce Conversation] - 2026-10-06
 
 Connected the real WhatsApp channel (Sprint 40.5) to the D2C Order Snacks flow that has

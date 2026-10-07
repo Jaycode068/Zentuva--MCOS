@@ -5,6 +5,7 @@ import { ProductRepository } from '../../catalogue/product/product.repository';
 import { OrganisationService } from '../../identity/organisation/organisation.service';
 import { SalesOrderService } from '../../sales/sales-order.service';
 import { ConsumerService } from '../consumer/consumer.service';
+import { CollectionPointFulfillmentRepository } from '../fulfillment/collection-point-fulfillment.repository';
 import { CartItemUnavailableError, D2COrderingService } from './d2c-ordering.service';
 
 /**
@@ -81,14 +82,25 @@ describe('D2COrderingService', () => {
       getById: jest.fn(),
       listPaginated: jest.fn(),
     } as unknown as jest.Mocked<SalesOrderService>;
+    const collectionPointFulfillmentRepository = {
+      findManyBySalesOrderIds: jest.fn().mockResolvedValue([]),
+      findBySalesOrderId: jest.fn().mockResolvedValue(null),
+    } as unknown as jest.Mocked<CollectionPointFulfillmentRepository>;
 
     const service = new D2COrderingService(
       productRepository,
       consumerService,
       organisationService,
       salesOrderService,
+      collectionPointFulfillmentRepository,
     );
-    return { service, productRepository, consumerService, salesOrderService };
+    return {
+      service,
+      productRepository,
+      consumerService,
+      salesOrderService,
+      collectionPointFulfillmentRepository,
+    };
   }
 
   describe('getAvailableProducts', () => {
@@ -177,6 +189,64 @@ describe('D2COrderingService', () => {
       const result = await service.listConsumerOrders(ORG_A, 'consumer-1');
 
       expect(result).toEqual([]);
+    });
+
+    // Sprint 42 brief §32/33 "Consumer Status Refresh."
+    it('surfaces fulfilmentStatus/collectionPointName from a single batch lookup, never N queries', async () => {
+      const { service, salesOrderService, collectionPointFulfillmentRepository } = makeService([]);
+      salesOrderService.listPaginated.mockResolvedValue({
+        items: [
+          {
+            id: 'order-1',
+            orderCode: 'SO-000001',
+            orderDate: new Date('2026-10-01'),
+            status: 'CONFIRMED',
+            subtotal: 1000,
+            total: 1000,
+            items: [],
+          } as never,
+        ],
+        total: 1,
+      });
+      collectionPointFulfillmentRepository.findManyBySalesOrderIds.mockResolvedValue([
+        {
+          salesOrderId: 'order-1',
+          status: 'READY_FOR_COLLECTION',
+          outlet: { name: 'Boby Bites — Challenge' },
+        },
+      ] as never);
+
+      const result = await service.listConsumerOrders(ORG_A, 'consumer-1');
+
+      expect(collectionPointFulfillmentRepository.findManyBySalesOrderIds).toHaveBeenCalledWith(
+        ORG_A,
+        ['order-1'],
+      );
+      expect(result[0]!.fulfilmentStatus).toBe('Ready for Collection');
+      expect(result[0]!.collectionPointName).toBe('Boby Bites — Challenge');
+    });
+
+    it('leaves fulfilmentStatus/collectionPointName null for an order never assigned to a Collection Point', async () => {
+      const { service, salesOrderService } = makeService([]);
+      salesOrderService.listPaginated.mockResolvedValue({
+        items: [
+          {
+            id: 'order-1',
+            orderCode: 'SO-000001',
+            orderDate: new Date('2026-10-01'),
+            status: 'DRAFT',
+            subtotal: 1000,
+            total: 1000,
+            items: [],
+          } as never,
+        ],
+        total: 1,
+      });
+
+      const result = await service.listConsumerOrders(ORG_A, 'consumer-1');
+
+      expect(result[0]!.fulfilmentStatus).toBeNull();
+      expect(result[0]!.collectionPointName).toBeNull();
     });
   });
 

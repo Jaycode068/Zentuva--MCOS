@@ -4,6 +4,7 @@ import { ProductModule } from '../../catalogue/product/product.module';
 import { IdentityModule } from '../../identity/identity.module';
 import { SalesModule } from '../../sales/sales.module';
 import { ConsumerModule } from '../consumer/consumer.module';
+import { CollectionPointFulfillmentModule } from '../fulfillment/collection-point-fulfillment.module';
 import { D2COrderingService } from './d2c-ordering.service';
 
 /**
@@ -20,9 +21,20 @@ import { D2COrderingService } from './d2c-ordering.service';
  * describes: `Conversation Layer -> D2C Ordering Service -> Existing Sales Order`. No
  * `WorkflowModule`/`NotificationsModule` import, and no import of anything WhatsApp-
  * specific — see `d2c-ordering-independence.spec.ts`.
+ *
+ * `CollectionPointFulfillmentModule` added Sprint 42 — `listConsumerOrders`/
+ * `getConsumerOrder` read the EXISTING `CollectionPointFulfillmentRepository` (exported
+ * since Sprint 38) to surface fulfilment status/Collection Point name in "My Orders";
+ * read-only, never a second fulfilment-tracking mechanism.
  */
 @Module({
-  imports: [ProductModule, SalesModule, ConsumerModule, IdentityModule],
+  imports: [
+    ProductModule,
+    SalesModule,
+    ConsumerModule,
+    IdentityModule,
+    CollectionPointFulfillmentModule,
+  ],
   providers: [D2COrderingService],
   exports: [D2COrderingService],
 })

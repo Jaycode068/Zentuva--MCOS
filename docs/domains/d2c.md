@@ -2773,3 +2773,106 @@ messages remain future work (numbered plain text continues, per Sprint 40.5's ow
 documented scope cut — see `docs/domains/whatsapp.md` §9); this sprint only fixed the
 numbering/matching logic underneath that existing text-rendering convention, it did not
 change the rendering style itself.
+
+## 120. Collection Point Fulfilment Consumer Notifications (Sprint 42)
+
+Closes the operational loop Sprints 36–39 built but never surfaced to the consumer:
+Payment Confirmed → Collection Point Assigned → Preparing → Ready for Collection →
+**consumer notified** → Collected → **consumer confirmed**. The mandatory
+pre-implementation audit (full detail:
+`docs/sprint-42-completion-report.md` §2) found the ENTIRE Collection Point lifecycle,
+mobile Field UI (`/field/collection-point`), and admin visibility (`/settings/d2c`)
+already complete from Sprints 36–39 — zero frontend files were touched this sprint. The
+one confirmed, unambiguous gap was that no consumer-facing WhatsApp message existed
+anywhere in the fulfilment domain.
+
+- **`ConsumerNotificationPort`/`CONSUMER_NOTIFICATION_PORT`**
+  (`d2c/messaging/consumer-notification.port.ts`) — a new, narrow port mirroring
+  `WhatsAppProvider`/`PaymentProvider`'s own pattern, so
+  `CollectionPointFulfillmentService` never imports anything WhatsApp-specific (enforced
+  executably by `collection-point-fulfillment-independence.spec.ts`'s explicit ban on
+  `d2c/whatsapp/` imports). Satisfies the brief's own required flow literally: `D2C
+Fulfilment Domain -> Notification Service (this port) -> WhatsApp`, never `D2C
+Fulfilment Domain -> WhatsApp` directly.
+- **`WhatsAppConsumerNotificationService`** — the one concrete implementation, reusing
+  the EXISTING `WHATSAPP_PROVIDER` token (Sprint 29/40.5) — never a second WhatsApp
+  sending mechanism. Best-effort: never throws past its own boundary (unknown consumer,
+  unreachable provider, Meta rejection are all logged and swallowed), matching the
+  established "never block the business transition" convention Collection Point
+  auto-assignment already set (Sprint 37).
+- **`notifyReady`/`notifyCollected`** (`CollectionPointFulfillmentService`) — called at
+  the end of the winning `markReadyForCollection`/`confirmCollection` transition, AFTER
+  the audit record is written, and never on the idempotent-replay path (a
+  duplicate/out-of-order request exits earlier via `updateStatus`'s own
+  zero-rows-matched branch). Message content uses only real data: the real
+  `Outlet.name`/`.address`/`.collectionPointOperatingHours`, the real
+  `SalesOrder.orderCode`, and the real `Organisation.displayName`/`.name` — never a
+  hardcoded tenant name.
+- **Payment-reversal guard** (brief §22) — `assertPaymentStillValid`, re-checked at
+  every transition entry point (`startPreparing`/`markReadyForCollection`/
+  `confirmCollection`), rejects when the order's latest payment is `FAILED`/`VOIDED`/
+  `CLOSED`; a `null`/absent payment is left unaffected (the documented admin
+  manual-assignment edge case).
+- **"My Orders" fulfilment visibility** — `D2COrderingService.listConsumerOrders`/
+  `getConsumerOrder` now also read the EXISTING `CollectionPointFulfillmentRepository`
+  (exported since Sprint 38) to surface a consumer-facing fulfilment status label
+  (`describeFulfilmentStatusForConsumer`, mapping the real
+  `CollectionPointFulfillmentStatus` enum) and the assigned Collection Point's
+  `Outlet.name` — read-only, batch-queried (one lookup per page, never N), never a
+  second status-tracking mechanism. `ConversationService`'s "My Orders" (Sprint 41) now
+  renders both lines, always reflecting live, current state — never cached.
+
+No new entity, no new permission, no new audit action, and no new inventory or payment
+mechanism was created — see `docs/sprint-42-completion-report.md` §25 for the explicit
+confirmation.
+
+## 121. Inventory & Concurrency — Already Proven, Re-Verified (Sprint 42)
+
+`confirmCollection`'s call into `SalesFulfilmentService.fulfil()` (Sprint 4.9/37.1) is
+unchanged: the status flip to `COLLECTED` happens first via the same atomic conditional
+`updateMany`, and only the request that genuinely wins that flip calls `fulfil()`, with
+a deterministic idempotency key (`collection-point-fulfillment:${cpf.id}`) as a second,
+independent safety net — a retried or duplicate confirmation can never double-deduct
+stock. New real-PostgreSQL proof added this sprint,
+`collection-point-fulfillment-concurrency.integration.spec.ts`, covers four scenarios
+against the repository's own atomic primitive (deliberately not the full service, which
+would additionally need Payment/InventoryStock/AccountingPeriod fixtures — justified in
+the file's own doc comment against two other existing, independent guarantees): 5
+concurrent `ASSIGNED → PREPARING` attempts resolve to exactly 1 winner; 5 concurrent
+`PREPARING → READY_FOR_COLLECTION` attempts resolve to exactly 1 winner; 5 concurrent
+`READY_FOR_COLLECTION → COLLECTED` attempts resolve to exactly 1 winner with the correct
+`collectedById` surviving; 2 concurrent reassignments to different outlets always leave
+the row at exactly one real, intended target, never a torn write.
+
+## 122. Live Verification (Sprint 42)
+
+Performed end-to-end against real external systems, continuing directly from a real
+order placed through the same live WhatsApp flow §118 verified: a new order
+(`SO-000035`) was created via real simulated WhatsApp webhook traffic, paid via a
+correctly HMAC-SHA512-signed simulated OPay callback (the sandbox Cashier UI itself
+required real OPay wallet credentials not available in this session), auto-assigned by
+the unchanged territory-matching logic to "Bodija Supermart — Bodija Branch", and
+carried through **Start Preparing → Mark Ready for Collection → Confirm Collection** via
+the real, pre-existing mobile `/field/collection-point` UI with a real rep login. Real
+inventory for "Plantain Chips Classic Salted 500g" was confirmed to deduct exactly once
+(18 → 16 units, matching the order quantity), a real WhatsApp message with the real
+Collection Point's name/address/hours was delivered on Ready, and a real WhatsApp "Order
+collected!" confirmation was delivered on Collection with a genuine Meta WAMID. The real
+WhatsApp "My Orders" flow was then confirmed to show the live, current fulfilment status
+and Collection Point name — never a stale value. The existing, unmodified admin
+order-detail page (`/settings/d2c`) was confirmed to already show every required field
+(Consumer, Order, Items, Payment History, Collection Point section with Outlet/Status/
+Assigned/Ready/Collected timestamps) with zero new admin code. Full detail, including
+the diagnosed transient Meta `403`/131005 propagation delay and a recurring malformed
+`.env` token issue (both fully resolved, neither a code defect), is in
+`docs/sprint-42-completion-report.md` §17.
+
+## 123. Accounting Finding & Known Limitations (Sprint 42)
+
+Audited explicitly per the brief's own instruction: no new financial event is required
+at Collection Point hand-off — the Sprint 10 Sales Fulfilment accounting posting is
+already triggered inside the unchanged `fulfil()` call. No settlement mechanism between
+a Collection Point outlet and the organisation was requested or built. Collection
+verification continues to rely on the operator checking the order number the consumer
+presents in person, matching the brief's own explicit scope exclusion of any OTP/QR
+mechanism. Full detail: `docs/sprint-42-completion-report.md` §15, §22, §23.

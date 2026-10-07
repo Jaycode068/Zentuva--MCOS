@@ -63,6 +63,11 @@ describe('Collection Point Fulfillment domain independence (Sprint 37)', () => {
       expect(source).not.toMatch(/from ['"].*\bworkflow\//);
       expect(source).not.toMatch(/from ['"].*\bnotifications\//);
       expect(source).not.toMatch(/from ['"].*\bpayments\//);
+      // Sprint 42 — consumer notifications go through the channel-neutral
+      // ConsumerNotificationPort only (docs/domains/d2c.md "Fulfilment Notifications");
+      // never a direct dependency on the WhatsApp webhook/adapter/test-controller layer.
+      expect(source).not.toMatch(/from ['"].*\bd2c\/whatsapp\//);
+      expect(source).not.toMatch(/WHATSAPP_PROVIDER|MetaWhatsAppProvider/);
     }
   });
 
@@ -73,7 +78,7 @@ describe('Collection Point Fulfillment domain independence (Sprint 37)', () => {
     }
   });
 
-  it('structural guard: CollectionPointFulfillmentModule imports only IdentityModule/AuthModule/OutletModule/SalesModule/ConsumerModule/InventoryModule, no controller-less accident (it DOES have a controller — confirm exactly one)', () => {
+  it('structural guard: CollectionPointFulfillmentModule imports only IdentityModule/AuthModule/OutletModule/SalesModule/ConsumerModule/InventoryModule/D2CMessagingModule, no controller-less accident (it DOES have a controller — confirm exactly one)', () => {
     const source = readFileSync(join(__dirname, 'collection-point-fulfillment.module.ts'), 'utf-8');
     expect(source).toMatch(/controllers:\s*\[CollectionPointFulfillmentController\]/);
     const importsMatch = source.match(/imports:\s*\[([\s\S]*?)\],\s*controllers/);
@@ -86,7 +91,10 @@ describe('Collection Point Fulfillment domain independence (Sprint 37)', () => {
     // discovered via live verification when Nest failed to resolve JwtAuthGuard's dependency.
     // InventoryModule added Sprint 38 — the Field inventory view injects
     // InventoryStockRepository directly (OutletModule imports InventoryModule but does
-    // not re-export it, so this module needs its own import).
+    // not re-export it, so this module needs its own import). D2CMessagingModule added
+    // Sprint 42 — the ONE narrow, channel-neutral CONSUMER_NOTIFICATION_PORT this service
+    // calls at READY_FOR_COLLECTION/COLLECTED; never the full `notifications/` tree and
+    // never anything WhatsApp-specific directly (still banned above).
     expect(new Set(importedModules)).toEqual(
       new Set([
         'IdentityModule',
@@ -95,6 +103,7 @@ describe('Collection Point Fulfillment domain independence (Sprint 37)', () => {
         'SalesModule',
         'ConsumerModule',
         'InventoryModule',
+        'D2CMessagingModule',
       ]),
     );
   });

@@ -6,6 +6,7 @@ import { InventoryModule } from '../../inventory/inventory.module';
 import { OutletModule } from '../../retail/outlet/outlet.module';
 import { SalesModule } from '../../sales/sales.module';
 import { ConsumerModule } from '../consumer/consumer.module';
+import { D2CMessagingModule } from '../messaging/d2c-messaging.module';
 import { CollectionPointFulfillmentController } from './collection-point-fulfillment.controller';
 import { CollectionPointFulfillmentRepository } from './collection-point-fulfillment.repository';
 import { CollectionPointFulfillmentService } from './collection-point-fulfillment.service';
@@ -23,9 +24,22 @@ import { CollectionPointFulfillmentService } from './collection-point-fulfillmen
  * already imports `InventoryModule` itself but does not re-export it, so this module
  * needs its own direct import to inject the same repository. Exports the service so
  * `D2CPaymentModule` can call `autoAssign()` right after a verified payment.
+ *
+ * `D2CMessagingModule` added Sprint 42 — the channel-neutral `CONSUMER_NOTIFICATION_PORT`
+ * (docs/domains/d2c.md "Fulfilment Notifications") this service calls at
+ * READY_FOR_COLLECTION/COLLECTED, never importing anything WhatsApp-specific itself —
+ * see `collection-point-fulfillment-independence.spec.ts`.
  */
 @Module({
-  imports: [IdentityModule, AuthModule, OutletModule, SalesModule, ConsumerModule, InventoryModule],
+  imports: [
+    IdentityModule,
+    AuthModule,
+    OutletModule,
+    SalesModule,
+    ConsumerModule,
+    InventoryModule,
+    D2CMessagingModule,
+  ],
   controllers: [CollectionPointFulfillmentController],
   providers: [CollectionPointFulfillmentRepository, CollectionPointFulfillmentService],
   // Sprint 38 — the repository is also exported (alongside the service) so

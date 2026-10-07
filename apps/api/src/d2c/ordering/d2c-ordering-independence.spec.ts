@@ -61,7 +61,7 @@ describe('D2C Ordering domain independence (Sprint 34)', () => {
     expect(serviceSource).not.toMatch(/CartRepository|cart\.(create|update|findMany|findUnique)\(/);
   });
 
-  it('structural guard: D2COrderingModule imports only ProductModule/SalesModule/ConsumerModule/IdentityModule, no controller', () => {
+  it('structural guard: D2COrderingModule imports only ProductModule/SalesModule/ConsumerModule/IdentityModule/CollectionPointFulfillmentModule, no controller', () => {
     const source = readFileSync(join(__dirname, 'd2c-ordering.module.ts'), 'utf-8');
     expect(source).not.toMatch(/controllers:/);
     const importsMatch = source.match(/imports:\s*\[([\s\S]*?)\],\s*providers/);
@@ -69,8 +69,16 @@ describe('D2C Ordering domain independence (Sprint 34)', () => {
     const importedModules = [...(importsMatch![1] ?? '').matchAll(/\b(\w+Module)\b/g)].map(
       (m) => m[1],
     );
+    // CollectionPointFulfillmentModule added Sprint 42 — read-only fulfilment status for
+    // "My Orders" (see the top-of-file doc comment).
     expect(new Set(importedModules)).toEqual(
-      new Set(['ProductModule', 'SalesModule', 'ConsumerModule', 'IdentityModule']),
+      new Set([
+        'ProductModule',
+        'SalesModule',
+        'ConsumerModule',
+        'IdentityModule',
+        'CollectionPointFulfillmentModule',
+      ]),
     );
   });
 });

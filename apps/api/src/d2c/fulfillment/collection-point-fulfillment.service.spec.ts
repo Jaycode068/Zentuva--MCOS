@@ -3,11 +3,13 @@ import { CollectionPointFulfillmentStatus } from '@prisma/client';
 
 import { AuditService } from '../../identity/audit/audit.service';
 import { EffectiveAccessResolver } from '../../identity/authorization/effective-access-resolver';
+import { OrganisationService } from '../../identity/organisation/organisation.service';
 import { InventoryStockRepository } from '../../inventory/inventory-stock.repository';
 import { OutletRepository } from '../../retail/outlet/outlet.repository';
 import { SalesFulfilmentService } from '../../sales/sales-fulfilment.service';
 import { SalesOrderRepository } from '../../sales/sales-order.repository';
 import { ConsumerService } from '../consumer/consumer.service';
+import { ConsumerNotificationPort } from '../messaging/consumer-notification.port';
 import { CollectionPointFulfillmentRepository } from './collection-point-fulfillment.repository';
 import { CollectionPointFulfillmentService } from './collection-point-fulfillment.service';
 import {
@@ -112,6 +114,12 @@ describe('CollectionPointFulfillmentService', () => {
     const inventoryStockRepository = {
       findManyByProductsAndLocation: jest.fn().mockResolvedValue([]),
     } as unknown as jest.Mocked<InventoryStockRepository>;
+    const organisationService = {
+      getById: jest.fn().mockResolvedValue({ id: orgId, displayName: null, name: 'Boby Bites' }),
+    } as unknown as jest.Mocked<OrganisationService>;
+    const consumerNotificationPort = {
+      notify: jest.fn().mockResolvedValue(undefined),
+    } as unknown as jest.Mocked<ConsumerNotificationPort>;
 
     const service = new CollectionPointFulfillmentService(
       repository,
@@ -122,6 +130,8 @@ describe('CollectionPointFulfillmentService', () => {
       auditService,
       effectiveAccessResolver,
       inventoryStockRepository,
+      organisationService,
+      consumerNotificationPort,
     );
     return {
       service,
@@ -133,6 +143,8 @@ describe('CollectionPointFulfillmentService', () => {
       auditService,
       effectiveAccessResolver,
       inventoryStockRepository,
+      organisationService,
+      consumerNotificationPort,
     };
   }
 
@@ -400,6 +412,91 @@ describe('CollectionPointFulfillmentService', () => {
       const result = await service.markReadyForCollection(orgId, 'cpf-1', 'rep-1');
       expect(result.status).toBe('READY_FOR_COLLECTION');
     });
+
+    // Sprint 42 brief §16/§22 — consumer notification and the payment-reversal guard.
+    it('markReadyForCollection: notifies the consumer via the ConsumerNotificationPort on success', async () => {
+      const {
+        service,
+        repository,
+        outletRepository,
+        salesFulfilmentService,
+        consumerNotificationPort,
+      } = makeService();
+      const preparing = { ...cpf, status: CollectionPointFulfillmentStatus.PREPARING };
+      repository.findById.mockResolvedValue(preparing as never);
+      outletRepository.findById.mockResolvedValue({
+        ...eligibleOutlet,
+        address: '12 Bodija Market Road',
+        collectionPointOperatingHours: 'Mon-Sat 9am-6pm',
+      } as never);
+      salesFulfilmentService.getAvailability.mockResolvedValue([]);
+      repository.updateStatus.mockResolvedValue({
+        ...preparing,
+        status: CollectionPointFulfillmentStatus.READY_FOR_COLLECTION,
+      } as never);
+
+      await service.markReadyForCollection(orgId, 'cpf-1', 'rep-1');
+
+      expect(consumerNotificationPort.notify).toHaveBeenCalledTimes(1);
+      const [calledOrgId, calledConsumerId, message] =
+        consumerNotificationPort.notify.mock.calls[0]!;
+      expect(calledOrgId).toBe(orgId);
+      expect(calledConsumerId).toBe('consumer-1');
+      expect(message).toContain('SO-000001');
+      expect(message).toContain('Bodija Supermart');
+      expect(message).toContain('12 Bodija Market Road');
+      expect(message).toContain('Mon-Sat 9am-6pm');
+      expect(message).not.toMatch(/undefined|null/);
+    });
+
+    it("markReadyForCollection: rejects when the order's latest payment is no longer valid (VOIDED)", async () => {
+      const { service, repository, outletRepository } = makeService();
+      const preparing = {
+        ...cpf,
+        status: CollectionPointFulfillmentStatus.PREPARING,
+        salesOrder: {
+          ...cpf.salesOrder,
+          payments: [{ status: 'VOIDED', paymentDate: new Date() }],
+        },
+      };
+      repository.findById.mockResolvedValue(preparing as never);
+      outletRepository.findById.mockResolvedValue(eligibleOutlet as never);
+
+      await expect(service.markReadyForCollection(orgId, 'cpf-1', 'rep-1')).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(repository.updateStatus).not.toHaveBeenCalled();
+    });
+
+    it("startPreparing: rejects when the order's latest payment has been reversed", async () => {
+      const { service, repository } = makeService();
+      repository.findById.mockResolvedValue({
+        ...cpf,
+        salesOrder: {
+          ...cpf.salesOrder,
+          payments: [{ status: 'FAILED', paymentDate: new Date() }],
+        },
+      } as never);
+
+      await expect(service.startPreparing(orgId, 'cpf-1', 'rep-1')).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(repository.updateStatus).not.toHaveBeenCalled();
+    });
+
+    it('startPreparing: a consumer order with no payment row at all (documented admin edge case) is unaffected', async () => {
+      const { service, repository } = makeService();
+      repository.findById.mockResolvedValue({
+        ...cpf,
+        salesOrder: { ...cpf.salesOrder, payments: [] },
+      } as never);
+      repository.updateStatus.mockResolvedValue({
+        ...cpf,
+        status: CollectionPointFulfillmentStatus.PREPARING,
+      } as never);
+
+      await expect(service.startPreparing(orgId, 'cpf-1', 'rep-1')).resolves.toBeDefined();
+    });
   });
 
   describe('confirmCollection — the inventory-deducting transition', () => {
@@ -503,6 +600,45 @@ describe('CollectionPointFulfillmentService', () => {
 
       expect(result.status).toBe('COLLECTED');
       expect(salesFulfilmentService.fulfil).not.toHaveBeenCalled();
+    });
+
+    // Sprint 42 brief §20/§28.
+    it('notifies the consumer via the ConsumerNotificationPort on a genuine (winning) collection', async () => {
+      const {
+        service,
+        repository,
+        outletRepository,
+        salesOrderRepository,
+        consumerNotificationPort,
+      } = makeService();
+      repository.findById.mockResolvedValue(ready as never);
+      repository.updateStatus.mockResolvedValue({
+        ...ready,
+        status: CollectionPointFulfillmentStatus.COLLECTED,
+      } as never);
+      outletRepository.findById.mockResolvedValue(eligibleOutlet as never);
+      salesOrderRepository.findById.mockResolvedValue(order as never);
+
+      await service.confirmCollection(orgId, 'cpf-1', 'rep-1');
+
+      expect(consumerNotificationPort.notify).toHaveBeenCalledTimes(1);
+      const [, calledConsumerId, message] = consumerNotificationPort.notify.mock.calls[0]!;
+      expect(calledConsumerId).toBe('consumer-1');
+      expect(message).toContain('SO-000001');
+      expect(message).toContain('collected');
+    });
+
+    it('never re-notifies on an idempotent duplicate confirmation (the replay path exits before the notify call)', async () => {
+      const { service, repository, salesFulfilmentService, consumerNotificationPort } =
+        makeService();
+      const collected = { ...ready, status: CollectionPointFulfillmentStatus.COLLECTED };
+      repository.findById.mockResolvedValue(collected as never);
+      repository.updateStatus.mockResolvedValue(null); // no rows matched — already COLLECTED
+
+      await service.confirmCollection(orgId, 'cpf-1', 'rep-1');
+
+      expect(salesFulfilmentService.fulfil).not.toHaveBeenCalled();
+      expect(consumerNotificationPort.notify).not.toHaveBeenCalled();
     });
 
     it('rejects an unauthorized caller before ever touching inventory', async () => {
