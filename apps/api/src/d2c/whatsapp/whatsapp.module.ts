@@ -5,6 +5,7 @@ import { IdentityModule } from '../../identity/identity.module';
 import { WhatsAppProviderModule } from '../../notifications/infrastructure/whatsapp-provider.module';
 import { ConsumerModule } from '../consumer/consumer.module';
 import { ConversationModule } from '../conversation/conversation.module';
+import { D2CMessagingModule } from '../messaging/d2c-messaging.module';
 import { WhatsAppInboundAdapterService } from './whatsapp-inbound-adapter.service';
 import { WhatsAppOrganisationResolverService } from './whatsapp-organisation-resolver.service';
 import { WhatsAppTestController } from './whatsapp-test.controller';
@@ -21,9 +22,22 @@ import { WhatsAppWebhookController } from './whatsapp-webhook.controller';
  * any of its state. Imports `ConsumerModule` for `ConsumerRepository` (the
  * organisation resolver's cross-tenant phone lookup). `IdentityModule`/`AuthModule` for
  * the admin test controller's guards and `OrganisationService`.
+ *
+ * Sprint 43.5 — D2C Two-Way Conversation Reliability. Imports `D2CMessagingModule` for
+ * the EXISTING `ConsumerWhatsAppDeliveryRepository` (Sprint 43) — the inbound adapter
+ * now records one delivery row per real outbound WhatsApp send
+ * (`kind: CONVERSATION_REPLY`), reusing the SAME table Collection Point notifications
+ * already write to rather than a second communication-history mechanism.
  */
 @Module({
-  imports: [IdentityModule, AuthModule, WhatsAppProviderModule, ConversationModule, ConsumerModule],
+  imports: [
+    IdentityModule,
+    AuthModule,
+    WhatsAppProviderModule,
+    ConversationModule,
+    ConsumerModule,
+    D2CMessagingModule,
+  ],
   controllers: [WhatsAppWebhookController, WhatsAppTestController],
   providers: [
     WhatsAppWebhookEventRepository,

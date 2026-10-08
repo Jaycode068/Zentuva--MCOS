@@ -7963,11 +7963,14 @@ model ConsumerConversation {
   createdAt              DateTime            @default(now())
   updatedAt              DateTime            @updatedAt
 
-  organisation Organisation                  @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  organisation       Organisation                  @relation(fields: [organisationId], references: [id], onDelete: Cascade)
   /// `SetNull` — same rationale as `Consumer.territory`: nothing about a
   /// conversation should ever block or cascade a Consumer-side change.
-  consumer     Consumer?                     @relation(fields: [consumerId], references: [id], onDelete: SetNull)
-  messages     ConsumerConversationMessage[]
+  consumer           Consumer?                     @relation(fields: [consumerId], references: [id], onDelete: SetNull)
+  messages           ConsumerConversationMessage[]
+  /// Added Sprint 43.5 — every real outbound WhatsApp send this conversation's channel
+  /// adapter made (`kind: CONVERSATION_REPLY`).
+  whatsappDeliveries ConsumerWhatsAppDelivery[]
 
   /// The identity-resolution guarantee a channel adapter depends on (brief
   /// §21): one external identity on one channel resolves to at most one
@@ -7993,12 +7996,21 @@ enum ConversationMessageDirection {
 /// number already lives on `ConsumerConversation.externalConversationId`)
 /// is captured.
 model ConsumerConversationMessage {
-  id             String                       @id @default(cuid())
-  organisationId String
-  conversationId String
-  direction      ConversationMessageDirection
-  payload        Json
-  createdAt      DateTime                     @default(now())
+  id                String                       @id @default(cuid())
+  organisationId    String
+  conversationId    String
+  direction         ConversationMessageDirection
+  payload           Json
+  /// Added Sprint 43.5 — D2C Two-Way Conversation Reliability
+  /// (docs/domains/d2c.md "Conversation Traceability"). The real channel
+  /// message id — Meta's own WAMID for an `INBOUND` row (passed through from
+  /// `WhatsAppInboundAdapterService`, never fabricated); `null` for every row
+  /// created by a non-WhatsApp caller (the internal Conversation Tester) and
+  /// for every `OUTBOUND` row (an outbound turn can contain more than one
+  /// real WhatsApp send — see `ConsumerWhatsAppDelivery.conversationId`
+  /// instead, which tracks each individual outbound send's own WAMID/status).
+  externalMessageId String?
+  createdAt         DateTime                     @default(now())
 
   organisation Organisation         @relation(fields: [organisationId], references: [id], onDelete: Cascade)
   conversation ConsumerConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
@@ -8040,6 +8052,15 @@ model WhatsAppWebhookEvent {
 enum ConsumerWhatsAppNotificationKind {
   COLLECTION_READY
   COLLECTION_CONFIRMED
+  /// Added Sprint 43.5 — D2C Two-Way Conversation Reliability
+  /// (docs/domains/d2c.md "Conversation Traceability"). One row per real outbound
+  /// WhatsApp send the Conversation Layer's channel adapter makes (a menu, a product
+  /// list, a confirmation — anything `WhatsAppInboundAdapterService.sendOutboundResponse`
+  /// sends), so "what did Zentuva reply, with what WAMID, did it succeed" is answerable
+  /// for ordinary conversation turns too, not only Collection Point notifications. The
+  /// brief's own explicit instruction ("reuse ConsumerWhatsAppDelivery... do not create
+  /// another communication history system") rather than a second, parallel table.
+  CONVERSATION_REPLY
 }
 
 /// One delivery ATTEMPT record for one consumer-facing D2C WhatsApp notification
@@ -8063,11 +8084,23 @@ enum ConsumerWhatsAppNotificationKind {
 model ConsumerWhatsAppDelivery {
   id                     String                           @id @default(cuid())
   organisationId         String
-  consumerId             String
-  /// Every current caller (`notifyReady`/`notifyCollected`) has a `SalesOrder` in hand —
-  /// required, not nullable, per this codebase's "don't model a case that can't happen
-  /// yet" convention.
-  salesOrderId           String
+  /// Widened nullable Sprint 43.5: a `CONVERSATION_REPLY` sent before registration
+  /// completes (e.g. the very first "Welcome" message) has no `Consumer` yet — the
+  /// EXACT same "don't model a case that can't happen yet," now revisited because this
+  /// genuinely-new case DOES happen. Every `COLLECTION_READY`/`COLLECTION_CONFIRMED`
+  /// caller still always supplies one.
+  consumerId             String?
+  /// Widened nullable Sprint 43.5 — most `CONVERSATION_REPLY` turns (the main menu, My
+  /// Account, Help, browsing) have no `SalesOrder` in hand at all. Every
+  /// `COLLECTION_READY`/`COLLECTION_CONFIRMED` caller still always supplies one.
+  salesOrderId           String?
+  /// Added Sprint 43.5 — which conversation this `CONVERSATION_REPLY` belongs to;
+  /// always `null` for `COLLECTION_READY`/`COLLECTION_CONFIRMED` (those are triggered by
+  /// a fulfilment transition, not a live conversation turn). `SetNull`, matching
+  /// `ConsumerConversation.consumer`'s own "nothing about a conversation should ever
+  /// block or cascade" rationale — this delivery-attempt record must survive even if
+  /// the conversation session it was part of is later removed.
+  conversationId         String?
   kind                   ConsumerWhatsAppNotificationKind
   /// Sprint 43 — same "freeze what was actually used" reasoning as
   /// `WhatsAppDelivery.recipientPhoneSnapshot`/`EmailDelivery.recipientEmail`: the
@@ -8092,12 +8125,14 @@ model ConsumerWhatsAppDelivery {
   createdAt              DateTime                         @default(now())
   updatedAt              DateTime                         @updatedAt
 
-  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
-  consumer     Consumer     @relation(fields: [consumerId], references: [id], onDelete: Restrict)
-  salesOrder   SalesOrder   @relation(fields: [salesOrderId], references: [id], onDelete: Restrict)
+  organisation Organisation          @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  consumer     Consumer?             @relation(fields: [consumerId], references: [id], onDelete: Restrict)
+  salesOrder   SalesOrder?           @relation(fields: [salesOrderId], references: [id], onDelete: Restrict)
+  conversation ConsumerConversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
 
   @@index([organisationId, consumerId])
   @@index([organisationId, salesOrderId])
+  @@index([organisationId, conversationId])
   /// The operator's own "what needs attention / can be retried" query, and the retry
   /// claim's own guard — mirrors `WhatsAppDelivery`'s `[organisationId, status,
   /// nextRetryAt]` shape minus the automatic-sweep column this table doesn't have (retry

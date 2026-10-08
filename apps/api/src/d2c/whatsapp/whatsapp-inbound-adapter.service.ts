@@ -16,6 +16,7 @@ import {
   ConversationOutboundMessage,
   ConversationOutboundResponse,
 } from '../conversation/conversation.types';
+import { ConsumerWhatsAppDeliveryRepository } from '../messaging/consumer-whatsapp-delivery.repository';
 import { WHATSAPP_AUDIT_ACTIONS } from './whatsapp-audit-actions';
 import { WhatsAppOrganisationResolverService } from './whatsapp-organisation-resolver.service';
 import { WhatsAppWebhookEventRepository } from './whatsapp-webhook-event.repository';
@@ -66,6 +67,7 @@ export class WhatsAppInboundAdapterService {
     private readonly organisationResolver: WhatsAppOrganisationResolverService,
     private readonly webhookEventRepository: WhatsAppWebhookEventRepository,
     private readonly auditService: AuditService,
+    private readonly consumerWhatsAppDeliveryRepository: ConsumerWhatsAppDeliveryRepository,
     @Inject(WHATSAPP_PROVIDER) private readonly provider: WhatsAppProvider,
   ) {}
 
@@ -167,6 +169,11 @@ export class WhatsAppInboundAdapterService {
       channel: 'WHATSAPP',
       externalConversationId: normalized,
       input,
+      // Sprint 43.5 — D2C Two-Way Conversation Reliability (docs/domains/d2c.md
+      // "Conversation Traceability"). The real Meta WAMID, persisted verbatim on the
+      // INBOUND `ConsumerConversationMessage` row so "what did the user send, with which
+      // WAMID" is answerable without cross-referencing the audit trail below.
+      externalMessageId: message.id,
     });
 
     await this.auditService.record({
@@ -177,7 +184,20 @@ export class WhatsAppInboundAdapterService {
       metadata: { messageId: message.id },
     });
 
-    await this.sendOutboundResponse(normalized, response);
+    // Sprint 43.5 — one extra lookup (never a second state machine) to learn which
+    // Consumer (if any) this conversation is linked to, purely so the outbound delivery
+    // rows below can be attributed to a Consumer when one already exists — a brand-new
+    // contact's very first "Welcome" reply legitimately has none yet.
+    const conversation = await this.conversationRepository.findById(
+      organisationId,
+      response.conversationId,
+    );
+    await this.sendOutboundResponse(
+      organisationId,
+      normalized,
+      response,
+      conversation?.consumerId ?? null,
+    );
   }
 
   /** Real WhatsApp interactive-message replies (`type==='interactive'`) carry their own
@@ -247,9 +267,22 @@ export class WhatsAppInboundAdapterService {
     return options.length > 0 ? options : null;
   }
 
+  /**
+   * Sprint 43.5 — D2C Two-Way Conversation Reliability (docs/domains/d2c.md
+   * "Conversation Traceability," brief §Phase 13 "every outbound response must be
+   * traceable"). One `ConsumerWhatsAppDelivery` row (`kind: CONVERSATION_REPLY`) per
+   * REAL WhatsApp send this method makes — the exact granularity a genuine WAMID
+   * exists at, reusing the SAME table/repository Sprint 43 built for Collection Point
+   * notifications rather than a second communication-history mechanism (brief's own
+   * explicit instruction). Best-effort exactly like the send itself already was: a
+   * failure to WRITE the delivery row is logged and swallowed, never allowed to break
+   * the conversation reply that already went out (or failed) over WhatsApp.
+   */
   private async sendOutboundResponse(
+    organisationId: string,
     toPhoneNumber: string,
     response: ConversationOutboundResponse,
+    consumerId: string | null,
   ): Promise<void> {
     // Global, running option counter — see this class's own doc comment on why option
     // numbering must never restart at 1 per message.
@@ -260,6 +293,23 @@ export class WhatsAppInboundAdapterService {
       if (!part.text) continue;
 
       const correlationId = `${response.conversationId}-${index}`;
+      const delivery = await this.consumerWhatsAppDeliveryRepository
+        .create({
+          organisationId,
+          consumerId,
+          conversationId: response.conversationId,
+          kind: 'CONVERSATION_REPLY',
+          recipientPhoneSnapshot: toPhoneNumber,
+          messageSnapshot: part.text,
+        })
+        .catch((error) => {
+          this.logger.error(
+            'Failed to record an outbound conversation delivery row — sending anyway',
+            error instanceof Error ? error.stack : String(error),
+          );
+          return null;
+        });
+
       const result = part.imageUrl
         ? await this.sendTextOrImageFallback(toPhoneNumber, part.text, part.imageUrl, correlationId)
         : await this.provider.sendText({ toPhoneNumber, text: part.text, correlationId });
@@ -269,7 +319,37 @@ export class WhatsAppInboundAdapterService {
           `Failed to deliver a conversation reply over WhatsApp: ${result.errorCode ?? 'unknown'}`,
         );
       }
+
+      if (delivery) {
+        await this.finalizeDelivery(organisationId, delivery.id, result).catch((error) => {
+          this.logger.error(
+            'Failed to finalize an outbound conversation delivery row',
+            error instanceof Error ? error.stack : String(error),
+          );
+        });
+      }
     }
+  }
+
+  private async finalizeDelivery(
+    organisationId: string,
+    deliveryId: string,
+    result: WhatsAppSendResult,
+  ): Promise<void> {
+    if (result.outcome === 'ACCEPTED') {
+      await this.consumerWhatsAppDeliveryRepository.markSent(organisationId, deliveryId, {
+        providerName: this.provider.name,
+        providerMessageId: result.providerMessageId,
+        isFirstAttempt: true,
+      });
+      return;
+    }
+    await this.consumerWhatsAppDeliveryRepository.markFailed(organisationId, deliveryId, {
+      providerName: this.provider.name,
+      errorCode: result.errorCode,
+      errorMessage: result.errorMessage,
+      isFirstAttempt: true,
+    });
   }
 
   /** Sprint 41 brief §18 — "do not block ordering because an image is unavailable": a

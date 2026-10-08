@@ -131,6 +131,12 @@ export const sendConversationMessageSchema = z.object({
   channel: conversationChannelSchema.default('WHATSAPP'),
   externalConversationId: z.string().trim().min(1, 'externalConversationId is required').max(64),
   input: conversationInputSchema,
+  /** Added Sprint 43.5 — D2C Two-Way Conversation Reliability (docs/domains/d2c.md
+   *  "Conversation Contract"). The channel's own id for THIS inbound message — Meta's
+   *  WAMID for a real WhatsApp message, always omitted by the internal Conversation
+   *  Tester (which has no real channel message to reference). Pure metadata ABOUT the
+   *  message, never part of `conversationInputSchema`'s own business-input shape. */
+  externalMessageId: z.string().trim().max(128).optional(),
 });
 export type SendConversationMessageInput = z.infer<typeof sendConversationMessageSchema>;
 

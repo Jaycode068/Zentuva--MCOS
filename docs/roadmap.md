@@ -1068,6 +1068,32 @@ PaymentService (existing, extended) + SalesOrderService.confirm
       purely additive — see [`docs/domains/d2c.md`](domains/d2c.md) §124–127,
       [`docs/domains/whatsapp.md`](domains/whatsapp.md) §12, and
       [`docs/sprint-43-completion-report.md`](sprint-43-completion-report.md)
+- [x] **Sprint 43.5 — D2C Two-Way Conversation Reliability.** Proved the other half of
+      the conversational loop — WhatsApp User → Zentuva, not just the reverse. The
+      audit found `ConversationService` (Sprint 33) already a remarkably complete,
+      channel-neutral state machine: the full 6-option main menu, invalid-numeric
+      handling, and a safe free-text fallback at every state already existed, needing
+      no redesign. The genuine gaps closed: a small, explicit, deterministic alias
+      table (no NLP) for natural commands like "orders"/"rewards"/"location"; global
+      BACK/CANCEL/HOME commands reusing the existing reset mechanism (proven to never
+      touch a `SalesOrder`); explicit "didn't understand" wording at two states that
+      previously silently re-prompted; and — the most significant gap — zero delivery
+      tracking for ordinary conversation replies, closed by widening Sprint 43's own
+      `ConsumerWhatsAppDelivery` table (never a second communication-history
+      mechanism) with a new `CONVERSATION_REPLY` kind. Live-verified against real Meta
+      WhatsApp traffic: a complete real order→payment→Collection Point conversation
+      (including the brief's own exact "maybe" example), every text alias and global
+      command, a duplicate webhook replayed 3 times producing exactly one payment, a
+      malformed payload and an unsupported message type both handled safely against
+      the real running server, and a real Update Location flow that genuinely changed
+      the consumer's territory in the database. New real-PostgreSQL concurrency proof
+      for the webhook dedup primitive (previously only unit-mocked): 10 concurrent
+      claims for the same WAMID resolve to exactly one winner. 253 suites / 2316 tests
+      and 6 integration suites / 25 tests passing, 0 regressions; purely additive
+      schema widening, zero new tables, zero new business logic in the WhatsApp
+      adapter — see [`docs/domains/d2c.md`](domains/d2c.md) §128–131,
+      [`docs/domains/whatsapp.md`](domains/whatsapp.md) §13, and
+      [`docs/sprint-43.5-completion-report.md`](sprint-43.5-completion-report.md)
 - [ ] Retail Portal (mobile)
 - [ ] Business Intelligence dashboards
 

@@ -49,6 +49,20 @@ export class ConsumerCommunicationController {
     return { items };
   }
 
+  @Get('by-conversation/:conversationId')
+  @RequirePermission('d2c.communication.view')
+  async listForConversation(
+    @CurrentUser() user: TokenPayload,
+    @Param('conversationId') conversationId: string,
+  ) {
+    const items = await this.service.listForConversation(
+      user.organisationId,
+      user.sub,
+      conversationId,
+    );
+    return { items };
+  }
+
   @Post(':id/retry')
   @RequirePermission('d2c.communication.manage')
   async retry(@CurrentUser() user: TokenPayload, @Param('id') id: string) {

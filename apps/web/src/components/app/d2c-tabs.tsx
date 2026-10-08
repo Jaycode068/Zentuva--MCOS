@@ -13,6 +13,7 @@ const TABS = [
   { label: 'Promotions', href: '/settings/d2c/promotions' },
   { label: 'Loyalty', href: '/settings/d2c/loyalty' },
   { label: 'Conversation Tester', href: '/settings/d2c/conversation' },
+  { label: 'Conversations', href: '/settings/d2c/conversations' },
   { label: 'WhatsApp Test', href: '/settings/d2c/whatsapp-test' },
 ];
 
@@ -25,15 +26,27 @@ const TABS = [
  *  WhatsApp message through whichever provider is configured. "Exceptions" added
  *  Sprint 43 (docs/domains/d2c.md "Operational Exceptions") — the full,
  *  un-truncated view of the same `GET /d2c/admin/attention` list the dashboard's
- *  "Attention Required" section already shows inline. */
+ *  "Attention Required" section already shows inline. "Conversations" added Sprint
+ *  43.5 (docs/domains/d2c.md "Conversation Traceability") — a read-only transcript +
+ *  delivery-log viewer, distinct from "Conversation Tester" (which drives the real
+ *  engine interactively); its path ("conversations") is a superstring of the
+ *  Tester's ("conversation"), which is exactly why the active-tab match below is
+ *  segment-aware rather than a bare `startsWith` — found while adding this tab, not
+ *  a pre-existing bug report. */
 export function D2cTabs() {
   const pathname = usePathname();
 
   return (
     <nav className="mb-8 flex gap-6 overflow-x-auto border-b border-border" aria-label="D2C">
       {TABS.map((tab) => {
+        // Segment-aware match — exactly `tab.href`, or `tab.href` followed by `/` — so
+        // `/settings/d2c/conversation` (the Tester) never also matches
+        // `/settings/d2c/conversations` (the transcript viewer), which a plain
+        // `startsWith` would incorrectly do.
         const active =
-          tab.href === '/settings/d2c' ? pathname === tab.href : pathname?.startsWith(tab.href);
+          tab.href === '/settings/d2c'
+            ? pathname === tab.href
+            : pathname === tab.href || pathname?.startsWith(`${tab.href}/`);
         return (
           <a
             key={tab.href}

@@ -55,6 +55,51 @@ additive, no existing column changed.
 See [docs/domains/d2c.md](domains/d2c.md) §124–127, [docs/domains/whatsapp.md](domains/whatsapp.md)
 §12, and [docs/sprint-43-completion-report.md](sprint-43-completion-report.md).
 
+## [Sprint 43.5 D2C Two-Way Conversation Reliability] - 2026-10-08
+
+Sprint 41 proved "Zentuva → WhatsApp." This sprint proves the other half: a real
+WhatsApp user can hold a complete, reliable two-way conversation with Zentuva, with no
+dead ends. The audit found `ConversationService` (Sprint 33) already a complete
+channel-neutral state machine — the full 6-option main menu, invalid-numeric handling,
+and a safe free-text fallback at every state already existed and needed no redesign.
+
+**New.** A small, explicit, deterministic alias table (`conversation.service.ts`) lets
+a consumer type "orders"/"my rewards"/"account"/"location" instead of the exact
+internal command string — never NLP, consulted only once the exact match has already
+failed. `RESET_COMMANDS` widened with `BACK`/`CANCEL`/`HOME`, reusing the existing
+reset-to-menu behaviour (never touches a `SalesOrder`/`Payment`). Two states
+(`AWAITING_CONFIRM`, `AWAITING_REMOVE`) gained explicit "Sorry, I didn't understand
+that" wording before re-prompting, previously silent.
+
+**New.** Every real outbound WhatsApp conversation reply now writes a
+`ConsumerWhatsAppDelivery` row (`kind: CONVERSATION_REPLY`) — the table widened, not
+duplicated: `consumerId`/`salesOrderId` became nullable and a new `conversationId` FK
+was added, since most conversation turns have no `SalesOrder` and a brand-new contact's
+first reply has no `Consumer` yet. A new read-only admin page,
+`/settings/d2c/conversations`, shows the real transcript (now including each inbound
+message's real WAMID) alongside this delivery log — reusing Sprint 43's own
+`ConsumerCommunicationService`, deliberately NOT added to the channel-neutral
+`ConversationController` (would have tripped its own WhatsApp-independence guard).
+
+**New.** A real-PostgreSQL concurrency test for `WhatsAppWebhookEventRepository
+.tryClaim` (previously only unit-mocked): 10 genuinely concurrent claims for the same
+WAMID resolve to exactly one winner.
+
+**Live-verified** against real Meta WhatsApp traffic: a complete real order→payment→
+Collection Point conversation including the brief's own exact "maybe" example at order
+confirmation; every text alias and global command; a duplicate webhook replayed 3 times
+producing exactly one `Payment` row; a malformed payload and an unsupported message
+type both handled safely against the real running server (not just a mocked test); and
+a real Update Location flow that genuinely changed the consumer's territory in the
+database. 253 suites / 2316 tests and 6 integration suites / 25 tests passing, 0
+regressions.
+
+**Schema.** Purely additive widening — one new enum value, two columns made nullable,
+one new nullable FK. No existing data required backfilling.
+
+See [docs/domains/d2c.md](domains/d2c.md) §128–131, [docs/domains/whatsapp.md](domains/whatsapp.md)
+§13, and [docs/sprint-43.5-completion-report.md](sprint-43.5-completion-report.md).
+
 ## [Sprint 42 D2C Collection Point Fulfilment & Order Completion] - 2026-10-07
 
 Closed the operational loop between a paid D2C consumer order and the Collection Point

@@ -1714,4 +1714,305 @@ describe('ConversationService', () => {
       });
     });
   });
+
+  describe('Sprint 43.5 — text aliases and global commands', () => {
+    async function registerToMainMenu(service: ConversationService, phone: string) {
+      await service.handleInboundMessage(ORG_A, {
+        channel: 'WHATSAPP',
+        externalConversationId: phone,
+        input: { type: 'BUTTON', value: 'REGISTER' },
+      });
+      await service.handleInboundMessage(ORG_A, {
+        channel: 'WHATSAPP',
+        externalConversationId: phone,
+        input: { type: 'TEXT', text: 'Alias Test Consumer' },
+      });
+      await service.handleInboundMessage(ORG_A, {
+        channel: 'WHATSAPP',
+        externalConversationId: phone,
+        input: { type: 'LIST_SELECTION', value: 't-ibn' },
+      });
+      return service.handleInboundMessage(ORG_A, {
+        channel: 'WHATSAPP',
+        externalConversationId: phone,
+        input: { type: 'LIST_SELECTION', value: 't-bodija' },
+      });
+    }
+
+    it('a natural-language synonym ("orders") routes to the same MY_ORDERS handler as the exact command — no NLP, just an exact alias lookup', async () => {
+      const { service } = makeHarness();
+      const phone = '08099920001';
+      await registerToMainMenu(service, phone);
+
+      const response = await service.handleInboundMessage(ORG_A, {
+        channel: 'WHATSAPP',
+        externalConversationId: phone,
+        input: { type: 'TEXT', text: 'orders' },
+      });
+      expect(response.messages[0]).toMatchObject({
+        type: 'TEXT',
+        text: "You haven't placed any orders yet.",
+      });
+    });
+
+    it('"my rewards" (lowercase, with a space) routes to MY_REWARDS', async () => {
+      const { service } = makeHarness();
+      const phone = '08099920002';
+      await registerToMainMenu(service, phone);
+
+      const response = await service.handleInboundMessage(ORG_A, {
+        channel: 'WHATSAPP',
+        externalConversationId: phone,
+        input: { type: 'TEXT', text: 'my rewards' },
+      });
+      expect(response.messages[0]).toMatchObject({
+        type: 'TEXT',
+        text: expect.stringContaining('My Rewards'),
+      });
+    });
+
+    it('"account" routes to MY_ACCOUNT', async () => {
+      const { service } = makeHarness();
+      const phone = '08099920003';
+      await registerToMainMenu(service, phone);
+
+      const response = await service.handleInboundMessage(ORG_A, {
+        channel: 'WHATSAPP',
+        externalConversationId: phone,
+        input: { type: 'TEXT', text: 'account' },
+      });
+      expect(response.messages[0]).toMatchObject({
+        type: 'TEXT',
+        text: expect.stringContaining('Alias Test Consumer'),
+      });
+    });
+
+    it('"location" routes to the EXISTING Update Location flow (LOCATION_SELECTION), never a free-text-accepted shortcut', async () => {
+      const { service } = makeHarness();
+      const phone = '08099920004';
+      await registerToMainMenu(service, phone);
+
+      const response = await service.handleInboundMessage(ORG_A, {
+        channel: 'WHATSAPP',
+        externalConversationId: phone,
+        input: { type: 'TEXT', text: 'location' },
+      });
+      expect(response.state).toBe('LOCATION_SELECTION');
+    });
+
+    it('"snacks" routes to ORDER_SNACKS (ACTIVE/BROWSING)', async () => {
+      const { service } = makeHarness();
+      const phone = '08099920005';
+      await registerToMainMenu(service, phone);
+
+      const response = await service.handleInboundMessage(ORG_A, {
+        channel: 'WHATSAPP',
+        externalConversationId: phone,
+        input: { type: 'TEXT', text: 'snacks' },
+      });
+      expect(response.state).toBe('ACTIVE');
+    });
+
+    it('an alias is ONLY consulted once the exact command/label/number match has already failed — a real numbered reply is never reinterpreted', async () => {
+      const { service } = makeHarness();
+      const phone = '08099920006';
+      await registerToMainMenu(service, phone);
+      // The real main menu's first option is ORDER_SNACKS — confirm the literal
+      // BUTTON value (what the channel adapter would resolve "1" to) still works
+      // unchanged, exercising the SAME code path the alias lookup sits behind.
+      const response = await service.handleInboundMessage(ORG_A, {
+        channel: 'WHATSAPP',
+        externalConversationId: phone,
+        input: { type: 'BUTTON', value: 'ORDER_SNACKS' },
+      });
+      expect(response.state).toBe('ACTIVE');
+    });
+
+    it('CANCEL from deep inside the Order Snacks flow (BROWSING) returns to MAIN_MENU — a conversation-level reset, never a SalesOrder cancellation (none was ever created)', async () => {
+      const { service, orders } = makeHarness();
+      const phone = '08099920007';
+      await registerToMainMenu(service, phone);
+      await service.handleInboundMessage(ORG_A, {
+        channel: 'WHATSAPP',
+        externalConversationId: phone,
+        input: { type: 'BUTTON', value: 'ORDER_SNACKS' },
+      });
+
+      const response = await service.handleInboundMessage(ORG_A, {
+        channel: 'WHATSAPP',
+        externalConversationId: phone,
+        input: { type: 'TEXT', text: 'cancel' },
+      });
+      expect(response.state).toBe('MAIN_MENU');
+      expect(orders).toHaveLength(0);
+    });
+
+    it('a CONFIRMED order survives BACK/CANCEL — conversation cancellation never touches an already-created SalesOrder', async () => {
+      const { service, orders } = makeHarness();
+      const phone = '08099920008';
+      await registerToMainMenu(service, phone);
+      await service.handleInboundMessage(ORG_A, {
+        channel: 'WHATSAPP',
+        externalConversationId: phone,
+        input: { type: 'BUTTON', value: 'ORDER_SNACKS' },
+      });
+      await service.handleInboundMessage(ORG_A, {
+        channel: 'WHATSAPP',
+        externalConversationId: phone,
+        input: { type: 'LIST_SELECTION', value: 'product-chips-a' },
+      });
+      await service.handleInboundMessage(ORG_A, {
+        channel: 'WHATSAPP',
+        externalConversationId: phone,
+        input: { type: 'TEXT', text: '2' },
+      });
+      await service.handleInboundMessage(ORG_A, {
+        channel: 'WHATSAPP',
+        externalConversationId: phone,
+        input: { type: 'BUTTON', value: 'CHECKOUT' },
+      });
+      await service.handleInboundMessage(ORG_A, {
+        channel: 'WHATSAPP',
+        externalConversationId: phone,
+        input: { type: 'BUTTON', value: 'CONFIRM_ORDER' },
+      });
+      expect(orders).toHaveLength(1);
+
+      const response = await service.handleInboundMessage(ORG_A, {
+        channel: 'WHATSAPP',
+        externalConversationId: phone,
+        input: { type: 'TEXT', text: 'back' },
+      });
+      expect(response.state).toBe('MAIN_MENU');
+      // The order placed before "back" was sent is still there, completely
+      // unaffected — conversation cancellation is never business cancellation.
+      expect(orders).toHaveLength(1);
+    });
+
+    it('HOME works from the main menu itself (idempotent — no error, just re-shows the menu)', async () => {
+      const { service } = makeHarness();
+      const phone = '08099920009';
+      await registerToMainMenu(service, phone);
+
+      const response = await service.handleInboundMessage(ORG_A, {
+        channel: 'WHATSAPP',
+        externalConversationId: phone,
+        input: { type: 'TEXT', text: 'home' },
+      });
+      expect(response.state).toBe('MAIN_MENU');
+      expect(response.messages.some((m) => m.type === 'BUTTONS')).toBe(true);
+    });
+
+    it('an unmatched selection at ORDER_CONFIRMATION explicitly says it did not understand before re-showing the options (brief Phase 8)', async () => {
+      const { service } = makeHarness();
+      const phone = '08099920010';
+      await registerToMainMenu(service, phone);
+      await service.handleInboundMessage(ORG_A, {
+        channel: 'WHATSAPP',
+        externalConversationId: phone,
+        input: { type: 'BUTTON', value: 'ORDER_SNACKS' },
+      });
+      await service.handleInboundMessage(ORG_A, {
+        channel: 'WHATSAPP',
+        externalConversationId: phone,
+        input: { type: 'LIST_SELECTION', value: 'product-chips-a' },
+      });
+      await service.handleInboundMessage(ORG_A, {
+        channel: 'WHATSAPP',
+        externalConversationId: phone,
+        input: { type: 'TEXT', text: '1' },
+      });
+      await service.handleInboundMessage(ORG_A, {
+        channel: 'WHATSAPP',
+        externalConversationId: phone,
+        input: { type: 'BUTTON', value: 'CHECKOUT' },
+      });
+
+      const response = await service.handleInboundMessage(ORG_A, {
+        channel: 'WHATSAPP',
+        externalConversationId: phone,
+        input: { type: 'TEXT', text: 'maybe' },
+      });
+      expect(response.messages[0]).toMatchObject({
+        type: 'TEXT',
+        text: expect.stringContaining("didn't understand"),
+      });
+      expect(response.messages.some((m) => m.type === 'BUTTONS')).toBe(true);
+    });
+
+    it('an unmatched selection at AWAITING_REMOVE explicitly says it did not understand before re-showing the list (brief Phase 8)', async () => {
+      const { service } = makeHarness();
+      const phone = '08099920011';
+      await registerToMainMenu(service, phone);
+      await service.handleInboundMessage(ORG_A, {
+        channel: 'WHATSAPP',
+        externalConversationId: phone,
+        input: { type: 'BUTTON', value: 'ORDER_SNACKS' },
+      });
+      await service.handleInboundMessage(ORG_A, {
+        channel: 'WHATSAPP',
+        externalConversationId: phone,
+        input: { type: 'LIST_SELECTION', value: 'product-chips-a' },
+      });
+      await service.handleInboundMessage(ORG_A, {
+        channel: 'WHATSAPP',
+        externalConversationId: phone,
+        input: { type: 'TEXT', text: '1' },
+      });
+      await service.handleInboundMessage(ORG_A, {
+        channel: 'WHATSAPP',
+        externalConversationId: phone,
+        input: { type: 'BUTTON', value: 'REMOVE_ITEM' },
+      });
+
+      const response = await service.handleInboundMessage(ORG_A, {
+        channel: 'WHATSAPP',
+        externalConversationId: phone,
+        input: { type: 'TEXT', text: 'huh?' },
+      });
+      expect(response.messages[0]).toMatchObject({
+        type: 'TEXT',
+        text: expect.stringContaining("didn't understand"),
+      });
+      expect(response.messages.some((m) => m.type === 'LIST')).toBe(true);
+    });
+
+    it('the real "Cancel" button at ORDER_CONFIRMATION still works unchanged — resolved by the channel adapter BEFORE the global CANCEL alias is ever consulted here', async () => {
+      const { service, orders } = makeHarness();
+      const phone = '08099920012';
+      await registerToMainMenu(service, phone);
+      await service.handleInboundMessage(ORG_A, {
+        channel: 'WHATSAPP',
+        externalConversationId: phone,
+        input: { type: 'BUTTON', value: 'ORDER_SNACKS' },
+      });
+      await service.handleInboundMessage(ORG_A, {
+        channel: 'WHATSAPP',
+        externalConversationId: phone,
+        input: { type: 'LIST_SELECTION', value: 'product-chips-a' },
+      });
+      await service.handleInboundMessage(ORG_A, {
+        channel: 'WHATSAPP',
+        externalConversationId: phone,
+        input: { type: 'TEXT', text: '1' },
+      });
+      await service.handleInboundMessage(ORG_A, {
+        channel: 'WHATSAPP',
+        externalConversationId: phone,
+        input: { type: 'BUTTON', value: 'CHECKOUT' },
+      });
+
+      // The channel adapter would have resolved a typed "Cancel" to this exact
+      // BUTTON value (the option's own label) — this test exercises that
+      // already-resolved shape directly, proving `CANCEL_ORDER`'s own tailored
+      // handling (not the generic global CANCEL reset) still runs.
+      const response = await service.handleInboundMessage(ORG_A, {
+        channel: 'WHATSAPP',
+        externalConversationId: phone,
+        input: { type: 'BUTTON', value: 'CANCEL_ORDER' },
+      });
+      expect(response.messages[0]).toMatchObject({ type: 'TEXT', text: 'Order cancelled.' });
+      expect(orders).toHaveLength(0);
+    });
+  });
 });

@@ -14,11 +14,16 @@ import { PrismaService } from '../../prisma/prisma.service';
 export class ConversationMessageRepository {
   constructor(private readonly prisma: PrismaService) {}
 
+  /** `externalMessageId` added Sprint 43.5 — the real channel message id (Meta's WAMID
+   *  for an `INBOUND` row); `undefined` for every `OUTBOUND` call (an outbound turn can
+   *  send more than one real WhatsApp message — see `ConsumerWhatsAppDelivery
+   *  .conversationId` instead) and for any non-WhatsApp caller. */
   append(
     organisationId: string,
     conversationId: string,
     direction: ConversationMessageDirection,
     payload: unknown,
+    externalMessageId?: string,
   ): Promise<ConsumerConversationMessage> {
     return this.prisma.consumerConversationMessage.create({
       data: {
@@ -26,6 +31,7 @@ export class ConversationMessageRepository {
         conversationId,
         direction,
         payload: payload as Prisma.InputJsonValue,
+        externalMessageId,
       },
     });
   }

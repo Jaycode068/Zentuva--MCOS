@@ -296,9 +296,12 @@ export type WhatsAppDeliveryStatusValue = 'PENDING' | 'PROCESSING' | 'SENT' | 'F
 export interface ConsumerWhatsAppDeliverySummary {
   id: string;
   organisationId: string;
-  consumerId: string;
-  salesOrderId: string;
-  kind: 'COLLECTION_READY' | 'COLLECTION_CONFIRMED';
+  // Sprint 43.5 — widened nullable: a `CONVERSATION_REPLY` sent before registration
+  // completes has no Consumer yet, and most conversation turns have no SalesOrder.
+  consumerId: string | null;
+  salesOrderId: string | null;
+  conversationId: string | null;
+  kind: 'COLLECTION_READY' | 'COLLECTION_CONFIRMED' | 'CONVERSATION_REPLY';
   recipientPhoneSnapshot: string;
   messageSnapshot: string;
   status: WhatsAppDeliveryStatusValue;
@@ -340,6 +343,15 @@ export function listCommunicationsForOrder(
 ): Promise<{ items: ConsumerWhatsAppDeliverySummary[] }> {
   return apiFetch<{ items: ConsumerWhatsAppDeliverySummary[] }>(
     `/d2c/communications/by-order/${salesOrderId}`,
+  );
+}
+
+/** Added Sprint 43.5 — the admin conversation-transcript page's own delivery-log read. */
+export function listCommunicationsForConversation(
+  conversationId: string,
+): Promise<{ items: ConsumerWhatsAppDeliverySummary[] }> {
+  return apiFetch<{ items: ConsumerWhatsAppDeliverySummary[] }>(
+    `/d2c/communications/by-conversation/${conversationId}`,
   );
 }
 

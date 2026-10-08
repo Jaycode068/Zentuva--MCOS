@@ -12,6 +12,8 @@ import {
 const KIND_LABELS: Record<string, string> = {
   COLLECTION_READY: 'Ready for Collection',
   COLLECTION_CONFIRMED: 'Collected',
+  // Added Sprint 43.5 — D2C Two-Way Conversation Reliability.
+  CONVERSATION_REPLY: 'Conversation Reply',
 };
 
 const STATUS_BADGE_VARIANT: Record<string, 'success' | 'destructive' | 'default'> = {

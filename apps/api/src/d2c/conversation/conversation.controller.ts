@@ -100,5 +100,9 @@ function toMessageResponse(message: ConsumerConversationMessage) {
     direction: message.direction,
     payload: message.payload,
     createdAt: message.createdAt,
+    // Added Sprint 43.5 — the real channel message id for an INBOUND row (Meta's own
+    // WAMID), `null` for OUTBOUND rows and non-WhatsApp callers — see this field's own
+    // schema doc comment.
+    externalMessageId: message.externalMessageId,
   };
 }

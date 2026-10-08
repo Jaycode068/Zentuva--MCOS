@@ -22,23 +22,31 @@ const STALE_RETRY_CLAIM_MS = 5 * 60 * 1000;
 export class ConsumerWhatsAppDeliveryRepository {
   constructor(private readonly prisma: PrismaService) {}
 
+  /** `consumerId`/`salesOrderId` are optional — widened Sprint 43.5 for
+   *  `kind: CONVERSATION_REPLY` (a conversation turn may have no `Consumer` yet,
+   *  pre-registration, and almost never has a `SalesOrder` in hand); every
+   *  `COLLECTION_READY`/`COLLECTION_CONFIRMED` caller still always supplies both.
+   *  `conversationId` is the Sprint 43.5 addition — `connect`ed only when present, never
+   *  a bare `null` write that would fight Prisma's own "omit to leave unset" default. */
   create(
     data: Omit<
       Prisma.ConsumerWhatsAppDeliveryCreateInput,
-      'organisation' | 'consumer' | 'salesOrder'
+      'organisation' | 'consumer' | 'salesOrder' | 'conversation'
     > & {
       organisationId: string;
-      consumerId: string;
-      salesOrderId: string;
+      consumerId?: string | null;
+      salesOrderId?: string | null;
+      conversationId?: string | null;
     },
   ): Promise<ConsumerWhatsAppDelivery> {
-    const { organisationId, consumerId, salesOrderId, ...rest } = data;
+    const { organisationId, consumerId, salesOrderId, conversationId, ...rest } = data;
     return this.prisma.consumerWhatsAppDelivery.create({
       data: {
         ...rest,
         organisation: { connect: { id: organisationId } },
-        consumer: { connect: { id: consumerId } },
-        salesOrder: { connect: { id: salesOrderId } },
+        ...(consumerId ? { consumer: { connect: { id: consumerId } } } : {}),
+        ...(salesOrderId ? { salesOrder: { connect: { id: salesOrderId } } } : {}),
+        ...(conversationId ? { conversation: { connect: { id: conversationId } } } : {}),
       },
     });
   }
@@ -75,6 +83,20 @@ export class ConsumerWhatsAppDeliveryRepository {
     });
   }
 
+  /** Added Sprint 43.5 — the admin conversation-transcript view's own read: every real
+   *  WhatsApp send (`kind: CONVERSATION_REPLY`) made for one conversation, chronological.
+   *  Scoped by `conversationId` only (never `kind`) so a future, genuinely different
+   *  kind tied to a conversation is still visible here without this method changing. */
+  findManyByConversation(
+    organisationId: string,
+    conversationId: string,
+  ): Promise<ConsumerWhatsAppDelivery[]> {
+    return this.prisma.consumerWhatsAppDelivery.findMany({
+      where: { organisationId, conversationId },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
   /** Added Sprint 43 — the Exceptions queue / dashboard's own read: the most recent
    *  delivery per order, across many orders in one batch query, never N+1. */
   async findLatestBySalesOrderIds(
@@ -90,8 +112,12 @@ export class ConsumerWhatsAppDeliveryRepository {
     });
     const latestByOrder = new Map<string, ConsumerWhatsAppDelivery>();
     for (const row of rows) {
-      if (!latestByOrder.has(row.salesOrderId)) {
-        latestByOrder.set(row.salesOrderId, row);
+      // Every row matched the `salesOrderId: { in: salesOrderIds }` WHERE clause above,
+      // so it is never null here despite the column's now-nullable type (Sprint 43.5
+      // widened it for `CONVERSATION_REPLY` rows, which this query never returns).
+      const salesOrderId = row.salesOrderId!;
+      if (!latestByOrder.has(salesOrderId)) {
+        latestByOrder.set(salesOrderId, row);
       }
     }
     return [...latestByOrder.values()];

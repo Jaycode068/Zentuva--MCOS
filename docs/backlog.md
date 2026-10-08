@@ -884,6 +884,7 @@ REJECTED}`) optionally linking an existing `CapitalProject`/
 - ✓ Sprint 41 — WhatsApp D2C Ordering & Commerce Conversation
 - ✓ Sprint 42 — D2C Collection Point Fulfilment & Order Completion
 - ✓ Sprint 43 — D2C Operations, Notifications & Production Hardening
+- ✓ Sprint 43.5 — D2C Two-Way Conversation Reliability
 
 **Current focus:** The Finance MVP (Sprints 6-19) is considered
 functionally complete. Epic 14 (Asset & Maintenance Management) is fully

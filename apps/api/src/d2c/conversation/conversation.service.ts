@@ -22,7 +22,50 @@ import {
   ConversationOutboundResponse,
 } from './conversation.types';
 
-const RESET_COMMANDS = new Set(['MENU', 'START_OVER', 'RESTART']);
+/** Sprint 43.5 — D2C Two-Way Conversation Reliability (brief §Phase 9 "Back / Cancel /
+ *  Menu Commands"). Checked FIRST in `dispatch()`, from ANY state — deliberately reuses
+ *  the EXISTING "wipe context, return to MAIN_MENU (or NEW)" behaviour `MENU` already
+ *  had, rather than inventing a step-back navigation stack (brief: "do not introduce a
+ *  complex navigation framework; use the existing conversation state architecture").
+ *  `BACK`/`CANCEL`/`HOME` are intentionally synonyms for the SAME reset, not a
+ *  finer-grained "undo one step" — this ONLY ever resets conversation state, never an
+ *  actual business transaction (a confirmed `SalesOrder` is never touched here; see
+ *  `handleAwaitingConfirm`'s own `CANCEL_ORDER` button for the one place a STILL-DRAFT
+ *  order's context is explicitly discarded before it's ever created). This never
+ *  shadows a state's own option with the literal label "Cancel" (e.g.
+ *  `AWAITING_CONFIRM`'s `CANCEL_ORDER` button) — the channel adapter already resolves
+ *  an exact label/numbered match against the currently-presented options BEFORE this
+ *  class ever sees the input, so a real "Cancel" button click always arrives here as
+ *  `{type:'BUTTON', value:'CANCEL_ORDER'}`, never as the literal text this set matches
+ *  against. */
+const RESET_COMMANDS = new Set(['MENU', 'START_OVER', 'RESTART', 'HOME', 'BACK', 'CANCEL']);
+
+/** Sprint 43.5 — brief §Phase 5 "Input Normalization." A small, explicit, deterministic
+ *  alias table — NOT a natural-language intent engine (brief §Phase 22 forbids one).
+ *  Only consulted at `MAIN_MENU`, and only once the exact numeric/button/label match the
+ *  channel adapter already attempts has failed — lets a real human type a natural
+ *  synonym ("orders", "my rewards", "update location") instead of memorizing the exact
+ *  internal command string, without guessing at anything genuinely ambiguous. */
+const MAIN_MENU_TEXT_ALIASES: Record<string, string> = {
+  ORDER: 'ORDER_SNACKS',
+  SNACKS: 'ORDER_SNACKS',
+  BUY: 'ORDER_SNACKS',
+  'ORDER SNACKS': 'ORDER_SNACKS',
+  'BUY SNACKS': 'ORDER_SNACKS',
+  ORDERS: 'MY_ORDERS',
+  'MY ORDERS': 'MY_ORDERS',
+  'MY ORDER': 'MY_ORDERS',
+  REWARDS: 'MY_REWARDS',
+  'MY REWARDS': 'MY_REWARDS',
+  POINTS: 'MY_REWARDS',
+  ACCOUNT: 'MY_ACCOUNT',
+  'MY ACCOUNT': 'MY_ACCOUNT',
+  PROFILE: 'MY_ACCOUNT',
+  LOCATION: 'UPDATE_LOCATION',
+  'MY LOCATION': 'UPDATE_LOCATION',
+  'UPDATE LOCATION': 'UPDATE_LOCATION',
+  'UPDATE MY LOCATION': 'UPDATE_LOCATION',
+};
 
 interface ConversationContext {
   step?: string;
@@ -92,7 +135,13 @@ export class ConversationService {
       );
     const conversation = created;
 
-    await this.messageRepository.append(organisationId, conversation.id, 'INBOUND', input.input);
+    await this.messageRepository.append(
+      organisationId,
+      conversation.id,
+      'INBOUND',
+      input.input,
+      input.externalMessageId,
+    );
 
     if (isNew) {
       await this.auditService.record({
@@ -573,8 +622,13 @@ export class ConversationService {
     input: ConversationInput,
   ): Promise<ConversationOutboundResponse> {
     const consumer = await this.consumerService.getById(organisationId, conversation.consumerId!);
-    const value =
+    const rawValue =
       optionValue(input) ?? (input.type === 'TEXT' ? input.text.trim().toUpperCase() : null);
+    // Sprint 43.5 brief §Phase 5 — a real numbered/button/label match (resolved by the
+    // channel adapter already) always wins unchanged; only a raw, unmatched TEXT value
+    // is ever looked up in the alias table, and only exactly — no partial/fuzzy
+    // matching, no guessing.
+    const value = rawValue ? (MAIN_MENU_TEXT_ALIASES[rawValue] ?? rawValue) : null;
 
     if (value === 'MY_ACCOUNT') {
       const territoryName = consumer!.territoryId
@@ -963,21 +1017,23 @@ export class ConversationService {
     organisationId: string,
     conversation: ConsumerConversation,
     cart: CartLine[],
+    prefix?: ConversationOutboundMessage,
   ): Promise<ConversationOutboundResponse> {
     const { summary } = await this.d2cOrderingService.getCartSummary(organisationId, cart);
     const updated = await this.conversationRepository.update(organisationId, conversation.id, {
       context: { step: 'AWAITING_REMOVE', cart } as unknown as Prisma.InputJsonValue,
     });
-    return this.respond(updated!, [
-      {
-        type: 'LIST',
-        text: 'Select an item to remove',
-        options: summary.lines.map((line) => ({
-          value: line.productId,
-          label: `${line.productName} x ${line.quantity}`,
-        })),
-      },
-    ]);
+    const messages: ConversationOutboundMessage[] = [];
+    if (prefix) messages.push(prefix);
+    messages.push({
+      type: 'LIST',
+      text: 'Select an item to remove',
+      options: summary.lines.map((line) => ({
+        value: line.productId,
+        label: `${line.productName} x ${line.quantity}`,
+      })),
+    });
+    return this.respond(updated!, messages);
   }
 
   private async handleAwaitingRemove(
@@ -988,7 +1044,12 @@ export class ConversationService {
   ): Promise<ConversationOutboundResponse> {
     const value = optionValue(input);
     if (!value) {
-      return this.presentRemoveOptions(organisationId, conversation, cart);
+      // Sprint 43.5 brief §Phase 8 "context-aware invalid input" — explicitly say so
+      // before re-showing the list, never silently re-prompt as if nothing was sent.
+      return this.presentRemoveOptions(organisationId, conversation, cart, {
+        type: 'TEXT',
+        text: "Sorry, I didn't understand that. Please select an item from the list.",
+      });
     }
     const newCart = this.d2cOrderingService.removeCartItem(cart, value);
     if (newCart.length === 0) {
@@ -1010,6 +1071,7 @@ export class ConversationService {
     organisationId: string,
     conversation: ConsumerConversation,
     cart: CartLine[],
+    prefix?: ConversationOutboundMessage,
   ): Promise<ConversationOutboundResponse> {
     const {
       summary,
@@ -1044,6 +1106,7 @@ export class ConversationService {
     });
 
     const messages: ConversationOutboundMessage[] = [];
+    if (prefix) messages.push(prefix);
     if (removedProductIds.length > 0) {
       messages.push({
         type: 'TEXT',
@@ -1086,7 +1149,12 @@ export class ConversationService {
       ]);
     }
     if (value !== 'CONFIRM_ORDER') {
-      return this.beginCheckout(organisationId, conversation, cart);
+      // Sprint 43.5 brief §Phase 8's own ORDER_CONFIRMATION example ("maybe" -> explain
+      // the available options) — explicitly say so before re-showing the summary.
+      return this.beginCheckout(organisationId, conversation, cart, {
+        type: 'TEXT',
+        text: "Sorry, I didn't understand that. Please choose one of the options below.",
+      });
     }
 
     const idempotencyKey = context.checkoutIdempotencyKey;
@@ -1417,8 +1485,8 @@ function mainMenuMessages(): ConversationOutboundMessage[] {
         { value: 'MY_ORDERS', label: '📦 My Orders' },
         { value: 'MY_REWARDS', label: '⭐ My Rewards' },
         { value: 'MY_ACCOUNT', label: '👤 My Account' },
-        { value: 'UPDATE_LOCATION', label: 'Update My Location' },
-        { value: 'HELP', label: 'Help' },
+        { value: 'UPDATE_LOCATION', label: '📍 Update My Location' },
+        { value: 'HELP', label: '❓ Help' },
       ],
     },
   ];

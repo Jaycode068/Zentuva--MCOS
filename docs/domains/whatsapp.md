@@ -284,3 +284,33 @@ by this sprint's own brief) found zero secret leakage — no token, no full phon
 no full message body is ever logged; every existing log line was already either a
 redacted phone (`redactPhone`), a short classified error code, or a boolean
 presence/absence check. No change was needed there.
+
+## 13. Two-Way Conversation Reliability & Outbound Delivery Tracking (Sprint 43.5)
+
+`WhatsAppInboundAdapterService.sendOutboundResponse` previously sent every real
+conversation reply (`provider.sendText`/`sendImage`) with no delivery record at all —
+no WAMID, no status, nothing an operator could inspect if a reply failed. This sprint
+widens it to write one `ConsumerWhatsAppDelivery` row (`kind: CONVERSATION_REPLY`,
+Sprint 43's own table — see `docs/domains/d2c.md` §129) per real send, finalized
+`SENT`/`FAILED` with the real WAMID, before/after the send in exactly the same
+best-effort shape every other write in this file already uses (a failure to WRITE the
+delivery row is logged and swallowed, never blocking the actual WhatsApp send).
+`processInboundMessage` also now passes the real inbound WAMID (`message.id`) through to
+`ConversationService.handleInboundMessage` as the new, optional `externalMessageId`
+field (`packages/validation/src/d2c.ts`), persisted on the `ConsumerConversationMessage`
+row — so both halves of a conversation turn are now traceable by their real channel
+message id, not just the previously-existing audit-log entry.
+
+A new real-PostgreSQL concurrency test,
+`whatsapp-webhook-event-concurrency.integration.spec.ts`, proves
+`WhatsAppWebhookEventRepository.tryClaim` (unchanged since Sprint 40.5) genuinely
+serializes under concurrent load — 10 simultaneous claims for the same WAMID resolve to
+exactly 1 winner — closing the one remaining gap in this primitive's own proof (it had
+previously only been unit-tested against a mock, which cannot demonstrate a real
+database-level race).
+
+No change was made to the webhook controller, the Meta provider, the organisation
+resolver, or `ConversationService`'s own state machine — all confirmed, via live
+testing against real Meta traffic, to already behave correctly for duplicate
+deliveries, malformed payloads, and unsupported message types. Full live-verification
+evidence is in `docs/sprint-43.5-completion-report.md` §15.

@@ -263,7 +263,11 @@ export class D2COperationalExceptionsService {
         if (delivery.status !== 'FAILED') {
           continue;
         }
-        const row = rowBySalesOrderId.get(delivery.salesOrderId);
+        // Every `delivery` here came from `findLatestBySalesOrderIds`, which only ever
+        // returns rows matched by a non-null `salesOrderId` WHERE clause — never null in
+        // practice despite the column's now-nullable type (Sprint 43.5 widened it for
+        // `CONVERSATION_REPLY` rows, which that query never returns).
+        const row = rowBySalesOrderId.get(delivery.salesOrderId!);
         items.push({
           category: 'ACTION_REQUIRED',
           type: 'NOTIFICATION_FAILED',

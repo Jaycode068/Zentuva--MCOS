@@ -2984,3 +2984,85 @@ Meta provider's outbound HTTP call gained a configurable timeout
 (`WHATSAPP_HTTP_TIMEOUT_MS`), previously unbounded. Full live-verification evidence,
 including a real failed notification (Meta code 131030) and a real concurrent-retry
 race, is in `docs/sprint-43-completion-report.md` §20.
+
+## 128. Two-Way Conversation Reliability (Sprint 43.5)
+
+Sprint 41 live-verified "Zentuva → WhatsApp." This sprint proves the full two-way loop:
+every inbound message is evaluated against the current conversation state and produces
+a deterministic, non-dead-end response. The audit found `ConversationService` (Sprint 33) already a remarkably complete state machine — the 6-option main menu
+(`ORDER_SNACKS/MY_ORDERS/MY_REWARDS/MY_ACCOUNT/UPDATE_LOCATION/HELP`), invalid-numeric
+handling, and a safe free-text fallback at every state already existed and needed no
+redesign. The genuine gaps closed:
+
+- **Input aliases** (`MAIN_MENU_TEXT_ALIASES`, `conversation.service.ts`) — a small,
+  explicit, deterministic lookup (never NLP) letting a consumer type "orders"/"my
+  rewards"/"account"/"location" instead of the exact internal command string. Consulted
+  ONLY at `MAIN_MENU`, and only once the channel adapter's own exact numeric/button/
+  label match has already failed.
+- **Global BACK/CANCEL/HOME** — added to the existing `RESET_COMMANDS` set
+  (previously `MENU/START_OVER/RESTART` only), reusing the SAME existing
+  reset-to-`MAIN_MENU` behaviour rather than a new navigation stack. Never touches a
+  business record (`SalesOrder`/`Payment`) — proven both by a unit test and live: a real
+  confirmed order survived a `back` command sent immediately afterward, completely
+  unaffected.
+- **Explicit "didn't understand" wording** at `AWAITING_CONFIRM` (the brief's own
+  "maybe" example) and `AWAITING_REMOVE`, previously silent re-prompts.
+- **Outbound delivery traceability** — every real WhatsApp send the channel adapter
+  makes now writes a `ConsumerWhatsAppDelivery` row (`kind: CONVERSATION_REPLY`,
+  widened this sprint — see §129), finalized `SENT`/`FAILED` with the real WAMID —
+  closing the one significant gap: ordinary conversation replies previously had zero
+  delivery tracking at all.
+- **A real-Postgres concurrency proof** for `WhatsAppWebhookEventRepository.tryClaim`
+  (previously only unit-mocked) — 10 genuinely concurrent claims for the same WAMID
+  resolve to exactly 1 winner.
+- **A read-only admin Conversation Transcript Viewer** (`/settings/d2c/conversations` —
+  see §130).
+
+No new conversation states, no second conversation engine, no business logic moved into
+the WhatsApp adapter. Full live-verification evidence (a complete real order+payment
+conversation, duplicate-webhook idempotency, malformed-payload/unsupported-message-type
+resilience against the real running process, and every main-menu option exercised with
+real data) is in `docs/sprint-43.5-completion-report.md` §15.
+
+## 129. `ConsumerWhatsAppDelivery` Widened For Conversation Replies (Sprint 43.5)
+
+`ConsumerWhatsAppDelivery` (Sprint 43, previously scoped only to Collection Point
+notifications) gained: `consumerId`/`salesOrderId` widened to nullable (a conversation
+reply sent before registration completes has no `Consumer` yet; most conversation turns
+have no `SalesOrder` in hand at all); a new nullable `conversationId` FK to
+`ConsumerConversation` (`SetNull`); a new `CONVERSATION_REPLY` enum value on
+`ConsumerWhatsAppNotificationKind`. Deliberately the SAME table, not a second
+communication-history mechanism — the brief's own explicit instruction. Every
+`COLLECTION_READY`/`COLLECTION_CONFIRMED` caller (`WhatsAppConsumerNotificationService`,
+unchanged since Sprint 42) still always supplies both `consumerId` and `salesOrderId`;
+only the new `CONVERSATION_REPLY` caller (`WhatsAppInboundAdapterService
+.sendOutboundResponse`) ever leaves either null. The EXISTING retry mechanism (`POST
+/d2c/communications/:id/retry`, Sprint 43) works unchanged for a `CONVERSATION_REPLY`
+row too — no kind-based special-casing was added, since resending the exact
+snapshotted text/phone is equally safe regardless of which kind of message it was.
+
+## 130. Conversation Transcript Viewer (Sprint 43.5)
+
+`/settings/d2c/conversations` (plural — distinct from the pre-existing
+`/settings/d2c/conversation` Conversation Tester, Sprint 33) — a read-only operational
+tool. Lists every real conversation (`GET /d2c/conversations`, unchanged), and on
+selection shows the real transcript (`GET /d2c/conversations/:id`, widened to also
+return each message's `externalMessageId`) alongside the real WhatsApp delivery log for
+that conversation (new `GET /d2c/communications/by-conversation/:conversationId`,
+`ConsumerCommunicationService`, reusing the EXISTING `ConsumerWhatsAppDeliveryRepository`
+from Sprint 43). Deliberately added to `d2c/messaging/`, not `ConversationController` —
+adding `ConsumerWhatsAppDeliveryRepository` there would have tripped
+`conversation-independence.spec.ts`'s own structural guard (its class name contains the
+substring "WhatsApp", matching that spec's `^import .*WhatsApp\w*.*from` pattern),
+keeping the channel-neutral Conversation Layer genuinely free of any WhatsApp-specific
+dependency.
+
+## 131. Conversation Contract Widened (Sprint 43.5)
+
+`SendConversationMessageInput` (`packages/validation/src/d2c.ts`) gained one new,
+optional field: `externalMessageId?: string` — the real channel message id (Meta's
+WAMID) for an inbound message, passed through by `WhatsAppInboundAdapterService` and
+persisted on the `ConsumerConversationMessage` row. Deliberately NOT folded into
+`conversationInputSchema`'s own business-input discriminated union — pure channel
+metadata the Conversation Layer's business logic never inspects, matching the brief's
+own §Phase 2 channel-neutral contract shape exactly.

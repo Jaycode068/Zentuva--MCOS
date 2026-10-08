@@ -55,6 +55,23 @@ export class ConsumerCommunicationService {
     return this.repository.findManyByOrder(organisationId, salesOrderId);
   }
 
+  /** Added Sprint 43.5 — D2C Two-Way Conversation Reliability (brief §Phase 14
+   *  "Conversation Transcript / Debug View"). The admin conversation-transcript page's
+   *  own delivery-log read: every real outbound WhatsApp send
+   *  (`kind: CONVERSATION_REPLY`) made for one conversation. Lives here, not on
+   *  `ConversationController`, so the channel-neutral Conversation Layer never gains a
+   *  WhatsApp-specific dependency (verified executably by
+   *  `conversation-independence.spec.ts`) — the admin page itself fetches this
+   *  alongside `GET /d2c/conversations/:id` and renders the two together. */
+  async listForConversation(
+    organisationId: string,
+    actorUserId: string,
+    conversationId: string,
+  ): Promise<ConsumerWhatsAppDelivery[]> {
+    await this.assertView(organisationId, actorUserId);
+    return this.repository.findManyByConversation(organisationId, conversationId);
+  }
+
   /**
    * Brief §Phase 5 "Safe Notification Retry." Idempotent and concurrency-safe via
    * `claimForRetry`'s atomic conditional transition (`FAILED`/stale-`PROCESSING` ->

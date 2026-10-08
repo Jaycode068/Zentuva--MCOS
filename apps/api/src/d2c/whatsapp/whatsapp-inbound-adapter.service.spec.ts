@@ -3,6 +3,7 @@ import { WhatsAppProvider } from '../../notifications/ports/whatsapp-provider.po
 import { ConversationMessageRepository } from '../conversation/conversation-message.repository';
 import { ConversationRepository } from '../conversation/conversation.repository';
 import { ConversationService } from '../conversation/conversation.service';
+import { ConsumerWhatsAppDeliveryRepository } from '../messaging/consumer-whatsapp-delivery.repository';
 import { WhatsAppInboundAdapterService } from './whatsapp-inbound-adapter.service';
 import { WhatsAppOrganisationResolverService } from './whatsapp-organisation-resolver.service';
 import { WhatsAppWebhookEventRepository } from './whatsapp-webhook-event.repository';
@@ -15,6 +16,7 @@ describe('WhatsAppInboundAdapterService', () => {
     } as unknown as ConversationService;
     const conversationRepository = {
       findByExternalId: jest.fn().mockResolvedValue(null),
+      findById: jest.fn().mockResolvedValue({ id: 'conv-1', consumerId: null }),
     } as unknown as ConversationRepository;
     const messageRepository = {
       findLastOutbound: jest.fn().mockResolvedValue(null),
@@ -26,6 +28,11 @@ describe('WhatsAppInboundAdapterService', () => {
       tryClaim: jest.fn().mockResolvedValue(true),
     } as unknown as WhatsAppWebhookEventRepository;
     const auditService = { record: jest.fn() } as unknown as AuditService;
+    const consumerWhatsAppDeliveryRepository = {
+      create: jest.fn().mockResolvedValue({ id: 'delivery-1' }),
+      markSent: jest.fn().mockResolvedValue({ id: 'delivery-1', status: 'SENT' }),
+      markFailed: jest.fn().mockResolvedValue({ id: 'delivery-1', status: 'FAILED' }),
+    } as unknown as ConsumerWhatsAppDeliveryRepository;
     const provider = {
       sendText: jest
         .fn()
@@ -42,6 +49,7 @@ describe('WhatsAppInboundAdapterService', () => {
       organisationResolver,
       webhookEventRepository,
       auditService,
+      consumerWhatsAppDeliveryRepository,
       provider,
     );
     return {
@@ -52,6 +60,7 @@ describe('WhatsAppInboundAdapterService', () => {
       organisationResolver,
       webhookEventRepository,
       auditService,
+      consumerWhatsAppDeliveryRepository,
       provider,
     };
   }
@@ -102,6 +111,7 @@ describe('WhatsAppInboundAdapterService', () => {
       channel: 'WHATSAPP',
       externalConversationId: '+2348012345678',
       input: { type: 'TEXT', text: 'Hi' },
+      externalMessageId: 'wamid.IN1',
     });
     expect(provider.sendText).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -109,6 +119,82 @@ describe('WhatsAppInboundAdapterService', () => {
         text: expect.stringContaining('1. Yes, continue'),
       }),
     );
+  });
+
+  it('Sprint 43.5: records a ConsumerWhatsAppDelivery row (kind CONVERSATION_REPLY) for the real outbound send, and finalizes it SENT with the real WAMID', async () => {
+    const {
+      adapter,
+      conversationService,
+      consumerWhatsAppDeliveryRepository,
+      conversationRepository,
+    } = makeDeps();
+    (conversationRepository.findById as jest.Mock).mockResolvedValue({
+      id: 'conv-1',
+      consumerId: 'consumer-1',
+    });
+    (conversationService.handleInboundMessage as jest.Mock).mockResolvedValue({
+      conversationId: 'conv-1',
+      state: 'MAIN_MENU',
+      messages: [{ type: 'TEXT', text: 'Welcome back' }],
+    });
+
+    await adapter.handleWebhookPayload(textPayload('2348012345678', 'Hi'));
+
+    expect(consumerWhatsAppDeliveryRepository.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organisationId: 'org-1',
+        consumerId: 'consumer-1',
+        conversationId: 'conv-1',
+        kind: 'CONVERSATION_REPLY',
+        recipientPhoneSnapshot: '+2348012345678',
+        messageSnapshot: 'Welcome back',
+      }),
+    );
+    expect(consumerWhatsAppDeliveryRepository.markSent).toHaveBeenCalledWith(
+      'org-1',
+      'delivery-1',
+      expect.objectContaining({ providerName: 'local', providerMessageId: 'wamid.OUT1' }),
+    );
+  });
+
+  it('Sprint 43.5: finalizes the delivery row FAILED (never thrown) when the real WhatsApp send is rejected', async () => {
+    const { adapter, conversationService, consumerWhatsAppDeliveryRepository, provider } =
+      makeDeps();
+    (provider.sendText as jest.Mock).mockResolvedValue({
+      outcome: 'TERMINAL_FAILURE',
+      errorCode: 'WHATSAPP_INVALID_RECIPIENT',
+    });
+    (conversationService.handleInboundMessage as jest.Mock).mockResolvedValue({
+      conversationId: 'conv-1',
+      state: 'MAIN_MENU',
+      messages: [{ type: 'TEXT', text: 'Welcome back' }],
+    });
+
+    await adapter.handleWebhookPayload(textPayload('2348012345678', 'Hi'));
+
+    expect(consumerWhatsAppDeliveryRepository.markFailed).toHaveBeenCalledWith(
+      'org-1',
+      'delivery-1',
+      expect.objectContaining({ errorCode: 'WHATSAPP_INVALID_RECIPIENT' }),
+    );
+  });
+
+  it('Sprint 43.5: a failure to WRITE the delivery row is swallowed — the conversation reply still sends', async () => {
+    const { adapter, conversationService, consumerWhatsAppDeliveryRepository, provider } =
+      makeDeps();
+    (consumerWhatsAppDeliveryRepository.create as jest.Mock).mockRejectedValue(
+      new Error('db unavailable'),
+    );
+    (conversationService.handleInboundMessage as jest.Mock).mockResolvedValue({
+      conversationId: 'conv-1',
+      state: 'MAIN_MENU',
+      messages: [{ type: 'TEXT', text: 'Welcome back' }],
+    });
+
+    await expect(
+      adapter.handleWebhookPayload(textPayload('2348012345678', 'Hi')),
+    ).resolves.toBeUndefined();
+    expect(provider.sendText).toHaveBeenCalled();
   });
 
   it('skips an already-claimed (duplicate/redelivered) message entirely', async () => {

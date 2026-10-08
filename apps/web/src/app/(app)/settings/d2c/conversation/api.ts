@@ -48,6 +48,9 @@ export interface ConversationMessage {
   direction: 'INBOUND' | 'OUTBOUND';
   payload: unknown;
   createdAt: string;
+  /** Added Sprint 43.5 — the real WAMID for an INBOUND row; `null` for OUTBOUND rows
+   *  (see `ConsumerWhatsAppDeliverySummary` instead) and non-WhatsApp callers. */
+  externalMessageId: string | null;
 }
 
 export function listConversations(): Promise<{ items: Conversation[] }> {
