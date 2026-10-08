@@ -3,7 +3,13 @@
 import { useQuery } from '@tanstack/react-query';
 import { Badge } from '@zentuva/ui';
 
-import { listFieldD2CCollectionPoints, listFieldD2COrders } from './api';
+import { listFieldD2CCollectionPoints, listFieldD2CExceptions, listFieldD2COrders } from './api';
+
+const EXCEPTION_SEVERITY_BADGE: Record<string, 'destructive' | 'default'> = {
+  HIGH: 'destructive',
+  MEDIUM: 'default',
+  LOW: 'default',
+};
 
 /**
  * Sprint 38 — Field Operations & Collection Point Mobile Experience
@@ -32,13 +38,20 @@ export default function FieldD2COverviewPage() {
   });
   const collectionPoints = cpData?.items ?? [];
 
-  const unassigned = orders.filter((order) => !order.collectionPoint);
-  const shortOnStaff = collectionPoints.filter(
-    (cp) => cp.collectionPointStatus === 'DISABLED' && cp.ordersAwaitingFulfilment > 0,
-  );
-  const attentionCount = unassigned.length + shortOnStaff.length;
+  // Sprint 43 — the real, server-computed exception list (the exact same detection
+  // `D2COperationalExceptionsService` runs for the admin dashboard, scoped to this
+  // rep's own territory) replaces the two ad-hoc client-side checks this page used to
+  // compute itself — a strictly richer, single source of truth for "what needs
+  // attention" (also covers stuck fulfilments, stale payments, and failed
+  // notifications the old client-side check never saw).
+  const { data: exceptionsData, isLoading: exceptionsLoading } = useQuery({
+    queryKey: ['field-d2c-exceptions'],
+    queryFn: listFieldD2CExceptions,
+    refetchInterval: 30000,
+  });
+  const exceptions = exceptionsData?.items ?? [];
 
-  const isLoading = ordersLoading || cpLoading;
+  const isLoading = ordersLoading || cpLoading || exceptionsLoading;
 
   return (
     <div className="flex h-full flex-col gap-5 overflow-y-auto p-4">
@@ -55,22 +68,21 @@ export default function FieldD2COverviewPage() {
         </p>
       ) : (
         <>
-          {attentionCount > 0 && (
+          {exceptions.length > 0 && (
             <section className="rounded-lg border border-yellow-500/30 bg-yellow-500/5 p-3">
               <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-yellow-700 dark:text-yellow-400">
-                Needs Attention
+                Needs Attention ({exceptions.length})
               </h2>
-              <ul className="space-y-1 text-sm">
-                {unassigned.length > 0 && (
-                  <li>
-                    {unassigned.length} order{unassigned.length === 1 ? '' : 's'} without a
-                    Collection Point assigned
-                  </li>
-                )}
-                {shortOnStaff.map((cp) => (
-                  <li key={cp.outletId}>
-                    {cp.outletName} is disabled with {cp.ordersAwaitingFulfilment} order
-                    {cp.ordersAwaitingFulfilment === 1 ? '' : 's'} still queued
+              <ul className="space-y-2 text-sm">
+                {exceptions.map((item, i) => (
+                  <li
+                    key={`${item.entityType}-${item.entityId}-${i}`}
+                    className="flex items-start justify-between gap-2"
+                  >
+                    <span>{item.message}</span>
+                    <Badge variant={EXCEPTION_SEVERITY_BADGE[item.severity] ?? 'default'}>
+                      {item.severity}
+                    </Badge>
                   </li>
                 ))}
               </ul>

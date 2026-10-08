@@ -2,6 +2,7 @@ import { ForbiddenException, Injectable } from '@nestjs/common';
 import {
   Consumer,
   CollectionPointFulfillmentStatus,
+  ConsumerStatus,
   PaymentStatus,
   SalesOrderSource,
   SalesOrderStatus,
@@ -16,21 +17,16 @@ import { SalesOrderService } from '../../sales/sales-order.service';
 import { ListConsumersParams } from '../consumer/consumer.repository';
 import { ConsumerService } from '../consumer/consumer.service';
 import { CollectionPointFulfillmentRepository } from '../fulfillment/collection-point-fulfillment.repository';
-import { CollectionPointFulfillmentService } from '../fulfillment/collection-point-fulfillment.service';
+import { ConsumerWhatsAppDeliveryRepository } from '../messaging/consumer-whatsapp-delivery.repository';
+import { D2COperationalExceptionsService } from '../operations/d2c-operational-exceptions.service';
 import { D2CAdminOverview, D2CAttentionItem, D2CTerritorySummaryRow } from './d2c-admin.types';
 
 const SALES_CUSTOMER_MANAGE = 'sales.customer.manage';
 
-/** A stuck fulfilment (`ASSIGNED`/`PREPARING` for longer than this) is surfaced as
- *  "Action Required" — the same operational threshold Sprint 38's Field screen used for
- *  its own "Waiting" badge (`ATTENTION_WAITING_MINUTES`), scaled up here from a single
- *  Collection Point's own queue to an org-wide admin view. */
-const STUCK_FULFILLMENT_HOURS = 24;
-/** Bounded read for the attention computation — an operational dashboard, not a report;
- *  genuinely exceeding this many simultaneously-open fulfilments across an entire
- *  organisation would itself be a signal worth a separate, paginated investigation, not
- *  something this summary needs to enumerate exhaustively. */
-const ATTENTION_SCAN_PAGE_SIZE = 200;
+/** Bounded read for the dashboard's own order-status counts — an operational
+ *  dashboard, not a report; mirrors `D2COperationalExceptionsService`'s own
+ *  `EXCEPTION_SCAN_PAGE_SIZE` reasoning. */
+const DASHBOARD_SCAN_PAGE_SIZE = 200;
 
 /**
  * Sprint 39 — D2C Sales Administration & Operations Dashboard (docs/domains/d2c.md).
@@ -45,58 +41,117 @@ export class D2CAdminService {
   constructor(
     private readonly salesOrderService: SalesOrderService,
     private readonly consumerService: ConsumerService,
-    private readonly collectionPointFulfillmentService: CollectionPointFulfillmentService,
     private readonly collectionPointFulfillmentRepository: CollectionPointFulfillmentRepository,
     private readonly outletRepository: OutletRepository,
     private readonly territoryRepository: TerritoryRepository,
     private readonly effectiveAccessResolver: EffectiveAccessResolver,
     private readonly prisma: PrismaService,
+    private readonly consumerWhatsAppDeliveryRepository: ConsumerWhatsAppDeliveryRepository,
+    private readonly exceptionsService: D2COperationalExceptionsService,
   ) {}
 
   async getOverview(organisationId: string, actorUserId: string): Promise<D2CAdminOverview> {
     await this.assertAdmin(organisationId, actorUserId);
 
-    const [totalD2C, pending, failed, enabledOutlets, consumers, recent, attention] =
-      await Promise.all([
-        this.salesOrderService.listPaginated(organisationId, {
-          source: SalesOrderSource.D2C,
-          page: 1,
-          pageSize: 1,
-        }),
-        this.salesOrderService.listPaginated(organisationId, {
-          source: SalesOrderSource.D2C,
-          paymentStatus: 'PENDING',
-          page: 1,
-          pageSize: 1,
-        }),
-        this.salesOrderService.listPaginated(organisationId, {
-          source: SalesOrderSource.D2C,
-          paymentStatus: 'FAILED',
-          page: 1,
-          pageSize: 1,
-        }),
-        this.outletRepository.findManyByOrganisation(organisationId, {
-          collectionPointStatus: 'ENABLED',
-        }),
-        this.consumerService.listPaginated(organisationId, { page: 1, pageSize: 1 }),
-        this.salesOrderService.listPaginated(organisationId, {
-          source: SalesOrderSource.D2C,
-          page: 1,
-          pageSize: 10,
-        }),
-        this.computeAttentionItems(organisationId, actorUserId),
-      ]);
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+
+    const [
+      totalD2C,
+      pending,
+      failed,
+      enabledOutlets,
+      consumers,
+      recent,
+      attention,
+      ordersToday,
+      preparingQueue,
+      readyQueue,
+      collectedToday,
+      newConsumersToday,
+      activeConsumers,
+      whatsappCounts,
+      whatsappEligibleForRetry,
+    ] = await Promise.all([
+      this.salesOrderService.listPaginated(organisationId, {
+        source: SalesOrderSource.D2C,
+        page: 1,
+        pageSize: 1,
+      }),
+      this.salesOrderService.listPaginated(organisationId, {
+        source: SalesOrderSource.D2C,
+        paymentStatus: 'PENDING',
+        page: 1,
+        pageSize: 1,
+      }),
+      this.salesOrderService.listPaginated(organisationId, {
+        source: SalesOrderSource.D2C,
+        paymentStatus: 'FAILED',
+        page: 1,
+        pageSize: 1,
+      }),
+      this.outletRepository.findManyByOrganisation(organisationId, {
+        collectionPointStatus: 'ENABLED',
+      }),
+      this.consumerService.listPaginated(organisationId, { page: 1, pageSize: 1 }),
+      this.salesOrderService.listPaginated(organisationId, {
+        source: SalesOrderSource.D2C,
+        page: 1,
+        pageSize: 10,
+      }),
+      this.exceptionsService.compute(organisationId),
+      this.salesOrderService.listPaginated(organisationId, {
+        source: SalesOrderSource.D2C,
+        dateFrom: startOfToday,
+        page: 1,
+        pageSize: 1,
+      }),
+      this.collectionPointFulfillmentRepository.findManyPaginated(organisationId, {
+        status: CollectionPointFulfillmentStatus.PREPARING,
+        page: 1,
+        pageSize: DASHBOARD_SCAN_PAGE_SIZE,
+      }),
+      this.collectionPointFulfillmentRepository.findManyPaginated(organisationId, {
+        status: CollectionPointFulfillmentStatus.READY_FOR_COLLECTION,
+        page: 1,
+        pageSize: DASHBOARD_SCAN_PAGE_SIZE,
+      }),
+      this.collectionPointFulfillmentRepository.findManyPaginated(organisationId, {
+        status: CollectionPointFulfillmentStatus.COLLECTED,
+        dateFrom: startOfToday,
+        page: 1,
+        pageSize: 1,
+      }),
+      this.prisma.consumer.count({
+        where: { organisationId, createdAt: { gte: startOfToday } },
+      }),
+      this.prisma.consumer.count({
+        where: { organisationId, status: ConsumerStatus.ACTIVE },
+      }),
+      this.consumerWhatsAppDeliveryRepository.countSinceByStatus(organisationId, startOfToday),
+      this.consumerWhatsAppDeliveryRepository.countEligibleForRetry(organisationId),
+    ]);
 
     const unassignedOrders = attention.filter((item) => item.type === 'UNASSIGNED_ORDER').length;
 
     return {
       summary: {
         totalD2COrders: totalD2C.total,
+        ordersToday: ordersToday.total,
+        ordersPreparing: preparingQueue.total,
+        ordersReadyForCollection: readyQueue.total,
+        ordersCollectedToday: collectedToday.total,
         consumersTotal: consumers.total,
+        activeConsumers,
+        newConsumersToday,
         activeCollectionPoints: enabledOutlets.length,
         pendingPayments: pending.total,
         failedPayments: failed.total,
         unassignedOrders,
+        exceptionsCount: attention.length,
+        whatsappSentToday: whatsappCounts.sent,
+        whatsappFailedToday: whatsappCounts.failed,
+        whatsappEligibleForRetry,
       },
       attention,
       recentOrders: recent.items.map((order) => ({
@@ -115,7 +170,7 @@ export class D2CAdminService {
    *  here in full. */
   async getAttention(organisationId: string, actorUserId: string): Promise<D2CAttentionItem[]> {
     await this.assertAdmin(organisationId, actorUserId);
-    return this.computeAttentionItems(organisationId, actorUserId);
+    return this.exceptionsService.compute(organisationId);
   }
 
   /** Territory operational summary (brief: "not full Demand Intelligence — that's
@@ -193,109 +248,6 @@ export class D2CAdminService {
       collectionPointCount: outletsByTerritory.get(territory.id)?.total ?? 0,
       enabledCollectionPointCount: outletsByTerritory.get(territory.id)?.enabled ?? 0,
     }));
-  }
-
-  private async computeAttentionItems(
-    organisationId: string,
-    actorUserId: string,
-  ): Promise<D2CAttentionItem[]> {
-    const items: D2CAttentionItem[] = [];
-
-    // Unassigned: CONFIRMED D2C orders with no CollectionPointFulfillment row yet.
-    const confirmed = await this.salesOrderService.listPaginated(organisationId, {
-      source: SalesOrderSource.D2C,
-      status: SalesOrderStatus.CONFIRMED,
-      page: 1,
-      pageSize: ATTENTION_SCAN_PAGE_SIZE,
-    });
-    if (confirmed.items.length > 0) {
-      const assigned = await this.collectionPointFulfillmentRepository.findManyBySalesOrderIds(
-        organisationId,
-        confirmed.items.map((order) => order.id),
-      );
-      const assignedOrderIds = new Set(assigned.map((cpf) => cpf.salesOrderId));
-      for (const order of confirmed.items) {
-        if (!assignedOrderIds.has(order.id)) {
-          items.push({
-            category: 'ACTION_REQUIRED',
-            type: 'UNASSIGNED_ORDER',
-            message: `Order ${order.orderCode} is confirmed but not yet assigned to a Collection Point`,
-            entityType: 'SalesOrder',
-            entityId: order.id,
-          });
-        }
-      }
-    }
-
-    // Unpaid / failed payment D2C orders (informational — a pending payment is often just
-    // mid-checkout; failed is worth a human look).
-    const failedPayment = await this.salesOrderService.listPaginated(organisationId, {
-      source: SalesOrderSource.D2C,
-      paymentStatus: 'FAILED',
-      page: 1,
-      pageSize: ATTENTION_SCAN_PAGE_SIZE,
-    });
-    for (const order of failedPayment.items) {
-      items.push({
-        category: 'ACTION_REQUIRED',
-        type: 'FAILED_PAYMENT',
-        message: `Order ${order.orderCode}'s payment failed`,
-        entityType: 'SalesOrder',
-        entityId: order.id,
-      });
-    }
-
-    // Stuck fulfilments + disabled Collection Points with a queue — both derived from the
-    // same bounded org-wide fulfilment read.
-    const disabledOutlets = await this.outletRepository.findManyByOrganisation(organisationId, {
-      collectionPointStatus: 'DISABLED',
-    });
-    const disabledOutletIds = new Set(disabledOutlets.map((outlet) => outlet.id));
-    const cutoff = new Date(Date.now() - STUCK_FULFILLMENT_HOURS * 60 * 60 * 1000);
-
-    const [assignedQueue, preparingQueue] = await Promise.all([
-      this.collectionPointFulfillmentService.listAll(organisationId, actorUserId, {
-        status: CollectionPointFulfillmentStatus.ASSIGNED,
-        page: 1,
-        pageSize: ATTENTION_SCAN_PAGE_SIZE,
-      }),
-      this.collectionPointFulfillmentService.listAll(organisationId, actorUserId, {
-        status: CollectionPointFulfillmentStatus.PREPARING,
-        page: 1,
-        pageSize: ATTENTION_SCAN_PAGE_SIZE,
-      }),
-    ]);
-    const queueAtDisabledOutlet = new Map<string, number>();
-    for (const row of [...assignedQueue.items, ...preparingQueue.items]) {
-      const startedAt = row.preparingAt ?? row.assignedAt;
-      if (startedAt < cutoff) {
-        items.push({
-          category: 'ACTION_REQUIRED',
-          type: 'STUCK_FULFILLMENT',
-          message: `Order ${row.orderReference} has been ${row.status.replace(/_/g, ' ').toLowerCase()} for over ${STUCK_FULFILLMENT_HOURS}h at ${row.outletName}`,
-          // `entityId` is the underlying `SalesOrder.id` (never this fulfilment row's own
-          // id) — the frontend deep-links straight to `/settings/d2c/orders/:id`, which
-          // reads `GET /sales/orders/:id`, not a Collection Point fulfilment lookup.
-          entityType: 'CollectionPointFulfillment',
-          entityId: row.salesOrderId,
-        });
-      }
-      if (disabledOutletIds.has(row.outletId)) {
-        queueAtDisabledOutlet.set(row.outletId, (queueAtDisabledOutlet.get(row.outletId) ?? 0) + 1);
-      }
-    }
-    for (const [outletId, count] of queueAtDisabledOutlet) {
-      const outlet = disabledOutlets.find((candidate) => candidate.id === outletId);
-      items.push({
-        category: 'ACTION_REQUIRED',
-        type: 'DISABLED_COLLECTION_POINT_WITH_QUEUE',
-        message: `${outlet?.name ?? 'A Collection Point'} is disabled with ${count} order${count === 1 ? '' : 's'} still queued`,
-        entityType: 'Outlet',
-        entityId: outletId,
-      });
-    }
-
-    return items;
   }
 
   /** The D2C Admin Consumer list (brief §"Consumer List") — admin-only paginated read,

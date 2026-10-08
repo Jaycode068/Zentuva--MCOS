@@ -230,15 +230,16 @@ back to plain `sendText` of the same caption if the image send fails.
 
 ## 10. Configuration Reference
 
-| Key                                                          | Required when                        | Notes                                           |
-| ------------------------------------------------------------ | ------------------------------------ | ----------------------------------------------- |
-| `WHATSAPP_PROVIDER_MODE`                                     | always has a default (`local`)       | `meta` to send real traffic                     |
-| `WHATSAPP_TOKEN`                                             | `meta` mode                          | preferred over `WHATSAPP_ACCESS_TOKEN`          |
-| `WHATSAPP_PHONE_NUMBER_ID`                                   | `meta` mode                          | unchanged from Sprint 29                        |
-| `WHATSAPP_GRAPH_API_VERSION` / `WHATSAPP_GRAPH_API_BASE_URL` | `meta` mode                          | preferred over `WHATSAPP_API_BASE_URL`          |
-| `WHATSAPP_WEBHOOK_VERIFY_TOKEN`                              | a real webhook is configured in Meta | `GET` handshake only                            |
-| `WHATSAPP_APP_SECRET`                                        | —                                    | optional; enables `POST` signature verification |
-| `WHATSAPP_DEFAULT_ORGANISATION_ID`                           | —                                    | optional; see §7                                |
+| Key                                                          | Required when                        | Notes                                              |
+| ------------------------------------------------------------ | ------------------------------------ | -------------------------------------------------- |
+| `WHATSAPP_PROVIDER_MODE`                                     | always has a default (`local`)       | `meta` to send real traffic                        |
+| `WHATSAPP_TOKEN`                                             | `meta` mode                          | preferred over `WHATSAPP_ACCESS_TOKEN`             |
+| `WHATSAPP_PHONE_NUMBER_ID`                                   | `meta` mode                          | unchanged from Sprint 29                           |
+| `WHATSAPP_GRAPH_API_VERSION` / `WHATSAPP_GRAPH_API_BASE_URL` | `meta` mode                          | preferred over `WHATSAPP_API_BASE_URL`             |
+| `WHATSAPP_WEBHOOK_VERIFY_TOKEN`                              | a real webhook is configured in Meta | `GET` handshake only                               |
+| `WHATSAPP_APP_SECRET`                                        | —                                    | optional; enables `POST` signature verification    |
+| `WHATSAPP_DEFAULT_ORGANISATION_ID`                           | —                                    | optional; see §7                                   |
+| `WHATSAPP_HTTP_TIMEOUT_MS`                                   | —                                    | optional, defaults to `10000`; see §12 (Sprint 43) |
 
 See `docs/sprint-40.5-completion-report.md` for live verification evidence.
 
@@ -250,4 +251,36 @@ this codebase — Sprint 42 reuses it again, via a new, narrow
 fulfilment notifications (Ready for Collection, Collected). That service is the only
 thing that imports this token for that purpose; `CollectionPointFulfillmentService`
 itself depends only on a channel-neutral `ConsumerNotificationPort`, never on anything
-WhatsApp-specific — see `docs/domains/d2c.md` §120.
+WhatsApp-specific — see `docs/domains/d2c.md` §120. Sprint 43 widens this again with a
+delivery-attempt record (`ConsumerWhatsAppDelivery`) and a safe retry path — see
+`docs/domains/d2c.md` §124/§125; `WHATSAPP_PROVIDER` itself is unchanged.
+
+## 12. Webhook Resilience & HTTP Hardening (Sprint 43)
+
+A genuine, confirmed defect was found during this sprint's audit (not assumed):
+`WhatsAppInboundAdapterService.handleWebhookPayload`'s per-message/per-status loop had
+no try/catch around an individual `change`, message, or status. A malformed `change`
+(e.g. Meta — or a corrupted retry — delivering a `changes[]` entry with no `value` at
+all), or a genuine exception thrown deep inside one message's conversation processing,
+propagated up through the shared loop and could silently abort processing of every
+OTHER entry/change/message batched in the SAME webhook payload, even though the
+controller still correctly returned `200` to Meta. Fixed by wrapping each message, each
+status, and each change in its own try/catch — a malformed or failing item is now
+logged and skipped, never aborting a sibling item in the same batch. Proven by four new
+tests in `whatsapp-inbound-adapter.service.spec.ts`, including one that sends a
+malformed change alongside a valid one in the same payload and confirms the valid one
+still processes, and one that fails one message's `conversationService
+.handleInboundMessage` call while a sibling message in the same payload still
+succeeds.
+
+Separately, `MetaWhatsAppProvider`'s outbound `fetch` call had no request timeout —
+previously, a hung Meta response could stall a request indefinitely. Added
+`WHATSAPP_HTTP_TIMEOUT_MS` (default 10 seconds) via a plain `AbortController`; a timeout
+now maps to a distinct `WHATSAPP_TIMEOUT` retryable error code rather than being
+indistinguishable from a generic network failure.
+
+A full security re-audit of every log line in the webhook/provider/adapter path (triggered
+by this sprint's own brief) found zero secret leakage — no token, no full phone number,
+no full message body is ever logged; every existing log line was already either a
+redacted phone (`redactPhone`), a short classified error code, or a boolean
+presence/absence check. No change was needed there.

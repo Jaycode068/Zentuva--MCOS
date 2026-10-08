@@ -6,6 +6,10 @@ import { PrismaService } from '../../prisma/prisma.service';
 export interface FindAuditLogsParams {
   action?: string;
   entityType?: string;
+  /** Added Sprint 43 — D2C Operations, Notifications & Production Hardening (the Order
+   *  Operational Timeline, docs/domains/d2c.md). The `@@index([entityType, entityId])`
+   *  on `AuditLog` already supported this; no existing caller needed it until now. */
+  entityId?: string;
   from?: Date;
   to?: Date;
   skip?: number;
@@ -33,6 +37,7 @@ export class AuditRepository {
         organisationId,
         ...(params.action ? { action: params.action } : {}),
         ...(params.entityType ? { entityType: params.entityType } : {}),
+        ...(params.entityId ? { entityId: params.entityId } : {}),
         ...(params.from || params.to ? { createdAt: { gte: params.from, lte: params.to } } : {}),
       },
       skip: params.skip,

@@ -1,5 +1,4 @@
 import { ForbiddenException } from '@nestjs/common';
-import { CollectionPointFulfillmentStatus } from '@prisma/client';
 
 import { EffectiveAccessResolver } from '../../identity/authorization/effective-access-resolver';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -8,15 +7,21 @@ import { TerritoryRepository } from '../../retail/territory/territory.repository
 import { SalesOrderService } from '../../sales/sales-order.service';
 import { ConsumerService } from '../consumer/consumer.service';
 import { CollectionPointFulfillmentRepository } from '../fulfillment/collection-point-fulfillment.repository';
-import { CollectionPointFulfillmentService } from '../fulfillment/collection-point-fulfillment.service';
+import { ConsumerWhatsAppDeliveryRepository } from '../messaging/consumer-whatsapp-delivery.repository';
+import { D2COperationalExceptionsService } from '../operations/d2c-operational-exceptions.service';
 import { D2CAdminService } from './d2c-admin.service';
 
 /**
  * Sprint 39 — D2C Sales Administration & Operations Dashboard (docs/domains/d2c.md).
  * Every underlying read is mocked at the SERVICE/repository boundary (never a real
  * Prisma call) — same convention as `field-d2c-overview.service.spec.ts`. The focus
- * here is the aggregation/attention-derivation LOGIC this service owns, not the
- * already-tested behaviour of the services it composes.
+ * here is the aggregation LOGIC this service owns, not the already-tested behaviour of
+ * the services it composes.
+ *
+ * Sprint 43 — exception-detection logic (`UNASSIGNED_ORDER`/`STUCK_FULFILLMENT`/etc.)
+ * was extracted to `D2COperationalExceptionsService`; its own dedicated tests now live
+ * in `d2c-operational-exceptions.service.spec.ts`. This file now only tests that
+ * `getAttention`/`getOverview` correctly delegate to it after the admin-only check.
  */
 describe('D2CAdminService', () => {
   const orgId = 'org-1';
@@ -29,12 +34,10 @@ describe('D2CAdminService', () => {
     const consumerService = {
       listPaginated: jest.fn().mockResolvedValue(emptyPage),
     } as unknown as jest.Mocked<ConsumerService>;
-    const collectionPointFulfillmentService = {
-      listAll: jest.fn().mockResolvedValue(emptyPage),
-    } as unknown as jest.Mocked<CollectionPointFulfillmentService>;
     const collectionPointFulfillmentRepository = {
       findManyBySalesOrderIds: jest.fn().mockResolvedValue([]),
       findManyByOutlet: jest.fn().mockResolvedValue([]),
+      findManyPaginated: jest.fn().mockResolvedValue(emptyPage),
     } as unknown as jest.Mocked<CollectionPointFulfillmentRepository>;
     const outletRepository = {
       findManyByOrganisation: jest.fn().mockResolvedValue([]),
@@ -52,30 +55,40 @@ describe('D2CAdminService', () => {
       consumer: {
         groupBy: jest.fn().mockResolvedValue([]),
         findMany: jest.fn().mockResolvedValue([]),
+        count: jest.fn().mockResolvedValue(0),
       },
       salesOrder: { groupBy: jest.fn().mockResolvedValue([]) },
     } as unknown as jest.Mocked<PrismaService>;
+    const consumerWhatsAppDeliveryRepository = {
+      countSinceByStatus: jest.fn().mockResolvedValue({ sent: 0, failed: 0 }),
+      countEligibleForRetry: jest.fn().mockResolvedValue(0),
+    } as unknown as jest.Mocked<ConsumerWhatsAppDeliveryRepository>;
+    const exceptionsService = {
+      compute: jest.fn().mockResolvedValue([]),
+    } as unknown as jest.Mocked<D2COperationalExceptionsService>;
 
     const service = new D2CAdminService(
       salesOrderService,
       consumerService,
-      collectionPointFulfillmentService,
       collectionPointFulfillmentRepository,
       outletRepository,
       territoryRepository,
       effectiveAccessResolver,
       prisma,
+      consumerWhatsAppDeliveryRepository,
+      exceptionsService,
     );
     return {
       service,
       salesOrderService,
       consumerService,
-      collectionPointFulfillmentService,
       collectionPointFulfillmentRepository,
       outletRepository,
       territoryRepository,
       effectiveAccessResolver,
       prisma,
+      consumerWhatsAppDeliveryRepository,
+      exceptionsService,
     };
   }
 
@@ -112,7 +125,8 @@ describe('D2CAdminService', () => {
 
   describe('getOverview', () => {
     it('assembles summary counts, recent orders, and attention from the composed reads', async () => {
-      const { service, salesOrderService, consumerService, outletRepository } = makeService();
+      const { service, salesOrderService, consumerService, outletRepository, exceptionsService } =
+        makeService();
       salesOrderService.listPaginated.mockImplementation((_org, params) => {
         if (params.pageSize === 10) {
           return Promise.resolve({
@@ -135,23 +149,28 @@ describe('D2CAdminService', () => {
         if (params.paymentStatus === 'FAILED') {
           return Promise.resolve({ items: [], total: 2 } as never);
         }
-        if (params.status === 'CONFIRMED') {
-          return Promise.resolve({ items: [], total: 0 } as never);
+        if (params.dateFrom) {
+          return Promise.resolve({ items: [], total: 4 } as never);
         }
         return Promise.resolve({ items: [], total: 42 } as never);
       });
       consumerService.listPaginated.mockResolvedValue({ items: [], total: 17 } as never);
       outletRepository.findManyByOrganisation.mockResolvedValue([{ id: 'outlet-1' }] as never);
+      exceptionsService.compute.mockResolvedValue([
+        { type: 'UNASSIGNED_ORDER', entityId: 'so-9' } as never,
+      ]);
 
       const overview = await service.getOverview(orgId, 'admin-1');
 
-      expect(overview.summary).toEqual({
+      expect(overview.summary).toMatchObject({
         totalD2COrders: 42,
+        ordersToday: 4,
         consumersTotal: 17,
         activeCollectionPoints: 1,
         pendingPayments: 3,
         failedPayments: 2,
-        unassignedOrders: 0,
+        unassignedOrders: 1,
+        exceptionsCount: 1,
       });
       expect(overview.recentOrders).toEqual([
         {
@@ -164,134 +183,32 @@ describe('D2CAdminService', () => {
         },
       ]);
     });
+
+    it('surfaces WhatsApp communication counts from ConsumerWhatsAppDeliveryRepository', async () => {
+      const { service, consumerWhatsAppDeliveryRepository } = makeService();
+      consumerWhatsAppDeliveryRepository.countSinceByStatus.mockResolvedValue({
+        sent: 12,
+        failed: 3,
+      });
+      consumerWhatsAppDeliveryRepository.countEligibleForRetry.mockResolvedValue(3);
+
+      const overview = await service.getOverview(orgId, 'admin-1');
+
+      expect(overview.summary.whatsappSentToday).toBe(12);
+      expect(overview.summary.whatsappFailedToday).toBe(3);
+      expect(overview.summary.whatsappEligibleForRetry).toBe(3);
+    });
   });
 
-  describe('computeAttentionItems (via getAttention)', () => {
-    it('flags a CONFIRMED D2C order with no CollectionPointFulfillment row as UNASSIGNED_ORDER', async () => {
-      const { service, salesOrderService, collectionPointFulfillmentRepository } = makeService();
-      salesOrderService.listPaginated.mockImplementation((_org, params) => {
-        if (params.status === 'CONFIRMED') {
-          return Promise.resolve({
-            items: [{ id: 'so-1', orderCode: 'SO-000001' }],
-            total: 1,
-          } as never);
-        }
-        return Promise.resolve(emptyPage as never);
-      });
-      collectionPointFulfillmentRepository.findManyBySalesOrderIds.mockResolvedValue([]);
+  describe('getAttention', () => {
+    it('delegates to D2COperationalExceptionsService.compute with no territory scope (org-wide)', async () => {
+      const { service, exceptionsService } = makeService();
+      exceptionsService.compute.mockResolvedValue([{ type: 'FAILED_PAYMENT' } as never]);
 
       const items = await service.getAttention(orgId, 'admin-1');
 
-      expect(items).toContainEqual(
-        expect.objectContaining({ type: 'UNASSIGNED_ORDER', entityId: 'so-1' }),
-      );
-    });
-
-    it('does NOT flag a CONFIRMED D2C order that already has a CollectionPointFulfillment row', async () => {
-      const { service, salesOrderService, collectionPointFulfillmentRepository } = makeService();
-      salesOrderService.listPaginated.mockImplementation((_org, params) => {
-        if (params.status === 'CONFIRMED') {
-          return Promise.resolve({
-            items: [{ id: 'so-1', orderCode: 'SO-000001' }],
-            total: 1,
-          } as never);
-        }
-        return Promise.resolve(emptyPage as never);
-      });
-      collectionPointFulfillmentRepository.findManyBySalesOrderIds.mockResolvedValue([
-        { salesOrderId: 'so-1' } as never,
-      ]);
-
-      const items = await service.getAttention(orgId, 'admin-1');
-
-      expect(items.filter((item) => item.type === 'UNASSIGNED_ORDER')).toHaveLength(0);
-    });
-
-    it('flags a D2C order with a FAILED payment as FAILED_PAYMENT', async () => {
-      const { service, salesOrderService } = makeService();
-      salesOrderService.listPaginated.mockImplementation((_org, params) => {
-        if (params.paymentStatus === 'FAILED') {
-          return Promise.resolve({
-            items: [{ id: 'so-2', orderCode: 'SO-000002' }],
-            total: 1,
-          } as never);
-        }
-        return Promise.resolve(emptyPage as never);
-      });
-
-      const items = await service.getAttention(orgId, 'admin-1');
-
-      expect(items).toContainEqual(
-        expect.objectContaining({ type: 'FAILED_PAYMENT', entityId: 'so-2' }),
-      );
-    });
-
-    it('flags an ASSIGNED fulfilment older than 24h as STUCK_FULFILLMENT, but not a fresh one', async () => {
-      const { service, collectionPointFulfillmentService } = makeService();
-      const stale = {
-        id: 'cpf-1',
-        salesOrderId: 'so-3',
-        orderReference: 'SO-000003',
-        status: CollectionPointFulfillmentStatus.ASSIGNED,
-        assignedAt: new Date(Date.now() - 48 * 60 * 60 * 1000),
-        preparingAt: null,
-        outletId: 'outlet-1',
-        outletName: 'Bodija Supermart',
-      };
-      const fresh = {
-        ...stale,
-        id: 'cpf-2',
-        orderReference: 'SO-000004',
-        assignedAt: new Date(),
-      };
-      collectionPointFulfillmentService.listAll.mockImplementation((_org, _actor, params) => {
-        if (params.status === CollectionPointFulfillmentStatus.ASSIGNED) {
-          return Promise.resolve({ items: [stale, fresh], total: 2 } as never);
-        }
-        return Promise.resolve(emptyPage as never);
-      });
-
-      const items = await service.getAttention(orgId, 'admin-1');
-
-      const stuck = items.filter((item) => item.type === 'STUCK_FULFILLMENT');
-      expect(stuck).toHaveLength(1);
-      expect(stuck[0]?.entityId).toBe('so-3');
-    });
-
-    it('flags a disabled outlet with a queued order as DISABLED_COLLECTION_POINT_WITH_QUEUE', async () => {
-      const { service, collectionPointFulfillmentService, outletRepository } = makeService();
-      outletRepository.findManyByOrganisation.mockImplementation((_org, params) => {
-        if (params?.collectionPointStatus === 'DISABLED') {
-          return Promise.resolve([{ id: 'outlet-9', name: 'Shuttered Shop' }] as never);
-        }
-        return Promise.resolve([] as never);
-      });
-      const queuedAtDisabled = {
-        id: 'cpf-9',
-        salesOrderId: 'so-9',
-        orderReference: 'SO-000009',
-        status: CollectionPointFulfillmentStatus.ASSIGNED,
-        assignedAt: new Date(),
-        preparingAt: null,
-        outletId: 'outlet-9',
-        outletName: 'Shuttered Shop',
-      };
-      collectionPointFulfillmentService.listAll.mockImplementation((_org, _actor, params) => {
-        if (params.status === CollectionPointFulfillmentStatus.ASSIGNED) {
-          return Promise.resolve({ items: [queuedAtDisabled], total: 1 } as never);
-        }
-        return Promise.resolve(emptyPage as never);
-      });
-
-      const items = await service.getAttention(orgId, 'admin-1');
-
-      expect(items).toContainEqual(
-        expect.objectContaining({
-          type: 'DISABLED_COLLECTION_POINT_WITH_QUEUE',
-          entityId: 'outlet-9',
-          message: expect.stringContaining('Shuttered Shop'),
-        }),
-      );
+      expect(exceptionsService.compute).toHaveBeenCalledWith(orgId);
+      expect(items).toEqual([{ type: 'FAILED_PAYMENT' }]);
     });
   });
 

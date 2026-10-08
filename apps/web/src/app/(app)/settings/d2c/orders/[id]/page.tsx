@@ -12,11 +12,17 @@ import {
   Select,
 } from '@zentuva/ui';
 
+import { CommunicationHistoryList } from '@/components/app/d2c-communication-history';
 import { ApiError } from '@/lib/api-client';
 
 import {
+  type CollectionPointFulfillmentSummary,
+  type ConsumerWhatsAppDeliverySummary,
+  type D2COrderSummary,
+  type D2CPaymentSummary,
   getCollectionPointFulfillmentBySalesOrder,
   getD2COrder,
+  listCommunicationsForOrder,
   listEligibleOutletsForReassignment,
   listPaymentsForOrder,
   reassignCollectionPoint,
@@ -54,9 +60,15 @@ export default function D2COrderDetailPage({ params }: { params: { id: string } 
     queryKey: ['d2c-admin-order-collection', id],
     queryFn: () => getCollectionPointFulfillmentBySalesOrder(id),
   });
+  const communicationsQueryKey = ['d2c-admin-order-communications', id];
+  const { data: communicationsData } = useQuery({
+    queryKey: communicationsQueryKey,
+    queryFn: () => listCommunicationsForOrder(id),
+  });
 
   const payments = paymentsData?.items ?? [];
   const collection = collectionData?.item ?? null;
+  const communications = communicationsData?.items ?? [];
   const canReassign =
     collection && (collection.status === 'ASSIGNED' || collection.status === 'PREPARING');
 
@@ -203,6 +215,24 @@ export default function D2COrderDetailPage({ params }: { params: { id: string } 
             </dl>
           )}
         </section>
+
+        <section className="rounded-lg border border-border p-4">
+          <h2 className="mb-3 text-sm font-semibold">Communication History</h2>
+          <CommunicationHistoryList
+            items={communications}
+            queryKeyToInvalidate={communicationsQueryKey}
+          />
+        </section>
+
+        <section className="rounded-lg border border-border p-4 lg:col-span-2">
+          <h2 className="mb-3 text-sm font-semibold">Operational Timeline</h2>
+          <OrderTimeline
+            order={order}
+            payments={payments}
+            collection={collection}
+            communications={communications}
+          />
+        </section>
       </div>
 
       {reassignOpen && collection && (
@@ -285,5 +315,91 @@ function ReassignDialog({
         </DialogFooter>
       </div>
     </Dialog>
+  );
+}
+
+interface TimelineStep {
+  label: string;
+  timestamp: string | null;
+  detail?: string;
+}
+
+/**
+ * Sprint 43 — D2C Operations, Notifications & Production Hardening (brief §Phase 8
+ * "Order Operational Timeline"). Built ENTIRELY from real, already-fetched data this
+ * page already loads for its own Order/Payment History/Collection Point/Communication
+ * History sections — no new backend aggregation endpoint, no fabricated timeline
+ * record. A step with no timestamp is rendered as "not yet" rather than omitted, so an
+ * operator can see exactly where an order currently sits in the flow.
+ */
+function OrderTimeline({
+  order,
+  payments,
+  collection,
+  communications,
+}: {
+  order: D2COrderSummary;
+  payments: D2CPaymentSummary[];
+  collection: CollectionPointFulfillmentSummary | null;
+  communications: ConsumerWhatsAppDeliverySummary[];
+}) {
+  const latestPayment = payments[0] ?? null;
+  const confirmedPayment = payments.find((p) => p.status === 'RECORDED') ?? null;
+  const readyNotification = communications.find((c) => c.kind === 'COLLECTION_READY') ?? null;
+  const collectedNotification =
+    communications.find((c) => c.kind === 'COLLECTION_CONFIRMED') ?? null;
+
+  const steps: TimelineStep[] = [
+    { label: 'Order Created', timestamp: order.createdAt },
+    {
+      label: 'Payment Initiated',
+      timestamp: latestPayment?.createdAt ?? null,
+      detail: latestPayment ? `${latestPayment.status}` : undefined,
+    },
+    {
+      label: 'Payment Confirmed',
+      timestamp: confirmedPayment?.paymentDate ?? null,
+    },
+    { label: 'Collection Point Assigned', timestamp: collection?.assignedAt ?? null },
+    { label: 'Preparing Started', timestamp: collection?.preparingAt ?? null },
+    { label: 'Ready for Collection', timestamp: collection?.readyAt ?? null },
+    {
+      label: 'Consumer Notified (Ready)',
+      timestamp: readyNotification?.createdAt ?? null,
+      detail: readyNotification ? readyNotification.status : undefined,
+    },
+    { label: 'Collection Confirmed', timestamp: collection?.collectedAt ?? null },
+    {
+      label: 'Consumer Notified (Collected)',
+      timestamp: collectedNotification?.createdAt ?? null,
+      detail: collectedNotification ? collectedNotification.status : undefined,
+    },
+  ];
+
+  return (
+    <ol className="space-y-3">
+      {steps.map((step) => (
+        <li key={step.label} className="flex items-start gap-3 text-sm">
+          <span
+            className={
+              step.timestamp
+                ? 'mt-1 h-2 w-2 shrink-0 rounded-full bg-primary'
+                : 'mt-1 h-2 w-2 shrink-0 rounded-full border border-muted-foreground'
+            }
+          />
+          <div className="flex-1">
+            <div className="flex items-center justify-between gap-2">
+              <span className={step.timestamp ? 'font-medium' : 'text-muted-foreground'}>
+                {step.label}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {step.timestamp ? new Date(step.timestamp).toLocaleString() : 'Not yet'}
+              </span>
+            </div>
+            {step.detail && <p className="text-xs text-muted-foreground">{step.detail}</p>}
+          </div>
+        </li>
+      ))}
+    </ol>
   );
 }

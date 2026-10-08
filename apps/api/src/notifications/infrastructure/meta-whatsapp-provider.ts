@@ -14,6 +14,10 @@ export interface MetaWhatsAppConfig {
   apiBaseUrl: string;
   accessToken: string;
   phoneNumberId: string;
+  /** Sprint 43 — D2C Operations, Notifications & Production Hardening
+   *  (docs/domains/whatsapp.md "Known Limitations"). Previously unbounded: a hung Meta
+   *  response could stall a request indefinitely. Defaulted, never required. */
+  httpTimeoutMs: number;
 }
 
 /** Thrown at construction time — never at request time — when
@@ -30,6 +34,7 @@ export function loadMetaWhatsAppConfig(config: ConfigService): MetaWhatsAppConfi
   const apiBaseUrl = config.get<string>('whatsapp.apiBaseUrl');
   const accessToken = config.get<string | undefined>('whatsapp.accessToken');
   const phoneNumberId = config.get<string | undefined>('whatsapp.phoneNumberId');
+  const httpTimeoutMs = config.get<number>('whatsappHttpTimeoutMs') ?? 10_000;
 
   const missing: string[] = [];
   if (!apiBaseUrl) missing.push('WHATSAPP_API_BASE_URL');
@@ -41,7 +46,12 @@ export function loadMetaWhatsAppConfig(config: ConfigService): MetaWhatsAppConfi
     );
   }
 
-  return { apiBaseUrl: apiBaseUrl!, accessToken: accessToken!, phoneNumberId: phoneNumberId! };
+  return {
+    apiBaseUrl: apiBaseUrl!,
+    accessToken: accessToken!,
+    phoneNumberId: phoneNumberId!,
+    httpTimeoutMs,
+  };
 }
 
 /**
@@ -133,6 +143,10 @@ export class MetaWhatsAppProvider implements WhatsAppProvider {
     correlationId: string,
   ): Promise<WhatsAppSendResult> {
     const url = `${this.cfg.apiBaseUrl}/${this.cfg.phoneNumberId}/messages`;
+    // Sprint 43 — bounded request timeout (docs/domains/whatsapp.md "Known
+    // Limitations"); a hung Meta response previously stalled this call indefinitely.
+    const timeoutController = new AbortController();
+    const timeoutHandle = setTimeout(() => timeoutController.abort(), this.cfg.httpTimeoutMs);
 
     try {
       const response = await fetch(url, {
@@ -143,6 +157,7 @@ export class MetaWhatsAppProvider implements WhatsAppProvider {
           'X-Zentuva-Correlation-Id': correlationId,
         },
         body: JSON.stringify(body),
+        signal: timeoutController.signal,
       });
 
       const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
@@ -158,15 +173,26 @@ export class MetaWhatsAppProvider implements WhatsAppProvider {
 
       return this.mapErrorResponse(response.status, payload);
     } catch (error) {
-      // Network-level failure (DNS, connection refused, timeout) — always
-      // retryable, never a message-content or auth problem.
+      // Network-level failure (DNS, connection refused) or our own timeout abort —
+      // always retryable, never a message-content or auth problem.
+      const isTimeout = error instanceof Error && error.name === 'AbortError';
       const message = error instanceof Error ? error.name : 'unknown';
-      this.logger.warn(`WhatsApp send failed (network error): ${message}`);
-      return {
-        outcome: 'RETRYABLE_FAILURE',
-        errorCode: 'WHATSAPP_NETWORK',
-        errorMessage: 'Network error contacting the WhatsApp Business Platform.',
-      };
+      this.logger.warn(
+        `WhatsApp send failed (${isTimeout ? 'timeout' : 'network error'}): ${message}`,
+      );
+      return isTimeout
+        ? {
+            outcome: 'RETRYABLE_FAILURE',
+            errorCode: 'WHATSAPP_TIMEOUT',
+            errorMessage: `WhatsApp request timed out after ${this.cfg.httpTimeoutMs}ms.`,
+          }
+        : {
+            outcome: 'RETRYABLE_FAILURE',
+            errorCode: 'WHATSAPP_NETWORK',
+            errorMessage: 'Network error contacting the WhatsApp Business Platform.',
+          };
+    } finally {
+      clearTimeout(timeoutHandle);
     }
   }
 

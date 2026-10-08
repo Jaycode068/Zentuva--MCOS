@@ -18,11 +18,17 @@ import {
 import { registerConsumerSchema, type RegisterConsumerInput } from '@zentuva/validation';
 import { useForm } from 'react-hook-form';
 
+import { CommunicationHistoryList } from '@/components/app/d2c-communication-history';
 import { D2cTabs } from '@/components/app/d2c-tabs';
 import { ApiError } from '@/lib/api-client';
 
 import { listTerritories } from '../../retail/api';
-import { listCollectionPointFulfillments, listD2COrders, listPaymentsForConsumer } from '../api';
+import {
+  listCollectionPointFulfillments,
+  listCommunicationsForConsumer,
+  listD2COrders,
+  listPaymentsForConsumer,
+} from '../api';
 import {
   activateConsumer,
   deactivateConsumer,
@@ -416,10 +422,16 @@ function ConsumerHistorySections({ consumerId }: { consumerId: string }) {
     queryKey: ['d2c-consumer-collections', consumerId],
     queryFn: () => listCollectionPointFulfillments({ consumerId, pageSize: 20 }),
   });
+  const communicationsQueryKey = ['d2c-consumer-communications', consumerId];
+  const { data: communicationsData } = useQuery({
+    queryKey: communicationsQueryKey,
+    queryFn: () => listCommunicationsForConsumer(consumerId, { pageSize: 20 }),
+  });
 
   const orders = ordersData?.items ?? [];
   const payments = paymentsData?.items ?? [];
   const collections = collectionData?.items ?? [];
+  const communications = communicationsData?.items ?? [];
 
   return (
     <div className="space-y-4 border-t border-border pt-4">
@@ -496,6 +508,16 @@ function ConsumerHistorySections({ consumerId }: { consumerId: string }) {
             ))}
           </ul>
         )}
+      </div>
+
+      <div>
+        <Label>Communication History ({communications.length})</Label>
+        <div className="mt-1">
+          <CommunicationHistoryList
+            items={communications}
+            queryKeyToInvalidate={communicationsQueryKey}
+          />
+        </div>
       </div>
     </div>
   );

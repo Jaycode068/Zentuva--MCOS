@@ -15,11 +15,30 @@
  * must never be rolled back, retried, or blocked because a consumer message failed to
  * send.
  */
+/** Sprint 43 — a small, closed set mirroring exactly the two message bodies
+ *  `CollectionPointFulfillmentService.notifyReady`/`.notifyCollected` construct. Plain
+ *  string literals, not the Prisma `ConsumerWhatsAppNotificationKind` enum itself — this
+ *  port stays decoupled from the ORM, matching every other port in this codebase
+ *  (`WhatsAppProvider`/`PaymentProvider`); the one implementation below maps these
+ *  values onto the Prisma enum, whose values are identical by construction. */
+export type ConsumerNotificationKind = 'COLLECTION_READY' | 'COLLECTION_CONFIRMED';
+
+export interface ConsumerNotificationRequest {
+  organisationId: string;
+  consumerId: string;
+  /** Added Sprint 43 — every current caller has a `SalesOrder` in hand; required so a
+   *  delivery-tracking implementation can record which order this notification was
+   *  about (docs/domains/d2c.md "Consumer Communication Delivery Visibility"). */
+  salesOrderId: string;
+  kind: ConsumerNotificationKind;
+  message: string;
+}
+
 export interface ConsumerNotificationPort {
   /** Sends a plain-text message to the given Consumer over whatever channel this
    *  implementation represents. Never throws for an ordinary send failure — logs and
    *  returns. */
-  notify(organisationId: string, consumerId: string, message: string): Promise<void>;
+  notify(request: ConsumerNotificationRequest): Promise<void>;
 }
 
 export const CONSUMER_NOTIFICATION_PORT = Symbol('CONSUMER_NOTIFICATION_PORT');

@@ -2876,3 +2876,111 @@ a Collection Point outlet and the organisation was requested or built. Collectio
 verification continues to rely on the operator checking the order number the consumer
 presents in person, matching the brief's own explicit scope exclusion of any OTP/QR
 mechanism. Full detail: `docs/sprint-42-completion-report.md` §15, §22, §23.
+
+## 124. Consumer Communication Delivery Visibility (Sprint 43)
+
+Sprint 42's `WhatsAppConsumerNotificationService.notify()` was fire-and-forget — no
+record of whether a consumer notification was ever attempted, which provider handled
+it, whether it succeeded, what WAMID came back, or why it failed. The mandatory
+pre-implementation audit confirmed the EXISTING internal-staff delivery-tracking engine
+(`Notification`/`EmailDelivery`/`WhatsAppDelivery`, Sprint 27–29) has zero applicability
+here: every one of those tables is structurally scoped to a `User` recipient via
+`Notification.recipientUserId` and a `WorkflowEvent` source, and a `Consumer`
+structurally has neither (the same Consumer/User distinction maintained everywhere
+else in this codebase). Reusing that table would have meant fabricating a fake `User`/
+`WorkflowEvent` for every D2C order, or weakening its foreign keys — both worse than one
+small, new, analogous table.
+
+- **`ConsumerWhatsAppDelivery`** (new Prisma model, `d2c/messaging/`) — one delivery
+  ATTEMPT record per consumer notification, mirroring `WhatsAppDelivery`'s own proven
+  shape (status/attempts/providerName/providerMessageId/lastErrorCode/
+  lastErrorMessage/timestamps) and reusing its EXACT `WhatsAppDeliveryStatus` enum —
+  never a parallel status machine. This is NOT a second notification system: the one
+  real sending mechanism remains `WHATSAPP_PROVIDER`
+  (`WhatsAppConsumerNotificationService`, unchanged since Sprint 42); this table only
+  adds the record that service was missing.
+- **`WhatsAppConsumerNotificationService.notify()`** now creates a `PENDING` delivery
+  row, attempts the send, and finalizes it to `SENT`/`FAILED` via a shared
+  `attemptSend` method also reused by the retry path below — one place decides how a
+  provider result maps onto the delivery row, so the two call sites can never drift.
+  The port's `notify()` signature widened to a structured request carrying
+  `salesOrderId`/`kind` (a closed `'COLLECTION_READY' | 'COLLECTION_CONFIRMED'` union)
+  alongside the existing `organisationId`/`consumerId`/`message` — additive, no
+  behaviour change to WHEN or WHAT is sent.
+- **`ConsumerCommunicationService`/`ConsumerCommunicationController`**
+  (`d2c/communications/*`) — the admin-facing read surface: `by-consumer/:consumerId`,
+  `by-order/:salesOrderId`. Gated by two new permissions, `d2c.communication.view`/
+  `.manage` — their own pair, not folded into `d2c.collection_point.*`/
+  `d2c.consumer.*`, mirroring `notification.whatsapp.view`/`.manage`'s own split. Not
+  granted to Member at seed time (a support/admin surface, matching `promotions.*`'s
+  own precedent).
+- Surfaced in the UI: a Communication History section on the D2C order detail page and
+  the Consumer detail dialog, both reusing one shared `CommunicationHistoryList`
+  component.
+
+## 125. Safe Notification Retry (Sprint 43)
+
+`ConsumerCommunicationService.retry()` — permission-controlled
+(`d2c.communication.manage`), audited (`consumer_whatsapp_delivery.retried`).
+Idempotent and concurrency-safe via `ConsumerWhatsAppDeliveryRepository
+.claimForRetry()` — a conditional `updateMany` (`FAILED`, or a stale `PROCESSING`
+lease, → `PROCESSING`) mirroring `CollectionPointFulfillmentRepository.updateStatus`'s
+own atomic-transition pattern exactly; two genuinely concurrent retry requests for the
+same delivery resolve to exactly one winner, the other a clean `409 Conflict`, never a
+second send or a duplicate row — proven both in a real-Postgres integration test and
+live against two real concurrent HTTP requests (`docs/sprint-43-completion-report.md`
+§18/§20).
+
+Retry is **structurally** incapable of mutating any business transaction — not merely
+"will not," but cannot: `ConsumerCommunicationService` has no dependency on
+`SalesOrderService`/`PaymentService`/`CollectionPointFulfillmentService`/
+`InventoryStockRepository`/`LoyaltyService`. It only ever reads/writes one
+`ConsumerWhatsAppDelivery` row and calls `WHATSAPP_PROVIDER.sendText` with the row's own
+EXACT snapshotted `recipientPhoneSnapshot`/`messageSnapshot` — never re-deriving the
+consumer's current phone or re-rendering the message from live order state. Always
+operator-initiated via the HTTP endpoint; no automatic/scheduled retry was added
+(this codebase has no cron/queue infrastructure anywhere, confirmed by this sprint's
+own audit — the established pattern for "things that should happen over time" is
+on-demand computation, not a background sweep).
+
+## 126. Operational Exceptions (Sprint 43)
+
+`D2COperationalExceptionsService` — extracted, verbatim in intent, from
+`D2CAdminService.computeAttentionItems` (Sprint 39), so `FieldD2COverviewService` can
+reuse the EXACT SAME detection logic territory-scoped, never a second,
+independently-drifting copy. Widened from four checks to seven:
+`UNASSIGNED_ORDER`/`FAILED_PAYMENT`/`DISABLED_COLLECTION_POINT_WITH_QUEUE` (unchanged),
+`STUCK_FULFILLMENT` (now per-status configurable thresholds instead of one hardcoded
+constant), and three genuinely new checks this sprint's audit found:
+`STALE_PENDING_PAYMENT` (a D2C order's payment has been `PENDING` longer than
+`D2C_OPERATIONAL_ALERT_PAYMENT_PENDING_HOURS`), `STUCK_READY_FOR_COLLECTION` (a
+consumer was told their order is ready, but it has sat `READY_FOR_COLLECTION` longer
+than `D2C_OPERATIONAL_ALERT_READY_FOR_COLLECTION_HOURS` — never auto-marked collected,
+only surfaced), and `NOTIFICATION_FAILED` (the most recent `ConsumerWhatsAppDelivery`
+for an order still in the fulfilment queue is `FAILED`). Every threshold is
+configuration (`d2cOperationalAlerts.*`), never a scattered hardcoded constant. Every
+item now carries `severity`/`detectedAt`/`orderCode`/`consumerName`/`territoryName`/
+`collectionPointName` for direct operator triage. The service performs no
+authorization itself — it trusts the caller (`D2CAdminService.getAttention`'s own
+`assertAdmin`, or `FieldD2COverviewService.listExceptions`'s own territory
+resolution) to have already authorized the actor, exactly like the private method it
+replaced.
+
+Surfaced via the existing `GET /d2c/admin/attention` (now returning the three new
+types too) plus a genuinely new, dedicated `/settings/d2c/exceptions` full page (the
+data already existed; no page previously rendered the complete, un-truncated list),
+and a new `GET /d2c/field-overview/exceptions` for a territory-scoped field rep —
+replacing that page's own prior ad-hoc, strictly narrower client-side computation.
+
+## 127. Operational Dashboard Widening & WhatsApp Hardening (Sprint 43)
+
+`GET /d2c/admin/overview` widened with ORDERS (today/preparing/ready-for-collection/
+collected-today), CONSUMERS (active/new-today), and COMMUNICATIONS (WhatsApp sent-
+today/failed-today/eligible-for-retry) sections — purely additive fields, composed from
+the same existing repositories plus the new `ConsumerWhatsAppDeliveryRepository`
+aggregate-count methods. A genuine, confirmed webhook-resilience defect was also fixed
+this sprint — see `docs/domains/whatsapp.md` §11 for the full detail — and the real
+Meta provider's outbound HTTP call gained a configurable timeout
+(`WHATSAPP_HTTP_TIMEOUT_MS`), previously unbounded. Full live-verification evidence,
+including a real failed notification (Meta code 131030) and a real concurrent-retry
+race, is in `docs/sprint-43-completion-report.md` §20.

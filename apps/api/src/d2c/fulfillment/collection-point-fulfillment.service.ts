@@ -717,7 +717,13 @@ export class CollectionPointFulfillmentService {
       '',
       `Thank you for choosing ${tenantName}.`,
     );
-    await this.consumerNotificationPort.notify(organisationId, consumerId, lines.join('\n'));
+    await this.consumerNotificationPort.notify({
+      organisationId,
+      consumerId,
+      salesOrderId: cpf.salesOrderId,
+      kind: 'COLLECTION_READY',
+      message: lines.join('\n'),
+    });
   }
 
   /** Sprint 42 brief §20 "Consumer Confirmation." */
@@ -737,7 +743,13 @@ export class CollectionPointFulfillmentService {
       '',
       'We hope you enjoy your order! 😊',
     ].join('\n');
-    await this.consumerNotificationPort.notify(organisationId, consumerId, message);
+    await this.consumerNotificationPort.notify({
+      organisationId,
+      consumerId,
+      salesOrderId: cpf.salesOrderId,
+      kind: 'COLLECTION_CONFIRMED',
+      message,
+    });
   }
 
   private async recordAssignmentFailure(

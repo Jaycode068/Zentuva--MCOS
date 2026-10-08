@@ -7,6 +7,54 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 43 D2C Operations, Notifications & Production Hardening] - 2026-10-08
+
+Sprint 42 proved the full D2C operational loop works end to end; this sprint makes it
+OPERABLE — when something goes right or wrong, an operator can see it, and a safe
+recovery can be performed without risking a double-charge, double-deduction,
+double-fulfilment, or double-reward.
+
+**New.** `ConsumerWhatsAppDelivery` — the one new table this sprint required: a
+delivery-attempt record for consumer-facing WhatsApp notifications, since the audit
+confirmed the existing internal-staff `WhatsAppDelivery` (Sprint 29) is structurally
+scoped to a `User`/`WorkflowEvent` and has zero applicability to a `Consumer`.
+`WhatsAppConsumerNotificationService` now persists every attempt (status, provider,
+WAMID, error) instead of being fire-and-forget. A new `ConsumerCommunicationService`/
+controller (`d2c/communications/*`, two new permissions `d2c.communication.view`/
+`.manage`) exposes this history and a safe, idempotent, concurrency-proof retry — retry
+is structurally incapable of touching `SalesOrder`/`Payment`/inventory/loyalty, since
+the service doesn't depend on any of those.
+
+**New.** `D2COperationalExceptionsService` — the Sprint 39 exception-detection logic
+extracted and widened from four checks to seven (adds `STALE_PENDING_PAYMENT`,
+`STUCK_READY_FOR_COLLECTION`, `NOTIFICATION_FAILED`), now shared by the org-wide admin
+dashboard AND a territory-scoped field-rep view. Every threshold is configuration
+(`D2C_OPERATIONAL_ALERT_*`), replacing one hardcoded constant. A new, dedicated
+`/settings/d2c/exceptions` page renders the full list; the dashboard itself gained
+ORDERS/CONSUMERS/COMMUNICATIONS sections.
+
+**Fixed.** A genuine webhook-resilience defect found by this sprint's own audit: a
+malformed or failing item inside a batched Meta webhook payload could abort processing
+of every OTHER item in the same payload. Fixed with a per-message/per-status/per-change
+try/catch. Also added a previously-missing HTTP timeout on the real Meta provider's
+outbound requests.
+
+**Live-verified** against real Meta WhatsApp traffic: the full order→payment→
+Collection Point→notification→collection loop re-run end to end with the new delivery
+records attached (real WAMIDs on both notifications); a duplicate inbound webhook
+produced no duplicate order; a real notification failure (Meta code 131030, a
+non-allow-listed test number) was correctly recorded and surfaced as an exception; two
+genuinely concurrent retry requests for the same failed delivery resolved to exactly
+one winner and one `409`; and the Member role was correctly rejected with `403` from
+both the communication-history read and the retry action. 253 suites / 2301 tests and
+5 integration suites / 22 tests passing, 0 regressions.
+
+**Schema.** One new table (`consumer_whatsapp_deliveries`) and one new enum — purely
+additive, no existing column changed.
+
+See [docs/domains/d2c.md](domains/d2c.md) §124–127, [docs/domains/whatsapp.md](domains/whatsapp.md)
+§12, and [docs/sprint-43-completion-report.md](sprint-43-completion-report.md).
+
 ## [Sprint 42 D2C Collection Point Fulfilment & Order Completion] - 2026-10-07
 
 Closed the operational loop between a paid D2C consumer order and the Collection Point

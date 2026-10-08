@@ -438,15 +438,16 @@ describe('CollectionPointFulfillmentService', () => {
       await service.markReadyForCollection(orgId, 'cpf-1', 'rep-1');
 
       expect(consumerNotificationPort.notify).toHaveBeenCalledTimes(1);
-      const [calledOrgId, calledConsumerId, message] =
-        consumerNotificationPort.notify.mock.calls[0]!;
-      expect(calledOrgId).toBe(orgId);
-      expect(calledConsumerId).toBe('consumer-1');
-      expect(message).toContain('SO-000001');
-      expect(message).toContain('Bodija Supermart');
-      expect(message).toContain('12 Bodija Market Road');
-      expect(message).toContain('Mon-Sat 9am-6pm');
-      expect(message).not.toMatch(/undefined|null/);
+      const [request] = consumerNotificationPort.notify.mock.calls[0]!;
+      expect(request.organisationId).toBe(orgId);
+      expect(request.consumerId).toBe('consumer-1');
+      expect(request.salesOrderId).toBe('so-1');
+      expect(request.kind).toBe('COLLECTION_READY');
+      expect(request.message).toContain('SO-000001');
+      expect(request.message).toContain('Bodija Supermart');
+      expect(request.message).toContain('12 Bodija Market Road');
+      expect(request.message).toContain('Mon-Sat 9am-6pm');
+      expect(request.message).not.toMatch(/undefined|null/);
     });
 
     it("markReadyForCollection: rejects when the order's latest payment is no longer valid (VOIDED)", async () => {
@@ -622,10 +623,12 @@ describe('CollectionPointFulfillmentService', () => {
       await service.confirmCollection(orgId, 'cpf-1', 'rep-1');
 
       expect(consumerNotificationPort.notify).toHaveBeenCalledTimes(1);
-      const [, calledConsumerId, message] = consumerNotificationPort.notify.mock.calls[0]!;
-      expect(calledConsumerId).toBe('consumer-1');
-      expect(message).toContain('SO-000001');
-      expect(message).toContain('collected');
+      const [request] = consumerNotificationPort.notify.mock.calls[0]!;
+      expect(request.consumerId).toBe('consumer-1');
+      expect(request.salesOrderId).toBe('so-1');
+      expect(request.kind).toBe('COLLECTION_CONFIRMED');
+      expect(request.message).toContain('SO-000001');
+      expect(request.message).toContain('collected');
     });
 
     it('never re-notifies on an idempotent duplicate confirmation (the replay path exits before the notify call)', async () => {

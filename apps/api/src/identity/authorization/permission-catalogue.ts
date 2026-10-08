@@ -468,4 +468,21 @@ export const PERMISSION_CATALOGUE: PermissionCatalogueEntry[] = [
     'SCOPABLE',
     'Make a manual, reasoned adjustment to a consumer loyalty balance',
   ),
+
+  // --- D2C: Consumer Communication Delivery Visibility (Sprint 43 —
+  // docs/domains/d2c.md). Its own permission pair, not `d2c.collection_point.*`/
+  // `d2c.consumer.*` — inspecting a consumer's WhatsApp delivery history and retrying a
+  // failed notification is a materially different, support/operational capability from
+  // fulfilling an order at a Collection Point or editing a consumer's own record, the
+  // same "its own pair" reasoning `d2c.collection_point.*` (Sprint 37) and
+  // `promotions.*` (Sprint 40) already established. `.manage` (retry) is deliberately
+  // separate from `.view` — mirrors `notification.whatsapp.view`/`.manage`'s own split
+  // (Sprint 29) applied to the D2C domain. Not granted to Member at seed time — this is
+  // a support/admin surface, not a routine Collection Point operator task. ---
+  entry('d2c.communication.view', 'SCOPABLE', 'View D2C consumer communication/delivery history'),
+  entry(
+    'd2c.communication.manage',
+    'SCOPABLE',
+    'Retry a failed D2C consumer WhatsApp notification',
+  ),
 ];

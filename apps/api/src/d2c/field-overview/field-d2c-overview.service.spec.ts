@@ -1,6 +1,7 @@
 import { CollectionPointFulfillmentRepository } from '../fulfillment/collection-point-fulfillment.repository';
 import { EmployeeService } from '../../hr/employee.service';
 import { EffectiveAccessResolver } from '../../identity/authorization/effective-access-resolver';
+import { D2COperationalExceptionsService } from '../operations/d2c-operational-exceptions.service';
 import { OutletRepository } from '../../retail/outlet/outlet.repository';
 import { SalesOrderRepository } from '../../sales/sales-order.repository';
 import { FieldD2COverviewService } from './field-d2c-overview.service';
@@ -24,6 +25,9 @@ function makeService() {
   const effectiveAccessResolver = {
     resolve: jest.fn(),
   } as unknown as jest.Mocked<EffectiveAccessResolver>;
+  const exceptionsService = {
+    compute: jest.fn().mockResolvedValue([]),
+  } as unknown as jest.Mocked<D2COperationalExceptionsService>;
 
   const service = new FieldD2COverviewService(
     salesOrderRepository,
@@ -31,6 +35,7 @@ function makeService() {
     outletRepository,
     employeeService,
     effectiveAccessResolver,
+    exceptionsService,
   );
   return {
     service,
@@ -39,6 +44,7 @@ function makeService() {
     outletRepository,
     employeeService,
     effectiveAccessResolver,
+    exceptionsService,
   };
 }
 
@@ -281,6 +287,50 @@ describe('FieldD2COverviewService — territory scoping (Sprint 38)', () => {
           ordersReadyForCollection: 2,
         }),
       ]);
+    });
+  });
+
+  // Sprint 43 — D2C Operations, Notifications & Production Hardening.
+  describe('listExceptions', () => {
+    it('an admin (isOwnerBypass) sees org-wide exceptions — compute called with no territory filter', async () => {
+      const { service, effectiveAccessResolver, exceptionsService } = makeService();
+      effectiveAccessResolver.resolve.mockResolvedValue({
+        isOwnerBypass: true,
+        grants: new Map(),
+      } as never);
+
+      await service.listExceptions(ORG, 'admin-1');
+
+      expect(exceptionsService.compute).toHaveBeenCalledWith(ORG, {});
+    });
+
+    it("a territory-scoped rep's exceptions are scoped to their own territory", async () => {
+      const { service, effectiveAccessResolver, employeeService, exceptionsService } =
+        makeService();
+      effectiveAccessResolver.resolve.mockResolvedValue({
+        isOwnerBypass: false,
+        grants: new Map(),
+      } as never);
+      employeeService.getByUserId.mockResolvedValue({ territoryId: 'territory-1' } as never);
+
+      await service.listExceptions(ORG, 'rep-1');
+
+      expect(exceptionsService.compute).toHaveBeenCalledWith(ORG, { territoryId: 'territory-1' });
+    });
+
+    it('a rep with no territory assigned sees nothing — never calls compute (deny-by-default)', async () => {
+      const { service, effectiveAccessResolver, employeeService, exceptionsService } =
+        makeService();
+      effectiveAccessResolver.resolve.mockResolvedValue({
+        isOwnerBypass: false,
+        grants: new Map(),
+      } as never);
+      employeeService.getByUserId.mockResolvedValue(null as never);
+
+      const result = await service.listExceptions(ORG, 'rep-2');
+
+      expect(result).toEqual([]);
+      expect(exceptionsService.compute).not.toHaveBeenCalled();
     });
   });
 });

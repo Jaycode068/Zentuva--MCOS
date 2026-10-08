@@ -39,4 +39,14 @@ export class FieldD2COverviewController {
     const items = await this.service.listCollectionPoints(user.organisationId, user.sub);
     return { items };
   }
+
+  /** Added Sprint 43 — the same territory scoping as the two routes above;
+   *  `d2c.collection_point.view` since every exception here concerns an order's
+   *  Collection Point fulfilment state. */
+  @Get('exceptions')
+  @RequirePermission('d2c.collection_point.view')
+  async listExceptions(@CurrentUser() user: TokenPayload) {
+    const items = await this.service.listExceptions(user.organisationId, user.sub);
+    return { items };
+  }
 }

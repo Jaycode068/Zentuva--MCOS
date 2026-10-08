@@ -6,6 +6,7 @@ import { IdentityModule } from '../../identity/identity.module';
 import { OutletModule } from '../../retail/outlet/outlet.module';
 import { SalesModule } from '../../sales/sales.module';
 import { CollectionPointFulfillmentModule } from '../fulfillment/collection-point-fulfillment.module';
+import { D2COperationalExceptionsModule } from '../operations/d2c-operational-exceptions.module';
 import { FieldD2COverviewController } from './field-d2c-overview.controller';
 import { FieldD2COverviewService } from './field-d2c-overview.service';
 
@@ -28,6 +29,7 @@ import { FieldD2COverviewService } from './field-d2c-overview.service';
     CollectionPointFulfillmentModule,
     OutletModule,
     HrModule,
+    D2COperationalExceptionsModule,
   ],
   controllers: [FieldD2COverviewController],
   providers: [FieldD2COverviewService],

@@ -6,6 +6,7 @@ import { cn } from '@zentuva/ui';
 const TABS = [
   { label: 'Dashboard', href: '/settings/d2c' },
   { label: 'Orders', href: '/settings/d2c/orders' },
+  { label: 'Exceptions', href: '/settings/d2c/exceptions' },
   { label: 'Collection Points', href: '/settings/d2c/collection-points' },
   { label: 'Territories', href: '/settings/d2c/territories' },
   { label: 'Consumers', href: '/settings/d2c/consumers' },
@@ -21,7 +22,10 @@ const TABS = [
  *  clone/convention. "WhatsApp Test" added Sprint 40.5
  *  (docs/domains/whatsapp.md) — distinct from "Conversation Tester": that one drives
  *  the simulated internal Conversation Layer endpoint, this one sends a REAL outbound
- *  WhatsApp message through whichever provider is configured. */
+ *  WhatsApp message through whichever provider is configured. "Exceptions" added
+ *  Sprint 43 (docs/domains/d2c.md "Operational Exceptions") — the full,
+ *  un-truncated view of the same `GET /d2c/admin/attention` list the dashboard's
+ *  "Attention Required" section already shows inline. */
 export function D2cTabs() {
   const pathname = usePathname();
 

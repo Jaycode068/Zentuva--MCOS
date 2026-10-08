@@ -116,4 +116,16 @@ export default () => ({
     // change, and so production can point it at the real public API host.
     webhookUrl: process.env.OPAY_WEBHOOK_URL ?? 'http://localhost:4000/api/payments/opay/webhook',
   },
+  d2cOperationalAlerts: {
+    // Sprint 43 — D2C Operations, Notifications & Production Hardening
+    // (docs/domains/d2c.md "Operational Exceptions"). Configurable rather than
+    // scattered hardcoded constants — consumed by `D2COperationalExceptionsService`.
+    assignedHours: parseFloat(process.env.D2C_OPERATIONAL_ALERT_ASSIGNED_HOURS ?? '24'),
+    preparingMinutes: parseFloat(process.env.D2C_OPERATIONAL_ALERT_PREPARING_MINUTES ?? '120'),
+    readyForCollectionHours: parseFloat(
+      process.env.D2C_OPERATIONAL_ALERT_READY_FOR_COLLECTION_HOURS ?? '48',
+    ),
+    paymentPendingHours: parseFloat(process.env.D2C_OPERATIONAL_ALERT_PAYMENT_PENDING_HOURS ?? '2'),
+  },
+  whatsappHttpTimeoutMs: parseInt(process.env.WHATSAPP_HTTP_TIMEOUT_MS ?? '10000', 10),
 });

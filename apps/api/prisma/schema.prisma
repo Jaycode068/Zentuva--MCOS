@@ -243,6 +243,8 @@ model Organisation {
   emailDeliveries                       EmailDelivery[]
   /// Added Sprint 29 — WhatsApp Notification Delivery Foundation.
   whatsappDeliveries                    WhatsAppDelivery[]
+  /// Added Sprint 43 — D2C Operations, Notifications & Production Hardening.
+  consumerWhatsAppDeliveries            ConsumerWhatsAppDelivery[]
   /// Added Sprint 30 — Recruitment & Candidate Interview Management Foundation
   /// (docs/domains/recruitment.md).
   hiringRequests                        HiringRequest[]
@@ -1799,18 +1801,18 @@ model Territory {
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
 
-  organisation     Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  organisation        Organisation         @relation(fields: [organisationId], references: [id], onDelete: Cascade)
   /// `SetNull` (not `Restrict`) for the same reason as `Product.productVariantId`: an
   /// optional grouping pointer must never block or cascade the child row it labels. No
   /// delete endpoint exists for territories anyway (deactivate-only convention).
-  parentTerritory  Territory?   @relation("TerritoryHierarchy", fields: [parentTerritoryId], references: [id], onDelete: SetNull, onUpdate: NoAction)
-  childTerritories Territory[]  @relation("TerritoryHierarchy")
-  customers        Customer[]
-  outlets          Outlet[]
+  parentTerritory     Territory?           @relation("TerritoryHierarchy", fields: [parentTerritoryId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  childTerritories    Territory[]          @relation("TerritoryHierarchy")
+  customers           Customer[]
+  outlets             Outlet[]
   /// Added Sprint 32 — Consumer Identity, Territory & Location Foundation.
   /// The EXISTING hierarchy is reused as-is for D2C structured location —
   /// no separate Location/ConsumerTerritory model (docs/domains/d2c.md §3).
-  d2cConsumers     Consumer[]
+  d2cConsumers        Consumer[]
   /// Added Sprint 38 — Field Operations & Collection Point Mobile Experience. The
   /// first (and, as of this sprint, only) link from a `User`/`Employee` to a
   /// `Territory` anywhere in this codebase — confirmed by audit that no such bridge
@@ -1818,7 +1820,7 @@ model Territory {
   /// "no server-side data links a `User` to a `Territory`"). A plain optional FK,
   /// mirroring `Customer.territoryId`/`Outlet.territoryId` exactly — never a new
   /// generic assignment/join entity.
-  employees        Employee[]
+  employees           Employee[]
   /// Added Sprint 40 — Configurable Promotions, Loyalty, Rewards & Consumer Incentives.
   /// The `TERRITORY` promotion condition type reuses this EXISTING hierarchy directly.
   promotionConditions PromotionCondition[]
@@ -2179,6 +2181,10 @@ model SalesOrder {
   /// The qualifying order(s) that triggered a `ConsumerRewardGrant` — a denormalised
   /// inverse, never a second order-state mechanism.
   rewardGrants               ConsumerRewardGrant[]
+  /// Added Sprint 43 — D2C Operations, Notifications & Production Hardening. Every
+  /// consumer WhatsApp notification sent about this order (Ready for Collection,
+  /// Collected) — a denormalised inverse, never a second fulfilment-status mechanism.
+  consumerWhatsAppDeliveries ConsumerWhatsAppDelivery[]
 
   @@unique([organisationId, idempotencyKey])
   @@index([organisationId])
@@ -7828,24 +7834,28 @@ model Consumer {
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 
-  organisation     Organisation              @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  organisation               Organisation               @relation(fields: [organisationId], references: [id], onDelete: Cascade)
   /// `SetNull` — deactivating/restructuring a territory must never block or
   /// orphan a consumer, same rationale as `Customer.territory`.
-  territory        Territory?                @relation(fields: [territoryId], references: [id], onDelete: SetNull)
-  locationRequests ConsumerLocationRequest[]
+  territory                  Territory?                 @relation(fields: [territoryId], references: [id], onDelete: SetNull)
+  locationRequests           ConsumerLocationRequest[]
   /// Added Sprint 33 — Consumer Conversation Experience Foundation.
-  conversations    ConsumerConversation[]
+  conversations              ConsumerConversation[]
   /// Added Sprint 34 — D2C Consumer Ordering. See `SalesOrder.consumerId`'s doc comment:
   /// a Consumer's own orders, structurally distinct from `Customer.salesOrders`.
-  salesOrders      SalesOrder[]
+  salesOrders                SalesOrder[]
   /// Added Sprint 35 — D2C OPay Payment Integration. See `Payment.consumerId`'s doc
   /// comment.
-  payments         Payment[]
+  payments                   Payment[]
   /// Added Sprint 40 — Configurable Promotions, Loyalty, Rewards & Consumer Incentives.
-  rewardGrants     ConsumerRewardGrant[]
+  rewardGrants               ConsumerRewardGrant[]
   /// Added Sprint 40 — one loyalty account per consumer (`@unique` on
   /// `LoyaltyAccount.consumerId`), `null` until the first qualifying reward creates it.
-  loyaltyAccount   LoyaltyAccount?
+  loyaltyAccount             LoyaltyAccount?
+  /// Added Sprint 43 — D2C Operations, Notifications & Production Hardening. See
+  /// `ConsumerWhatsAppDelivery.consumerId`'s doc comment — structurally distinct from
+  /// `WhatsAppDelivery` (Sprint 29), which targets a `User`, never a `Consumer`.
+  consumerWhatsAppDeliveries ConsumerWhatsAppDelivery[]
 
   /// The core tenant-scoped identity guarantee (docs/domains/d2c.md §5):
   /// one normalized phone number identifies at most one Consumer PER
@@ -8019,6 +8029,82 @@ model WhatsAppWebhookEvent {
 
   @@index([receivedAt])
   @@map("whatsapp_webhook_events")
+}
+
+/// Sprint 43 — D2C Operations, Notifications & Production Hardening
+/// (docs/domains/d2c.md "Consumer Communication Delivery Visibility"). Which
+/// transactional, order-scoped consumer WhatsApp message this delivery attempt is for —
+/// a small, closed set mirroring exactly the two message bodies
+/// `CollectionPointFulfillmentService.notifyReady`/`.notifyCollected` (Sprint 42)
+/// already construct. Never marketing/promotional — see `Consumer.marketingOptIn`.
+enum ConsumerWhatsAppNotificationKind {
+  COLLECTION_READY
+  COLLECTION_CONFIRMED
+}
+
+/// One delivery ATTEMPT record for one consumer-facing D2C WhatsApp notification
+/// (Sprint 43). Deliberately a NEW, narrow model rather than reusing `WhatsAppDelivery`
+/// (Sprint 29): that table's only recipient concept is `recipientUserId`, a `User` FK,
+/// and its only subject concept is `notificationId -> Notification.sourceEventId ->
+/// WorkflowEvent` — neither applies to a `Consumer` placing a D2C order, which
+/// structurally has no `User`/`WorkflowEvent` of its own (the Consumer/User distinction
+/// this codebase maintains everywhere else, docs/domains/d2c.md "Identity Boundaries").
+/// Reusing that table would mean either fabricating a fake `User`/`WorkflowEvent` for
+/// every consumer order, or weakening its FKs to nullable — both worse than this one
+/// small, analogous table. Deliberately mirrors `WhatsAppDelivery`'s own proven shape
+/// (status/attempts/providerName/providerMessageId/lastErrorCode/lastErrorMessage/
+/// timestamps) for consistency, reusing its EXACT `WhatsAppDeliveryStatus` enum rather
+/// than inventing a parallel one. This is NOT a second notification system — the one
+/// real sending mechanism remains `WHATSAPP_PROVIDER`
+/// (`WhatsAppConsumerNotificationService`, unchanged since Sprint 42); this table only
+/// adds the delivery-attempt RECORD that service was missing, so an operator can finally
+/// answer "was this consumer notification attempted, by which provider, did it succeed,
+/// what WAMID came back, why did it fail, and can it safely be retried."
+model ConsumerWhatsAppDelivery {
+  id                     String                           @id @default(cuid())
+  organisationId         String
+  consumerId             String
+  /// Every current caller (`notifyReady`/`notifyCollected`) has a `SalesOrder` in hand —
+  /// required, not nullable, per this codebase's "don't model a case that can't happen
+  /// yet" convention.
+  salesOrderId           String
+  kind                   ConsumerWhatsAppNotificationKind
+  /// Sprint 43 — same "freeze what was actually used" reasoning as
+  /// `WhatsAppDelivery.recipientPhoneSnapshot`/`EmailDelivery.recipientEmail`: the
+  /// Consumer's `normalizedPhone` at the moment this row was created. A retry always
+  /// re-sends to THIS number, never a freshly-re-resolved one.
+  recipientPhoneSnapshot String
+  /// The exact message text sent (or about to be sent) — lets an operator see precisely
+  /// what the consumer received without re-deriving it, same role as
+  /// `WhatsAppDelivery.templateParameterSnapshot`. A retry re-sends THIS exact text.
+  messageSnapshot        String
+  status                 WhatsAppDeliveryStatus           @default(PENDING)
+  /// Incremented on every attempt (initial send or retry), success or failure, never
+  /// reset — same contract as `WhatsAppDelivery.attempts`.
+  attempts               Int                              @default(0)
+  providerName           String?
+  providerMessageId      String?
+  lastErrorCode          String?
+  lastErrorMessage       String?
+  firstAttemptedAt       DateTime?
+  lastAttemptedAt        DateTime?
+  sentAt                 DateTime?
+  createdAt              DateTime                         @default(now())
+  updatedAt              DateTime                         @updatedAt
+
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  consumer     Consumer     @relation(fields: [consumerId], references: [id], onDelete: Restrict)
+  salesOrder   SalesOrder   @relation(fields: [salesOrderId], references: [id], onDelete: Restrict)
+
+  @@index([organisationId, consumerId])
+  @@index([organisationId, salesOrderId])
+  /// The operator's own "what needs attention / can be retried" query, and the retry
+  /// claim's own guard — mirrors `WhatsAppDelivery`'s `[organisationId, status,
+  /// nextRetryAt]` shape minus the automatic-sweep column this table doesn't have (retry
+  /// here is always operator-initiated, never an automatic background sweep).
+  @@index([organisationId, status])
+  @@index([organisationId, createdAt])
+  @@map("consumer_whatsapp_deliveries")
 }
 
 // ---------------------------------------------------------------------------
@@ -8224,7 +8310,7 @@ enum RewardGrantStatus {
 /// race-recovery recipe already established throughout this codebase, never a bare
 /// `if (!exists) create()`.
 model ConsumerRewardGrant {
-  id                     String             @id @default(cuid())
+  id                     String @id @default(cuid())
   organisationId         String
   consumerId             String
   promotionId            String
@@ -8248,8 +8334,8 @@ model ConsumerRewardGrant {
   /// every real code path reads.
   conditionsSnapshot          Json
 
-  status     RewardGrantStatus @default(GRANTED)
-  grantedAt  DateTime          @default(now())
+  status    RewardGrantStatus @default(GRANTED)
+  grantedAt DateTime          @default(now())
 
   organisation         Organisation        @relation(fields: [organisationId], references: [id], onDelete: Cascade)
   /// `Restrict` — a reward grant is itself a historical/financial-adjacent record (it may

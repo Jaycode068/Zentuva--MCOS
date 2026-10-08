@@ -390,4 +390,176 @@ describe('WhatsAppInboundAdapterService', () => {
       expect.objectContaining({ action: 'whatsapp.delivery_status_received' }),
     );
   });
+
+  // Sprint 43 — D2C Operations, Notifications & Production Hardening (brief §Phase 12
+  // "Webhook Resilience" — one malformed/failing event must never break processing of
+  // unrelated events in the same payload).
+  describe('webhook resilience (Sprint 43)', () => {
+    it('a malformed change (no `value` at all) never throws, and a sibling valid change in the SAME payload still processes', async () => {
+      const { adapter, conversationService } = makeDeps();
+      (conversationService.handleInboundMessage as jest.Mock).mockResolvedValue({
+        conversationId: 'conv-1',
+        state: 'NEW',
+        messages: [{ type: 'TEXT', text: 'ok' }],
+      });
+
+      const payload: MetaWebhookPayload = {
+        object: 'whatsapp_business_account',
+        entry: [
+          {
+            id: 'waba-1',
+            changes: [
+              // Malformed: no `value` property at all.
+              { field: 'messages' } as never,
+              {
+                field: 'messages',
+                value: {
+                  messaging_product: 'whatsapp',
+                  metadata: { display_phone_number: '1', phone_number_id: 'pn-1' },
+                  messages: [
+                    {
+                      id: 'wamid.IN-SIBLING',
+                      from: '2348012345678',
+                      timestamp: '1700000000',
+                      type: 'text',
+                      text: { body: 'Hi' },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        ],
+      };
+
+      await expect(adapter.handleWebhookPayload(payload)).resolves.toBeUndefined();
+      expect(conversationService.handleInboundMessage).toHaveBeenCalledTimes(1);
+    });
+
+    it('an unsupported/unknown message type never throws — falls back to an empty TEXT input rather than crashing', async () => {
+      const { adapter, conversationService } = makeDeps();
+      (conversationService.handleInboundMessage as jest.Mock).mockResolvedValue({
+        conversationId: 'conv-1',
+        state: 'NEW',
+        messages: [{ type: 'TEXT', text: 'ok' }],
+      });
+
+      const payload: MetaWebhookPayload = {
+        object: 'whatsapp_business_account',
+        entry: [
+          {
+            id: 'waba-1',
+            changes: [
+              {
+                field: 'messages',
+                value: {
+                  messaging_product: 'whatsapp',
+                  metadata: { display_phone_number: '1', phone_number_id: 'pn-1' },
+                  messages: [
+                    {
+                      id: 'wamid.AUDIO1',
+                      from: '2348012345678',
+                      timestamp: '1700000000',
+                      // An unsupported type this adapter has no explicit handling for
+                      // (e.g. a voice note) — neither `text` nor `button` present.
+                      type: 'audio',
+                    } as never,
+                  ],
+                },
+              },
+            ],
+          },
+        ],
+      };
+
+      await expect(adapter.handleWebhookPayload(payload)).resolves.toBeUndefined();
+      expect(conversationService.handleInboundMessage).toHaveBeenCalledWith(
+        'org-1',
+        expect.objectContaining({ input: { type: 'TEXT', text: '(empty message)' } }),
+      );
+    });
+
+    it('one message failing deep inside conversation processing never aborts a sibling message in the same payload', async () => {
+      const { adapter, conversationService } = makeDeps();
+      (conversationService.handleInboundMessage as jest.Mock)
+        .mockRejectedValueOnce(new Error('simulated conversation processing failure'))
+        .mockResolvedValueOnce({
+          conversationId: 'conv-2',
+          state: 'NEW',
+          messages: [{ type: 'TEXT', text: 'ok' }],
+        });
+
+      const payload: MetaWebhookPayload = {
+        object: 'whatsapp_business_account',
+        entry: [
+          {
+            id: 'waba-1',
+            changes: [
+              {
+                field: 'messages',
+                value: {
+                  messaging_product: 'whatsapp',
+                  metadata: { display_phone_number: '1', phone_number_id: 'pn-1' },
+                  messages: [
+                    {
+                      id: 'wamid.FAIL1',
+                      from: '2348012345678',
+                      timestamp: '1700000000',
+                      type: 'text',
+                      text: { body: 'first (will fail)' },
+                    },
+                    {
+                      id: 'wamid.OK1',
+                      from: '2348087654321',
+                      timestamp: '1700000001',
+                      type: 'text',
+                      text: { body: 'second (should still process)' },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        ],
+      };
+
+      await expect(adapter.handleWebhookPayload(payload)).resolves.toBeUndefined();
+      expect(conversationService.handleInboundMessage).toHaveBeenCalledTimes(2);
+    });
+
+    it('a status webhook for an unknown/unmatched WAMID is processed safely (audit-logged, never throws)', async () => {
+      const { adapter, auditService } = makeDeps();
+
+      const payload: MetaWebhookPayload = {
+        object: 'whatsapp_business_account',
+        entry: [
+          {
+            id: 'waba-1',
+            changes: [
+              {
+                field: 'messages',
+                value: {
+                  messaging_product: 'whatsapp',
+                  metadata: { display_phone_number: '1', phone_number_id: 'pn-1' },
+                  statuses: [
+                    {
+                      id: 'wamid.NEVER-SENT-BY-US',
+                      status: 'delivered',
+                      timestamp: '1700000000',
+                      recipient_id: '2348012345678',
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        ],
+      };
+
+      await expect(adapter.handleWebhookPayload(payload)).resolves.toBeUndefined();
+      expect(auditService.record).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'whatsapp.delivery_status_received' }),
+      );
+    });
+  });
 });

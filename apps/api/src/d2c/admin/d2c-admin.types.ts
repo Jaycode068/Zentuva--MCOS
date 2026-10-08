@@ -6,36 +6,35 @@
  * own and introduces no parallel D2C order/Exception entity.
  */
 
-export type AttentionCategory = 'INFORMATION' | 'ACTION_REQUIRED';
+/** Sprint 43 — the canonical exception-item shape now lives in
+ *  `d2c/operations/d2c-operational-exceptions.types.ts` (shared with
+ *  `FieldD2COverviewService`'s territory-scoped view); re-exported here under its
+ *  original Sprint 39 name so this module's existing consumers (the frontend
+ *  dashboard's "Attention Required" section) see no contract change. */
+import type { D2CExceptionItem } from '../operations/d2c-operational-exceptions.types';
 
-/** A single row in the "Attention Required" section — always derived live from
- *  existing data (brief: "don't create a fake Exception entity unless proven
- *  necessary" — it wasn't; every case here is a plain filter/age-check over data that
- *  already exists). `entityType`/`entityId` let the frontend deep-link straight to the
- *  record (an order, a Collection Point, nothing else). */
-export interface D2CAttentionItem {
-  category: AttentionCategory;
-  type:
-    | 'UNASSIGNED_ORDER'
-    | 'UNPAID_ORDER'
-    | 'FAILED_PAYMENT'
-    | 'STUCK_FULFILLMENT'
-    | 'DISABLED_COLLECTION_POINT_WITH_QUEUE';
-  message: string;
-  entityType: 'SalesOrder' | 'CollectionPointFulfillment' | 'Outlet';
-  entityId: string;
-}
+export type D2CAttentionItem = D2CExceptionItem;
 
 export interface D2CAdminOverview {
   summary: {
     totalD2COrders: number;
+    ordersToday: number;
+    ordersPreparing: number;
+    ordersReadyForCollection: number;
+    ordersCollectedToday: number;
     consumersTotal: number;
+    activeConsumers: number;
+    newConsumersToday: number;
     activeCollectionPoints: number;
     pendingPayments: number;
     failedPayments: number;
     unassignedOrders: number;
+    exceptionsCount: number;
+    whatsappSentToday: number;
+    whatsappFailedToday: number;
+    whatsappEligibleForRetry: number;
   };
-  attention: D2CAttentionItem[];
+  attention: D2CExceptionItem[];
   recentOrders: {
     id: string;
     orderCode: string;

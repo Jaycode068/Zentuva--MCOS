@@ -15,29 +15,50 @@ import { apiFetch } from '@/lib/api-client';
 // ---------------------------------------------------------------------------
 
 export type AttentionCategory = 'INFORMATION' | 'ACTION_REQUIRED';
+/** Added Sprint 43 — a rough operator-triage signal, see `D2CExceptionSeverity` in
+ *  `docs/domains/d2c.md` "Operational Exceptions". */
+export type AttentionSeverity = 'LOW' | 'MEDIUM' | 'HIGH';
 export type AttentionType =
   | 'UNASSIGNED_ORDER'
-  | 'UNPAID_ORDER'
   | 'FAILED_PAYMENT'
+  | 'STALE_PENDING_PAYMENT'
   | 'STUCK_FULFILLMENT'
-  | 'DISABLED_COLLECTION_POINT_WITH_QUEUE';
+  | 'STUCK_READY_FOR_COLLECTION'
+  | 'DISABLED_COLLECTION_POINT_WITH_QUEUE'
+  | 'NOTIFICATION_FAILED';
 
 export interface D2CAttentionItem {
   category: AttentionCategory;
   type: AttentionType;
+  severity: AttentionSeverity;
   message: string;
-  entityType: 'SalesOrder' | 'CollectionPointFulfillment' | 'Outlet';
+  entityType: 'SalesOrder' | 'CollectionPointFulfillment' | 'Outlet' | 'ConsumerWhatsAppDelivery';
   entityId: string;
+  detectedAt: string;
+  orderCode?: string | null;
+  consumerName?: string | null;
+  territoryName?: string | null;
+  collectionPointName?: string | null;
 }
 
 export interface D2CAdminOverview {
   summary: {
     totalD2COrders: number;
+    ordersToday: number;
+    ordersPreparing: number;
+    ordersReadyForCollection: number;
+    ordersCollectedToday: number;
     consumersTotal: number;
+    activeConsumers: number;
+    newConsumersToday: number;
     activeCollectionPoints: number;
     pendingPayments: number;
     failedPayments: number;
     unassignedOrders: number;
+    exceptionsCount: number;
+    whatsappSentToday: number;
+    whatsappFailedToday: number;
+    whatsappEligibleForRetry: number;
   };
   attention: D2CAttentionItem[];
   recentOrders: {
@@ -263,4 +284,67 @@ export function listPaymentsForOrder(
   salesOrderId: string,
 ): Promise<{ items: D2CPaymentSummary[] }> {
   return apiFetch<{ items: D2CPaymentSummary[] }>(`/finance/payments?salesOrderId=${salesOrderId}`);
+}
+
+// ---------------------------------------------------------------------------
+// Consumer Communication / Delivery History (Sprint 43 —
+// docs/domains/d2c.md "Consumer Communication Delivery Visibility")
+// ---------------------------------------------------------------------------
+
+export type WhatsAppDeliveryStatusValue = 'PENDING' | 'PROCESSING' | 'SENT' | 'FAILED';
+
+export interface ConsumerWhatsAppDeliverySummary {
+  id: string;
+  organisationId: string;
+  consumerId: string;
+  salesOrderId: string;
+  kind: 'COLLECTION_READY' | 'COLLECTION_CONFIRMED';
+  recipientPhoneSnapshot: string;
+  messageSnapshot: string;
+  status: WhatsAppDeliveryStatusValue;
+  attempts: number;
+  providerName: string | null;
+  providerMessageId: string | null;
+  lastErrorCode: string | null;
+  lastErrorMessage: string | null;
+  firstAttemptedAt: string | null;
+  lastAttemptedAt: string | null;
+  sentAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export function listCommunicationsForConsumer(
+  consumerId: string,
+  params: { page?: number; pageSize?: number } = {},
+): Promise<{
+  items: ConsumerWhatsAppDeliverySummary[];
+  total: number;
+  page: number;
+  pageSize: number;
+}> {
+  const query = new URLSearchParams();
+  if (params.page) query.set('page', String(params.page));
+  if (params.pageSize) query.set('pageSize', String(params.pageSize));
+  const qs = query.toString();
+  return apiFetch<{
+    items: ConsumerWhatsAppDeliverySummary[];
+    total: number;
+    page: number;
+    pageSize: number;
+  }>(`/d2c/communications/by-consumer/${consumerId}${qs ? `?${qs}` : ''}`);
+}
+
+export function listCommunicationsForOrder(
+  salesOrderId: string,
+): Promise<{ items: ConsumerWhatsAppDeliverySummary[] }> {
+  return apiFetch<{ items: ConsumerWhatsAppDeliverySummary[] }>(
+    `/d2c/communications/by-order/${salesOrderId}`,
+  );
+}
+
+export function retryCommunication(id: string): Promise<ConsumerWhatsAppDeliverySummary> {
+  return apiFetch<ConsumerWhatsAppDeliverySummary>(`/d2c/communications/${id}/retry`, {
+    method: 'POST',
+  });
 }

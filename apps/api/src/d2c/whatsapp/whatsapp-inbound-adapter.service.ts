@@ -73,29 +73,68 @@ export class WhatsAppInboundAdapterService {
    *  verification, never anything else. Every entry/change/message/status is deduped
    *  independently via `WhatsAppWebhookEventRepository.tryClaim` (brief "Idempotency
    *  and Repeated Messages" — Meta redelivers the WHOLE payload on any non-2xx/timeout
-   *  response, not just one message at a time). */
+   *  response, not just one message at a time).
+   *
+   *  Sprint 43 — D2C Operations, Notifications & Production Hardening (brief §Phase 12
+   *  "do not let one malformed WhatsApp event break processing of unrelated events").
+   *  Each `change`/message/status is now processed inside its OWN try/catch: a
+   *  malformed `change` (e.g. a missing `value`), an unsupported message shape, or a
+   *  genuine processing failure for ONE message/status is logged and skipped, never
+   *  thrown back up through this loop — a single Meta payload can legitimately batch
+   *  several entries/changes together, and one bad one must never silently drop the
+   *  rest. The outer webhook controller's own try/catch remains the last-resort safety
+   *  net (still always 200s to Meta either way); this is the FIRST line of defense,
+   *  scoped narrowly enough that it only ever skips the one malformed item. */
   async handleWebhookPayload(payload: MetaWebhookPayload): Promise<void> {
     for (const entry of payload.entry ?? []) {
       for (const change of entry.changes ?? []) {
-        const value = change.value;
-        for (const message of value.messages ?? []) {
-          const claimed = await this.webhookEventRepository.tryClaim(message.id, 'INBOUND_MESSAGE');
-          if (!claimed) {
-            this.logger.debug(`Skipping already-processed inbound WhatsApp message ${message.id}`);
-            continue;
+        try {
+          const value = change.value;
+          for (const message of value.messages ?? []) {
+            try {
+              const claimed = await this.webhookEventRepository.tryClaim(
+                message.id,
+                'INBOUND_MESSAGE',
+              );
+              if (!claimed) {
+                this.logger.debug(
+                  `Skipping already-processed inbound WhatsApp message ${message.id}`,
+                );
+                continue;
+              }
+              await this.processInboundMessage(message);
+            } catch (error) {
+              this.logger.error(
+                `Failed to process inbound WhatsApp message ${message?.id ?? '(unknown id)'}`,
+                error instanceof Error ? error.stack : String(error),
+              );
+            }
           }
-          await this.processInboundMessage(message);
-        }
-        for (const status of value.statuses ?? []) {
-          // Composite key — Meta sends multiple GENUINELY DIFFERENT status events
-          // (sent, delivered, read) for the SAME message id; only an exact repeat of
-          // the same id+status pair is a true redelivery.
-          const claimed = await this.webhookEventRepository.tryClaim(
-            `${status.id}:${status.status}`,
-            'STATUS_UPDATE',
+          for (const status of value.statuses ?? []) {
+            try {
+              // Composite key — Meta sends multiple GENUINELY DIFFERENT status events
+              // (sent, delivered, read) for the SAME message id; only an exact repeat
+              // of the same id+status pair is a true redelivery.
+              const claimed = await this.webhookEventRepository.tryClaim(
+                `${status.id}:${status.status}`,
+                'STATUS_UPDATE',
+              );
+              if (!claimed) continue;
+              await this.processStatusUpdate(status);
+            } catch (error) {
+              this.logger.error(
+                `Failed to process WhatsApp status update ${status?.id ?? '(unknown id)'}`,
+                error instanceof Error ? error.stack : String(error),
+              );
+            }
+          }
+        } catch (error) {
+          // A malformed `change` (e.g. no `value` at all) — never let it abort the
+          // REST of this entry's other changes, or the next entry in the same payload.
+          this.logger.error(
+            'Failed to process a WhatsApp webhook change — skipping it, continuing with the rest of the payload',
+            error instanceof Error ? error.stack : String(error),
           );
-          if (!claimed) continue;
-          await this.processStatusUpdate(status);
         }
       }
     }

@@ -4,6 +4,8 @@ import { CollectionPointFulfillmentStatus } from '@prisma/client';
 import { EmployeeService } from '../../hr/employee.service';
 import { EffectiveAccessResolver } from '../../identity/authorization/effective-access-resolver';
 import { CollectionPointFulfillmentRepository } from '../fulfillment/collection-point-fulfillment.repository';
+import { D2COperationalExceptionsService } from '../operations/d2c-operational-exceptions.service';
+import { D2CExceptionItem } from '../operations/d2c-operational-exceptions.types';
 import { OutletRepository } from '../../retail/outlet/outlet.repository';
 import { SalesOrderRepository } from '../../sales/sales-order.repository';
 import { FieldD2CCollectionPointResult, FieldD2COrderResult } from './field-d2c-overview.types';
@@ -38,7 +40,24 @@ export class FieldD2COverviewService {
     private readonly outletRepository: OutletRepository,
     private readonly employeeService: EmployeeService,
     private readonly effectiveAccessResolver: EffectiveAccessResolver,
+    private readonly exceptionsService: D2COperationalExceptionsService,
   ) {}
+
+  /** Added Sprint 43 — D2C Operations, Notifications & Production Hardening (brief
+   *  §Phase 10 "operational exceptions"). Reuses the EXACT SAME detection logic
+   *  `D2CAdminService.getAttention` uses org-wide, scoped to this rep's own territory
+   *  (or every territory for an admin) — never a second, independently-maintained copy
+   *  of "what counts as stuck." */
+  async listExceptions(organisationId: string, actorUserId: string): Promise<D2CExceptionItem[]> {
+    const territoryId = await this.resolveTerritoryScope(organisationId, actorUserId);
+    if (territoryId === 'NONE') {
+      return [];
+    }
+    return this.exceptionsService.compute(
+      organisationId,
+      territoryId === 'ALL' ? {} : { territoryId },
+    );
+  }
 
   async listOrders(organisationId: string, actorUserId: string): Promise<FieldD2COrderResult[]> {
     const territoryId = await this.resolveTerritoryScope(organisationId, actorUserId);

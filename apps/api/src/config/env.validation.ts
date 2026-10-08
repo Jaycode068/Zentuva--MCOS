@@ -158,6 +158,20 @@ export const envSchema = baseEnvSchema
       .trim()
       .url()
       .default('http://localhost:4000/api/payments/opay/webhook'),
+
+    // --- D2C Operational Alert Thresholds (Sprint 43 — docs/domains/d2c.md
+    // "Operational Exceptions"). Every value defaulted so an existing environment
+    // boots unchanged; configurable rather than scattered hardcoded constants per the
+    // brief's own instruction. Consumed by `D2COperationalExceptionsService`.
+    D2C_OPERATIONAL_ALERT_ASSIGNED_HOURS: z.coerce.number().positive().default(24),
+    D2C_OPERATIONAL_ALERT_PREPARING_MINUTES: z.coerce.number().positive().default(120),
+    D2C_OPERATIONAL_ALERT_READY_FOR_COLLECTION_HOURS: z.coerce.number().positive().default(48),
+    D2C_OPERATIONAL_ALERT_PAYMENT_PENDING_HOURS: z.coerce.number().positive().default(2),
+
+    // --- WhatsApp Provider HTTP Hardening (Sprint 43). A bounded request timeout for
+    // the real Meta provider's outbound `fetch` calls — previously unbounded (see
+    // docs/domains/whatsapp.md "Known Limitations").
+    WHATSAPP_HTTP_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
   })
   .refine((env) => env.JWT_ACCESS_SECRET !== env.JWT_REFRESH_SECRET, {
     message: 'JWT_ACCESS_SECRET and JWT_REFRESH_SECRET must be different values',

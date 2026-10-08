@@ -192,6 +192,31 @@ describe('MetaWhatsAppProvider', () => {
       expect(result.errorCode).toBe('WHATSAPP_NETWORK');
     });
 
+    // Sprint 43 — D2C Operations, Notifications & Production Hardening. A hung Meta
+    // response previously stalled this call indefinitely; now bounded by
+    // `WHATSAPP_HTTP_TIMEOUT_MS` via `AbortController`.
+    it('maps an aborted/timed-out request to a distinct RETRYABLE_FAILURE, not WHATSAPP_NETWORK', async () => {
+      const abortError = new Error('The operation was aborted');
+      abortError.name = 'AbortError';
+      fetchMock.mockRejectedValue(abortError);
+      const provider = new MetaWhatsAppProvider(makeConfig({ whatsappHttpTimeoutMs: 10_000 }));
+      const result = await provider.sendTemplate(baseMessage);
+      expect(result.outcome).toBe('RETRYABLE_FAILURE');
+      expect(result.errorCode).toBe('WHATSAPP_TIMEOUT');
+    });
+
+    it('passes an AbortSignal to fetch bounded by the configured timeout', async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ messages: [{ id: 'wamid.ABC123' }] }),
+      });
+      const provider = new MetaWhatsAppProvider(makeConfig());
+      await provider.sendTemplate(baseMessage);
+      const options = fetchMock.mock.calls[0][1] as RequestInit;
+      expect(options.signal).toBeInstanceOf(AbortSignal);
+    });
+
     it('never returns providerMessageId on a failure', async () => {
       fetchMock.mockResolvedValue({
         ok: false,

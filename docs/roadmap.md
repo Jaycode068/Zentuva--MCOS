@@ -1045,6 +1045,29 @@ PaymentService (existing, extended) + SalesOrderService.confirm
       integration suites re-run clean; zero schema changes, zero new entity — see
       [`docs/domains/d2c.md`](domains/d2c.md) §120–123 and
       [`docs/sprint-42-completion-report.md`](sprint-42-completion-report.md)
+- [x] **Sprint 43 — D2C Operations, Notifications & Production Hardening.** Made the
+      already-working D2C loop operable rather than adding a new capability: a new
+      `ConsumerWhatsAppDelivery` delivery-attempt record (the audit confirmed the
+      existing internal-staff `WhatsAppDelivery` table has zero applicability to a
+      `Consumer`) plus a safe, idempotent, concurrency-proof retry
+      (`d2c.communication.view`/`.manage`, two new permissions) that is structurally
+      incapable of touching `SalesOrder`/`Payment`/inventory/loyalty. The Sprint 39
+      exception-detection logic was extracted into a shared service and widened from
+      four checks to seven (adds stale-pending-payment, stuck-ready-for-collection,
+      and notification-failed), reused by both the admin dashboard and a new
+      territory-scoped field view, with every threshold now configuration instead of a
+      hardcoded constant. A genuine webhook-resilience defect found by this sprint's
+      own audit — a malformed item in a batched Meta payload could abort processing of
+      unrelated items in the same batch — was fixed and proven. Live-verified against
+      real Meta WhatsApp traffic: the full order→payment→Collection Point→notification→
+      collection loop re-run with real delivery records attached, a real notification
+      failure (Meta code 131030) correctly recorded and surfaced as an exception, two
+      genuinely concurrent retry requests resolving to exactly one winner, and the
+      Member role correctly rejected with 403 from the new endpoints. 253 suites / 2301
+      tests and 5 integration suites / 22 tests passing, 0 regressions; one new table,
+      purely additive — see [`docs/domains/d2c.md`](domains/d2c.md) §124–127,
+      [`docs/domains/whatsapp.md`](domains/whatsapp.md) §12, and
+      [`docs/sprint-43-completion-report.md`](sprint-43-completion-report.md)
 - [ ] Retail Portal (mobile)
 - [ ] Business Intelligence dashboards
 

@@ -41,3 +41,24 @@ export function listFieldD2COrders(): Promise<{ items: FieldD2COrder[] }> {
 export function listFieldD2CCollectionPoints(): Promise<{ items: FieldD2CCollectionPoint[] }> {
   return apiFetch<{ items: FieldD2CCollectionPoint[] }>('/d2c/field-overview/collection-points');
 }
+
+/** Added Sprint 43 — D2C Operations, Notifications & Production Hardening. The SAME
+ *  exception shape the admin dashboard's "Attention Required" section uses
+ *  (`D2COperationalExceptionsService`), scoped to this rep's own territory. */
+export interface FieldD2CException {
+  category: 'INFORMATION' | 'ACTION_REQUIRED';
+  type: string;
+  severity: 'LOW' | 'MEDIUM' | 'HIGH';
+  message: string;
+  entityType: 'SalesOrder' | 'CollectionPointFulfillment' | 'Outlet' | 'ConsumerWhatsAppDelivery';
+  entityId: string;
+  detectedAt: string;
+  orderCode?: string | null;
+  consumerName?: string | null;
+  territoryName?: string | null;
+  collectionPointName?: string | null;
+}
+
+export function listFieldD2CExceptions(): Promise<{ items: FieldD2CException[] }> {
+  return apiFetch<{ items: FieldD2CException[] }>('/d2c/field-overview/exceptions');
+}
