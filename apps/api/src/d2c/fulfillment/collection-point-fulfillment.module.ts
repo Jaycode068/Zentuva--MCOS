@@ -6,6 +6,7 @@ import { InventoryModule } from '../../inventory/inventory.module';
 import { OutletModule } from '../../retail/outlet/outlet.module';
 import { SalesModule } from '../../sales/sales.module';
 import { ConsumerModule } from '../consumer/consumer.module';
+import { D2CConversationConfigModule } from '../conversation-config/d2c-conversation-config.module';
 import { D2CMessagingModule } from '../messaging/d2c-messaging.module';
 import { CollectionPointFulfillmentController } from './collection-point-fulfillment.controller';
 import { CollectionPointFulfillmentRepository } from './collection-point-fulfillment.repository';
@@ -29,6 +30,11 @@ import { CollectionPointFulfillmentService } from './collection-point-fulfillmen
  * (docs/domains/d2c.md "Fulfilment Notifications") this service calls at
  * READY_FOR_COLLECTION/COLLECTED, never importing anything WhatsApp-specific itself —
  * see `collection-point-fulfillment-independence.spec.ts`.
+ *
+ * `D2CConversationConfigModule` added Sprint 44 — `notifyReady`/`notifyCollected` now
+ * resolve their message TEXT from the same tenant configuration resolver
+ * `ConversationService` uses (docs/domains/d2c.md "Tenant Conversation Configuration"),
+ * replacing the hardcoded strings those two methods used to build directly.
  */
 @Module({
   imports: [
@@ -39,6 +45,7 @@ import { CollectionPointFulfillmentService } from './collection-point-fulfillmen
     ConsumerModule,
     InventoryModule,
     D2CMessagingModule,
+    D2CConversationConfigModule,
   ],
   controllers: [CollectionPointFulfillmentController],
   providers: [CollectionPointFulfillmentRepository, CollectionPointFulfillmentService],

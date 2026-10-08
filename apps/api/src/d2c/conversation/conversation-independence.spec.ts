@@ -73,7 +73,7 @@ describe('D2C Consumer Conversation domain independence (Sprint 33)', () => {
     }
   });
 
-  it('structural guard: ConversationModule imports only IdentityModule/AuthModule/TerritoryModule/ConsumerModule/D2COrderingModule/D2CPaymentModule/LoyaltyModule (Sprints 34/35/41) — never PromotionModule/RewardModule, so "My Rewards" can only ever READ via LoyaltyService, never evaluate/grant anything itself', () => {
+  it('structural guard: ConversationModule imports only IdentityModule/AuthModule/TerritoryModule/ConsumerModule/D2COrderingModule/D2CPaymentModule/LoyaltyModule/D2CConversationConfigModule (Sprints 34/35/41/44) — never PromotionModule/RewardModule, so "My Rewards" can only ever READ via LoyaltyService, never evaluate/grant anything itself', () => {
     const source = readFileSync(join(__dirname, 'conversation.module.ts'), 'utf-8');
     expect(source).not.toMatch(/^import .*NotificationsModule.*from/m);
     expect(source).not.toMatch(/^import .*WorkflowModule.*from/m);
@@ -93,6 +93,7 @@ describe('D2C Consumer Conversation domain independence (Sprint 33)', () => {
         'D2COrderingModule',
         'D2CPaymentModule',
         'LoyaltyModule',
+        'D2CConversationConfigModule',
       ]),
     );
   });

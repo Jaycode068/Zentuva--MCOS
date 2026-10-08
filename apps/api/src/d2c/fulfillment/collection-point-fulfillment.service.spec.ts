@@ -3,12 +3,13 @@ import { CollectionPointFulfillmentStatus } from '@prisma/client';
 
 import { AuditService } from '../../identity/audit/audit.service';
 import { EffectiveAccessResolver } from '../../identity/authorization/effective-access-resolver';
-import { OrganisationService } from '../../identity/organisation/organisation.service';
 import { InventoryStockRepository } from '../../inventory/inventory-stock.repository';
 import { OutletRepository } from '../../retail/outlet/outlet.repository';
 import { SalesFulfilmentService } from '../../sales/sales-fulfilment.service';
 import { SalesOrderRepository } from '../../sales/sales-order.repository';
 import { ConsumerService } from '../consumer/consumer.service';
+import { D2CConversationConfigService } from '../conversation-config/d2c-conversation-config.service';
+import { DEFAULT_MESSAGES } from '../conversation-config/d2c-conversation-config.types';
 import { ConsumerNotificationPort } from '../messaging/consumer-notification.port';
 import { CollectionPointFulfillmentRepository } from './collection-point-fulfillment.repository';
 import { CollectionPointFulfillmentService } from './collection-point-fulfillment.service';
@@ -114,12 +115,23 @@ describe('CollectionPointFulfillmentService', () => {
     const inventoryStockRepository = {
       findManyByProductsAndLocation: jest.fn().mockResolvedValue([]),
     } as unknown as jest.Mocked<InventoryStockRepository>;
-    const organisationService = {
-      getById: jest.fn().mockResolvedValue({ id: orgId, displayName: null, name: 'Boby Bites' }),
-    } as unknown as jest.Mocked<OrganisationService>;
     const consumerNotificationPort = {
       notify: jest.fn().mockResolvedValue(undefined),
     } as unknown as jest.Mocked<ConsumerNotificationPort>;
+    // Sprint 44 — a fake resolver returning the SAME platform-default
+    // READY_FOR_COLLECTION/COLLECTION_CONFIRMED templates `DEFAULT_MESSAGES` defines,
+    // so every pre-existing assertion below (order code/outlet name/address/hours
+    // appearing in the rendered message) keeps passing unchanged.
+    const conversationConfigService = {
+      resolveEffectiveConfig: jest.fn().mockResolvedValue({
+        organisationId: orgId,
+        businessName: 'Boby Bites',
+        supportPhone: null,
+        supportEmail: null,
+        capabilities: [],
+        messages: DEFAULT_MESSAGES,
+      }),
+    } as unknown as jest.Mocked<D2CConversationConfigService>;
 
     const service = new CollectionPointFulfillmentService(
       repository,
@@ -130,8 +142,8 @@ describe('CollectionPointFulfillmentService', () => {
       auditService,
       effectiveAccessResolver,
       inventoryStockRepository,
-      organisationService,
       consumerNotificationPort,
+      conversationConfigService,
     );
     return {
       service,
@@ -143,8 +155,8 @@ describe('CollectionPointFulfillmentService', () => {
       auditService,
       effectiveAccessResolver,
       inventoryStockRepository,
-      organisationService,
       consumerNotificationPort,
+      conversationConfigService,
     };
   }
 

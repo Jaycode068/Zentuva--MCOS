@@ -5,6 +5,7 @@ import { IdentityModule } from '../../identity/identity.module';
 import { LoyaltyModule } from '../../promotions/loyalty/loyalty.module';
 import { TerritoryModule } from '../../retail/territory/territory.module';
 import { ConsumerModule } from '../consumer/consumer.module';
+import { D2CConversationConfigModule } from '../conversation-config/d2c-conversation-config.module';
 import { D2COrderingModule } from '../ordering/d2c-ordering.module';
 import { D2CPaymentModule } from '../payment/d2c-payment.module';
 import { ConversationMessageRepository } from './conversation-message.repository';
@@ -33,6 +34,14 @@ import { ConversationService } from './conversation.service';
  * Added Sprint 41 — `LoyaltyModule`, so the main menu's "My Rewards" option can inject
  * the EXISTING `LoyaltyService` (Sprint 40) read-only — never a second rewards read
  * path, never reward/promotion evaluation logic duplicated here.
+ *
+ * Added Sprint 44 — `D2CConversationConfigModule`, so `ConversationService` can inject
+ * `D2CConversationConfigService` and resolve each tenant's own effective welcome
+ * message/menu/capability configuration (docs/domains/d2c.md "Tenant Conversation
+ * Configuration") instead of the hardcoded strings this class used before. This is the
+ * ONE new import this sprint required — the config module itself has no WhatsApp/
+ * Finance/Sales/etc. dependency of its own (see `D2CConversationConfigModule`'s own doc
+ * comment), so it does not widen what `ConversationService` can transitively reach.
  */
 @Module({
   imports: [
@@ -43,6 +52,7 @@ import { ConversationService } from './conversation.service';
     D2COrderingModule,
     D2CPaymentModule,
     LoyaltyModule,
+    D2CConversationConfigModule,
   ],
   controllers: [ConversationController],
   providers: [ConversationRepository, ConversationMessageRepository, ConversationService],

@@ -10,12 +10,13 @@ import { CollectionPointFulfillmentStatus } from '@prisma/client';
 
 import { EffectiveAccessResolver } from '../../identity/authorization/effective-access-resolver';
 import { AuditService } from '../../identity/audit/audit.service';
-import { OrganisationService } from '../../identity/organisation/organisation.service';
 import { InventoryStockRepository } from '../../inventory/inventory-stock.repository';
 import { OutletRepository } from '../../retail/outlet/outlet.repository';
 import { SalesFulfilmentService } from '../../sales/sales-fulfilment.service';
 import { SalesOrderRepository } from '../../sales/sales-order.repository';
 import { ConsumerService } from '../consumer/consumer.service';
+import { renderConversationMessage } from '../conversation-config/d2c-conversation-config-rendering';
+import { D2CConversationConfigService } from '../conversation-config/d2c-conversation-config.service';
 import {
   CONSUMER_NOTIFICATION_PORT,
   ConsumerNotificationPort,
@@ -59,9 +60,9 @@ export class CollectionPointFulfillmentService {
     private readonly auditService: AuditService,
     private readonly effectiveAccessResolver: EffectiveAccessResolver,
     private readonly inventoryStockRepository: InventoryStockRepository,
-    private readonly organisationService: OrganisationService,
     @Inject(CONSUMER_NOTIFICATION_PORT)
     private readonly consumerNotificationPort: ConsumerNotificationPort,
+    private readonly conversationConfigService: D2CConversationConfigService,
   ) {}
 
   /**
@@ -688,6 +689,15 @@ export class CollectionPointFulfillmentService {
    *  brief §31). Tenant name is always the real `Organisation.displayName`/`.name` —
    *  never a hardcoded brand (the exact bug/fix precedent `ConversationService`'s own
    *  `welcomeMessage` already established, Sprint 33). */
+  /** Sprint 44 — D2C Tenant Conversation Configuration (docs/domains/d2c.md "Tenant
+   *  Conversation Configuration"). The message text itself now comes from the SAME
+   *  `D2CConversationConfigService` resolver `ConversationService` uses — never a
+   *  second configuration-reading mechanism — so a tenant customizing their
+   *  "Ready for Collection" wording sees it here too, not just in the conversation
+   *  menu. `{{collectionPointAddress}}`/`{{collectionPointHours}}` are passed as
+   *  empty strings when absent (same "omit nothing, substitute blank" behaviour the
+   *  renderer already uses everywhere else) — a tenant who cares about the exact
+   *  blank-line cosmetics can always customize the template themselves. */
   private async notifyReady(
     organisationId: string,
     consumerId: string,
@@ -698,51 +708,40 @@ export class CollectionPointFulfillmentService {
       collectionPointOperatingHours: string | null;
     },
   ): Promise<void> {
-    const organisation = await this.organisationService.getById(organisationId);
-    const tenantName = organisation?.displayName ?? organisation?.name ?? 'us';
-    const lines = [
-      '✅ Your order is ready!',
-      '',
-      `Order: #${cpf.salesOrder.orderCode}`,
-      '',
-      'Your order is ready for collection at:',
-      '',
-      outlet.name,
-    ];
-    if (outlet.address) lines.push(outlet.address);
-    if (outlet.collectionPointOperatingHours) lines.push(outlet.collectionPointOperatingHours);
-    lines.push(
-      '',
-      'Please present your order number when you arrive.',
-      '',
-      `Thank you for choosing ${tenantName}.`,
+    const config = await this.conversationConfigService.resolveEffectiveConfig(organisationId);
+    const message = renderConversationMessage(
+      'READY_FOR_COLLECTION',
+      config.messages.READY_FOR_COLLECTION,
+      {
+        orderCode: cpf.salesOrder.orderCode,
+        collectionPointName: outlet.name,
+        collectionPointAddress: outlet.address ?? '',
+        collectionPointHours: outlet.collectionPointOperatingHours ?? '',
+        businessName: config.businessName,
+      },
     );
     await this.consumerNotificationPort.notify({
       organisationId,
       consumerId,
       salesOrderId: cpf.salesOrderId,
       kind: 'COLLECTION_READY',
-      message: lines.join('\n'),
+      message,
     });
   }
 
-  /** Sprint 42 brief §20 "Consumer Confirmation." */
+  /** Sprint 42 brief §20 "Consumer Confirmation." Sprint 44 — same config-driven wording
+   *  as {@link notifyReady} above. */
   private async notifyCollected(
     organisationId: string,
     consumerId: string,
     cpf: CollectionPointFulfillmentWithRelations,
   ): Promise<void> {
-    const organisation = await this.organisationService.getById(organisationId);
-    const tenantName = organisation?.displayName ?? organisation?.name ?? 'us';
-    const message = [
-      '✅ Order collected!',
-      '',
-      `Order: #${cpf.salesOrder.orderCode}`,
-      '',
-      `Thank you for choosing ${tenantName}.`,
-      '',
-      'We hope you enjoy your order! 😊',
-    ].join('\n');
+    const config = await this.conversationConfigService.resolveEffectiveConfig(organisationId);
+    const message = renderConversationMessage(
+      'COLLECTION_CONFIRMED',
+      config.messages.COLLECTION_CONFIRMED,
+      { orderCode: cpf.salesOrder.orderCode, businessName: config.businessName },
+    );
     await this.consumerNotificationPort.notify({
       organisationId,
       consumerId,

@@ -245,6 +245,10 @@ model Organisation {
   whatsappDeliveries                    WhatsAppDelivery[]
   /// Added Sprint 43 — D2C Operations, Notifications & Production Hardening.
   consumerWhatsAppDeliveries            ConsumerWhatsAppDelivery[]
+  /// Added Sprint 44 — Tenant D2C Conversation Configuration.
+  d2cConversationCapabilityConfigs      D2CConversationCapabilityConfig[]
+  d2cConversationMessageConfigs         D2CConversationMessageConfig[]
+  d2cConversationProfile                D2CConversationProfile?
   /// Added Sprint 30 — Recruitment & Candidate Interview Management Foundation
   /// (docs/domains/recruitment.md).
   hiringRequests                        HiringRequest[]
@@ -8018,6 +8022,138 @@ model ConsumerConversationMessage {
   @@index([organisationId])
   @@index([conversationId])
   @@map("d2c_conversation_messages")
+}
+
+// ---------------------------------------------------------------------------
+// Sprint 44 — Tenant D2C Conversation Configuration (docs/domains/d2c.md
+// "Tenant Conversation Configuration"). A controlled, tenant-scoped
+// configuration layer in FRONT of the existing, unchanged `ConversationService`
+// state machine (Sprint 33) — never a second conversation engine, never a
+// per-tenant code branch. Typed/structured models, not a JSON blob
+// (`Organisation.settings`'s own documented escape valve is reserved for
+// "low-cardinality... settings that don't warrant their own columns" —
+// confirmed by its own doc comment — whereas capability enable/order and a
+// per-key message catalogue are exactly the kind of validated, queryable
+// structure `NotificationPreference`/`CashflowSettings` already established
+// typed tables for). Every table here is independently keyed by
+// `organisationId` — no row needs to exist for a tenant that has never
+// customized anything; absence means "use the platform default" everywhere,
+// resolved by `D2CConversationConfigService.resolveEffectiveConfig()`
+// (`apps/api/src/d2c/conversation-config/`).
+// ---------------------------------------------------------------------------
+
+/// The FIXED, platform-controlled set of D2C conversation capabilities a tenant may
+/// enable/disable/relabel/reorder — never an arbitrary string (brief §Phase 6 "Do NOT
+/// allow arbitrary capability names to execute arbitrary code"). Identical to, and
+/// never renamed from, `ConversationService`'s own existing internal command values
+/// (`ORDER_SNACKS`/`MY_ORDERS`/.../`HELP`) — the brief's own "the internal capability
+/// identifier remains stable" instruction, applied by simply NOT inventing new internal
+/// names when the existing ones already work (its own `ORDER_PRODUCTS` example was
+/// explicitly illustrative, not literal — see the brief's "do not blindly use these
+/// exact model names" disclaimer). Adding a platform capability in a future sprint means
+/// adding one value here PLUS real backing logic in `ConversationService` — never
+/// something a tenant configuration row can create on its own.
+enum D2CConversationCapability {
+  ORDER_SNACKS
+  MY_ORDERS
+  MY_REWARDS
+  MY_ACCOUNT
+  UPDATE_LOCATION
+  HELP
+}
+
+/// One row per (organisation, capability) — enable/disable, a tenant-facing display
+/// label override, and menu position. Absence of a row for a given capability means
+/// "use the platform default" (enabled, platform label, platform sort order) — see
+/// `DEFAULT_CAPABILITY_CONFIG` in `d2c-conversation-config.types.ts`. The capability
+/// VALUE itself (which handler it routes to) is never stored here — only presentation
+/// and enablement, matching the brief's own Phase 6 "DISPLAY LABEL is not the business
+/// command identifier" distinction exactly.
+model D2CConversationCapabilityConfig {
+  id             String                    @id @default(cuid())
+  organisationId String
+  capability     D2CConversationCapability
+  enabled        Boolean                   @default(true)
+  /// `null` = use the platform default label for this capability.
+  displayLabel   String?
+  sortOrder      Int
+  createdAt      DateTime                  @default(now())
+  updatedAt      DateTime                  @updatedAt
+
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+
+  /// At most one configuration row per capability per tenant — the DB-level guarantee
+  /// `D2CConversationConfigService` relies on to reject a duplicate-capability save
+  /// before it ever reaches here (brief §Phase 12 "no duplicate capability").
+  @@unique([organisationId, capability])
+  @@index([organisationId])
+  @@map("d2c_conversation_capability_configs")
+}
+
+/// The FIXED, platform-controlled set of customer-facing message keys a tenant may
+/// override the TEXT of — never arbitrary keys, never code (brief §Phase 8/9). A
+/// curated, high-value subset of every literal string `ConversationService`/
+/// `CollectionPointFulfillmentService` already construct (the full raw inventory is far
+/// larger — see docs/sprint-44-completion-report.md §6 "Message Catalogue" for the
+/// explicit, documented boundary between what became configurable and what remains
+/// fixed platform wording, deliberately avoiding "configuration explosion," brief
+/// §Phase 4's own explicit warning).
+enum D2CConversationMessageKey {
+  WELCOME
+  MAIN_MENU_PROMPT
+  HELP
+  UNKNOWN_COMMAND
+  ASK_NAME
+  REGISTRATION_COMPLETE
+  LOCATION_UPDATED
+  ASK_QUANTITY
+  ORDER_CREATED
+  PAYMENT_SUCCESS
+  MY_ORDERS_EMPTY
+  READY_FOR_COLLECTION
+  COLLECTION_CONFIRMED
+  ORDER_CANCELLED
+}
+
+/// One row per (organisation, message key) that has been customized — a `null`/absent
+/// row means "use the platform default text for this key." `value` may contain ONLY the
+/// `{{variable}}` placeholders that key's own fixed allowlist permits
+/// (`MESSAGE_VARIABLE_ALLOWLIST`, `d2c-conversation-config.types.ts`) — validated at
+/// save time, never arbitrary property access, never code (brief §Phase 9).
+model D2CConversationMessageConfig {
+  id             String                    @id @default(cuid())
+  organisationId String
+  messageKey     D2CConversationMessageKey
+  value          String
+  createdAt      DateTime                  @default(now())
+  updatedAt      DateTime                  @updatedAt
+
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+
+  @@unique([organisationId, messageKey])
+  @@index([organisationId])
+  @@map("d2c_conversation_message_configs")
+}
+
+/// A small, deliberately minimal profile row — ONLY the two fields with no existing
+/// `Organisation` equivalent that a tenant might reasonably want to differ for D2C
+/// conversation support specifically (e.g. a dedicated WhatsApp order-support line,
+/// distinct from the registered business phone/`businessEmail`). Business display name
+/// is NEVER duplicated here — it always reads live from `Organisation.displayName`/
+/// `.name` (the exact field `ConversationService` has resolved since Sprint 33), so
+/// there is never a second, potentially-stale source of truth for a tenant's own name.
+/// `null` on either field falls back to `Organisation.phone`/`.supportEmail`.
+model D2CConversationProfile {
+  id                   String   @id @default(cuid())
+  organisationId       String   @unique
+  supportPhoneOverride String?
+  supportEmailOverride String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+
+  @@map("d2c_conversation_profiles")
 }
 
 /// Sprint 40.5 — Real Meta WhatsApp Cloud API Foundation. Meta redelivers a

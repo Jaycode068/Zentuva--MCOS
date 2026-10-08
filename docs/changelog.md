@@ -7,6 +7,49 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 44 Tenant D2C Conversation Configuration] - 2026-10-09
+
+Every tenant's WhatsApp conversation had exactly one voice — Boby Bites' own hardcoded
+welcome text, menu labels, and wording baked into `ConversationService`. This sprint
+places a controlled, tenant-scoped configuration layer in front of that same,
+unredesigned state machine, so a second tenant can have its own identity, welcome
+message, menu labels/ordering/enabled capabilities, and message wording — configuration,
+not code; one shared engine, not a second one.
+
+**New.** Three purely additive, `organisationId`-keyed tables —
+`D2CConversationCapabilityConfig`, `D2CConversationMessageConfig`,
+`D2CConversationProfile` — each defaulting to the exact pre-Sprint-44 behavior when no
+row exists, so a brand-new tenant needs zero rows for correct behavior.
+`D2CConversationConfigService.resolveEffectiveConfig` is called exactly once per inbound
+message by `ConversationService.handleInboundMessage` and threaded through every state
+handler, replacing every hardcoded customer-facing string. The internal capability
+identifier stays stable regardless of a tenant's display-label customization; a
+disabled capability falls through to the same `UNKNOWN_COMMAND` response as any other
+unrecognized input. 14 curated message keys support safe, allowlisted
+`{{variable}}` substitution only — never arbitrary property access or code execution.
+
+**New.** An admin UI, `/settings/d2c/conversation-settings`, and a preview endpoint that
+calls the exact same rendering functions the real conversation uses — the preview can
+never show something the real conversation wouldn't actually send. Two new permissions,
+`d2c.conversation.view`/`.manage`, reuse the existing configurable permission system.
+Every configuration write is audited with a field-level `{old, new}` diff.
+
+**Live-verified** against the real Meta WhatsApp API: a renamed capability displayed and
+still routed correctly; a disabled capability disappeared from the real menu and was
+rejected on direct invocation; a customized message and its reset-to-default both took
+effect on real, Meta-delivered replies to a real phone; cancelling from inside the
+ordering flow confirmed no `SalesOrder` was created. Tenant isolation and
+active-conversation safety proven at the unit level, with real-PostgreSQL concurrency
+tests, and with a "Final Architectural Test" configuring two real tenants and confirming
+the admin service methods never cross-contaminate. 255 suites / 2348 unit tests and 8
+suites / 33 integration tests passing, 0 regressions.
+
+**Schema.** Two new enums and three new tables — purely additive, no existing column
+changed.
+
+See [docs/domains/d2c.md](domains/d2c.md) §132, [docs/domains/whatsapp.md](domains/whatsapp.md)
+§14, and [docs/sprint-44-completion-report.md](sprint-44-completion-report.md).
+
 ## [Sprint 43 D2C Operations, Notifications & Production Hardening] - 2026-10-08
 
 Sprint 42 proved the full D2C operational loop works end to end; this sprint makes it

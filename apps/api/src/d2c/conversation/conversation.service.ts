@@ -5,10 +5,17 @@ import { ConsumerConversation, Consumer, Prisma, Territory } from '@prisma/clien
 import { ConversationInput, SendConversationMessageInput } from '@zentuva/validation';
 
 import { AuditService } from '../../identity/audit/audit.service';
-import { OrganisationService } from '../../identity/organisation/organisation.service';
 import { LoyaltyService } from '../../promotions/loyalty/loyalty.service';
 import { TerritoryRepository } from '../../retail/territory/territory.repository';
 import { ConsumerService } from '../consumer/consumer.service';
+import {
+  buildMainMenuMessages,
+  buildWelcomeMessage,
+  isCapabilityEnabled,
+  renderConversationMessage,
+} from '../conversation-config/d2c-conversation-config-rendering';
+import { D2CConversationConfigService } from '../conversation-config/d2c-conversation-config.service';
+import { EffectiveConversationConfig } from '../conversation-config/d2c-conversation-config.types';
 import { CartItemUnavailableError, D2COrderingService } from '../ordering/d2c-ordering.service';
 import { CartLine } from '../ordering/d2c-ordering.types';
 import { D2CPaymentService } from '../payment/d2c-payment.service';
@@ -16,11 +23,7 @@ import { PaymentProviderError } from '../payment/d2c-payment.types';
 import { CONVERSATION_AUDIT_ACTIONS } from './conversation-audit-actions';
 import { ConversationMessageRepository } from './conversation-message.repository';
 import { ConversationRepository } from './conversation.repository';
-import {
-  ConversationOption,
-  ConversationOutboundMessage,
-  ConversationOutboundResponse,
-} from './conversation.types';
+import { ConversationOutboundMessage, ConversationOutboundResponse } from './conversation.types';
 
 /** Sprint 43.5 — D2C Two-Way Conversation Reliability (brief §Phase 9 "Back / Cancel /
  *  Menu Commands"). Checked FIRST in `dispatch()`, from ANY state — deliberately reuses
@@ -45,7 +48,12 @@ const RESET_COMMANDS = new Set(['MENU', 'START_OVER', 'RESTART', 'HOME', 'BACK',
  *  Only consulted at `MAIN_MENU`, and only once the exact numeric/button/label match the
  *  channel adapter already attempts has failed — lets a real human type a natural
  *  synonym ("orders", "my rewards", "update location") instead of memorizing the exact
- *  internal command string, without guessing at anything genuinely ambiguous. */
+ *  internal command string, without guessing at anything genuinely ambiguous.
+ *
+ *  Sprint 44 — the alias TARGET values are the same stable internal capability
+ *  identifiers `D2CConversationCapability` uses (`conversation-config` module); a
+ *  tenant renaming a capability's DISPLAY LABEL never changes this table, since aliases
+ *  map text to the internal id, never to a tenant's own customized label. */
 const MAIN_MENU_TEXT_ALIASES: Record<string, string> = {
   ORDER: 'ORDER_SNACKS',
   SNACKS: 'ORDER_SNACKS',
@@ -97,6 +105,18 @@ interface ConversationContext {
  * small JSON `context` bag walked through a handful of `if`/`switch`
  * branches — never a generic workflow engine (Zentuva already has one, see
  * `WorkflowInstance`) and never a giant state-machine framework.
+ *
+ * Sprint 44 — Tenant D2C Conversation Configuration (docs/domains/d2c.md "Tenant
+ * Conversation Configuration"). Resolves ONE {@link EffectiveConversationConfig} per
+ * inbound message (`D2CConversationConfigService.resolveEffectiveConfig`, the ONLY
+ * database configuration read anywhere in this class — brief §Phase 15 "ConversationService
+ * should not contain database configuration-fetching logic everywhere") and threads it
+ * through every state handler in place of the plain `organisationName` string this class
+ * used to pass around. The STATE MACHINE itself — which states exist, what triggers a
+ * transition, which domain service handles which capability — remains entirely
+ * platform-controlled code, unchanged by this sprint; only the WORDING and MENU
+ * PRESENTATION a tenant sees are now configuration-driven (brief's own explicit
+ * boundary, docs/domains/d2c.md "Configuration Boundary").
  */
 @Injectable()
 export class ConversationService {
@@ -108,10 +128,10 @@ export class ConversationService {
     private readonly consumerService: ConsumerService,
     private readonly territoryRepository: TerritoryRepository,
     private readonly auditService: AuditService,
-    private readonly organisationService: OrganisationService,
     private readonly d2cOrderingService: D2COrderingService,
     private readonly d2cPaymentService: D2CPaymentService,
     private readonly loyaltyService: LoyaltyService,
+    private readonly configService: D2CConversationConfigService,
   ) {}
 
   /**
@@ -155,9 +175,14 @@ export class ConversationService {
 
     let response: ConversationOutboundResponse;
     try {
-      const organisation = await this.organisationService.getById(organisationId);
-      const organisationName = organisation?.displayName ?? organisation?.name ?? 'us';
-      response = await this.dispatch(organisationId, conversation, input.input, organisationName);
+      // Sprint 44 — resolved ONCE per inbound message, then threaded through every
+      // state handler below; never re-resolved mid-dispatch, so a configuration change
+      // saved by an admin while THIS message is being processed can never produce a
+      // response that mixes old and new wording within the same turn (brief §Phase 22
+      // "configuration changes affect future presentation, not an in-progress
+      // response").
+      const config = await this.configService.resolveEffectiveConfig(organisationId);
+      response = await this.dispatch(organisationId, conversation, input.input, config);
     } catch (error) {
       // Brief §27 — never leak a Prisma/internal error to the conversation
       // itself; log it for diagnosis and respond with a safe, generic
@@ -195,10 +220,10 @@ export class ConversationService {
     organisationId: string,
     conversation: ConsumerConversation,
     input: ConversationInput,
-    organisationName: string,
+    config: EffectiveConversationConfig,
   ): Promise<ConversationOutboundResponse> {
     if (isResetCommand(input)) {
-      return this.handleReset(organisationId, conversation, organisationName);
+      return this.handleReset(organisationId, conversation, config);
     }
 
     // A conversation not yet linked to a Consumer always gets one more
@@ -218,22 +243,22 @@ export class ConversationService {
           state: 'MAIN_MENU',
           context: Prisma.JsonNull,
         });
-        return this.mainMenuResponse(updated!, found, 'Welcome back');
+        return this.mainMenuResponse(updated!, found, 'Welcome back', config);
       }
     }
 
     switch (conversation.state) {
       case 'REGISTRATION':
-        return this.handleRegistration(organisationId, conversation, input);
+        return this.handleRegistration(organisationId, conversation, input, config);
       case 'LOCATION_SELECTION':
-        return this.handleLocationSelection(organisationId, conversation, input, organisationName);
+        return this.handleLocationSelection(organisationId, conversation, input, config);
       case 'ACTIVE':
-        return this.handleOrdering(organisationId, conversation, input, organisationName);
+        return this.handleOrdering(organisationId, conversation, input, config);
       case 'MAIN_MENU':
-        return this.handleMainMenu(organisationId, conversation, input);
+        return this.handleMainMenu(organisationId, conversation, input, config);
       case 'NEW':
       default:
-        return this.handleNew(organisationId, conversation, input, organisationName);
+        return this.handleNew(organisationId, conversation, input, config);
     }
   }
 
@@ -245,7 +270,7 @@ export class ConversationService {
     organisationId: string,
     conversation: ConsumerConversation,
     input: ConversationInput,
-    organisationName: string,
+    config: EffectiveConversationConfig,
   ): Promise<ConversationOutboundResponse> {
     const context = readContext(conversation);
     const value = optionValue(input);
@@ -263,7 +288,7 @@ export class ConversationService {
       const updated = await this.conversationRepository.update(organisationId, conversation.id, {
         context: { step: 'AWAITING_REGISTRATION_CHOICE' } as Prisma.InputJsonValue,
       });
-      return this.respond(updated!, [welcomeMessage(organisationName)]);
+      return this.respond(updated!, [buildWelcomeMessage(config)]);
     }
 
     if (value === 'REGISTER') {
@@ -284,7 +309,7 @@ export class ConversationService {
           state: 'MAIN_MENU',
           context: Prisma.JsonNull,
         });
-        return this.mainMenuResponse(updated!, found, 'Welcome back');
+        return this.mainMenuResponse(updated!, found, 'Welcome back', config);
       }
       const updated = await this.conversationRepository.update(organisationId, conversation.id, {
         state: 'REGISTRATION',
@@ -301,7 +326,7 @@ export class ConversationService {
 
     return this.respond(conversation, [
       { type: 'TEXT', text: "Sorry, I didn't understand that. Please choose an option." },
-      welcomeMessage(organisationName),
+      buildWelcomeMessage(config),
     ]);
   }
 
@@ -313,6 +338,7 @@ export class ConversationService {
     organisationId: string,
     conversation: ConsumerConversation,
     input: ConversationInput,
+    config: EffectiveConversationConfig,
   ): Promise<ConversationOutboundResponse> {
     if (input.type !== 'TEXT' || !input.text.trim()) {
       return this.respond(conversation, [
@@ -351,7 +377,7 @@ export class ConversationService {
       consumerId: consumer.id,
     });
 
-    return this.beginLocationSelection(organisationId, linked!, 'REGISTRATION');
+    return this.beginLocationSelection(organisationId, linked!, 'REGISTRATION', config);
   }
 
   // ---------------------------------------------------------------------
@@ -362,13 +388,14 @@ export class ConversationService {
     organisationId: string,
     conversation: ConsumerConversation,
     mode: 'REGISTRATION' | 'UPDATE',
+    config: EffectiveConversationConfig,
   ): Promise<ConversationOutboundResponse> {
     const { children: territoryOptions } = await this.resolveBranchPoint(organisationId, null);
 
     if (territoryOptions.length === 0) {
       // No territory hierarchy configured for this organisation at all —
       // never a dead end; complete without a location.
-      return this.finishLocationFlow(organisationId, conversation, mode, null);
+      return this.finishLocationFlow(organisationId, conversation, mode, null, config);
     }
 
     const updated = await this.conversationRepository.update(organisationId, conversation.id, {
@@ -418,7 +445,7 @@ export class ConversationService {
     organisationId: string,
     conversation: ConsumerConversation,
     input: ConversationInput,
-    organisationName: string,
+    config: EffectiveConversationConfig,
   ): Promise<ConversationOutboundResponse> {
     const context = readContext(conversation);
     const mode = context.mode ?? 'UPDATE';
@@ -441,9 +468,13 @@ export class ConversationService {
         organisationId,
         metadata: { conversationId: conversation.id },
       });
-      return this.finishLocationFlow(organisationId, conversation, mode, {
-        text: "Thanks. We've recorded your location request — our team will review it.",
-      });
+      return this.finishLocationFlow(
+        organisationId,
+        conversation,
+        mode,
+        { text: "Thanks. We've recorded your location request — our team will review it." },
+        config,
+      );
     }
 
     if (context.step === 'AWAITING_TERRITORY') {
@@ -459,7 +490,7 @@ export class ConversationService {
           { type: 'LIST', text: 'Select your territory', options: toOptions(territoryOptions) },
         ]);
       }
-      return this.selectTerritory(organisationId, conversation, mode, territory);
+      return this.selectTerritory(organisationId, conversation, mode, territory, config);
     }
 
     if (context.step === 'AWAITING_LOCATION') {
@@ -508,12 +539,12 @@ export class ConversationService {
         organisationId,
         metadata: { conversationId: conversation.id, territoryId: location.id },
       });
-      return this.finishLocationFlow(organisationId, conversation, mode, null);
+      return this.finishLocationFlow(organisationId, conversation, mode, null, config);
     }
 
     // Unexpected/corrupted context — fail safely back to the main menu
     // rather than getting stuck.
-    return this.handleReset(organisationId, conversation, organisationName);
+    return this.handleReset(organisationId, conversation, config);
   }
 
   private async selectTerritory(
@@ -521,6 +552,7 @@ export class ConversationService {
     conversation: ConsumerConversation,
     mode: 'REGISTRATION' | 'UPDATE',
     territory: Territory,
+    config: EffectiveConversationConfig,
   ): Promise<ConversationOutboundResponse> {
     // Auto-descend past any further single-child chain below the chosen
     // territory too (e.g. a branch that narrows straight to one leaf) —
@@ -545,7 +577,7 @@ export class ConversationService {
         organisationId,
         metadata: { conversationId: conversation.id, territoryId: effectiveTerritory.id },
       });
-      return this.finishLocationFlow(organisationId, conversation, mode, null);
+      return this.finishLocationFlow(organisationId, conversation, mode, null, config);
     }
 
     const updated = await this.conversationRepository.update(organisationId, conversation.id, {
@@ -592,6 +624,7 @@ export class ConversationService {
     conversation: ConsumerConversation,
     mode: 'REGISTRATION' | 'UPDATE',
     extra: { text: string } | null,
+    config: EffectiveConversationConfig,
   ): Promise<ConversationOutboundResponse> {
     const consumer = await this.consumerService.getById(organisationId, conversation.consumerId!);
     const updated = await this.conversationRepository.update(organisationId, conversation.id, {
@@ -603,12 +636,16 @@ export class ConversationService {
     if (mode === 'REGISTRATION') {
       messages.push({
         type: 'TEXT',
-        text: `You're registered 🎉\n\nConsumer ID: ${consumer!.consumerCode}`,
+        text: renderConversationMessage(
+          'REGISTRATION_COMPLETE',
+          config.messages.REGISTRATION_COMPLETE,
+          { consumerCode: consumer!.consumerCode },
+        ),
       });
     } else {
-      messages.push({ type: 'TEXT', text: 'Your location has been updated.' });
+      messages.push({ type: 'TEXT', text: config.messages.LOCATION_UPDATED });
     }
-    messages.push(...mainMenuMessages());
+    messages.push(...buildMainMenuMessages(config));
     return this.respond(updated!, messages);
   }
 
@@ -620,6 +657,7 @@ export class ConversationService {
     organisationId: string,
     conversation: ConsumerConversation,
     input: ConversationInput,
+    config: EffectiveConversationConfig,
   ): Promise<ConversationOutboundResponse> {
     const consumer = await this.consumerService.getById(organisationId, conversation.consumerId!);
     const rawValue =
@@ -629,6 +667,19 @@ export class ConversationService {
     // is ever looked up in the alias table, and only exactly — no partial/fuzzy
     // matching, no guessing.
     const value = rawValue ? (MAIN_MENU_TEXT_ALIASES[rawValue] ?? rawValue) : null;
+
+    // Sprint 44 brief §Phase 7 — "If a tenant disables a capability: direct invocation
+    // must also be rejected safely." A disabled capability's own internal value is
+    // treated exactly like any other unmatched input below — never routed to its
+    // handler, regardless of how the value was resolved (a stale numbered reply, a
+    // literal alias, or the real internal command string typed directly).
+    const matchedCapability = value && isKnownCapability(value) ? value : null;
+    if (matchedCapability && !isCapabilityEnabled(config, matchedCapability)) {
+      return this.respond(conversation, [
+        { type: 'TEXT', text: config.messages.UNKNOWN_COMMAND },
+        ...buildMainMenuMessages(config),
+      ]);
+    }
 
     if (value === 'MY_ACCOUNT') {
       const territoryName = consumer!.territoryId
@@ -645,39 +696,43 @@ export class ConversationService {
             `Status: ${consumer!.status}`,
           ].join('\n'),
         },
-        ...mainMenuMessages(),
+        ...buildMainMenuMessages(config),
       ]);
     }
 
     if (value === 'UPDATE_LOCATION') {
-      return this.beginLocationSelection(organisationId, conversation, 'UPDATE');
+      return this.beginLocationSelection(organisationId, conversation, 'UPDATE', config);
     }
 
     if (value === 'ORDER_SNACKS') {
-      return this.beginOrdering(organisationId, conversation);
+      return this.beginOrdering(organisationId, conversation, config);
     }
 
     if (value === 'MY_ORDERS') {
-      return this.showMyOrders(organisationId, conversation);
+      return this.showMyOrders(organisationId, conversation, config);
     }
 
     if (value === 'MY_REWARDS') {
-      return this.showMyRewards(organisationId, conversation);
+      return this.showMyRewards(organisationId, conversation, config);
     }
 
     if (value === 'HELP') {
       return this.respond(conversation, [
         {
           type: 'TEXT',
-          text: 'You can view your account, update your location, or type MENU any time to return here.',
+          text: renderConversationMessage('HELP', config.messages.HELP, {
+            businessName: config.businessName,
+            supportPhone: config.supportPhone ?? 'not available',
+            supportEmail: config.supportEmail ?? 'not available',
+          }),
         },
-        ...mainMenuMessages(),
+        ...buildMainMenuMessages(config),
       ]);
     }
 
     return this.respond(conversation, [
-      { type: 'TEXT', text: "Sorry, I didn't understand that." },
-      ...mainMenuMessages(),
+      { type: 'TEXT', text: config.messages.UNKNOWN_COMMAND },
+      ...buildMainMenuMessages(config),
     ]);
   }
 
@@ -685,10 +740,11 @@ export class ConversationService {
     conversation: ConsumerConversation,
     consumer: Consumer,
     greetingPrefix: string,
+    config: EffectiveConversationConfig,
   ): ConversationOutboundResponse {
     return this.respond(conversation, [
       { type: 'TEXT', text: `${greetingPrefix}, ${consumer.fullName} 👋` },
-      ...mainMenuMessages(),
+      ...buildMainMenuMessages(config),
     ]);
   }
 
@@ -701,6 +757,7 @@ export class ConversationService {
   private async showMyOrders(
     organisationId: string,
     conversation: ConsumerConversation,
+    config: EffectiveConversationConfig,
   ): Promise<ConversationOutboundResponse> {
     const orders = await this.d2cOrderingService.listConsumerOrders(
       organisationId,
@@ -708,8 +765,8 @@ export class ConversationService {
     );
     if (orders.length === 0) {
       return this.respond(conversation, [
-        { type: 'TEXT', text: "You haven't placed any orders yet." },
-        ...mainMenuMessages(),
+        { type: 'TEXT', text: config.messages.MY_ORDERS_EMPTY },
+        ...buildMainMenuMessages(config),
       ]);
     }
     // Sprint 42 brief §32/33 "Consumer Status Refresh" — `fulfilmentStatus`/
@@ -732,13 +789,14 @@ export class ConversationService {
     });
     return this.respond(conversation, [
       { type: 'TEXT', text: ['📦 Your Recent Orders', '', lines.join('\n\n')].join('\n') },
-      ...mainMenuMessages(),
+      ...buildMainMenuMessages(config),
     ]);
   }
 
   private async showMyRewards(
     organisationId: string,
     conversation: ConsumerConversation,
+    config: EffectiveConversationConfig,
   ): Promise<ConversationOutboundResponse> {
     const consumerId = conversation.consumerId!;
     const [account, ledger] = await Promise.all([
@@ -761,7 +819,7 @@ export class ConversationService {
           ...(lines.length > 0 ? ['', 'Recent activity:', ...lines] : []),
         ].join('\n'),
       },
-      ...mainMenuMessages(),
+      ...buildMainMenuMessages(config),
     ]);
   }
 
@@ -778,40 +836,48 @@ export class ConversationService {
   private async beginOrdering(
     organisationId: string,
     conversation: ConsumerConversation,
+    config: EffectiveConversationConfig,
   ): Promise<ConversationOutboundResponse> {
     const updated = await this.conversationRepository.update(organisationId, conversation.id, {
       state: 'ACTIVE',
       context: { step: 'BROWSING', cart: [] } as Prisma.InputJsonValue,
     });
-    return this.renderBrowsing(organisationId, updated!, []);
+    return this.renderBrowsing(organisationId, updated!, [], config);
   }
 
   private async handleOrdering(
     organisationId: string,
     conversation: ConsumerConversation,
     input: ConversationInput,
-    organisationName: string,
+    config: EffectiveConversationConfig,
   ): Promise<ConversationOutboundResponse> {
     const context = readContext(conversation);
     const cart = context.cart ?? [];
 
     switch (context.step) {
       case 'BROWSING':
-        return this.handleBrowsing(organisationId, conversation, input, cart);
+        return this.handleBrowsing(organisationId, conversation, input, cart, config);
       case 'AWAITING_QUANTITY':
-        return this.handleAwaitingQuantity(organisationId, conversation, input, cart);
+        return this.handleAwaitingQuantity(organisationId, conversation, input, cart, config);
       case 'CART_MENU':
-        return this.handleCartMenu(organisationId, conversation, input, cart);
+        return this.handleCartMenu(organisationId, conversation, input, cart, config);
       case 'AWAITING_REMOVE':
-        return this.handleAwaitingRemove(organisationId, conversation, input, cart);
+        return this.handleAwaitingRemove(organisationId, conversation, input, cart, config);
       case 'AWAITING_CONFIRM':
-        return this.handleAwaitingConfirm(organisationId, conversation, input, cart, context);
+        return this.handleAwaitingConfirm(
+          organisationId,
+          conversation,
+          input,
+          cart,
+          context,
+          config,
+        );
       case 'AWAITING_PAYMENT':
-        return this.handleAwaitingPayment(organisationId, conversation, context);
+        return this.handleAwaitingPayment(organisationId, conversation, context, config);
       default:
         // Unexpected/corrupted context — fail safely rather than getting stuck,
         // same convention as `handleLocationSelection`'s own fallback.
-        return this.handleReset(organisationId, conversation, organisationName);
+        return this.handleReset(organisationId, conversation, config);
     }
   }
 
@@ -819,6 +885,7 @@ export class ConversationService {
     organisationId: string,
     conversation: ConsumerConversation,
     cart: CartLine[],
+    config: EffectiveConversationConfig,
     prefix?: ConversationOutboundMessage,
   ): Promise<ConversationOutboundResponse> {
     const products = await this.d2cOrderingService.getAvailableProducts(organisationId);
@@ -839,7 +906,7 @@ export class ConversationService {
         type: 'TEXT',
         text: 'Sorry, there are no products available to order right now.',
       });
-      messages.push(...mainMenuMessages());
+      messages.push(...buildMainMenuMessages(config));
       return this.respond(updated!, messages);
     }
 
@@ -868,13 +935,14 @@ export class ConversationService {
     conversation: ConsumerConversation,
     input: ConversationInput,
     cart: CartLine[],
+    config: EffectiveConversationConfig,
   ): Promise<ConversationOutboundResponse> {
     const value = optionValue(input);
     if (value === 'VIEW_CART') {
       return this.showCartMenu(organisationId, conversation, cart);
     }
     if (!value) {
-      return this.renderBrowsing(organisationId, conversation, cart, {
+      return this.renderBrowsing(organisationId, conversation, cart, config, {
         type: 'TEXT',
         text: 'Please select a product from the list.',
       });
@@ -886,7 +954,7 @@ export class ConversationService {
     const products = await this.d2cOrderingService.getAvailableProducts(organisationId);
     const product = products.find((p) => p.skuId === value);
     if (!product) {
-      return this.renderBrowsing(organisationId, conversation, cart, {
+      return this.renderBrowsing(organisationId, conversation, cart, config, {
         type: 'TEXT',
         text: "That's not a valid option. Please choose one from the list.",
       });
@@ -912,7 +980,7 @@ export class ConversationService {
         text: `${name}\n${product.currency} ${product.sellingPrice}`,
         ...(product.imageUrl ? { imageUrl: product.imageUrl } : {}),
       },
-      { type: 'TEXT', text: 'How many would you like?' },
+      { type: 'TEXT', text: config.messages.ASK_QUANTITY },
     ]);
   }
 
@@ -921,12 +989,13 @@ export class ConversationService {
     conversation: ConsumerConversation,
     input: ConversationInput,
     cart: CartLine[],
+    config: EffectiveConversationConfig,
   ): Promise<ConversationOutboundResponse> {
     const context = readContext(conversation);
     const productId = context.pendingProductId;
     if (!productId) {
       // Corrupted context — no product was ever pending; back to browsing.
-      return this.renderBrowsing(organisationId, conversation, cart);
+      return this.renderBrowsing(organisationId, conversation, cart, config);
     }
     const quantity = input.type === 'TEXT' ? Number.parseInt(input.text.trim(), 10) : NaN;
 
@@ -942,7 +1011,7 @@ export class ConversationService {
       if (error instanceof BadRequestException) {
         return this.respond(conversation, [
           { type: 'TEXT', text: this.errorMessage(error) },
-          { type: 'TEXT', text: 'How many would you like?' },
+          { type: 'TEXT', text: config.messages.ASK_QUANTITY },
         ]);
       }
       throw error;
@@ -989,6 +1058,7 @@ export class ConversationService {
     conversation: ConsumerConversation,
     input: ConversationInput,
     cart: CartLine[],
+    config: EffectiveConversationConfig,
   ): Promise<ConversationOutboundResponse> {
     const value = optionValue(input);
 
@@ -996,7 +1066,7 @@ export class ConversationService {
       const updated = await this.conversationRepository.update(organisationId, conversation.id, {
         context: { step: 'BROWSING', cart } as unknown as Prisma.InputJsonValue,
       });
-      return this.renderBrowsing(organisationId, updated!, cart);
+      return this.renderBrowsing(organisationId, updated!, cart, config);
     }
 
     if (value === 'REMOVE_ITEM') {
@@ -1004,7 +1074,7 @@ export class ConversationService {
     }
 
     if (value === 'CHECKOUT') {
-      return this.beginCheckout(organisationId, conversation, cart);
+      return this.beginCheckout(organisationId, conversation, cart, config);
     }
 
     return this.showCartMenu(organisationId, conversation, cart, {
@@ -1041,6 +1111,7 @@ export class ConversationService {
     conversation: ConsumerConversation,
     input: ConversationInput,
     cart: CartLine[],
+    config: EffectiveConversationConfig,
   ): Promise<ConversationOutboundResponse> {
     const value = optionValue(input);
     if (!value) {
@@ -1056,7 +1127,7 @@ export class ConversationService {
       const updated = await this.conversationRepository.update(organisationId, conversation.id, {
         context: { step: 'BROWSING', cart: newCart } as unknown as Prisma.InputJsonValue,
       });
-      return this.renderBrowsing(organisationId, updated!, newCart, {
+      return this.renderBrowsing(organisationId, updated!, newCart, config, {
         type: 'TEXT',
         text: 'Your cart is now empty.',
       });
@@ -1071,6 +1142,7 @@ export class ConversationService {
     organisationId: string,
     conversation: ConsumerConversation,
     cart: CartLine[],
+    config: EffectiveConversationConfig,
     prefix?: ConversationOutboundMessage,
   ): Promise<ConversationOutboundResponse> {
     const {
@@ -1082,7 +1154,7 @@ export class ConversationService {
       const updated = await this.conversationRepository.update(organisationId, conversation.id, {
         context: { step: 'BROWSING', cart: [] } as Prisma.InputJsonValue,
       });
-      return this.renderBrowsing(organisationId, updated!, [], {
+      return this.renderBrowsing(organisationId, updated!, [], config, {
         type: 'TEXT',
         text:
           removedProductIds.length > 0
@@ -1132,6 +1204,7 @@ export class ConversationService {
     input: ConversationInput,
     cart: CartLine[],
     context: ConversationContext,
+    config: EffectiveConversationConfig,
   ): Promise<ConversationOutboundResponse> {
     const value = optionValue(input);
 
@@ -1144,14 +1217,14 @@ export class ConversationService {
         context: Prisma.JsonNull,
       });
       return this.respond(updated!, [
-        { type: 'TEXT', text: 'Order cancelled.' },
-        ...mainMenuMessages(),
+        { type: 'TEXT', text: config.messages.ORDER_CANCELLED },
+        ...buildMainMenuMessages(config),
       ]);
     }
     if (value !== 'CONFIRM_ORDER') {
       // Sprint 43.5 brief §Phase 8's own ORDER_CONFIRMATION example ("maybe" -> explain
       // the available options) — explicitly say so before re-showing the summary.
-      return this.beginCheckout(organisationId, conversation, cart, {
+      return this.beginCheckout(organisationId, conversation, cart, config, {
         type: 'TEXT',
         text: "Sorry, I didn't understand that. Please choose one of the options below.",
       });
@@ -1161,7 +1234,7 @@ export class ConversationService {
     if (!idempotencyKey) {
       // Corrupted context — no key was ever minted; safest is to rebuild the
       // review step, which mints a fresh one.
-      return this.beginCheckout(organisationId, conversation, cart);
+      return this.beginCheckout(organisationId, conversation, cart, config);
     }
 
     try {
@@ -1193,15 +1266,12 @@ export class ConversationService {
       return this.respond(updated!, [
         {
           type: 'TEXT',
-          text: [
-            'Order created successfully.',
-            '',
-            `Order: ${result.orderCode}`,
-            `Amount: ${result.currency} ${result.total}`,
-            `Status: ${formatOrderStatusForConsumer(result.status)}`,
-            '',
-            'Payment is required before we can process your order.',
-          ].join('\n'),
+          text: renderConversationMessage('ORDER_CREATED', config.messages.ORDER_CREATED, {
+            orderCode: result.orderCode,
+            currency: result.currency,
+            total: result.total,
+            status: formatOrderStatusForConsumer(result.status),
+          }),
         },
         {
           type: 'BUTTONS',
@@ -1211,7 +1281,7 @@ export class ConversationService {
       ]);
     } catch (error) {
       if (error instanceof CartItemUnavailableError) {
-        return this.beginCheckout(organisationId, conversation, cart);
+        return this.beginCheckout(organisationId, conversation, cart, config);
       }
       if (error instanceof BadRequestException) {
         return this.respond(conversation, [{ type: 'TEXT', text: this.errorMessage(error) }]);
@@ -1233,6 +1303,7 @@ export class ConversationService {
     organisationId: string,
     conversation: ConsumerConversation,
     context: ConversationContext,
+    config: EffectiveConversationConfig,
   ): Promise<ConversationOutboundResponse> {
     const salesOrderId = context.salesOrderId;
     if (!salesOrderId) {
@@ -1242,7 +1313,7 @@ export class ConversationService {
         state: 'MAIN_MENU',
         context: Prisma.JsonNull,
       });
-      return this.respond(updated!, mainMenuMessages());
+      return this.respond(updated!, buildMainMenuMessages(config));
     }
 
     try {
@@ -1260,9 +1331,11 @@ export class ConversationService {
         return this.respond(updated!, [
           {
             type: 'TEXT',
-            text: `Payment successful.\nYour order ${result.orderReference} has been paid.`,
+            text: renderConversationMessage('PAYMENT_SUCCESS', config.messages.PAYMENT_SUCCESS, {
+              orderCode: result.orderReference,
+            }),
           },
-          ...mainMenuMessages(),
+          ...buildMainMenuMessages(config),
         ]);
       }
 
@@ -1321,7 +1394,7 @@ export class ConversationService {
               ? 'Your payment was not successful. Please contact support to complete this order.'
               : 'Your payment session has closed. Please contact support to complete this order.',
         },
-        ...mainMenuMessages(),
+        ...buildMainMenuMessages(config),
       ]);
     } catch (error) {
       if (error instanceof PaymentProviderError) {
@@ -1358,7 +1431,7 @@ export class ConversationService {
   private async handleReset(
     organisationId: string,
     conversation: ConsumerConversation,
-    organisationName: string,
+    config: EffectiveConversationConfig,
   ): Promise<ConversationOutboundResponse> {
     await this.auditService.record({
       action: CONVERSATION_AUDIT_ACTIONS.RESET,
@@ -1374,10 +1447,10 @@ export class ConversationService {
         'MAIN_MENU',
       );
       const consumer = await this.consumerService.getById(organisationId, conversation.consumerId);
-      return this.mainMenuResponse(updated!, consumer!, 'Welcome back');
+      return this.mainMenuResponse(updated!, consumer!, 'Welcome back', config);
     }
     const updated = await this.conversationRepository.reset(organisationId, conversation.id, 'NEW');
-    return this.respond(updated!, [welcomeMessage(organisationName)]);
+    return this.respond(updated!, [buildWelcomeMessage(config)]);
   }
 
   private respond(
@@ -1406,7 +1479,26 @@ function optionValue(input: ConversationInput): string | null {
   return input.type === 'BUTTON' || input.type === 'LIST_SELECTION' ? input.value : null;
 }
 
-function toOptions(territories: Territory[]): ConversationOption[] {
+/** Sprint 44 — the fixed set of internal capability identifiers
+ *  (`D2CConversationCapability`), duplicated here as a plain string literal check (not
+ *  an import from `@prisma/client`) purely to classify an already-resolved `value`
+ *  string before the disabled-capability guard in `handleMainMenu` — never used to
+ *  invent a new capability or accept an arbitrary one. */
+function isKnownCapability(
+  value: string,
+): value is
+  'ORDER_SNACKS' | 'MY_ORDERS' | 'MY_REWARDS' | 'MY_ACCOUNT' | 'UPDATE_LOCATION' | 'HELP' {
+  return (
+    value === 'ORDER_SNACKS' ||
+    value === 'MY_ORDERS' ||
+    value === 'MY_REWARDS' ||
+    value === 'MY_ACCOUNT' ||
+    value === 'UPDATE_LOCATION' ||
+    value === 'HELP'
+  );
+}
+
+function toOptions(territories: Territory[]) {
   return territories.map((t) => ({ value: t.id, label: t.name }));
 }
 
@@ -1450,44 +1542,4 @@ function describeOrderStatusForHistory(status: string): string {
   if (status === 'DRAFT') return 'Payment Pending';
   if (status === 'CANCELLED') return 'Cancelled';
   return 'Paid';
-}
-
-/** `organisationName` is ALWAYS the caller's real `Organisation.displayName`/
- *  `.name` — never hardcoded to any one tenant. This is the exact bug the
- *  brief's own cross-tenant live verification is designed to catch: a
- *  literal "Welcome to Boby Bites" here would leak one tenant's brand into
- *  every other organisation's conversation (found live during this
- *  sprint's own verification, fixed before completion — see
- *  docs/domains/d2c.md §"Tenant-Aware Copy"). */
-function welcomeMessage(organisationName: string): ConversationOutboundMessage {
-  return {
-    type: 'BUTTONS',
-    text: `Welcome to ${organisationName} 👋\n\nAre you already registered?`,
-    options: [
-      { value: 'YES_CONTINUE', label: 'Yes, continue' },
-      { value: 'REGISTER', label: 'Register' },
-    ],
-  };
-}
-
-function mainMenuMessages(): ConversationOutboundMessage[] {
-  return [
-    {
-      type: 'BUTTONS',
-      text: 'What would you like to do?',
-      options: [
-        // Sprint 34 — the one new "available now" capability at the time (brief §11/§20:
-        // never present a capability with no backing implementation). Sprint 41 adds
-        // MY_ORDERS/MY_REWARDS now that both have a real backing read
-        // (D2COrderingService.listConsumerOrders / LoyaltyService.getAccount+listLedger)
-        // — Collection/promotions remain deliberately absent, still no backing read.
-        { value: 'ORDER_SNACKS', label: '🛒 Order Snacks' },
-        { value: 'MY_ORDERS', label: '📦 My Orders' },
-        { value: 'MY_REWARDS', label: '⭐ My Rewards' },
-        { value: 'MY_ACCOUNT', label: '👤 My Account' },
-        { value: 'UPDATE_LOCATION', label: '📍 Update My Location' },
-        { value: 'HELP', label: '❓ Help' },
-      ],
-    },
-  ];
 }

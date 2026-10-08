@@ -314,3 +314,18 @@ resolver, or `ConversationService`'s own state machine — all confirmed, via li
 testing against real Meta traffic, to already behave correctly for duplicate
 deliveries, malformed payloads, and unsupported message types. Full live-verification
 evidence is in `docs/sprint-43.5-completion-report.md` §15.
+
+## 14. Tenant Conversation Configuration — Channel Neutrality Preserved (Sprint 44)
+
+Sprint 44 (`docs/domains/d2c.md` §132) added a tenant-scoped configuration layer in
+front of `ConversationService`, resolved once per inbound message and threaded through
+every state handler. Nothing in this WhatsApp integration layer changed: the webhook
+controller, `WhatsAppInboundAdapterService`, the Meta provider, and the organisation
+resolver are all unmodified and have zero awareness that configuration exists —
+`ConversationService` (and the new `D2CConversationConfigService` it calls) remain
+exactly as channel-neutral as before, with every config field name itself
+channel-neutral (`welcomeMessage`, never `whatsappWelcomeMessage`). Live-verified: a
+real Boby Bites customization (a renamed capability, a disabled capability, a
+customized message, and its reset) was delivered correctly over real Meta WhatsApp
+traffic with no change to any file in this directory. Full evidence in
+`docs/sprint-44-completion-report.md` §15.

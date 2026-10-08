@@ -173,3 +173,73 @@ export const reassignCollectionPointSchema = z.object({
   outletId: z.string().trim().min(1, 'outletId is required'),
 });
 export type ReassignCollectionPointInput = z.infer<typeof reassignCollectionPointSchema>;
+
+// ---------------------------------------------------------------------------
+// Sprint 44 — Tenant D2C Conversation Configuration (docs/domains/d2c.md "Tenant
+// Conversation Configuration"). Literal string enums, not a `@prisma/client` import —
+// this package has no Prisma dependency; values are kept in exact sync with the
+// `D2CConversationCapability`/`D2CConversationMessageKey` Prisma enums by hand (the same
+// convention every other Zod enum in this file already follows for its own Prisma-backed
+// status fields).
+// ---------------------------------------------------------------------------
+
+export const d2cConversationCapabilitySchema = z.enum([
+  'ORDER_SNACKS',
+  'MY_ORDERS',
+  'MY_REWARDS',
+  'MY_ACCOUNT',
+  'UPDATE_LOCATION',
+  'HELP',
+]);
+
+export const d2cConversationMessageKeySchema = z.enum([
+  'WELCOME',
+  'MAIN_MENU_PROMPT',
+  'HELP',
+  'UNKNOWN_COMMAND',
+  'ASK_NAME',
+  'REGISTRATION_COMPLETE',
+  'LOCATION_UPDATED',
+  'ASK_QUANTITY',
+  'ORDER_CREATED',
+  'PAYMENT_SUCCESS',
+  'MY_ORDERS_EMPTY',
+  'READY_FOR_COLLECTION',
+  'COLLECTION_CONFIRMED',
+  'ORDER_CANCELLED',
+]);
+
+/** `PATCH /d2c/conversation-config/profile`. Every field optional/independently
+ *  omittable — a caller updates only what it touched; `null` explicitly clears a
+ *  previously-set override back to "use the Organisation's own field" (distinct from
+ *  `undefined`, which leaves the existing override untouched). */
+export const updateD2CConversationProfileSchema = z.object({
+  supportPhone: z.string().trim().max(30).nullable().optional(),
+  supportEmail: z.string().trim().max(200).nullable().optional(),
+});
+export type UpdateD2CConversationProfileInput = z.infer<typeof updateD2CConversationProfileSchema>;
+
+/** `PUT /d2c/conversation-config/capabilities` — always the FULL desired set (brief
+ *  §Phase 12), never a partial patch; server-side validation (duplicate capability,
+ *  duplicate position, at least one enabled) happens again in
+ *  `D2CConversationConfigService`, this schema only enforces shape. */
+export const updateD2CConversationCapabilitiesSchema = z.object({
+  capabilities: z
+    .array(
+      z.object({
+        capability: d2cConversationCapabilitySchema,
+        enabled: z.boolean(),
+        displayLabel: z.string().trim().min(1).max(60).nullable().optional(),
+        sortOrder: z.number().int().min(1),
+      }),
+    )
+    .min(1, 'At least one capability configuration is required'),
+});
+export type UpdateD2CConversationCapabilitiesInput = z.infer<
+  typeof updateD2CConversationCapabilitiesSchema
+>;
+
+export const updateD2CConversationMessageSchema = z.object({
+  value: z.string().trim().min(1, 'Message cannot be blank').max(1000),
+});
+export type UpdateD2CConversationMessageInput = z.infer<typeof updateD2CConversationMessageSchema>;

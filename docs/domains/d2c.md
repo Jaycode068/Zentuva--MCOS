@@ -3066,3 +3066,62 @@ persisted on the `ConsumerConversationMessage` row. Deliberately NOT folded into
 `conversationInputSchema`'s own business-input discriminated union — pure channel
 metadata the Conversation Layer's business logic never inspects, matching the brief's
 own §Phase 2 channel-neutral contract shape exactly.
+
+## 132. Tenant D2C Conversation Configuration (Sprint 44)
+
+Every tenant's conversation had, until this sprint, exactly one voice — Boby Bites' own
+hardcoded welcome text, menu labels, and wording baked directly into
+`ConversationService`. This sprint places a controlled, tenant-scoped configuration
+layer in front of that same, unredesigned state machine:
+
+```
+WhatsApp → WhatsApp Adapter → ConversationService → Conversation Config Resolver → Tenant Configuration → Existing D2C Domain Services
+```
+
+`handleInboundMessage` resolves `D2CConversationConfigService.resolveEffectiveConfig
+(organisationId)` exactly once per inbound message and threads the resulting
+`EffectiveConversationConfig` object through `dispatch()` and every state handler,
+replacing the prior `organisationName: string` parameter and every hardcoded
+customer-facing string. Three new, purely additive, `organisationId`-keyed tables —
+`D2CConversationCapabilityConfig`, `D2CConversationMessageConfig`,
+`D2CConversationProfile` — each independently default to the platform's pre-Sprint-44
+behavior when no row exists, so a brand-new tenant needs zero configuration rows for
+correct, unchanged behavior.
+
+The internal capability identifier (`ORDER_SNACKS`, `MY_ORDERS`, etc. — a fixed Prisma
+enum) stays stable regardless of a tenant's display-label customization; a disabled
+capability falls through to the exact same `UNKNOWN_COMMAND` response any other
+unrecognized input produces, whether invoked via a stale numbered reply, a text alias,
+or the literal internal command string. 14 curated customer-facing message keys support
+safe, allowlisted `{{variable}}` substitution only — a plain `\w+`-only regex that
+cannot match a `{{dotted.path}}` token, let alone execute code.
+
+`CollectionPointFulfillmentService.notifyReady`/`notifyCollected` were widened to call
+the same resolver for their own two customer-facing messages
+(`READY_FOR_COLLECTION`/`COLLECTION_CONFIRMED`), removing their redundant direct
+`OrganisationService` dependency — deliberately the SAME resolver, never a second
+configuration-reading mechanism.
+
+A new admin UI, `/settings/d2c/conversation-settings` (the brief's suggested
+`/settings/d2c/conversation` path was already the Sprint 33 Conversation Tester), and a
+preview endpoint that calls the exact same `buildWelcomeMessage`/`buildMainMenuMessages`
+functions the real conversation uses — the preview can never show an admin something
+the real conversation wouldn't actually send.
+
+Tenant isolation and active-conversation safety were proven at three levels: unit tests
+(two independent harnesses, two independently-mocked configs), real-PostgreSQL
+concurrency tests (concurrent writes for two tenants never cross-contaminate), and a
+real-PostgreSQL "Final Architectural Test" that configures two genuinely different
+tenants and confirms `getAdminView`/`getPreview` — the same methods the admin UI and
+conversation itself use — never leak one tenant's text into the other's response. A
+dedicated test also confirms an admin's config save landing while a consumer sits
+mid-flow (an active cart, `ORDER_CONFIRMATION`) never touches that conversation's
+persisted state — `ConsumerConversation` and the new config tables are structurally
+unconnected, with no trigger or cascade between them.
+
+Live-verified against the real Meta WhatsApp API (`WHATSAPP_PROVIDER_MODE=meta`): a
+capability rename displayed correctly and still routed correctly; a disabled capability
+disappeared from the real menu and was rejected on direct invocation; a customized
+message and its reset-to-default both took effect on real, Meta-delivered replies; and
+cancelling from inside the ordering flow confirmed no `SalesOrder` was created. Full
+evidence in `docs/sprint-44-completion-report.md` §15.

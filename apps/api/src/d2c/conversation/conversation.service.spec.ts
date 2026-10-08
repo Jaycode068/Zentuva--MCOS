@@ -25,6 +25,13 @@ import { OutletRepository } from '../../retail/outlet/outlet.repository';
 import { SalesOrderRepository, SalesOrderWithRelations } from '../../sales/sales-order.repository';
 import { SalesOrderService } from '../../sales/sales-order.service';
 import { ConsumerService } from '../consumer/consumer.service';
+import {
+  DEFAULT_CAPABILITY_ENABLED,
+  DEFAULT_CAPABILITY_LABELS,
+  DEFAULT_CAPABILITY_ORDER,
+  DEFAULT_MESSAGES,
+} from '../conversation-config/d2c-conversation-config.types';
+import { D2CConversationConfigService } from '../conversation-config/d2c-conversation-config.service';
 import { CollectionPointFulfillmentRepository } from '../fulfillment/collection-point-fulfillment.repository';
 import { D2COrderingService } from '../ordering/d2c-ordering.service';
 import { LoyaltyService } from '../../promotions/loyalty/loyalty.service';
@@ -669,16 +676,41 @@ describe('ConversationService', () => {
       listLedger: jest.fn().mockResolvedValue({ items: [], total: 0 }),
     } as unknown as jest.Mocked<LoyaltyService>;
 
+    // Sprint 44 — a fake resolver returning EXACTLY the platform defaults (the same
+    // `DEFAULT_MESSAGES`/`DEFAULT_CAPABILITY_*` constants the real
+    // `D2CConversationConfigService` falls back to for an unconfigured tenant), so every
+    // pre-existing test below keeps exercising byte-identical wording/menu behaviour —
+    // this harness never exercises tenant CUSTOMIZATION itself (see the dedicated
+    // "Sprint 44 — tenant conversation configuration" describe block for that).
+    const configService = {
+      resolveEffectiveConfig: jest.fn(async (organisationId: string) => {
+        const organisation = await organisationService.getById(organisationId);
+        return {
+          organisationId,
+          businessName: organisation?.displayName ?? organisation?.name ?? 'us',
+          supportPhone: organisation?.phone ?? null,
+          supportEmail: organisation?.supportEmail ?? null,
+          capabilities: DEFAULT_CAPABILITY_ORDER.map((capability, index) => ({
+            capability,
+            enabled: DEFAULT_CAPABILITY_ENABLED[capability],
+            displayLabel: DEFAULT_CAPABILITY_LABELS[capability],
+            sortOrder: index,
+          })),
+          messages: { ...DEFAULT_MESSAGES },
+        };
+      }),
+    } as unknown as jest.Mocked<D2CConversationConfigService>;
+
     const service = new ConversationService(
       conversationRepository,
       messageRepository,
       consumerService,
       territoryRepository,
       auditService,
-      organisationService,
       d2cOrderingService,
       d2cPaymentService,
       loyaltyService,
+      configService,
     );
     return {
       service,
@@ -691,6 +723,7 @@ describe('ConversationService', () => {
       paymentProvider,
       loyaltyService,
       collectionPointFulfillmentRepository,
+      configService,
     };
   }
 
@@ -2013,6 +2046,134 @@ describe('ConversationService', () => {
       });
       expect(response.messages[0]).toMatchObject({ type: 'TEXT', text: 'Order cancelled.' });
       expect(orders).toHaveLength(0);
+    });
+  });
+
+  describe('Sprint 44 — tenant conversation configuration', () => {
+    async function registerToMainMenu(service: ConversationService, phone: string) {
+      await service.handleInboundMessage(ORG_A, {
+        channel: 'WHATSAPP',
+        externalConversationId: phone,
+        input: { type: 'BUTTON', value: 'REGISTER' },
+      });
+      await service.handleInboundMessage(ORG_A, {
+        channel: 'WHATSAPP',
+        externalConversationId: phone,
+        input: { type: 'TEXT', text: 'Config Test Consumer' },
+      });
+      await service.handleInboundMessage(ORG_A, {
+        channel: 'WHATSAPP',
+        externalConversationId: phone,
+        input: { type: 'LIST_SELECTION', value: 't-ibn' },
+      });
+      return service.handleInboundMessage(ORG_A, {
+        channel: 'WHATSAPP',
+        externalConversationId: phone,
+        input: { type: 'LIST_SELECTION', value: 't-bodija' },
+      });
+    }
+
+    it('a disabled capability disappears from the menu AND cannot be invoked directly by its internal value — the exact same shape a stale numbered reply or a typed internal command would use', async () => {
+      const { service, configService } = makeHarness();
+      const phone = '08099930001';
+      await registerToMainMenu(service, phone);
+
+      // Simulate a tenant that has disabled MY_REWARDS — the fake resolver below is
+      // ONLY used for THIS test's calls, proving the disabled-capability guard reads
+      // live from whatever `resolveEffectiveConfig` returns on each call, never a
+      // cached/stale menu.
+      configService.resolveEffectiveConfig.mockImplementation(async () => ({
+        organisationId: ORG_A,
+        businessName: 'Boby Bites',
+        supportPhone: null,
+        supportEmail: null,
+        capabilities: DEFAULT_CAPABILITY_ORDER.map((capability, index) => ({
+          capability,
+          enabled: capability !== 'MY_REWARDS',
+          displayLabel: DEFAULT_CAPABILITY_LABELS[capability],
+          sortOrder: index,
+        })),
+        messages: { ...DEFAULT_MESSAGES },
+      }));
+
+      const menu = await service.handleInboundMessage(ORG_A, {
+        channel: 'WHATSAPP',
+        externalConversationId: phone,
+        input: { type: 'TEXT', text: 'menu' },
+      });
+      // "menu" resolves through handleReset → mainMenuResponse, which emits
+      // [greeting TEXT, BUTTONS menu] — the menu itself is the SECOND message.
+      const options = (menu.messages[1] as { options: { value: string }[] }).options;
+      expect(options.map((o) => o.value)).not.toContain('MY_REWARDS');
+
+      // Direct invocation by the exact internal value, as if a real WhatsApp adapter
+      // had resolved a stale numbered reply or a literal typed command to it — must be
+      // rejected exactly like any other unmatched input, never routed to showMyRewards.
+      const response = await service.handleInboundMessage(ORG_A, {
+        channel: 'WHATSAPP',
+        externalConversationId: phone,
+        input: { type: 'BUTTON', value: 'MY_REWARDS' },
+      });
+      expect(response.messages[0]).toMatchObject({
+        type: 'TEXT',
+        text: expect.stringContaining("didn't understand"),
+      });
+    });
+
+    it('two different tenant configurations (different welcome message, different menu label) are served by the EXACT SAME ConversationService CLASS, each via its own tenant-scoped config resolution — proving "shared engine, tenant-specific experience"; Tenant A never sees Tenant B\'s wording and vice versa', async () => {
+      // Two independent harnesses (the SAME established pattern this file's own
+      // pre-existing "tenant isolation" describe block already uses for ORG_A/ORG_B) —
+      // both instantiate the literal same `ConversationService` class with no
+      // per-tenant subclass/branch of any kind; only each one's OWN
+      // `D2CConversationConfigService` mock differs, exactly mirroring how the REAL
+      // resolver would return different rows for different `organisationId`s.
+      const harnessA = makeHarness(ORG_A);
+      const harnessB = makeHarness(ORG_B);
+      harnessA.configService.resolveEffectiveConfig.mockResolvedValue({
+        organisationId: ORG_A,
+        businessName: 'Boby Bites',
+        supportPhone: null,
+        supportEmail: null,
+        capabilities: DEFAULT_CAPABILITY_ORDER.map((capability, index) => ({
+          capability,
+          enabled: true,
+          displayLabel: DEFAULT_CAPABILITY_LABELS[capability],
+          sortOrder: index,
+        })),
+        messages: { ...DEFAULT_MESSAGES, WELCOME: 'Welcome to Boby Bites! 👋' },
+      });
+      harnessB.configService.resolveEffectiveConfig.mockResolvedValue({
+        organisationId: ORG_B,
+        businessName: 'XYZ Foods',
+        supportPhone: null,
+        supportEmail: null,
+        capabilities: DEFAULT_CAPABILITY_ORDER.map((capability, index) => ({
+          capability,
+          enabled: true,
+          displayLabel:
+            capability === 'ORDER_SNACKS'
+              ? '🛍️ Shop Products'
+              : DEFAULT_CAPABILITY_LABELS[capability],
+          sortOrder: index,
+        })),
+        messages: { ...DEFAULT_MESSAGES, WELCOME: 'Welcome to XYZ Foods! 👋' },
+      });
+
+      const responseA = await harnessA.service.handleInboundMessage(ORG_A, {
+        channel: 'WHATSAPP',
+        externalConversationId: '08099930002',
+        input: { type: 'TEXT', text: 'hi' },
+      });
+      const responseB = await harnessB.service.handleInboundMessage(ORG_B, {
+        channel: 'WHATSAPP',
+        externalConversationId: '08099930003',
+        input: { type: 'TEXT', text: 'hi' },
+      });
+
+      expect((responseA.messages[0] as { text: string }).text).toContain('Boby Bites');
+      expect((responseA.messages[0] as { text: string }).text).not.toContain('XYZ Foods');
+      expect((responseB.messages[0] as { text: string }).text).toContain('XYZ Foods');
+      expect((responseB.messages[0] as { text: string }).text).not.toContain('Boby Bites');
     });
   });
 });

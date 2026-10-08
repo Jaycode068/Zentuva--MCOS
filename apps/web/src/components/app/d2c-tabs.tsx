@@ -14,6 +14,7 @@ const TABS = [
   { label: 'Loyalty', href: '/settings/d2c/loyalty' },
   { label: 'Conversation Tester', href: '/settings/d2c/conversation' },
   { label: 'Conversations', href: '/settings/d2c/conversations' },
+  { label: 'Conversation Settings', href: '/settings/d2c/conversation-settings' },
   { label: 'WhatsApp Test', href: '/settings/d2c/whatsapp-test' },
 ];
 

@@ -485,4 +485,17 @@ export const PERMISSION_CATALOGUE: PermissionCatalogueEntry[] = [
     'SCOPABLE',
     'Retry a failed D2C consumer WhatsApp notification',
   ),
+
+  // --- D2C: Tenant Conversation Configuration (Sprint 44 — docs/domains/d2c.md). Its
+  // own permission pair, not `d2c.communication.*`/`d2c.consumer.*` — customizing the
+  // shared conversation engine's welcome message, menu labels/ordering/enabled
+  // capabilities, and customer-facing message catalogue for THIS tenant is a distinct,
+  // business-identity-level capability from inspecting delivery history or managing a
+  // consumer's own record, the same "its own pair" reasoning every other D2C permission
+  // pair above already established. `.manage` (edit/save) is deliberately separate from
+  // `.view` (read configuration + preview) — the same split every other D2C pair uses.
+  // Not granted to Member at seed time — this is a tenant-identity/brand-configuration
+  // surface, not a routine operational task. ---
+  entry('d2c.conversation.view', 'SCOPABLE', 'View D2C conversation configuration'),
+  entry('d2c.conversation.manage', 'SCOPABLE', 'Edit D2C conversation configuration'),
 ];
