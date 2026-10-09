@@ -498,4 +498,23 @@ export const PERMISSION_CATALOGUE: PermissionCatalogueEntry[] = [
   // surface, not a routine operational task. ---
   entry('d2c.conversation.view', 'SCOPABLE', 'View D2C conversation configuration'),
   entry('d2c.conversation.manage', 'SCOPABLE', 'Edit D2C conversation configuration'),
+
+  // --- Reporting (Sprint 45, docs/domains/reporting.md "Access Control") ---
+  // Deliberately the ONLY new permission this sprint adds. It gates visibility into
+  // the `/reports` landing page and the reporting catalogue (which reports/metrics
+  // exist at all) — it never grants access to any report's actual DATA. Each report
+  // endpoint additionally requires the SAME pre-existing domain permission its
+  // authoritative source already uses (`finance.reports.view`, `sales.dashboard.view`,
+  // `production.order.view`, `hr.employee.view`, `hr.attendance.view`,
+  // `workflow.instance.view`, `maintenance.work_order.view`, `notification.email.view`,
+  // `notification.whatsapp.view`) — reusing the existing access-control system exactly
+  // as-is, never a parallel reporting authorization layer (brief §10). A user who can
+  // see the reports landing page but lacks e.g. `hr.employee.view` simply does not see
+  // the Workforce Summary report/section — "do not grant broad Finance or HR
+  // visibility merely because a user can access a general dashboard" is enforced by
+  // this per-report/per-section check, not by `reporting.catalogue.view` itself. A future
+  // Sprint 46 Executive Dashboard may introduce its own distinct consolidated-view
+  // permission; this sprint deliberately does not add one (see
+  // docs/domains/reporting.md "Access Control — Executive Dashboard Decision").
+  entry('reporting.catalogue.view', 'NONE', 'View the reporting landing page and catalogue'),
 ];

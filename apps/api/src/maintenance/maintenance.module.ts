@@ -131,5 +131,11 @@ import { WorkOrderService } from './work-order.service';
     MaintenanceProcurementService,
     MaintenanceAnalyticsService,
   ],
+  /** Added Sprint 45 (docs/domains/reporting.md) — `MaintenanceOverviewService` is
+   *  now exported so the new `ReportingModule` can inject it directly and reuse its
+   *  already-authoritative `getOverview()` (overdue work orders, overdue preventive,
+   *  cost-this-month) rather than recomputing those aggregates a second time.
+   *  `MaintenanceModule` exported nothing before this sprint; purely additive. */
+  exports: [MaintenanceOverviewService],
 })
 export class MaintenanceModule {}

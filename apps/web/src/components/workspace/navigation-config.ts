@@ -86,7 +86,7 @@ export const WORKSPACE_NAV_GROUPS: WorkspaceNavGroup[] = [
       { label: 'Field Maintenance', href: '/technician', icon: WrenchIcon },
       { label: 'My Attendance', href: '/attendance', icon: ClockIcon },
       { label: 'Finance', href: '/settings/finance', icon: BanknoteIcon },
-      { label: 'Reports', href: '/reports', icon: BarChartIcon, comingSoon: true },
+      { label: 'Reports', href: '/reports', icon: BarChartIcon },
     ],
   },
   {

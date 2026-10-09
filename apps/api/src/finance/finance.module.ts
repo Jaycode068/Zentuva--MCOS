@@ -364,7 +364,22 @@ import { DecisionScenarioService } from './decision/decision-scenario.service';
    *  reuse its new D2C-specific methods — the same "consume another domain
    *  only through its exported service" convention (ADR-002)
    *  `D2COrderingModule` already uses for `SalesOrderService` (Sprint 34).
-   *  FinanceModule exported nothing before this sprint. */
-  exports: [PaymentService],
+   *  FinanceModule exported nothing before this sprint.
+   *
+   *  Widened Sprint 45 (docs/domains/reporting.md) — `FinancialStatementService`/
+   *  `AccountsReceivableService`/`AccountsPayableService`/`InventoryValuationService`/
+   *  `RevenueCogsService` are now also exported so the new `ReportingModule` can
+   *  inject these already-authoritative read services directly (brief §4 "one
+   *  authoritative definition per metric") instead of recomputing P&L/AR/AP/inventory
+   *  valuation a second time. Purely additive — no existing provider's visibility is
+   *  narrowed, and `FinanceModule`'s own controllers/behaviour are unchanged. */
+  exports: [
+    PaymentService,
+    FinancialStatementService,
+    AccountsReceivableService,
+    AccountsPayableService,
+    InventoryValuationService,
+    RevenueCogsService,
+  ],
 })
 export class FinanceModule {}

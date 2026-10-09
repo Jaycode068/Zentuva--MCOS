@@ -67,6 +67,18 @@ export class EmployeeService {
     return this.employeeRepository.findByUserId(organisationId, userId);
   }
 
+  /** Added Sprint 45 (docs/domains/reporting.md "Workforce Summary") — thin
+   *  pass-throughs to the repository's own `groupBy` queries, so the Reporting module
+   *  (which does not inject `EmployeeRepository` directly) can reuse this exact
+   *  headcount calculation rather than a second one. */
+  getHeadcountByStatus(organisationId: string) {
+    return this.employeeRepository.countGroupedByStatus(organisationId);
+  }
+
+  getActiveHeadcountByDepartment(organisationId: string) {
+    return this.employeeRepository.countActiveGroupedByDepartment(organisationId);
+  }
+
   async create(
     organisationId: string,
     input: CreateEmployeeInput,

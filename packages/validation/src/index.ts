@@ -23,6 +23,7 @@ export * from './pagination';
 export * from './procurement';
 export * from './production';
 export * from './recruitment';
+export * from './reporting';
 export * from './retail';
 export * from './returns';
 export * from './sales';

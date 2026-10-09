@@ -7,6 +7,48 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 45 Reporting & Business Intelligence Foundation] - 2026-10-09
+
+Before a full business simulation and real tenant deployment, Zentuva needed a
+reliable, consistent way to retrieve and present business information across its
+domains. This sprint builds that foundation — a reporting layer that sits above the
+existing domain services and reuses their authoritative calculations, never a second
+source of truth for a figure that already has one.
+
+**Audit finding.** A substantial reporting layer already existed
+(`finance/reports/*`, Sprint 13) — P&L, Balance Sheet, Revenue/COGS, Inventory
+Valuation, AR/AP aging, a Management Dashboard. This sprint registers it in one
+discoverable catalogue alongside new reports rather than rebuilding any of it.
+
+**New.** A typed Metric Registry and Report Registry (`apps/api/src/reporting/`),
+an organisation-timezone-aware reporting-period resolver (10 presets + 2 comparison
+modes, reusing the existing `Organisation.timeZone` configuration), a dependency-free
+CSV export utility with formula-injection protection, and the first validated
+reporting query-parameter contract (`packages/validation/src/reporting.ts`). One new
+permission, `reporting.catalogue.view`, gates only catalogue visibility — every
+report's actual data still requires that domain's own existing permission, reused
+as-is.
+
+**New reports**, across Sales, Inventory, Finance (Receivables/Payables), Production,
+Workforce, and a 3-section Operational Exceptions composite — each independently
+permission-gated so a viewer never sees a section they lack access to, never a 403 for
+the whole report.
+
+**Live-verified** against the real Boby Bites database, real HTTP, and a real browser
+session: every report's real figures matched exactly across the API and the new
+`/reports` UI; permission filtering correctly restricted a Member account to one
+report; a real zero-activity comparison period correctly rendered "No comparison
+data" instead of a misleading 0%. 265 suites / 2427 unit tests and 9 suites / 39
+integration tests passing, 0 regressions.
+
+**Known gaps, honestly documented, not fabricated**: no Leave model exists anywhere
+in this codebase; no reorder-point field exists on Product; production costing is
+materials-only (no labour/overhead); `SalesOrder` carries no territory id. See the
+Reporting Coverage Matrix for the full classification.
+
+See [docs/domains/reporting.md](domains/reporting.md) and
+[docs/sprint-45-completion-report.md](sprint-45-completion-report.md).
+
 ## [Sprint 44 Tenant D2C Conversation Configuration] - 2026-10-09
 
 Every tenant's WhatsApp conversation had exactly one voice — Boby Bites' own hardcoded

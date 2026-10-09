@@ -141,6 +141,36 @@ export class EmployeeRepository {
     return this.prisma.employee.count({ where: this.buildWhere(organisationId, params) });
   }
 
+  /** Added Sprint 45 (docs/domains/reporting.md "Workforce Summary") — one `groupBy`
+   *  for the Workforce Summary Report's headcount-by-status breakdown, rather than
+   *  one `count()` call per `EmploymentStatus` value. */
+  async countGroupedByStatus(
+    organisationId: string,
+  ): Promise<{ employmentStatus: EmploymentStatus; count: number }[]> {
+    const rows = await this.prisma.employee.groupBy({
+      by: ['employmentStatus'],
+      where: { organisationId },
+      _count: true,
+    });
+    return rows.map((row) => ({ employmentStatus: row.employmentStatus, count: row._count }));
+  }
+
+  /** Added Sprint 45 — headcount-by-department for currently-`ACTIVE` employees only
+   *  (a separated/draft employee's old department assignment is not "current
+   *  headcount"). `departmentId: null` is a real, expected group — an employee with no
+   *  department assignment — surfaced as-is; the caller renders it as "Unassigned"
+   *  rather than this method silently dropping or miscounting those rows. */
+  async countActiveGroupedByDepartment(
+    organisationId: string,
+  ): Promise<{ departmentId: string | null; count: number }[]> {
+    const rows = await this.prisma.employee.groupBy({
+      by: ['departmentId'],
+      where: { organisationId, employmentStatus: 'ACTIVE' },
+      _count: true,
+    });
+    return rows.map((row) => ({ departmentId: row.departmentId, count: row._count }));
+  }
+
   async findManyPaginated(
     organisationId: string,
     params: ListEmployeesParams,

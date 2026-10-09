@@ -37,7 +37,11 @@ import { ProductionRunRepository } from './production-run.repository';
  * integration (see docs/domains/accounting.md "Accounting Posting Boundary", and
  * `production-finance-independence.spec.ts` for the executable proof).
  *
- * No `exports` — nothing else consumes Production this sprint.
+ * Widened Sprint 45 (docs/domains/reporting.md) — `ProductionMaterialIssueRepository`
+ * is now exported so the new `ReportingModule` can inject it directly and reuse its
+ * already-authoritative, GL-sourced `getTotalWipValue()` for the Production
+ * Performance Report's material-cost figure, rather than recomputing it. Purely
+ * additive; nothing else about this module changed.
  */
 @Module({
   imports: [IdentityModule, AuthModule, ProductModule, InventoryModule],
@@ -50,5 +54,6 @@ import { ProductionRunRepository } from './production-run.repository';
     ProductionRunRepository,
     ProductionOrderService,
   ],
+  exports: [ProductionMaterialIssueRepository],
 })
 export class ProductionModule {}

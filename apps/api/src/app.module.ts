@@ -42,6 +42,7 @@ import { SalesModule } from './sales/sales.module';
 import { SupplierModule } from './suppliers/supplier/supplier.module';
 import { WorkflowModule } from './workflow/workflow.module';
 import { PaymentsModule } from './payments/payments.module';
+import { ReportingModule } from './reporting/reporting.module';
 
 @Module({
   imports: [
@@ -89,6 +90,7 @@ import { PaymentsModule } from './payments/payments.module';
     AccessControlModule,
     WorkflowModule,
     NotificationsModule,
+    ReportingModule,
   ],
 })
 export class AppModule {}
