@@ -102,9 +102,10 @@ and §7 (Reporting Coverage Matrix), generated from and kept in sync with
 
 ## 6. Test Suites and Exact Test Counts
 
-- **Full API unit suite**: 265 suites / 2427 tests passing, 0 failures (72 of those
+- **Full API unit suite**: 265 suites / 2427 tests passing, 0 failures (79 of those
   tests are new this sprint, across 10 new suites: period util 21, CSV util 7,
-  registries 9, `ReportingService` 10, and 5 report-service suites totaling 25).
+  registries 9, independence guard 5, `ReportingService` 10, and 5 report-service
+  suites totaling 27).
 - **Full integration suite** (`pnpm run test:integration`, real PostgreSQL): 9 suites
   / 39 tests passing, 0 failures (7 of those tests are new — tenant isolation across
   6 report types using 2 real pre-existing organisations).

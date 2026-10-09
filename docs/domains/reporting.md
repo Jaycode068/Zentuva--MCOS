@@ -387,14 +387,14 @@ not simulated.
 
 ## 14. Testing
 
-- **Unit**: 72 tests across the period utility (21, including the non-UTC timezone
+- **Unit**: 79 tests across the period utility (21, including the non-UTC timezone
   fix), CSV utility (7, including the injection-sanitization fix), both registries (9
-  structural checks), `ReportingService` (10, covering catalogue filtering, permission
-  enforcement, and the 3-way independent section-omission logic), and five report
-  services (Sales Performance, Production Performance, Workforce Summary, Operational
-  Exceptions, Inventory Position — 25 tests covering B2B filtering, null-safe
-  percentage/yield math, the "Unassigned" department bucket, ageing/overdue logic, and
-  pagination).
+  structural checks), the independence guard (5, see below), `ReportingService` (10,
+  covering catalogue filtering, permission enforcement, and the 3-way independent
+  section-omission logic), and five report services (Sales Performance, Production
+  Performance, Workforce Summary, Operational Exceptions, Inventory Position — 27
+  tests covering B2B filtering, null-safe percentage/yield math, the "Unassigned"
+  department bucket, ageing/overdue logic, comparison-period math, and pagination).
 - **Integration (real PostgreSQL)**: 7 tests in
   `reporting-tenant-isolation.integration.spec.ts` (6 report types × cross-tenant
   non-overlap, proven with 2 real pre-existing organisations).
