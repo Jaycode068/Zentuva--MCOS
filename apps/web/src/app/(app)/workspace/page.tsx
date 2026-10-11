@@ -43,6 +43,7 @@ const QUICK_ACTIONS = [
 const MODULE_ACCENTS: ModuleAccent[] = ['purple', 'pink', 'orange', 'teal'];
 
 const MODULE_DESCRIPTIONS: Record<string, string> = {
+  '/dashboard': 'Executive overview — business performance, trends, and what needs your attention.',
   '/workspace': 'Your workspace overview and quick links.',
   '/notifications': 'What needs your attention — approvals, status changes, and preferences.',
   '/settings/products': 'The master catalogue of everything you manufacture or sell.',
@@ -80,8 +81,10 @@ export default function WorkspaceDashboardPage() {
     queryFn: getWorkspaceSettings,
   });
 
-  // Every module except Dashboard itself — this page *is* the Dashboard, so it would be a
-  // redundant self-link tile in its own "Platform Modules" grid.
+  // Every module except Workspace itself (this page) — a self-link tile in its own
+  // "Platform Modules" grid would be redundant. Sprint 46 added a real
+  // `/dashboard` (Executive Dashboard) as its own distinct module, deliberately
+  // still included here like every other module.
   const workspaceModules = WORKSPACE_NAV_GROUPS[0]!.items.filter(
     (item) => item.href !== '/workspace',
   );

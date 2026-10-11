@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent } from '@zentuva/ui';
 
-import { getSalesPerformanceReport } from '../api';
+import { calculatePercentChange, getSalesPerformanceReport } from '../api';
 import { ExportButton } from '@/components/reporting/export-button';
 import { PeriodSelector } from '@/components/reporting/period-selector';
 import { ReportDataTable, ReportPagination } from '@/components/reporting/report-data-table';
@@ -20,11 +20,6 @@ const COLUMNS = [
   { key: 'orderDate', label: 'Order Date', type: 'DATE' as const },
   { key: 'total', label: 'Total', type: 'CURRENCY' as const },
 ];
-
-function calculatePercentChange(current: number, previous: number | null): number | null {
-  if (previous == null || previous === 0) return null;
-  return Math.round(((current - previous) / Math.abs(previous)) * 1000) / 10;
-}
 
 export default function SalesPerformancePage() {
   const [preset, setPreset] = useState<ReportingPeriodPreset>('this_month');

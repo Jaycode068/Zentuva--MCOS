@@ -20,9 +20,11 @@ import {
 } from './reports/operational-exceptions-report.service';
 import { PayablesReportService } from './reports/payables-report.service';
 import { ProductionPerformanceReportService } from './reports/production-performance-report.service';
+import { ProcurementSummaryReportService } from './reports/procurement-summary-report.service';
 import { ReceivablesReportService } from './reports/receivables-report.service';
 import { SalesPerformanceReportService } from './reports/sales-performance-report.service';
 import { WorkforceSummaryReportService } from './reports/workforce-summary-report.service';
+import { ExecutiveDashboardService } from './reports/executive-dashboard.service';
 
 export interface PeriodRequest {
   preset: ReportingPeriodPreset;
@@ -54,6 +56,8 @@ export class ReportingService {
     private readonly productionPerformanceReportService: ProductionPerformanceReportService,
     private readonly workforceSummaryReportService: WorkforceSummaryReportService,
     private readonly operationalExceptionsReportService: OperationalExceptionsReportService,
+    private readonly procurementSummaryReportService: ProcurementSummaryReportService,
+    private readonly executiveDashboardService: ExecutiveDashboardService,
   ) {}
 
   /** Brief §5A "expose report metadata for the frontend" — every metric/report whose
@@ -185,5 +189,31 @@ export class ReportingService {
     ]);
 
     return { pendingApprovals, overdueMaintenanceCount, failedNotifications };
+  }
+
+  async getProcurementSummary(organisationId: string, userId: string) {
+    await this.assertPermission(organisationId, userId, 'procurement.purchase_order.view');
+    return this.procurementSummaryReportService.getReport(organisationId);
+  }
+
+  /**
+   * Sprint 46 — Executive & Management Dashboards (docs/domains/reporting.md
+   * "Executive Dashboard"). Deliberately has NO single `assertPermission` call — the
+   * route itself is gated only by the controller's own `reporting.catalogue.view`
+   * (the same "can you see the reporting area at all" check every report shares);
+   * which of the five business-domain sections actually come back populated is
+   * decided entirely inside `ExecutiveDashboardService`, per-section, against each
+   * section's own existing domain permission (brief §8 "a dashboard may contain a
+   * mixture of accessible and inaccessible domains").
+   */
+  async getExecutiveDashboard(organisationId: string, userId: string, period: PeriodRequest) {
+    const { current, previous, timeZone } = await this.resolvePeriod(organisationId, period);
+    return this.executiveDashboardService.getDashboard(organisationId, userId, {
+      from: current.from,
+      to: current.to,
+      comparisonFrom: previous?.from,
+      comparisonTo: previous?.to,
+      timeZone,
+    });
   }
 }

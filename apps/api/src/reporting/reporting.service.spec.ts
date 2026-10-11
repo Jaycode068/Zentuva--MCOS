@@ -34,6 +34,12 @@ describe('ReportingService', () => {
       getOverdueMaintenanceCount: jest.fn().mockResolvedValue(3),
       getFailedNotificationCounts: jest.fn().mockResolvedValue({ email: 1, whatsapp: 2 }),
     };
+    const procurementSummaryReportService = {
+      getReport: jest.fn().mockResolvedValue({ procurement: true }),
+    };
+    const executiveDashboardService = {
+      getDashboard: jest.fn().mockResolvedValue({ dashboard: true }),
+    };
 
     const service = new ReportingService(
       organisationService as never,
@@ -45,12 +51,17 @@ describe('ReportingService', () => {
       productionPerformanceReportService as never,
       workforceSummaryReportService as never,
       operationalExceptionsReportService as never,
+      procurementSummaryReportService as never,
+      executiveDashboardService as never,
     );
 
     return {
       service,
       receivablesReportService,
       operationalExceptionsReportService,
+      procurementSummaryReportService,
+      executiveDashboardService,
+      effectiveAccessResolver,
     };
   }
 

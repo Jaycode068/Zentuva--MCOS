@@ -15,7 +15,7 @@ import { join } from 'path';
  * this sprint specifically for this purpose, see each module's own updated doc
  * comment).
  */
-describe('Reporting module independence (Sprint 45)', () => {
+describe('Reporting module independence (Sprint 45/46)', () => {
   function readSource(relativePath: string): string {
     return readFileSync(join(__dirname, relativePath), 'utf-8');
   }
@@ -29,6 +29,8 @@ describe('Reporting module independence (Sprint 45)', () => {
     'reports/production-performance-report.service.ts',
     'reports/workforce-summary-report.service.ts',
     'reports/operational-exceptions-report.service.ts',
+    'reports/procurement-summary-report.service.ts',
+    'reports/executive-dashboard.service.ts',
   ];
 
   const FORBIDDEN_WRITE_PATTERN =
@@ -59,6 +61,7 @@ describe('Reporting module independence (Sprint 45)', () => {
       '../../finance/accounts-payable.service',
       '../../finance/reports/revenue-cogs.service',
       '../../finance/reports/inventory-valuation.service',
+      '../../finance/reports/financial-statement.service',
       '../../maintenance/maintenance-overview.service',
       '../../hr/employee.service',
     ]);

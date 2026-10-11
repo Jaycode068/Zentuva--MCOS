@@ -7,6 +7,42 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Sprint 46 Executive & Management Dashboards] - 2026-10-09
+
+Sprint 45 built the reporting foundation; this sprint answers the question it exists
+to answer — "what is happening in this business, and what requires my attention."
+
+**New.** An Executive Dashboard at `/dashboard` — reporting-period controls, 8
+curated KPI cards (Net Revenue, Gross Profit, Receivables/Payables, Inventory Value,
+Sales Orders, Production Output, Active Headcount), two real day-by-day trend charts
+(Sales Order Value, Accepted Production Output — genuine per-day sums, never
+manufactured history), 5 explainable business-health indicators (never an opaque
+composite score), and a Recent Activity feed reusing the existing `AuditLog` table.
+Every section independently permission-gated against its own existing domain
+permission and omitted (not zeroed, not 403'd) when absent — zero new permissions
+added. Six focused departmental dashboards (Sales, Finance, Inventory, Production,
+Procurement, Workforce); five reuse a Sprint 45 report verbatim, Procurement adds one
+new, narrow `ProcurementSummaryReportService` (open purchase orders, reusing
+Finance's own payables summary without double-counting).
+
+**Fixed.** Three genuine bugs found through live verification: a duplicated
+percent-change formula in two Sprint 45 report pages (now one shared export); a
+global TanStack Query default that silently retried a correctly-enforced `403` three
+times, leaving a restricted user's dashboard spinning for several seconds (now skips
+retries on any `4xx`); and a misleading "Coming soon." label on the new Dashboard's
+own navigation tile.
+
+**Live-verified** against the real seeded database and real dev servers: a dashboard
+KPI matched its authoritative report exactly; changing the reporting period updated
+period-scoped cards while leaving point-in-time cards correctly unchanged; a
+restricted Member account saw exactly the one section its permissions allow, with
+real `403` responses confirmed in the browser's own network log for everything else.
+267 suites / 2447 unit tests and 9 suites / 41 integration tests passing, 0
+regressions.
+
+See [docs/domains/reporting.md](domains/reporting.md) §17–24 and
+[docs/sprint-46-completion-report.md](sprint-46-completion-report.md).
+
 ## [Sprint 45 Reporting & Business Intelligence Foundation] - 2026-10-09
 
 Before a full business simulation and real tenant deployment, Zentuva needed a

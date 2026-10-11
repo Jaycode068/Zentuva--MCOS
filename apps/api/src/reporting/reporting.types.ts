@@ -8,7 +8,8 @@ import { ComparisonMode, ReportingPeriodPreset } from './reporting-period.util';
  * rather than an "unstructured collection of strings" (brief §5B/§5C).
  */
 
-export type ReportDomain = 'SALES' | 'INVENTORY' | 'FINANCE' | 'PRODUCTION' | 'HR' | 'OPERATIONS';
+export type ReportDomain =
+  'SALES' | 'INVENTORY' | 'FINANCE' | 'PRODUCTION' | 'PROCUREMENT' | 'HR' | 'OPERATIONS';
 
 export type MetricUnit = 'CURRENCY' | 'COUNT' | 'PERCENT' | 'DAYS';
 

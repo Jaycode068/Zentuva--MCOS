@@ -190,6 +190,22 @@ export const METRIC_REGISTRY: MetricDefinition[] = [
     limitation: 'Materials only — no labour or overhead costing exists in this codebase.',
   },
   {
+    id: 'procurement.open-purchase-orders',
+    displayName: 'Open Purchase Orders',
+    description:
+      'Count of purchase orders still awaiting some or all of their goods (PENDING or PARTIALLY_RECEIVED).',
+    domain: 'PROCUREMENT',
+    unit: 'COUNT',
+    aggregation: 'COUNT',
+    authoritativeSource:
+      'ProcurementSummaryReportService (direct PurchaseOrder.count, status IN [PENDING, PARTIALLY_RECEIVED])',
+    timeBasis: 'POINT_IN_TIME',
+    supportedFilters: ['supplierId'],
+    requiredPermission: 'procurement.purchase_order.view',
+    drillDownReportId: 'procurement-summary',
+    availability: 'AVAILABLE',
+  },
+  {
     id: 'hr.active-headcount',
     displayName: 'Active Headcount',
     description: 'Count of employees with EmploymentStatus = ACTIVE as of now.',

@@ -2,6 +2,7 @@ import {
   calculatePercentChange,
   resolveComparisonPeriod,
   resolveReportingPeriod,
+  toLocalDateKey,
 } from './reporting-period.util';
 
 const UTC = 'UTC';
@@ -148,5 +149,22 @@ describe('calculatePercentChange', () => {
 
   it('returns 0 (not null) when current equals a non-zero previous', () => {
     expect(calculatePercentChange(100, 100)).toBe(0);
+  });
+});
+
+describe('toLocalDateKey', () => {
+  it('returns a YYYY-MM-DD key for UTC', () => {
+    expect(toLocalDateKey(new Date('2026-03-05T10:00:00Z'), 'UTC')).toBe('2026-03-05');
+  });
+
+  it('shifts the date key across the day boundary in a non-UTC timezone', () => {
+    // 2026-03-05T23:30Z is 2026-03-06T00:30 in Lagos (UTC+1) — a new local day.
+    expect(toLocalDateKey(new Date('2026-03-05T23:30:00Z'), 'Africa/Lagos')).toBe('2026-03-06');
+  });
+
+  it('two instants on the same local day produce the same key', () => {
+    const a = toLocalDateKey(new Date('2026-03-05T00:05:00Z'), 'UTC');
+    const b = toLocalDateKey(new Date('2026-03-05T23:55:00Z'), 'UTC');
+    expect(a).toBe(b);
   });
 });

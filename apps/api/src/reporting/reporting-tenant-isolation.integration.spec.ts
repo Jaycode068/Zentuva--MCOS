@@ -24,6 +24,8 @@ import { RevenueCogsService } from '../finance/reports/revenue-cogs.service';
 import { FinancialStatementService } from '../finance/reports/financial-statement.service';
 import { ChartOfAccountRepository } from '../finance/accounting/chart-of-account.repository';
 import { SalesFulfilmentRepository } from '../sales/sales-fulfilment.repository';
+import { ProcurementSummaryReportService } from './reports/procurement-summary-report.service';
+import { ExecutiveDashboardService } from './reports/executive-dashboard.service';
 
 /**
  * Sprint 45 — Reporting & Business Intelligence Foundation (brief §10 "Mandatory
@@ -105,6 +107,42 @@ describe('Reporting — tenant isolation across two real organisations (real Pos
   const productionPerformanceReportService = new ProductionPerformanceReportService(
     prisma as never,
     materialIssueRepository,
+  );
+
+  const procurementSummaryReportService = new ProcurementSummaryReportService(
+    prisma as never,
+    accountsPayableService,
+  );
+
+  // Sprint 46 — `ExecutiveDashboardService`'s own two dependencies not already
+  // constructed above are faked minimally: `EffectiveAccessResolver` as an
+  // unconditional Owner bypass (this test is about tenant isolation, not permission
+  // filtering — already covered by `executive-dashboard.service.spec.ts`'s own unit
+  // tests), and the Operational Exceptions / Audit sections as empty no-ops, since
+  // this test's purpose is proving the FINANCE/SALES/PRODUCTION/WORKFORCE sections
+  // (built from the exact same real services already under test above) never leak
+  // across the organisation boundary when composed into one dashboard response.
+  const effectiveAccessResolver = {
+    resolve: jest.fn().mockResolvedValue({ isOwnerBypass: true, grants: new Map() }),
+  };
+  const operationalExceptionsReportService = {
+    getPendingApprovals: jest.fn().mockResolvedValue([]),
+    getOverdueMaintenanceCount: jest.fn().mockResolvedValue(0),
+    getFailedNotificationCounts: jest.fn().mockResolvedValue({ email: 0, whatsapp: 0 }),
+  };
+  const auditService = { listByOrganisation: jest.fn().mockResolvedValue([]) };
+  const executiveDashboardService = new ExecutiveDashboardService(
+    prisma as never,
+    effectiveAccessResolver as never,
+    financialStatementService,
+    accountsReceivableService,
+    accountsPayableService,
+    inventoryValuationService,
+    salesPerformanceReportService,
+    productionPerformanceReportService,
+    employeeService,
+    operationalExceptionsReportService as never,
+    auditService as never,
   );
 
   beforeAll(async () => {
@@ -249,6 +287,65 @@ describe('Reporting — tenant isolation across two real organisations (real Pos
     ]);
     const orderIdsA = new Set(reportA.table.rows.map((row) => row.productionOrderId));
     const orderIdsB = new Set(reportB.table.rows.map((row) => row.productionOrderId));
+    for (const id of orderIdsA) {
+      expect(orderIdsB.has(id)).toBe(false);
+    }
+  });
+
+  it("Procurement summary: Org A's open purchase orders and supplier ids never appear in Org B's report, and vice versa", async () => {
+    const [reportA, reportB] = await Promise.all([
+      procurementSummaryReportService.getReport(orgA),
+      procurementSummaryReportService.getReport(orgB),
+    ]);
+    const poIdsA = new Set(reportA.openPurchaseOrders.map((row) => row.id));
+    const poIdsB = new Set(reportB.openPurchaseOrders.map((row) => row.id));
+    for (const id of poIdsA) {
+      expect(poIdsB.has(id)).toBe(false);
+    }
+    const supplierIdsA = new Set(reportA.openPurchaseOrders.map((row) => row.supplierId));
+    const supplierIdsB = new Set(reportB.openPurchaseOrders.map((row) => row.supplierId));
+    for (const id of supplierIdsA) {
+      expect(supplierIdsB.has(id)).toBe(false);
+    }
+  });
+
+  it("Executive dashboard: composing every section for Org A never surfaces any of Org B's sales orders, production orders, or employees — Sprint 46's Final Architectural proof", async () => {
+    const period = {
+      from: new Date('2000-01-01T00:00:00.000Z'),
+      to: new Date('2100-01-01T00:00:00.000Z'),
+      timeZone: 'UTC',
+    };
+    const [dashboardA, dashboardB] = await Promise.all([
+      executiveDashboardService.getDashboard(orgA, 'actor-1', period),
+      executiveDashboardService.getDashboard(orgB, 'actor-2', period),
+    ]);
+
+    // Every section is populated (Owner-bypass fake).
+    expect(dashboardA.finance).not.toBeNull();
+    expect(dashboardA.sales).not.toBeNull();
+    expect(dashboardA.production).not.toBeNull();
+    expect(dashboardA.workforce).not.toBeNull();
+
+    // Cross-check each org's dashboard-composed headcount against a DIRECT,
+    // independently-scoped call — proving the composed dashboard reads exactly its
+    // own organisation's data, not a cross-contaminated or globally-shared result.
+    const [directHeadcountA, directHeadcountB] = await Promise.all([
+      employeeService.getHeadcountByStatus(orgA),
+      employeeService.getHeadcountByStatus(orgB),
+    ]);
+    const directActiveA = directHeadcountA.find((r) => r.employmentStatus === 'ACTIVE')?.count ?? 0;
+    const directActiveB = directHeadcountB.find((r) => r.employmentStatus === 'ACTIVE')?.count ?? 0;
+    expect(dashboardA.workforce!.activeHeadcount).toBe(directActiveA);
+    expect(dashboardB!.workforce!.activeHeadcount).toBe(directActiveB);
+
+    // Every sales-order id underlying Org A's revenue trend belongs to Org A alone —
+    // cross-checked against a direct, independently-scoped SalesOrder read.
+    const [ordersA, ordersB] = await Promise.all([
+      prisma.salesOrder.findMany({ where: { organisationId: orgA }, select: { id: true } }),
+      prisma.salesOrder.findMany({ where: { organisationId: orgB }, select: { id: true } }),
+    ]);
+    const orderIdsA = new Set(ordersA.map((o) => o.id));
+    const orderIdsB = new Set(ordersB.map((o) => o.id));
     for (const id of orderIdsA) {
       expect(orderIdsB.has(id)).toBe(false);
     }

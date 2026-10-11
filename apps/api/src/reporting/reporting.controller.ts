@@ -261,4 +261,29 @@ export class ReportingController {
   getOperationalExceptions(@CurrentUser() user: TokenPayload) {
     return this.reportingService.getOperationalExceptions(user.organisationId, user.sub);
   }
+
+  @Get('reports/procurement-summary')
+  getProcurementSummary(@CurrentUser() user: TokenPayload) {
+    return this.reportingService.getProcurementSummary(user.organisationId, user.sub);
+  }
+
+  /**
+   * Sprint 46 — Executive & Management Dashboards. One composed response for the
+   * `/dashboard` page — see `ReportingService.getExecutiveDashboard`'s own doc
+   * comment for why this single endpoint is justified (brief §9) and how per-section
+   * permission omission works (brief §8).
+   */
+  @Get('dashboard/executive')
+  getExecutiveDashboard(
+    @CurrentUser() user: TokenPayload,
+    @Query() periodQuery: Record<string, string>,
+  ) {
+    const period = reportingPeriodQuerySchema.parse(periodQuery);
+    return this.reportingService.getExecutiveDashboard(user.organisationId, user.sub, {
+      preset: period.preset,
+      customFrom: period.customFrom,
+      customTo: period.customTo,
+      comparison: period.comparison,
+    });
+  }
 }

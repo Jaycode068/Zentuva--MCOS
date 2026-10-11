@@ -12,6 +12,7 @@ const DOMAIN_LABELS: Record<ReportDomain, string> = {
   INVENTORY: 'Inventory',
   FINANCE: 'Finance',
   PRODUCTION: 'Production',
+  PROCUREMENT: 'Procurement',
   HR: 'Workforce',
   OPERATIONS: 'Operations',
 };
@@ -21,6 +22,7 @@ const DOMAIN_ORDER: ReportDomain[] = [
   'INVENTORY',
   'FINANCE',
   'PRODUCTION',
+  'PROCUREMENT',
   'HR',
   'OPERATIONS',
 ];

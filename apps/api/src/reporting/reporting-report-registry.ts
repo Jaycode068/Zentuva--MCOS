@@ -173,6 +173,27 @@ export const REPORT_REGISTRY: ReportDefinition[] = [
     limitation:
       'Not a single permission — each section (approvals/maintenance/notifications) is independently gated by its own existing domain permission and simply omitted, never rejected, when the viewer lacks it.',
   },
+  {
+    id: 'procurement-summary',
+    displayName: 'Procurement Summary',
+    description:
+      'Open purchase orders awaiting delivery, outstanding supplier payables (reused from Finance), and supplier invoices with an unresolved 3-way-match discrepancy.',
+    domain: 'PROCUREMENT',
+    columns: [
+      { key: 'purchaseOrderNumber', label: 'PO Number', type: 'STRING' },
+      { key: 'supplierName', label: 'Supplier', type: 'STRING' },
+      { key: 'status', label: 'Status', type: 'ENUM' },
+      { key: 'orderDate', label: 'Order Date', type: 'DATE' },
+      { key: 'total', label: 'Total', type: 'CURRENCY' },
+    ],
+    supportedFilters: ['supplierId', 'status'],
+    sortableFields: ['orderDate', 'total'],
+    requiredPermission: 'procurement.purchase_order.view',
+    exportEligible: false,
+    availability: 'AVAILABLE',
+    limitation:
+      'Open-PO list capped at 25 rows (a dashboard summary, not a full procurement report) — use the existing Purchase Orders screen for the complete list. Payables figures are reused verbatim from Finance, never recomputed, so they never double-count a PO already reflected there.',
+  },
 ];
 
 export function getReportDefinition(reportId: string): ReportDefinition | undefined {

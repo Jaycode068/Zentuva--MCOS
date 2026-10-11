@@ -3,6 +3,7 @@ import { SalesOrderStatus } from '@prisma/client';
 
 import { RevenueCogsService, RevenueReport } from '../../finance/reports/revenue-cogs.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { toLocalDateKey } from '../reporting-period.util';
 import { ReportTableResult } from '../reporting.types';
 
 export interface SalesOrderStatusCount {
@@ -18,6 +19,13 @@ export interface SalesPerformanceOrderRow {
   status: SalesOrderStatus;
   orderDate: Date;
   total: number;
+}
+
+export interface SalesTrendPoint {
+  /** The organisation-local calendar date (as a UTC day-bucket instant, matching the
+   *  `reporting-period.util.ts` convention) this point summarizes. */
+  date: Date;
+  totalRevenue: number;
 }
 
 export interface SalesPerformanceReport {
@@ -137,5 +145,47 @@ export class SalesPerformanceReportService {
         pageSize: params.pageSize,
       },
     };
+  }
+
+  /**
+   * Sprint 46 — Executive & Management Dashboards (brief §5C "Sales or revenue over
+   * time"). A REAL day-by-day trend, bucketed from actual `SalesOrder.orderDate`/
+   * `total` rows within `[from, to)` — never a manufactured series from one current
+   * total (brief's own explicit warning). Deliberately excludes `DRAFT` (not a real
+   * commitment yet) and `CANCELLED` (reversed) — the same two statuses `revenue-cogs
+   * .service.ts`'s own GL-tied figure effectively nets out via `SALES_RETURNS`/never
+   * posting a draft. This is `SalesOrder.total`, not the GL-recognized figure the
+   * headline "Net Revenue" card shows — labelled "Sales Order Value" wherever
+   * rendered, precisely so the two numbers are never mistaken for the same thing
+   * (brief §5A "if a metric uses a different date basis... document that
+   * distinction"). Fetches only `orderDate`/`total` for rows already bounded by one
+   * reporting period — never the full table (brief §9).
+   */
+  async getDailyTrend(
+    organisationId: string,
+    params: { from: Date; to: Date; timeZone: string },
+  ): Promise<SalesTrendPoint[]> {
+    const orders = await this.prisma.salesOrder.findMany({
+      where: {
+        organisationId,
+        source: 'B2B',
+        status: { notIn: ['DRAFT', 'CANCELLED'] },
+        orderDate: { gte: params.from, lt: params.to },
+      },
+      select: { orderDate: true, total: true },
+    });
+
+    const totalsByDay = new Map<string, number>();
+    for (const order of orders) {
+      const key = toLocalDateKey(order.orderDate, params.timeZone);
+      totalsByDay.set(key, (totalsByDay.get(key) ?? 0) + order.total);
+    }
+
+    return [...totalsByDay.entries()]
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([dateKey, totalRevenue]) => ({
+        date: new Date(`${dateKey}T00:00:00.000Z`),
+        totalRevenue,
+      }));
   }
 }

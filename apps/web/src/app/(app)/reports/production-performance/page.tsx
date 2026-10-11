@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent } from '@zentuva/ui';
 
-import { getProductionPerformanceReport } from '../api';
+import { calculatePercentChange, getProductionPerformanceReport } from '../api';
 import type { ComparisonMode, ReportingPeriodPreset } from '../api';
 import { ExportButton } from '@/components/reporting/export-button';
 import { PeriodSelector } from '@/components/reporting/period-selector';
@@ -23,11 +23,6 @@ const COLUMNS = [
   { key: 'materialCost', label: 'Material Cost', type: 'CURRENCY' as const },
   { key: 'completedAt', label: 'Completed', type: 'DATE' as const },
 ];
-
-function calculatePercentChange(current: number, previous: number | null): number | null {
-  if (previous == null || previous === 0) return null;
-  return Math.round(((current - previous) / Math.abs(previous)) * 1000) / 10;
-}
 
 export default function ProductionPerformancePage() {
   const [preset, setPreset] = useState<ReportingPeriodPreset>('this_month');

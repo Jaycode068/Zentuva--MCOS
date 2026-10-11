@@ -149,12 +149,25 @@ report whose `requiredPermission` the caller lacks is omitted from `GET
 leaking protected data through... errors"). Live-verified: the Member account's real
 catalogue response contained exactly one report (`sales-performance`) and one metric.
 
-**Executive Dashboard decision (brief §10 "review whether the executive dashboard will
-eventually need a distinct permission")**: deliberately NOT decided this sprint.
-Sprint 46's Executive Dashboard will need its own explicit decision — either a new
-consolidated-visibility permission, or continuing to compose each domain's existing
-permission per section as Operational Exceptions already does. Recorded here as an
-open question for Sprint 46, not silently resolved either way.
+**Executive Dashboard decision — resolved in Sprint 46** (brief §10 "review whether
+the executive dashboard will eventually need a distinct permission"): **no new
+consolidated-visibility permission was introduced.** `ExecutiveDashboardService`
+follows the exact Operational Exceptions pattern: each of its five business-domain
+sections (finance, inventory, sales, production, workforce) and the three exception
+sub-parts is independently checked against that ONE domain's existing permission and
+set to `null` when absent — `GET /reporting/dashboard/executive` itself is gated only
+by `reporting.catalogue.view`, the same "can you see the reporting area at all" check
+every report shares. A user can therefore hold `sales.dashboard.view` alone and see
+exactly the Sales section of the Executive Dashboard, nothing else — live-verified
+with the seeded Member account (§13). This was a deliberate choice over a new
+`dashboard.executive.view`-style permission: a single consolidated permission would
+either (a) require every section to ALSO re-check its own domain permission anyway
+(making the consolidated permission redundant), or (b) grant broad cross-domain
+visibility the moment it's assigned — exactly the brief's own "do not grant broad
+Finance or HR visibility merely because a user can access a general dashboard"
+anti-pattern. If a genuine "give this one role full cross-domain visibility" use case
+emerges later, the correct shape is composing the existing per-domain permissions onto
+one role (already possible with zero code changes), not a new bypass permission.
 
 ## 6. KPI Dictionary
 
@@ -166,25 +179,26 @@ target (where applicable), availability, and known limitations — enforced pres
 `reporting-registry.spec.ts` (e.g. every `BLOCKED_DATA_GAP` metric must carry a
 non-empty `limitation`).
 
-| id                                | Display name             | Authoritative source                                                                   | Availability                                                               |
-| --------------------------------- | ------------------------ | -------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| `finance.net-revenue`             | Net Revenue              | `FinancialStatementService.getProfitAndLoss().revenue` (GL, net of returns)            | Available                                                                  |
-| `finance.gross-profit`            | Gross Profit             | `FinancialStatementService.getProfitAndLoss().grossProfit`                             | Available                                                                  |
-| `finance.gross-margin-percent`    | Gross Margin %           | `.grossMarginPercent` (null when revenue is 0)                                         | Available                                                                  |
-| `finance.receivables-outstanding` | Receivables Outstanding  | `AccountsReceivableService.getSummary().totalOutstanding`                              | Available                                                                  |
-| `finance.receivables-overdue`     | Receivables Overdue      | `.getSummary().totalOverdue`                                                           | Available                                                                  |
-| `finance.payables-outstanding`    | Payables Outstanding     | `AccountsPayableService.getSummary().totalOutstanding`                                 | Available                                                                  |
-| `finance.payables-overdue`        | Payables Overdue         | `.getSummary().totalOverdue`                                                           | Available                                                                  |
-| `inventory.value`                 | Inventory Value          | `InventoryValuationService.getValuation().totals.grandTotal` (moving weighted-average) | Available                                                                  |
-| `inventory.low-stock-count`       | Low-Stock Items          | —                                                                                      | **Blocked** — no `reorderPoint`/`minimumStock` field on `Product`          |
-| `sales.net-sales-order-count`     | Sales Order Count        | New: direct `SalesOrder.count`, `source=B2B`, `status != DRAFT`                        | Available                                                                  |
-| `production.yield-percent`        | Production Yield %       | New: `ProductionOrder.plannedQuantity` vs `ProductionRun.acceptedQuantity`             | Available                                                                  |
-| `production.material-cost`        | Production Material Cost | `ProductionMaterialIssueRepository.getTotalWipValue` (GL-sourced)                      | Available — materials only, no labour/overhead                             |
-| `hr.active-headcount`             | Active Headcount         | New: `EmployeeRepository.countGroupedByStatus`                                         | Available                                                                  |
-| `hr.leave-days-approved`          | Approved Leave Days      | —                                                                                      | **Blocked** — no Leave/LeaveRequest model exists anywhere in this codebase |
-| `operations.pending-approvals`    | Pending Approvals        | New: direct `WorkflowStepInstance.count`, `status=ACTIVE`                              | Available                                                                  |
-| `operations.overdue-work-orders`  | Overdue Work Orders      | `MaintenanceOverviewService.getOverview().overdueWorkOrders`                           | Available                                                                  |
-| `operations.failed-notifications` | Failed Notifications     | New: direct `EmailDelivery`/`WhatsAppDelivery.count`, `status=FAILED`                  | Available                                                                  |
+| id                                 | Display name             | Authoritative source                                                                     | Availability                                                               |
+| ---------------------------------- | ------------------------ | ---------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| `finance.net-revenue`              | Net Revenue              | `FinancialStatementService.getProfitAndLoss().revenue` (GL, net of returns)              | Available                                                                  |
+| `finance.gross-profit`             | Gross Profit             | `FinancialStatementService.getProfitAndLoss().grossProfit`                               | Available                                                                  |
+| `finance.gross-margin-percent`     | Gross Margin %           | `.grossMarginPercent` (null when revenue is 0)                                           | Available                                                                  |
+| `finance.receivables-outstanding`  | Receivables Outstanding  | `AccountsReceivableService.getSummary().totalOutstanding`                                | Available                                                                  |
+| `finance.receivables-overdue`      | Receivables Overdue      | `.getSummary().totalOverdue`                                                             | Available                                                                  |
+| `finance.payables-outstanding`     | Payables Outstanding     | `AccountsPayableService.getSummary().totalOutstanding`                                   | Available                                                                  |
+| `finance.payables-overdue`         | Payables Overdue         | `.getSummary().totalOverdue`                                                             | Available                                                                  |
+| `inventory.value`                  | Inventory Value          | `InventoryValuationService.getValuation().totals.grandTotal` (moving weighted-average)   | Available                                                                  |
+| `inventory.low-stock-count`        | Low-Stock Items          | —                                                                                        | **Blocked** — no `reorderPoint`/`minimumStock` field on `Product`          |
+| `sales.net-sales-order-count`      | Sales Order Count        | New: direct `SalesOrder.count`, `source=B2B`, `status != DRAFT`                          | Available                                                                  |
+| `production.yield-percent`         | Production Yield %       | New: `ProductionOrder.plannedQuantity` vs `ProductionRun.acceptedQuantity`               | Available                                                                  |
+| `production.material-cost`         | Production Material Cost | `ProductionMaterialIssueRepository.getTotalWipValue` (GL-sourced)                        | Available — materials only, no labour/overhead                             |
+| `procurement.open-purchase-orders` | Open Purchase Orders     | New (Sprint 46): direct `PurchaseOrder.count`, `status IN (PENDING, PARTIALLY_RECEIVED)` | Available                                                                  |
+| `hr.active-headcount`              | Active Headcount         | New: `EmployeeRepository.countGroupedByStatus`                                           | Available                                                                  |
+| `hr.leave-days-approved`           | Approved Leave Days      | —                                                                                        | **Blocked** — no Leave/LeaveRequest model exists anywhere in this codebase |
+| `operations.pending-approvals`     | Pending Approvals        | New: direct `WorkflowStepInstance.count`, `status=ACTIVE`                                | Available                                                                  |
+| `operations.overdue-work-orders`   | Overdue Work Orders      | `MaintenanceOverviewService.getOverview().overdueWorkOrders`                             | Available                                                                  |
+| `operations.failed-notifications`  | Failed Notifications     | New: direct `EmailDelivery`/`WhatsAppDelivery.count`, `status=FAILED`                    | Available                                                                  |
 
 ### Inclusion/exclusion rules worth calling out explicitly
 
@@ -209,38 +223,41 @@ non-empty `limitation`).
 
 ## 7. Reporting Coverage Matrix
 
-| Domain             | Candidate report                                         | Classification           | Notes                                                                                                                                                                                                                                   |
-| ------------------ | -------------------------------------------------------- | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Sales              | Sales performance, order status                          | **Delivered**            | New — `sales-performance` report                                                                                                                                                                                                        |
-| Sales              | Net sales (true gross/net split at order level)          | Deferred                 | No order-level gross/net distinction exists; GL net revenue is the only authoritative net figure                                                                                                                                        |
-| Distribution       | Sales by territory/outlet                                | **Blocked by data gap**  | `SalesOrder` carries no `territoryId`; would require a join + recursive territory-tree descent, judged out of scope this sprint                                                                                                         |
-| D2C                | Consumer orders, paid orders, collection status, rewards | Available (pre-existing) | `D2CAdminService`/`D2COperationalExceptionsService` — not rebuilt                                                                                                                                                                       |
-| Inventory          | Stock on hand, valuation                                 | **Delivered**            | New wrapper — `inventory-position` report, reusing `InventoryValuationService`                                                                                                                                                          |
-| Inventory          | Low-stock/stock-out exceptions                           | **Blocked by data gap**  | No reorder-point field on `Product`                                                                                                                                                                                                     |
-| Inventory          | Movement history                                         | Deferred                 | `InventoryTransaction` ledger exists and is queryable; no dedicated report built this sprint                                                                                                                                            |
-| Procurement        | Open purchase orders                                     | Deferred                 | Derivable (`status IN (PENDING, PARTIALLY_RECEIVED)`); no dedicated report this sprint                                                                                                                                                  |
-| Production         | Planned vs actual, material cost                         | **Delivered**            | New — `production-performance` report                                                                                                                                                                                                   |
-| Production         | Labour/overhead cost                                     | **Blocked by data gap**  | No labour/overhead costing exists anywhere in this codebase — materials only                                                                                                                                                            |
-| Production         | Unified valued wastage                                   | **Blocked by data gap**  | Rejected-output quantity IS available (`ProductionRun.rejectedQuantity`); a single valued figure across production rejects + inventory adjustments + receiving rejects + return scrap is not (adjustment-based wastage carries no cost) |
-| Finance            | Revenue, gross profit, receivables, payables, cash       | Available (pre-existing) | `finance/reports/*` — registered, not rebuilt                                                                                                                                                                                           |
-| Accounting         | Posted journals, trial balance                           | Available (pre-existing) | `finance/accounting/*` — registered, not rebuilt                                                                                                                                                                                        |
-| Banking            | Bank balances, reconciliation                            | Available (pre-existing) | `finance/cash/*` — registered, not rebuilt                                                                                                                                                                                              |
-| Budgeting          | Budget vs actual                                         | Available (pre-existing) | `finance/budgeting/budget-actuals.service.ts` — registered, not rebuilt                                                                                                                                                                 |
-| Assets             | Asset register, status counts                            | Deferred                 | No existing aggregation/overview endpoint; `Asset` has count-friendly indexes but no report built this sprint                                                                                                                           |
-| Assets             | Asset value / depreciation                               | **Blocked by data gap**  | `usefulLifeMonths`/`salvageValue` are explicitly "foundation only, no depreciation calculated" per the schema's own doc comment; `acquisitionCost` is nullable                                                                          |
-| Maintenance        | Work orders, overdue, cost                               | Available (pre-existing) | `MaintenanceOverviewService`/`MaintenanceAnalyticsService` — registered (overdue count) via Operational Exceptions, not rebuilt                                                                                                         |
-| HR                 | Headcount, employee status                               | **Delivered**            | New — `workforce-summary` report                                                                                                                                                                                                        |
-| HR                 | Attendance                                               | **Delivered**            | New aggregation (none existed before)                                                                                                                                                                                                   |
-| HR                 | Leave                                                    | **Blocked by data gap**  | No Leave/LeaveRequest/LeaveBalance model exists anywhere                                                                                                                                                                                |
-| Recruitment        | Hiring/vacancy/application pipeline                      | Deferred                 | Data exists; no aggregation/funnel query built this sprint                                                                                                                                                                              |
-| Workflow/Approvals | Pending approvals, ageing                                | **Delivered**            | New — part of `operational-exceptions` report                                                                                                                                                                                           |
-| Notifications      | Failed deliveries                                        | **Delivered**            | New — part of `operational-exceptions` report                                                                                                                                                                                           |
-| Activity           | Recorded business events                                 | Deferred                 | `AuditLog`/`WorkflowEvent` are queryable; no dedicated reporting view built this sprint                                                                                                                                                 |
+| Domain             | Candidate report                                         | Classification            | Notes                                                                                                                                                                                                                                   |
+| ------------------ | -------------------------------------------------------- | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Sales              | Sales performance, order status                          | **Delivered**             | New — `sales-performance` report                                                                                                                                                                                                        |
+| Sales              | Net sales (true gross/net split at order level)          | Deferred                  | No order-level gross/net distinction exists; GL net revenue is the only authoritative net figure                                                                                                                                        |
+| Distribution       | Sales by territory/outlet                                | **Blocked by data gap**   | `SalesOrder` carries no `territoryId`; would require a join + recursive territory-tree descent, judged out of scope this sprint                                                                                                         |
+| D2C                | Consumer orders, paid orders, collection status, rewards | Available (pre-existing)  | `D2CAdminService`/`D2COperationalExceptionsService` — not rebuilt                                                                                                                                                                       |
+| Inventory          | Stock on hand, valuation                                 | **Delivered**             | New wrapper — `inventory-position` report, reusing `InventoryValuationService`                                                                                                                                                          |
+| Inventory          | Low-stock/stock-out exceptions                           | **Blocked by data gap**   | No reorder-point field on `Product`                                                                                                                                                                                                     |
+| Inventory          | Movement history                                         | Deferred                  | `InventoryTransaction` ledger exists and is queryable; no dedicated report built this sprint                                                                                                                                            |
+| Procurement        | Open purchase orders, payables, invoice discrepancies    | **Delivered (Sprint 46)** | New — `procurement-summary` report; payables reused verbatim from Finance, never double-counted against PO commitments                                                                                                                  |
+| Production         | Planned vs actual, material cost                         | **Delivered**             | New — `production-performance` report                                                                                                                                                                                                   |
+| Production         | Labour/overhead cost                                     | **Blocked by data gap**   | No labour/overhead costing exists anywhere in this codebase — materials only                                                                                                                                                            |
+| Production         | Unified valued wastage                                   | **Blocked by data gap**   | Rejected-output quantity IS available (`ProductionRun.rejectedQuantity`); a single valued figure across production rejects + inventory adjustments + receiving rejects + return scrap is not (adjustment-based wastage carries no cost) |
+| Finance            | Revenue, gross profit, receivables, payables, cash       | Available (pre-existing)  | `finance/reports/*` — registered, not rebuilt                                                                                                                                                                                           |
+| Accounting         | Posted journals, trial balance                           | Available (pre-existing)  | `finance/accounting/*` — registered, not rebuilt                                                                                                                                                                                        |
+| Banking            | Bank balances, reconciliation                            | Available (pre-existing)  | `finance/cash/*` — registered, not rebuilt                                                                                                                                                                                              |
+| Budgeting          | Budget vs actual                                         | Available (pre-existing)  | `finance/budgeting/budget-actuals.service.ts` — registered, not rebuilt                                                                                                                                                                 |
+| Assets             | Asset register, status counts                            | Deferred                  | No existing aggregation/overview endpoint; `Asset` has count-friendly indexes but no report built this sprint                                                                                                                           |
+| Assets             | Asset value / depreciation                               | **Blocked by data gap**   | `usefulLifeMonths`/`salvageValue` are explicitly "foundation only, no depreciation calculated" per the schema's own doc comment; `acquisitionCost` is nullable                                                                          |
+| Maintenance        | Work orders, overdue, cost                               | Available (pre-existing)  | `MaintenanceOverviewService`/`MaintenanceAnalyticsService` — registered (overdue count) via Operational Exceptions, not rebuilt                                                                                                         |
+| HR                 | Headcount, employee status                               | **Delivered**             | New — `workforce-summary` report                                                                                                                                                                                                        |
+| HR                 | Attendance                                               | **Delivered**             | New aggregation (none existed before)                                                                                                                                                                                                   |
+| HR                 | Leave                                                    | **Blocked by data gap**   | No Leave/LeaveRequest/LeaveBalance model exists anywhere                                                                                                                                                                                |
+| Recruitment        | Hiring/vacancy/application pipeline                      | Deferred                  | Data exists; no aggregation/funnel query built this sprint                                                                                                                                                                              |
+| Workflow/Approvals | Pending approvals, ageing                                | **Delivered**             | New — part of `operational-exceptions` report                                                                                                                                                                                           |
+| Notifications      | Failed deliveries                                        | **Delivered**             | New — part of `operational-exceptions` report                                                                                                                                                                                           |
+| Activity           | Recorded business events                                 | **Delivered (Sprint 46)** | Executive Dashboard's Recent Activity section — `AuditService.listByOrganisation`, last 10 rows, reused verbatim, no new event system                                                                                                   |
 
-**7 reports delivered** across Sales, Inventory, Finance (×2), Production, HR, and
-Operations (a 3-section composite) — exercising every data type the brief asked for
-(currency, count, percent, date, point-in-time, period-accumulated, composite
-permission gating).
+**8 reports delivered** (7 in Sprint 45 + `procurement-summary` in Sprint 46) across
+Sales, Inventory, Finance (×2), Production, Procurement, HR, and Operations (a
+3-section composite) — exercising every data type the brief asked for (currency,
+count, percent, date, point-in-time, period-accumulated, composite permission
+gating). Sprint 46 additionally delivers the Executive Dashboard (one composed
+endpoint over existing/new services — see §17) and two real day-by-day trend series
+(Sales, Production — see §18).
 
 ## 8. API Surface
 
@@ -426,3 +443,232 @@ route) before it can ship. To change a metric's calculation, change the ONE serv
 method it names in `authoritativeSource` — every consumer (its own report, any future
 drill-down, any future Executive Dashboard card) reads through that same call, so there
 is no second place to update.
+
+---
+
+# Sprint 46 — Executive & Management Dashboards
+
+## 17. Executive Dashboard Architecture
+
+```
+GET /reporting/dashboard/executive
+  → ReportingController.getExecutiveDashboard
+  → ReportingService.getExecutiveDashboard (resolves the org-timezone-aware period once)
+  → ExecutiveDashboardService.getDashboard
+      → per-section: EffectiveAccessResolver.resolve() checked ONCE, then five
+        Promise.all branches, each either calling an already-authoritative
+        domain service or `null` if the permission is absent
+```
+
+`ExecutiveDashboardService` (`reporting/reports/executive-dashboard.service.ts`)
+performs **no KPI calculation of its own** — every figure is either a verbatim
+pass-through (`AccountsReceivableService.getSummary`, `AccountsPayableService
+.getSummary`, `InventoryValuationService.getValuation`, `EmployeeService
+.getHeadcountByStatus`, `OperationalExceptionsReportService`'s three methods,
+`AuditService.listByOrganisation`) or a plain two-call comparison built from
+`FinancialStatementService.getProfitAndLoss()` — called TWICE (current window,
+comparison window) rather than via that service's own `getProfitAndLossComparison()`,
+because that method only ever computes the immediately-preceding equal-length period
+internally and has no way to honour a caller-selected `previous_year` comparison mode.
+Both calls go through the exact same method Finance's own P&L report uses — never a
+second formula.
+
+**One new composed endpoint, justified under brief §9** ("combine requests only where
+a useful, secure aggregation endpoint is justified"): the alternative is 6+ separate
+frontend requests for one page load. This is the only genuinely new aggregation
+endpoint Sprint 46 adds — every departmental dashboard page below reuses the Sprint 45
+report endpoints directly, with ONE new exception (Procurement, §20).
+
+## 18. Business Trends — Real Day-By-Day Series, Never Fabricated
+
+Two trend series exist, both genuinely new (`SalesPerformanceReportService
+.getDailyTrend`, `ProductionPerformanceReportService.getDailyTrend`), both built the
+same way: fetch only the two fields needed (`orderDate`/`total`, or
+`completedAt`/`acceptedQuantity`) for rows already bounded by the ONE reporting
+period, bucket by organisation-local calendar day (`toLocalDateKey`, a new shared
+export from `reporting-period.util.ts` — the one piece of that file's internal
+day-bucketing logic genuinely needed elsewhere), sum, sort. Every point is a REAL row;
+there is no code path that manufactures a point from a single current total (brief
+§5C's own explicit warning).
+
+**Sales trend is deliberately labelled "Sales Order Value by Day," never "Revenue"** —
+it sums `SalesOrder.total` (excluding `DRAFT`/`CANCELLED`), a different figure and a
+different date basis from the GL-recognized "Net Revenue" headline card. The two are
+never presented as the same number (brief §5A "if a metric uses a different date
+basis... document that distinction").
+
+**Inventory has no trend** — `InventoryStock.averageUnitCost` is a live, current-only
+balance with no historical snapshot mechanism (confirmed by the Sprint 45 audit); a
+"valuation over time" chart would have to fabricate every point except today's.
+Omitted entirely rather than built misleadingly, per brief §5C's own explicit
+instruction.
+
+## 19. Business Health Logic
+
+Five indicators, each an objective, independently-documented condition — never an
+opaque composite score (brief §7's own explicit prohibition):
+
+| Indicator            | Rule                                                          | Source                                 | Permission                                                 |
+| -------------------- | ------------------------------------------------------------- | -------------------------------------- | ---------------------------------------------------------- |
+| Overdue Receivables  | `receivablesOverdue > 0`                                      | `AccountsReceivableService.getSummary` | `finance.reports.view`                                     |
+| Overdue Payables     | `payablesOverdue > 0`                                         | `AccountsPayableService.getSummary`    | `finance.reports.view`                                     |
+| Pending Approvals    | count of `WorkflowStepInstance` rows with `status: ACTIVE`    | `OperationalExceptionsReportService`   | `workflow.instance.view`                                   |
+| Overdue Maintenance  | `MaintenanceOverviewService`'s own `overdueWorkOrders`        | `MaintenanceOverviewService`           | `maintenance.work_order.view`                              |
+| Failed Notifications | `EmailDelivery`/`WhatsAppDelivery` rows with `status: FAILED` | `OperationalExceptionsReportService`   | `notification.email.view` AND `notification.whatsapp.view` |
+
+An indicator absent from the viewer's permission set is simply not in the list the
+frontend receives — `HealthIndicatorList` renders a "no indicators visible to you"
+message only when every one is absent, never a false "all clear" (brief §7 "do not
+declare that the entire business is healthy merely because no exceptions were found in
+the subset visible to the user"). `status: 'ok'` is a real, positive result ("checked,
+found none"), rendered identically in tone to an `'attention'` row — never implied to
+be a lesser-quality finding.
+
+## 20. Departmental Dashboards
+
+| Dashboard   | Route                    | Data source                                    | New backend work                                                               |
+| ----------- | ------------------------ | ---------------------------------------------- | ------------------------------------------------------------------------------ |
+| Sales       | `/dashboard/sales`       | `sales-performance` report (unchanged)         | None                                                                           |
+| Finance     | `/dashboard/finance`     | `receivables` + `payables` reports (unchanged) | None                                                                           |
+| Inventory   | `/dashboard/inventory`   | `inventory-position` report (unchanged)        | None                                                                           |
+| Production  | `/dashboard/production`  | `production-performance` report (unchanged)    | None                                                                           |
+| Procurement | `/dashboard/procurement` | New `procurement-summary` report               | `ProcurementSummaryReportService` — open POs + reused `AccountsPayableService` |
+| Workforce   | `/dashboard/workforce`   | `workforce-summary` report (unchanged)         | None                                                                           |
+
+Every departmental page is a FOCUSED view — a handful of summary cards plus a link to
+the full report page, never a second table-rendering implementation (brief §6 "a
+concise departmental overview with links to detailed reports is preferable to a
+visually complete but misleading dashboard"). **Sales territory attribution is
+deliberately omitted** — `SalesOrder` has no reliable `territoryId` (confirmed by the
+Sprint 45 audit, unchanged), so inferring one would be exactly the "do not infer
+territory attribution" anti-pattern the brief names explicitly. **Production cost is
+labelled "Material Cost," never "Production Cost"** — materials-only costing, same
+documented limitation as the underlying report.
+
+**Procurement is the one dashboard with genuinely new backend work.** No existing
+report covered Purchase Orders before Sprint 46. `ProcurementSummaryReportService`
+adds a narrow, direct, read-only `PurchaseOrder`/`SupplierInvoice` query (open-PO
+count via `aggregate`, never summed from the capped 25-row list — a real bug caught
+and fixed during implementation, see §22) and reuses `AccountsPayableService
+.getSummary` verbatim for the payables figure — the two are shown as separate cards,
+never summed together, so a purchase order is never counted as an obligation twice
+(brief §6E's own explicit warning).
+
+## 21. Live Verification (Real Database, Real HTTP, Real Browser)
+
+Performed against the real seeded "Boby Bites" database via the actual running API and
+web dev servers (not simulated), as both the Owner and Member demo accounts:
+
+1. **Cross-page metric consistency** (brief §12 e2e #1) — the Executive Dashboard's
+   "Receivables Outstanding" card (`₦11,195,800.00`) and the Receivables Aging report's
+   "Total Outstanding" figure matched exactly, byte-for-byte, confirmed by reading both
+   pages' rendered text directly.
+2. **Period-change consistency** (brief §12 e2e #2) — switching the preset from "This
+   Month" to "Last Month" correctly updated every PERIOD-scoped card (Net Revenue,
+   Sales Orders, Production Output, each showing a new `-100.0%` comparison once the
+   period changed) while every POINT-IN-TIME card (Receivables/Payables Outstanding,
+   Inventory Value, Active Headcount) stayed exactly the same value — proving the
+   dashboard respects each metric's own `timeBasis` rather than refetching everything
+   indiscriminately.
+3. **Finance permission enforcement** (brief §12 e2e #3) — logged in as the seeded
+   Member account (holds only `sales.dashboard.view` among reporting permissions):
+   the Executive Dashboard rendered exactly one KPI card (Sales Orders), the Business
+   Health section showed its "no indicators visible to you" fallback, Recent Activity
+   was entirely absent, and `/dashboard/finance` correctly surfaced a clear error state
+   after the server returned real `403 Forbidden` responses for both `/reporting/
+reports/receivables` and `/reporting/reports/payables` — confirmed directly via the
+   browser's own network request log, not inferred.
+4. **Navigation integrity** — the renamed sidebar entry ("Workspace," formerly
+   mislabelled "Dashboard") and the new "Dashboard" entry both resolve correctly; the
+   `/workspace` Platform Modules grid's own "Dashboard" tile (automatically populated
+   from the shared `WORKSPACE_NAV_GROUPS` config) navigates to the real Executive
+   Dashboard.
+5. **Departmental dashboard with real data** — `/dashboard/procurement` showed one
+   real open purchase order (`PO-000009`, `PARTIALLY_RECEIVED`, `₦100,000.00`) and a
+   Payables Outstanding figure matching the Finance dashboard's own card exactly.
+
+## 22. Bugs Found and Fixed During Implementation
+
+Both found through live verification, not inferred from reading code — the same
+"errors found and fixed" discipline Sprint 45's own §12 established:
+
+1. **Duplicated `calculatePercentChange`.** `sales-performance/page.tsx` and
+   `production-performance/page.tsx` each defined their own local copy of the exact
+   percent-change formula already living in the backend's `reporting-period.util.ts`
+   — precisely the "never calculate a different KPI formula in the frontend"
+   violation Sprint 46's own brief explicitly warns against, discovered while auditing
+   Sprint 45's actual shipped code before starting new work. Fixed by adding ONE
+   shared `calculatePercentChange` export to `reports/api.ts` and updating both pages
+   (and every new dashboard page) to import it.
+2. **A restricted user's dashboard hung on "Loading…" forever.** TanStack Query's
+   global default (retry any failed query 3× with exponential backoff) was never
+   overridden anywhere in this codebase. A `403 Forbidden` — a correctly-enforced,
+   non-transient permission denial — was silently retried 3 times before `isError`
+   ever became `true`, visible live as the Finance Dashboard sitting on a spinner for
+   several seconds as a Member account. Fixed with one global `retry` function in
+   `QueryProvider` that skips retries for any `4xx` response (never transient) while
+   preserving the existing retry behaviour for network failures and `5xx` — the exact
+   "don't let retry logic hammer a call that can never succeed" principle this
+   codebase's own webhook controllers already apply, now applied to the frontend's
+   query layer. A pre-existing, global default, not Sprint-46-specific behaviour, but
+   found and fixed because this sprint was the first to put a restricted user through
+   a multi-query composed dashboard live.
+3. **A misleading "Coming soon." tile.** The `/workspace` Platform Modules grid falls
+   back to the literal string `'Coming soon.'` for any module without an explicit
+   `MODULE_DESCRIPTIONS` entry — the new `/dashboard` nav item (added this sprint)
+   silently inherited that fallback, making a fully-working Executive Dashboard look
+   unbuilt. Fixed with a real description; also corrected that file's own now-stale
+   comment claiming `/workspace` "is the Dashboard."
+4. **`ProcurementSummaryReportService`'s open-PO value was computed from the capped
+   25-row list**, not a true aggregate — caught before it shipped (during
+   implementation, via a dedicated unit test asserting the real figure comes from a
+   separate `aggregate()` call), not live, but recorded here since it's the same class
+   of correctness bug as the other three.
+
+## 23. Testing (Sprint 46)
+
+- **Unit**: 20 new tests across `ExecutiveDashboardService` (7 — per-section
+  permission omission including Owner bypass, the "both notification permissions
+  required" rule, real two-call comparison math), `ProcurementSummaryReportService`
+  (5 — including the aggregate-vs-capped-list regression above),
+  `SalesPerformanceReportService.getDailyTrend` (3), `ProductionPerformanceReportService
+.getDailyTrend` (2), and `toLocalDateKey` (3, including a non-UTC day-boundary
+  case). Total reporting-module unit suite: **12 suites / 99 tests**, all passing.
+- **Integration (real PostgreSQL)**: 2 new tests added to the existing
+  `reporting-tenant-isolation.integration.spec.ts` — Procurement Summary (open-PO ids
+  and supplier ids never cross the two real test organisations) and the Executive
+  Dashboard itself (every section composed for Org A cross-checked against an
+  independently-scoped direct query, for both headcount and sales-order ids). Total:
+  **8/8 tests passing** in that file, 9 suites / 41 tests across the full integration
+  run.
+- **Full regression**: 267 suites / 2447 unit tests and 9 suites / 41 integration
+  tests passing project-wide, 0 failures, 0 pre-existing test weakened or removed.
+- **Build/typecheck/lint**: `tsc --noEmit` clean (API, web), `eslint` clean on every
+  new/modified file (API, web), `nest build` clean, `pnpm run build` (web) clean — all
+  7 new `/dashboard*` routes built as static pages.
+- **Live verification**: §21.
+
+## 24. Known Limitations & Deferred Work (Sprint 46)
+
+- **No distributed/consolidated-visibility permission** — see §5's updated Executive
+  Dashboard decision; each section stays gated by its own existing domain permission.
+- **Recruitment, Asset, Activity-beyond-the-dashboard-feed, and Distribution-by-
+  territory dashboards were not built** — none has an existing Sprint 45 report to
+  compose, and the brief's own §6 explicitly permits deferring a departmental view
+  when the data doesn't justify a focused page yet. Recruitment and Assets remain
+  fully absent from both the Executive and Management Dashboard layer; a future
+  sprint building their Sprint-45-equivalent report would make a departmental
+  dashboard for either a small follow-on, not a redesign.
+- **The Recent Activity feed's `entityType` → route map is intentionally small**
+  (`SalesOrder`, `ProductionOrder`, `PurchaseOrder`) — any other `entityType` renders
+  as plain, unlinked text rather than a guessed URL (brief §5E "do not invent a
+  link").
+- **`AuditLog.action` strings are rendered close to verbatim** (e.g. "User: success")
+  — readable but not fully humanized; a future sprint could add a proper
+  action-to-sentence mapping without touching the underlying data model at all.
+- **No custom date-range picker on any dashboard yet** — `PeriodSelector` (Sprint 45)
+  only exposes the 10 presets; `reportingPeriodQuerySchema` already supports
+  `customFrom`/`customTo` server-side, so this is a frontend-only follow-on.
+- **Excel/PDF export, a materialized-view/cache layer, and any new analytics
+  infrastructure remain explicitly out of scope**, unchanged from Sprint 45's own
+  decision and the brief's own §14 boundary.

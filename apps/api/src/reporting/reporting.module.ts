@@ -8,9 +8,11 @@ import { MaintenanceModule } from '../maintenance/maintenance.module';
 import { ProductionModule } from '../production/production.module';
 import { ReportingController } from './reporting.controller';
 import { ReportingService } from './reporting.service';
+import { ExecutiveDashboardService } from './reports/executive-dashboard.service';
 import { InventoryPositionReportService } from './reports/inventory-position-report.service';
 import { OperationalExceptionsReportService } from './reports/operational-exceptions-report.service';
 import { PayablesReportService } from './reports/payables-report.service';
+import { ProcurementSummaryReportService } from './reports/procurement-summary-report.service';
 import { ProductionPerformanceReportService } from './reports/production-performance-report.service';
 import { ReceivablesReportService } from './reports/receivables-report.service';
 import { SalesPerformanceReportService } from './reports/sales-performance-report.service';
@@ -43,6 +45,17 @@ import { WorkforceSummaryReportService } from './reports/workforce-summary-repor
  * `EmailDelivery`/`WhatsAppDelivery` via a narrow, direct, read-only `PrismaService`
  * query instead, the same "documented exception" shape `finance/reports/*` already
  * established for reading `InventoryStock` without importing `InventoryModule`.
+ *
+ * Widened Sprint 46 (docs/domains/reporting.md "Executive Dashboard") —
+ * `ProcurementSummaryReportService` (new: open purchase orders, reusing
+ * `AccountsPayableService` for the payable side) and `ExecutiveDashboardService` (new:
+ * composes everything above into one `/dashboard` response, per-section permission
+ * gated). Neither needed a new module import: `ProcurementSummaryReportService` reads
+ * `PurchaseOrder`/`SupplierInvoice` via the same narrow, direct, read-only
+ * `PrismaService` pattern Sales/Production already use; `ExecutiveDashboardService`
+ * only depends on services already available from the modules imported above, plus
+ * `AuditService` (already exported by `IdentityModule`, for the Recent Activity
+ * section).
  */
 @Module({
   imports: [
@@ -63,6 +76,8 @@ import { WorkforceSummaryReportService } from './reports/workforce-summary-repor
     ProductionPerformanceReportService,
     WorkforceSummaryReportService,
     OperationalExceptionsReportService,
+    ProcurementSummaryReportService,
+    ExecutiveDashboardService,
   ],
 })
 export class ReportingModule {}

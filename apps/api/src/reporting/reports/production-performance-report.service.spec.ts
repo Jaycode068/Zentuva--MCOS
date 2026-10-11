@@ -150,3 +150,40 @@ describe('ProductionPerformanceReportService', () => {
     expect(report.comparisonTotalAccepted).toBeNull();
   });
 });
+
+describe('ProductionPerformanceReportService.getDailyTrend', () => {
+  function makeTrendService(runs: { completedAt: Date; acceptedQuantity: number }[]) {
+    const prisma = {
+      productionRun: { findMany: jest.fn().mockResolvedValue(runs) },
+    };
+    const service = new ProductionPerformanceReportService(prisma as never, {} as never);
+    return { service, prisma };
+  }
+
+  it('sums real accepted quantities bucketed by organisation-local calendar day', async () => {
+    const { service } = makeTrendService([
+      { completedAt: new Date('2026-01-10T06:00:00Z'), acceptedQuantity: 100 },
+      { completedAt: new Date('2026-01-10T18:00:00Z'), acceptedQuantity: 20 },
+      { completedAt: new Date('2026-01-11T12:00:00Z'), acceptedQuantity: 60 },
+    ]);
+    const trend = await service.getDailyTrend('org-1', {
+      from: new Date('2026-01-01T00:00:00Z'),
+      to: new Date('2026-02-01T00:00:00Z'),
+      timeZone: 'UTC',
+    });
+    expect(trend).toEqual([
+      { date: new Date('2026-01-10T00:00:00.000Z'), acceptedQuantity: 120 },
+      { date: new Date('2026-01-11T00:00:00.000Z'), acceptedQuantity: 60 },
+    ]);
+  });
+
+  it('returns an empty array when there are no completed runs in the period', async () => {
+    const { service } = makeTrendService([]);
+    const trend = await service.getDailyTrend('org-1', {
+      from: new Date('2026-01-01T00:00:00Z'),
+      to: new Date('2026-02-01T00:00:00Z'),
+      timeZone: 'UTC',
+    });
+    expect(trend).toEqual([]);
+  });
+});

@@ -256,6 +256,20 @@ export function resolveComparisonPeriod(
  * `null`/`undefined`. A `null` result means the frontend must render "No comparison
  * data," never "0%" or "—%" silently implying no change.
  */
+/**
+ * Sprint 46 — Executive & Management Dashboards (docs/domains/reporting.md "Business
+ * Trends"). The organisation-local calendar-day key (`YYYY-MM-DD`) for `instant` — the
+ * one piece of this file's own internal day-bucketing logic (`localDateParts`/
+ * `localMidnightUtc`) genuinely needed outside this module, by any report service that
+ * buckets real rows into a day-by-day trend (brief §5C "do not manufacture historical
+ * points from current totals" — bucketing REAL rows by their REAL date is the
+ * opposite of that). Thin wrapper, not a duplicate implementation.
+ */
+export function toLocalDateKey(instant: Date, timeZone: string): string {
+  const { year, month, day } = localDateParts(instant, timeZone);
+  return `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
 export function calculatePercentChange(
   current: number | null | undefined,
   previous: number | null | undefined,

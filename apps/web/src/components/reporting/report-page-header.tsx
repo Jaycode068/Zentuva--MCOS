@@ -7,15 +7,21 @@ export function ReportPageHeader({
   title,
   description,
   actions,
+  backHref = '/reports',
+  backLabel = '← All Reports',
 }: {
   title: string;
   description?: string;
   actions?: React.ReactNode;
+  /** Sprint 46 — departmental dashboard pages pass `/dashboard`/`← Executive Dashboard`
+   *  instead; every existing report page keeps the original default unchanged. */
+  backHref?: string;
+  backLabel?: string;
 }) {
   return (
     <div className="space-y-2">
-      <Link href="/reports" className="text-xs text-muted-foreground hover:underline">
-        ← All Reports
+      <Link href={backHref} className="text-xs text-muted-foreground hover:underline">
+        {backLabel}
       </Link>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>

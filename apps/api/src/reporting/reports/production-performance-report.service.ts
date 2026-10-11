@@ -2,7 +2,13 @@ import { Injectable } from '@nestjs/common';
 
 import { ProductionMaterialIssueRepository } from '../../production/production-material-issue.repository';
 import { PrismaService } from '../../prisma/prisma.service';
+import { toLocalDateKey } from '../reporting-period.util';
 import { ReportTableResult } from '../reporting.types';
+
+export interface ProductionTrendPoint {
+  date: Date;
+  acceptedQuantity: number;
+}
 
 export interface ProductionPerformanceRow {
   productionOrderId: string;
@@ -154,5 +160,34 @@ export class ProductionPerformanceReportService {
       comparisonTotalAccepted: comparisonTotalAccepted === 0 ? null : comparisonTotalAccepted,
       table: { rows, total, page: params.page, pageSize: params.pageSize },
     };
+  }
+
+  /**
+   * Sprint 46 — Executive & Management Dashboards (brief §5C "Production output
+   * trend where recorded data supports it"). A real day-by-day trend bucketed from
+   * actual `ProductionRun.completedAt`/`acceptedQuantity` rows within `[from, to)` —
+   * each point is a genuine completed run, never a manufactured series.
+   */
+  async getDailyTrend(
+    organisationId: string,
+    params: { from: Date; to: Date; timeZone: string },
+  ): Promise<ProductionTrendPoint[]> {
+    const runs = await this.prisma.productionRun.findMany({
+      where: { organisationId, completedAt: { gte: params.from, lt: params.to } },
+      select: { completedAt: true, acceptedQuantity: true },
+    });
+
+    const totalsByDay = new Map<string, number>();
+    for (const run of runs) {
+      const key = toLocalDateKey(run.completedAt, params.timeZone);
+      totalsByDay.set(key, (totalsByDay.get(key) ?? 0) + run.acceptedQuantity);
+    }
+
+    return [...totalsByDay.entries()]
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([dateKey, acceptedQuantity]) => ({
+        date: new Date(`${dateKey}T00:00:00.000Z`),
+        acceptedQuantity,
+      }));
   }
 }

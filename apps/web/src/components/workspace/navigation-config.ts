@@ -53,7 +53,13 @@ export const WORKSPACE_NAV_GROUPS: WorkspaceNavGroup[] = [
   {
     label: 'Workspace',
     items: [
-      { label: 'Dashboard', href: '/workspace', icon: GridIcon },
+      // Sprint 46 (docs/domains/reporting.md "Executive Dashboard") — `/workspace`
+      // was previously labelled "Dashboard" in this list, but it has always been a
+      // module-launcher grid, not a business-performance view; renamed to
+      // "Workspace" (matching its own route) now that a real KPI/business-health
+      // dashboard exists at `/dashboard` and deserves the "Dashboard" label instead.
+      { label: 'Dashboard', href: '/dashboard', icon: BarChartIcon },
+      { label: 'Workspace', href: '/workspace', icon: GridIcon },
       { label: 'Notifications', href: '/notifications', icon: BellIcon },
       { label: 'Products', href: '/settings/products', icon: BoxIcon },
       { label: 'Procurement', href: '/settings/procurement', icon: CartIcon },

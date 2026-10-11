@@ -103,3 +103,54 @@ describe('SalesPerformanceReportService', () => {
     expect(report.comparisonRevenue).toBeNull();
   });
 });
+
+describe('SalesPerformanceReportService.getDailyTrend', () => {
+  function makeTrendService(orders: { orderDate: Date; total: number }[]) {
+    const prisma = {
+      salesOrder: { findMany: jest.fn().mockResolvedValue(orders) },
+    };
+    const service = new SalesPerformanceReportService(prisma as never, {} as never);
+    return { service, prisma };
+  }
+
+  it('sums real order totals bucketed by organisation-local calendar day', async () => {
+    const { service } = makeTrendService([
+      { orderDate: new Date('2026-01-05T08:00:00Z'), total: 100 },
+      { orderDate: new Date('2026-01-05T20:00:00Z'), total: 50 },
+      { orderDate: new Date('2026-01-06T10:00:00Z'), total: 75 },
+    ]);
+    const trend = await service.getDailyTrend('org-1', {
+      from: new Date('2026-01-01T00:00:00Z'),
+      to: new Date('2026-02-01T00:00:00Z'),
+      timeZone: 'UTC',
+    });
+    expect(trend).toEqual([
+      { date: new Date('2026-01-05T00:00:00.000Z'), totalRevenue: 150 },
+      { date: new Date('2026-01-06T00:00:00.000Z'), totalRevenue: 75 },
+    ]);
+  });
+
+  it('excludes DRAFT and CANCELLED orders from the query', async () => {
+    const { service, prisma } = makeTrendService([]);
+    await service.getDailyTrend('org-1', {
+      from: new Date('2026-01-01T00:00:00Z'),
+      to: new Date('2026-02-01T00:00:00Z'),
+      timeZone: 'UTC',
+    });
+    expect(prisma.salesOrder.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ status: { notIn: ['DRAFT', 'CANCELLED'] } }),
+      }),
+    );
+  });
+
+  it('returns an empty array (never a fabricated point) when there are no orders in the period', async () => {
+    const { service } = makeTrendService([]);
+    const trend = await service.getDailyTrend('org-1', {
+      from: new Date('2026-01-01T00:00:00Z'),
+      to: new Date('2026-02-01T00:00:00Z'),
+      timeZone: 'UTC',
+    });
+    expect(trend).toEqual([]);
+  });
+});

@@ -7,7 +7,8 @@ import { env } from '@/lib/env';
  * established "each area owns its own client" convention this codebase already uses.
  */
 
-export type ReportDomain = 'SALES' | 'INVENTORY' | 'FINANCE' | 'PRODUCTION' | 'HR' | 'OPERATIONS';
+export type ReportDomain =
+  'SALES' | 'INVENTORY' | 'FINANCE' | 'PRODUCTION' | 'PROCUREMENT' | 'HR' | 'OPERATIONS';
 export type MetricUnit = 'CURRENCY' | 'COUNT' | 'PERCENT' | 'DAYS';
 export type MetricAvailability = 'AVAILABLE' | 'BLOCKED_DATA_GAP' | 'DEFERRED';
 export type ReportColumnType = 'STRING' | 'CURRENCY' | 'NUMBER' | 'DATE' | 'PERCENT' | 'ENUM';
@@ -91,6 +92,23 @@ function periodToQuery(period: PeriodParams): Record<string, string> {
 
 export function getCatalogue(): Promise<CatalogueResponse> {
   return apiFetch<CatalogueResponse>('/reporting/catalogue');
+}
+
+/**
+ * Sprint 46 — Executive & Management Dashboards (brief §5B "comparison rules — never
+ * calculate a different KPI formula in the frontend"). The ONE shared percent-change
+ * formula every report/dashboard page uses — mirrors the backend's own
+ * `reporting-period.util.ts` `calculatePercentChange` exactly (null when the baseline
+ * is zero/absent, never `NaN`/`Infinity`). Previously duplicated verbatim inside
+ * `sales-performance/page.tsx` and `production-performance/page.tsx` — both now
+ * import this instead.
+ */
+export function calculatePercentChange(
+  current: number,
+  previous: number | null | undefined,
+): number | null {
+  if (previous == null || previous === 0) return null;
+  return Math.round(((current - previous) / Math.abs(previous)) * 1000) / 10;
 }
 
 export interface ReportTableResult<Row> {
@@ -262,6 +280,83 @@ export interface OperationalExceptionsReport {
 
 export function getOperationalExceptionsReport(): Promise<OperationalExceptionsReport> {
   return apiFetch<OperationalExceptionsReport>('/reporting/reports/operational-exceptions');
+}
+
+export interface ProcurementSummaryReport {
+  openPurchaseOrderCount: number;
+  openPurchaseOrderValue: number;
+  openPurchaseOrders: {
+    id: string;
+    purchaseOrderNumber: string;
+    supplierId: string;
+    supplierName: string;
+    status: string;
+    total: number;
+    orderDate: string;
+  }[];
+  payables: { totalOutstanding: number; totalOverdue: number };
+  discrepancyCount: number;
+}
+
+export function getProcurementSummaryReport(): Promise<ProcurementSummaryReport> {
+  return apiFetch<ProcurementSummaryReport>('/reporting/reports/procurement-summary');
+}
+
+/**
+ * Sprint 46 — Executive & Management Dashboards. One composed response for the
+ * `/dashboard` page — see `ExecutiveDashboardService`'s own backend doc comment for
+ * why this single endpoint exists and how per-section permission omission works.
+ * Every `| null` field below means "the viewer lacks that section's own domain
+ * permission" — never render it as a zero-value card (brief §11).
+ */
+export interface MetricWithComparison {
+  value: number;
+  percentChange: number | null;
+}
+
+export interface ExecutiveDashboard {
+  from: string;
+  to: string;
+  comparisonFrom: string | null;
+  comparisonTo: string | null;
+  finance: {
+    netRevenue: MetricWithComparison;
+    grossProfit: MetricWithComparison;
+    grossMarginPercent: number | null;
+    receivablesOutstanding: number;
+    receivablesOverdue: number;
+    payablesOutstanding: number;
+    payablesOverdue: number;
+  } | null;
+  inventory: { value: number } | null;
+  sales: {
+    orderCount: MetricWithComparison;
+    trend: { date: string; totalRevenue: number }[];
+  } | null;
+  production: {
+    acceptedOutput: MetricWithComparison;
+    trend: { date: string; acceptedQuantity: number }[];
+  } | null;
+  workforce: { activeHeadcount: number } | null;
+  exceptions: {
+    pendingApprovalsCount: number | null;
+    overdueMaintenanceCount: number | null;
+    failedNotificationsCount: number | null;
+  };
+  recentActivity:
+    | {
+        id: string;
+        action: string;
+        entityType: string;
+        entityId: string | null;
+        createdAt: string;
+      }[]
+    | null;
+}
+
+export function getExecutiveDashboard(period: PeriodParams): Promise<ExecutiveDashboard> {
+  const params = new URLSearchParams(periodToQuery(period));
+  return apiFetch<ExecutiveDashboard>(`/reporting/dashboard/executive?${params}`);
 }
 
 /** CSV export bypasses {@link apiFetch} (which always parses JSON) — fetches the raw
