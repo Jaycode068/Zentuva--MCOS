@@ -6787,6 +6787,11 @@ async function seedAccessControlFixtures(
     { key: 'finance.journal.void' },
     { key: 'finance.credit_note.view', scope: 'ORGANISATION' },
     { key: 'finance.credit_note.manage' },
+    // Phase 1 — Customer Account Management (docs/customer-account-inventory-audit.md
+    // §5.1/§7.1). Head of Finance's "Full Finance access" description extends naturally
+    // to configuring a customer's credit limit — a Finance-owned credit-exposure
+    // decision, same reasoning as every other finance.* grant in this block.
+    { key: 'finance.customer_credit.manage' },
     { key: 'finance.supplier_invoice.manage' },
     { key: 'finance.supplier_payment.cancel' },
     { key: 'finance.cash_account.view' },

@@ -62,10 +62,24 @@ export interface CreatePendingConsumerPaymentData {
   merchantReference: string;
 }
 
+/** One target invoice + the amount of THIS payment applied to it (Phase 1 — Customer
+ *  Account Management, docs/customer-account-inventory-audit.md §7.2). */
+export interface PaymentAllocationData {
+  invoiceId: string;
+  amount: number;
+}
+
 export interface CreatePaymentData {
   organisationId: string;
   customerId: string;
-  invoiceId: string;
+  /** Always at least one entry. The legacy single-invoice shape is simply a
+   *  one-element array — `PaymentService.create()` normalizes the still-accepted
+   *  single `invoiceId` request body into this shape before calling the repository,
+   *  so this is the ONLY allocation shape the repository itself ever has to handle.
+   *  Sum of allocation amounts must equal `amount` exactly (full allocation) — see
+   *  `PaymentService.create()`'s own doc comment for why partial/unallocated-advance
+   *  payments are a deliberately deferred, separate capability, not supported here. */
+  allocations: PaymentAllocationData[];
   amount: number;
   method: PaymentMethod;
   paymentDate: Date;
@@ -83,15 +97,19 @@ export interface CreatePaymentData {
  *  to this organisation. */
 export class InvalidCashAccountError extends Error {}
 
+export interface AffectedInvoiceSummary {
+  id: string;
+  status: InvoiceStatus;
+  amountPaid: number;
+  amountCredited: number;
+  total: number;
+}
+
 export interface CreatePaymentResult {
   payment: PaymentWithRelations;
-  invoice: {
-    id: string;
-    status: InvoiceStatus;
-    amountPaid: number;
-    amountCredited: number;
-    total: number;
-  };
+  /** One entry per allocation, same order as `CreatePaymentData.allocations` — always
+   *  at least one (Phase 1 — Customer Account Management, multi-invoice allocation). */
+  invoices: AffectedInvoiceSummary[];
   /** `true` only when THIS call created a new row; `false` when an existing
    *  `idempotencyKey` match was returned instead — lets the controller skip re-emitting
    *  the audit event on a replay. */
@@ -179,39 +197,55 @@ export class PaymentRepository {
           include: RELATIONS_INCLUDE,
         });
         if (existing) {
-          const invoice = await tx.invoice.findUniqueOrThrow({ where: { id: data.invoiceId } });
+          const invoices = await Promise.all(
+            existing.allocations.map((allocation) =>
+              tx.invoice.findUniqueOrThrow({ where: { id: allocation.invoiceId } }),
+            ),
+          );
           return {
             payment: existing,
-            invoice: {
-              id: invoice.id,
-              status: invoice.status,
-              amountPaid: invoice.amountPaid,
-              amountCredited: invoice.amountCredited,
-              total: invoice.total,
-            },
+            invoices: invoices.map(toInvoiceSummary),
             wasCreated: false,
           };
         }
       }
 
-      const eligibleInvoice = await tx.invoice.findFirst({
+      // Re-validate every allocation's target invoice inside the transaction — same
+      // "close the race against a concurrent status change" rationale as the original
+      // single-invoice check, now applied per invoice (Phase 1 §7.2: "every invoice
+      // exists... belongs to the same customer... is eligible... cannot be allocated
+      // beyond its remaining receivable balance").
+      const eligibleInvoices = await tx.invoice.findMany({
         where: {
-          id: data.invoiceId,
+          id: { in: data.allocations.map((a) => a.invoiceId) },
           organisationId: data.organisationId,
           customerId: data.customerId,
           status: { in: PAYABLE_INVOICE_STATUSES },
         },
       });
-      if (!eligibleInvoice) {
-        throw new PaymentInvoiceConflictError('Invoice is not eligible to receive a payment');
+      const eligibleById = new Map(eligibleInvoices.map((invoice) => [invoice.id, invoice]));
+
+      for (const allocation of data.allocations) {
+        const invoice = eligibleById.get(allocation.invoiceId);
+        if (!invoice) {
+          throw new PaymentInvoiceConflictError(
+            `Invoice ${allocation.invoiceId} is not eligible to receive a payment`,
+          );
+        }
+        const outstanding = roundCurrency(
+          invoice.total - invoice.amountPaid - invoice.amountCredited,
+        );
+        if (roundCurrency(allocation.amount) > outstanding) {
+          throw new OverPaymentError(
+            `Cannot allocate ${allocation.amount} to invoice ${invoice.invoiceCode} — only ${outstanding} remains outstanding`,
+          );
+        }
       }
 
-      const outstanding = roundCurrency(
-        eligibleInvoice.total - eligibleInvoice.amountPaid - eligibleInvoice.amountCredited,
-      );
-      if (roundCurrency(data.amount) > outstanding) {
+      const totalAllocated = roundCurrency(data.allocations.reduce((sum, a) => sum + a.amount, 0));
+      if (totalAllocated !== roundCurrency(data.amount)) {
         throw new OverPaymentError(
-          `Cannot record a payment of ${data.amount} — only ${outstanding} remains outstanding`,
+          `Allocations (${totalAllocated}) must total the full payment amount (${data.amount})`,
         );
       }
 
@@ -227,13 +261,14 @@ export class PaymentRepository {
         cashAccountLinkedAccountId = cashAccount.linkedChartOfAccountId;
       }
 
+      const firstInvoice = eligibleById.get(data.allocations[0]!.invoiceId)!;
       const payment = await tx.payment.create({
         data: {
           organisationId: data.organisationId,
           customerId: data.customerId,
           paymentDate: data.paymentDate,
           amount: data.amount,
-          currency: eligibleInvoice.currency,
+          currency: firstInvoice.currency,
           method: data.method,
           reference: data.reference,
           notes: data.notes,
@@ -241,31 +276,42 @@ export class PaymentRepository {
           idempotencyKey: data.idempotencyKey,
           createdById: data.createdById,
           allocations: {
-            create: [{ invoiceId: data.invoiceId, amount: data.amount }],
+            create: data.allocations.map((a) => ({ invoiceId: a.invoiceId, amount: a.amount })),
           },
         },
         include: RELATIONS_INCLUDE,
       });
 
-      const newAmountPaid = roundCurrency(eligibleInvoice.amountPaid + data.amount);
-      const newStatus = deriveInvoiceStatusAfterApplication(
-        newAmountPaid,
-        eligibleInvoice.amountCredited,
-        eligibleInvoice.total,
-      );
-      const invoice = await tx.invoice.update({
-        where: { id: data.invoiceId },
-        data: { amountPaid: newAmountPaid, status: newStatus, updatedById: data.createdById },
-      });
+      const updatedInvoices: AffectedInvoiceSummary[] = [];
+      for (const allocation of data.allocations) {
+        const invoice = eligibleById.get(allocation.invoiceId)!;
+        const newAmountPaid = roundCurrency(invoice.amountPaid + allocation.amount);
+        const newStatus = deriveInvoiceStatusAfterApplication(
+          newAmountPaid,
+          invoice.amountCredited,
+          invoice.total,
+        );
+        const updated = await tx.invoice.update({
+          where: { id: allocation.invoiceId },
+          data: { amountPaid: newAmountPaid, status: newStatus, updatedById: data.createdById },
+        });
+        updatedInvoices.push(toInvoiceSummary(updated));
+      }
 
-      // DR Cash/Bank, CR Accounts Receivable (docs/domains/accounting.md) — atomic
-      // with the payment+invoice writes above; a failed posting (no open period, no
-      // configured system account) rolls the whole payment back, never leaving a
-      // recorded payment with no accounting behind it.
+      // DR Cash/Bank for the full amount received, CR Accounts Receivable for the SAME
+      // amount (docs/domains/accounting.md) — balanced by construction, since
+      // allocations are required to sum to exactly `data.amount` above. Multiple
+      // invoices simply means the AR credit is "spread" across several invoice
+      // updates rather than one; the journal entry itself is still one balanced
+      // two-line posting, same shape as before multi-invoice allocation existed.
+      // Atomic with the payment+invoice writes above.
       await postSystemJournalEntry(tx, {
         organisationId: data.organisationId,
         date: data.paymentDate,
-        description: `Payment received against ${eligibleInvoice.invoiceCode}`,
+        description:
+          data.allocations.length === 1
+            ? `Payment received against ${firstInvoice.invoiceCode}`
+            : `Payment received against ${data.allocations.length} invoices`,
         reference: data.reference,
         sourceType: 'PAYMENT',
         sourceId: payment.id,
@@ -286,26 +332,23 @@ export class PaymentRepository {
 
       return {
         payment,
-        invoice: {
-          id: invoice.id,
-          status: invoice.status,
-          amountPaid: invoice.amountPaid,
-          amountCredited: invoice.amountCredited,
-          total: invoice.total,
-        },
+        invoices: updatedInvoices,
         wasCreated: true,
       };
     });
   }
 
-  /** Reverses a payment's effect: decrements the target invoice's `amountPaid` by the
-   *  voided payment's allocated amount and recomputes its status back down. A corrective
-   *  action, not a delete — the `Payment` row itself is kept, just flagged `VOIDED`. */
+  /** Reverses a payment's effect: decrements EVERY allocated invoice's `amountPaid` by
+   *  its own share of the voided payment and recomputes each invoice's status back
+   *  down. A corrective action, not a delete — the `Payment` row itself is kept, just
+   *  flagged `VOIDED`. Widened (Phase 1 — Customer Account Management) from a single
+   *  `allocations[0]`-only assumption to loop over every allocation, since a payment
+   *  may now span multiple invoices. */
   async void(
     organisationId: string,
     id: string,
     actorUserId: string,
-  ): Promise<{ payment: PaymentWithRelations; invoiceId: string } | null> {
+  ): Promise<{ payment: PaymentWithRelations; invoiceIds: string[] } | null> {
     return this.prisma.$transaction(async (tx) => {
       const existing = await tx.payment.findFirst({
         where: { id, organisationId },
@@ -318,8 +361,7 @@ export class PaymentRepository {
         throw new PaymentAlreadyVoidedError('This payment has already been voided');
       }
 
-      const allocation = existing.allocations[0];
-      if (allocation) {
+      for (const allocation of existing.allocations) {
         const invoice = await tx.invoice.findUniqueOrThrow({ where: { id: allocation.invoiceId } });
         const newAmountPaid = roundCurrency(Math.max(0, invoice.amountPaid - allocation.amount));
         const newStatus = deriveInvoiceStatusAfterReversal(
@@ -339,7 +381,7 @@ export class PaymentRepository {
         include: RELATIONS_INCLUDE,
       });
 
-      return { payment, invoiceId: allocation?.invoiceId ?? '' };
+      return { payment, invoiceIds: existing.allocations.map((a) => a.invoiceId) };
     });
   }
 
@@ -458,6 +500,24 @@ export class PaymentRepository {
     }
     return { payment, wasApplied: result.count > 0 };
   }
+}
+
+/** Narrows a full `Invoice` row down to `AffectedInvoiceSummary`'s shape — the only
+ *  fields `PaymentService`/`PaymentController` need after a create/void. */
+function toInvoiceSummary(invoice: {
+  id: string;
+  status: InvoiceStatus;
+  amountPaid: number;
+  amountCredited: number;
+  total: number;
+}): AffectedInvoiceSummary {
+  return {
+    id: invoice.id,
+    status: invoice.status,
+    amountPaid: invoice.amountPaid,
+    amountCredited: invoice.amountCredited,
+    total: invoice.total,
+  };
 }
 
 const UNIQUE_CONSTRAINT_VIOLATION = 'P2002';

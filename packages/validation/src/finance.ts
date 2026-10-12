@@ -84,24 +84,69 @@ export const voidInvoiceSchema = z.object({
 });
 export type VoidInvoiceInput = z.infer<typeof voidInvoiceSchema>;
 
-/**
- * `POST /api/finance/payments` (Sprint 6) — records a payment against exactly one
- * invoice (Sprint 6's deliberate one-invoice-allocation limitation — see
- * docs/domains/finance.md). `currency` is deliberately absent — always derived
- * server-side from the target invoice's own snapshotted currency, never client-supplied.
- */
-export const createPaymentSchema = z.object({
+/** One line of a multi-invoice `allocations` array (Phase 1 Customer Account
+ *  Management — docs/customer-account-inventory-audit.md §7.2). */
+export const paymentAllocationInputSchema = z.object({
   invoiceId: z.string().trim().min(1, 'Invoice is required'),
-  amount: z.number().positive('Amount must be greater than zero'),
-  method: paymentMethodSchema,
-  paymentDate: z.coerce.date(),
-  reference: z.string().trim().max(200).optional(),
-  notes: z.string().trim().max(2000).optional(),
-  /** Added Sprint 14 (docs/domains/cash-management.md) — which specific
-   *  `CashAccount` received the money. Optional. */
-  cashAccountId: z.string().trim().min(1).optional(),
-  idempotencyKey: z.string().trim().min(1).max(100).optional(),
+  amount: z.number().positive('Allocation amount must be greater than zero'),
 });
+export type PaymentAllocationInput = z.infer<typeof paymentAllocationInputSchema>;
+
+function hasNoDuplicateAllocationInvoices(allocations: PaymentAllocationInput[]): boolean {
+  const ids = allocations.map((a) => a.invoiceId);
+  return new Set(ids).size === ids.length;
+}
+
+/** Same 2-decimal rounding convention used throughout the Finance domain's services —
+ *  duplicated here (not imported) because this package has no dependency on `apps/api`. */
+function roundCurrency(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+/**
+ * `POST /api/finance/payments` (Sprint 6, widened Phase 1 — Customer Account
+ * Management, docs/customer-account-inventory-audit.md §7.2 "Multi-invoice payment
+ * allocation and customer advances"). A payment is recorded against EITHER a single
+ * `invoiceId` (the original Sprint 6 shape — still fully supported, unchanged
+ * behaviour) OR an `allocations` array splitting the payment across multiple eligible
+ * invoices belonging to the same customer — never both on the same request. The
+ * allocation total may be less than `amount` (the remainder stays unallocated — a
+ * customer-advance scenario the server surfaces, never silently drops), but must never
+ * exceed it. `currency` is deliberately absent — always derived server-side from the
+ * target invoice's own snapshotted currency, never client-supplied.
+ */
+export const createPaymentSchema = z
+  .object({
+    invoiceId: z.string().trim().min(1, 'Invoice is required').optional(),
+    allocations: z.array(paymentAllocationInputSchema).min(1).optional(),
+    amount: z.number().positive('Amount must be greater than zero'),
+    method: paymentMethodSchema,
+    paymentDate: z.coerce.date(),
+    reference: z.string().trim().max(200).optional(),
+    notes: z.string().trim().max(2000).optional(),
+    /** Added Sprint 14 (docs/domains/cash-management.md) — which specific
+     *  `CashAccount` received the money. Optional. */
+    cashAccountId: z.string().trim().min(1).optional(),
+    idempotencyKey: z.string().trim().min(1).max(100).optional(),
+  })
+  .refine((data) => Boolean(data.invoiceId) !== Boolean(data.allocations), {
+    message: 'Provide either a single invoiceId or a multi-invoice allocations array, not both',
+    path: ['allocations'],
+  })
+  .refine((data) => !data.allocations || hasNoDuplicateAllocationInvoices(data.allocations), {
+    message: 'The same invoice cannot receive two allocations in one payment',
+    path: ['allocations'],
+  })
+  .refine(
+    (data) =>
+      !data.allocations ||
+      roundCurrency(data.allocations.reduce((sum, a) => sum + a.amount, 0)) <=
+        roundCurrency(data.amount),
+    {
+      message: 'The total allocated amount cannot exceed the payment amount',
+      path: ['allocations'],
+    },
+  );
 export type CreatePaymentInput = z.infer<typeof createPaymentSchema>;
 
 /**

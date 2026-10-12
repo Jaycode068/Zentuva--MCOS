@@ -25,6 +25,8 @@ import { ReceivablesReportService } from './reports/receivables-report.service';
 import { SalesPerformanceReportService } from './reports/sales-performance-report.service';
 import { WorkforceSummaryReportService } from './reports/workforce-summary-report.service';
 import { ExecutiveDashboardService } from './reports/executive-dashboard.service';
+import { CustomerAccountReportService } from './reports/customer-account-report.service';
+import { CustomerStatementReportService } from './reports/customer-statement-report.service';
 
 export interface PeriodRequest {
   preset: ReportingPeriodPreset;
@@ -58,6 +60,8 @@ export class ReportingService {
     private readonly operationalExceptionsReportService: OperationalExceptionsReportService,
     private readonly procurementSummaryReportService: ProcurementSummaryReportService,
     private readonly executiveDashboardService: ExecutiveDashboardService,
+    private readonly customerAccountReportService: CustomerAccountReportService,
+    private readonly customerStatementReportService: CustomerStatementReportService,
   ) {}
 
   /** Brief §5A "expose report metadata for the frontend" — every metric/report whose
@@ -214,6 +218,102 @@ export class ReportingService {
       comparisonFrom: previous?.from,
       comparisonTo: previous?.to,
       timeZone,
+    });
+  }
+
+  // ---------------------------------------------------------------------
+  // Phase 1 — Customer Account Management (docs/customer-account-inventory-audit.md
+  // §5.2). `sales.customer.view` is the one BASE permission every method below
+  // requires — "may you open this customer's account page at all." Each finance/
+  // sales-order/credit-note/return SECTION inside the composed response is then
+  // independently gated against its own existing domain permission (never a new
+  // parallel authorization system), same per-section-omission convention
+  // `ExecutiveDashboardService`/`getOperationalExceptions` already established.
+  // ---------------------------------------------------------------------
+
+  private async resolveCustomerAccountAccess(organisationId: string, userId: string) {
+    const access = await this.effectiveAccessResolver.resolve(organisationId, userId);
+    const has = (key: string) => access.isOwnerBypass || access.grants.has(key);
+    if (!has('sales.customer.view')) {
+      throw new ForbiddenException('You are not authorized to view customer accounts.');
+    }
+    return {
+      canViewSalesOrders: has('sales.order.view'),
+      canViewFinance: has('finance.invoice.view') && has('finance.payment.view'),
+      canViewInvoices: has('finance.invoice.view'),
+      canViewPayments: has('finance.payment.view'),
+      canViewCreditNotes: has('finance.credit_note.view'),
+      canViewReturns: has('sales.customer_return.manage'),
+      canManageCredit: has('finance.customer_credit.manage'),
+    };
+  }
+
+  async getCustomerAccountOverview(
+    organisationId: string,
+    userId: string,
+    customerId: string,
+    period: PeriodRequest,
+  ) {
+    const access = await this.resolveCustomerAccountAccess(organisationId, userId);
+    const { current } = await this.resolvePeriod(organisationId, period);
+    return this.customerAccountReportService.getOverview(organisationId, customerId, access, {
+      from: current.from,
+      to: current.to,
+    });
+  }
+
+  async getCustomerTransactionHistory(
+    organisationId: string,
+    userId: string,
+    customerId: string,
+    filters: {
+      type?: string;
+      status?: string;
+      from?: Date;
+      to?: Date;
+      page: number;
+      pageSize: number;
+    },
+  ) {
+    const access = await this.resolveCustomerAccountAccess(organisationId, userId);
+    return this.customerAccountReportService.getTransactionHistory(
+      organisationId,
+      customerId,
+      access,
+      filters,
+    );
+  }
+
+  async getCustomerOutstandingInvoices(organisationId: string, userId: string, customerId: string) {
+    const access = await this.resolveCustomerAccountAccess(organisationId, userId);
+    if (!access.canViewInvoices) {
+      return null;
+    }
+    return this.customerAccountReportService.getOutstandingInvoices(organisationId, customerId);
+  }
+
+  async getCustomerPaymentHistory(organisationId: string, userId: string, customerId: string) {
+    const access = await this.resolveCustomerAccountAccess(organisationId, userId);
+    if (!access.canViewPayments) {
+      return null;
+    }
+    return this.customerAccountReportService.getPaymentHistory(organisationId, customerId);
+  }
+
+  async getCustomerStatement(
+    organisationId: string,
+    userId: string,
+    customerId: string,
+    period: PeriodRequest,
+  ) {
+    const access = await this.resolveCustomerAccountAccess(organisationId, userId);
+    if (!access.canViewFinance) {
+      throw new ForbiddenException('You are not authorized to view this customer statement.');
+    }
+    const { current } = await this.resolvePeriod(organisationId, period);
+    return this.customerStatementReportService.getStatement(organisationId, customerId, {
+      from: current.from,
+      to: current.to,
     });
   }
 }

@@ -7,6 +7,37 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Phase 1 — Customer Account Management] - 2026-10-11
+
+Follows the audit in `docs/customer-account-inventory-audit.md` — implements its
+Phase 1 recommendation only (Phases 2/3 remain unimplemented).
+
+**New.** A unified Customer Account page (`/settings/retail/customers/[id]`,
+reachable via a "View Account" action on the Customers list): commercial profile,
+period-scoped financial summary, a merged chronological Transaction History across
+Sales Orders/Invoices/Payments/Credit Notes/Returns, Outstanding Invoices, Payment
+History, and a reconciling Customer Statement with CSV export. A configurable,
+warning-only customer credit limit (`Customer.creditLimit`, one new permission
+`finance.customer_credit.manage`, audited on every change) — never blocks orders,
+invoices, or payments. Payments can now be allocated across multiple invoices in one
+atomic request (`POST /finance/payments` widened, fully backward compatible with the
+original single-invoice shape); `PaymentRepository.void()` correctly reverses every
+allocation, not just the first.
+
+Every new figure reuses an existing authoritative service
+(`AccountsReceivableService`, `InvoiceRepository`, `PaymentRepository`,
+`CreditNoteRepository`) via the Reporting module's existing composition pattern — no
+new balance-calculation engine. The Statement's closing balance is guaranteed by
+construction to reconcile with the existing AR calculation for the same cutoff.
+
+**Live-verified** against the real seeded database: a real credit-limit change
+produced the correct audited `{old, new}` diff; a real multi-invoice payment
+correctly updated two invoices atomically and recalculated the customer's exposure;
+voiding it reversed both invoices exactly; the Statement's closing balance matched
+the Overview and Invoices tabs and its CSV export byte-for-byte. 269 suites / 2,487
+unit tests and 11 suites / 48 integration tests passing, 0 failing; both apps build
+and typecheck clean.
+
 ## [Sprint 46 Executive & Management Dashboards] - 2026-10-09
 
 Sprint 45 built the reporting foundation; this sprint answers the question it exists

@@ -8,6 +8,8 @@ import { MaintenanceModule } from '../maintenance/maintenance.module';
 import { ProductionModule } from '../production/production.module';
 import { ReportingController } from './reporting.controller';
 import { ReportingService } from './reporting.service';
+import { CustomerAccountReportService } from './reports/customer-account-report.service';
+import { CustomerStatementReportService } from './reports/customer-statement-report.service';
 import { ExecutiveDashboardService } from './reports/executive-dashboard.service';
 import { InventoryPositionReportService } from './reports/inventory-position-report.service';
 import { OperationalExceptionsReportService } from './reports/operational-exceptions-report.service';
@@ -56,6 +58,15 @@ import { WorkforceSummaryReportService } from './reports/workforce-summary-repor
  * only depends on services already available from the modules imported above, plus
  * `AuditService` (already exported by `IdentityModule`, for the Recent Activity
  * section).
+ *
+ * Widened Phase 1 — Customer Account Management (docs/customer-account-inventory-
+ * audit.md §5.2) — `CustomerAccountReportService`/`CustomerStatementReportService`
+ * (new: compose `AccountsReceivableService` plus the newly-exported
+ * `InvoiceRepository`/`PaymentRepository`/`CreditNoteRepository` from
+ * `FinanceModule`). Neither needed a new module import — `Customer`/`Outlet`/
+ * `SalesOrder`/`CustomerReturn` are read via the same narrow, direct, read-only
+ * `PrismaService` pattern Sales/Inventory already use above, since `RetailModule`/
+ * `SalesModule` remain deliberately un-imported.
  */
 @Module({
   imports: [
@@ -78,6 +89,8 @@ import { WorkforceSummaryReportService } from './reports/workforce-summary-repor
     OperationalExceptionsReportService,
     ProcurementSummaryReportService,
     ExecutiveDashboardService,
+    CustomerAccountReportService,
+    CustomerStatementReportService,
   ],
 })
 export class ReportingModule {}

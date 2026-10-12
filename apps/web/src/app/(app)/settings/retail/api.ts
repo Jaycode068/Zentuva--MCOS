@@ -92,6 +92,8 @@ export interface Customer {
   country: string | null;
   territoryId: string | null;
   status: CustomerStatus;
+  /** Added Phase 1 — Customer Account Management. `null` = no limit configured. */
+  creditLimit: number | null;
   notes: string | null;
   createdAt: string;
   updatedAt: string;
@@ -307,6 +309,15 @@ export function updateCustomer(id: string, input: UpdateCustomerPayload): Promis
   return apiFetch<Customer>(`/retail/customers/${id}`, {
     method: 'PATCH',
     body: JSON.stringify(input),
+  });
+}
+
+/** `PATCH /api/retail/customers/:id/credit` (Phase 1 — Customer Account Management).
+ *  `creditLimit: null` clears a previously-configured limit. */
+export function updateCustomerCredit(id: string, creditLimit: number | null): Promise<Customer> {
+  return apiFetch<Customer>(`/retail/customers/${id}/credit`, {
+    method: 'PATCH',
+    body: JSON.stringify({ creditLimit }),
   });
 }
 

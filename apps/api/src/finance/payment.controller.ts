@@ -60,7 +60,7 @@ export class PaymentController {
     @CurrentUser() user: TokenPayload,
     @Req() req: Request,
   ) {
-    const { payment, invoice, wasCreated } = await this.paymentService.create(
+    const { payment, invoices, wasCreated } = await this.paymentService.create(
       user.organisationId,
       body,
       user.sub,
@@ -70,13 +70,19 @@ export class PaymentController {
       await this.auditService.record({
         action: FINANCE_AUDIT_ACTIONS.PAYMENT_RECORDED,
         entityType: 'Invoice',
-        entityId: invoice.id,
+        // Primary/first affected invoice — keeps a single-invoice payment's audit
+        // entry byte-identical to before Phase 1's multi-invoice allocation; the full
+        // list (every invoice this payment touched) is in `metadata.allocations`.
+        entityId: invoices[0]!.id,
         organisationId: user.organisationId,
         actorUserId: user.sub,
         metadata: {
           paymentId: payment.id,
           amount: payment.amount,
-          newInvoiceStatus: invoice.status,
+          allocations: invoices.map((invoice) => ({
+            invoiceId: invoice.id,
+            newInvoiceStatus: invoice.status,
+          })),
         },
         ipAddress: req.ip,
         userAgent: req.headers['user-agent'],
@@ -90,7 +96,7 @@ export class PaymentController {
   @UseGuards(PermissionsGuard)
   @RequirePermission('finance.payment.cancel')
   async void(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
-    const { payment, invoiceId } = await this.paymentService.void(
+    const { payment, invoiceIds } = await this.paymentService.void(
       user.organisationId,
       id,
       user.sub,
@@ -99,10 +105,10 @@ export class PaymentController {
     await this.auditService.record({
       action: FINANCE_AUDIT_ACTIONS.PAYMENT_VOIDED,
       entityType: 'Invoice',
-      entityId: invoiceId,
+      entityId: invoiceIds[0] ?? '',
       organisationId: user.organisationId,
       actorUserId: user.sub,
-      metadata: { paymentId: payment.id, amount: payment.amount },
+      metadata: { paymentId: payment.id, amount: payment.amount, invoiceIds },
       ipAddress: req.ip,
       userAgent: req.headers['user-agent'],
     });
@@ -124,7 +130,23 @@ export function toPaymentResponse(payment: PaymentWithRelations) {
     reference: payment.reference,
     notes: payment.notes,
     status: payment.status,
+    /** Primary/first allocated invoice — kept for backward compatibility with
+     *  single-invoice callers. See `allocations` below for the full breakdown. */
     invoiceId: payment.allocations[0]?.invoiceId ?? null,
+    /** Added Phase 1 — Customer Account Management (multi-invoice allocation). Every
+     *  invoice this payment was applied to, and how much. `unallocatedAmount` is
+     *  `amount` minus the sum of these — always `0` today (every payment this service
+     *  creates is fully allocated at creation time), computed generically so a future
+     *  "customer advance with no invoice" capability would surface correctly here
+     *  without any change to this response shape. */
+    allocations: payment.allocations.map((allocation) => ({
+      invoiceId: allocation.invoiceId,
+      amount: allocation.amount,
+    })),
+    unallocatedAmount:
+      Math.round(
+        (payment.amount - payment.allocations.reduce((sum, a) => sum + a.amount, 0)) * 100,
+      ) / 100,
     cashAccountId: payment.cashAccountId,
     /** Added Sprint 35 — `null` for a B2B payment; `'OPAY'` for a D2C payment. */
     provider: payment.provider,

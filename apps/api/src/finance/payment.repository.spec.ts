@@ -164,6 +164,30 @@ function makeFakeTx(
           return invoice;
         },
       ),
+      findMany: jest.fn(
+        async ({
+          where,
+        }: {
+          where: {
+            id: { in: string[] };
+            organisationId?: string;
+            customerId?: string;
+            status?: { in: InvoiceStatus[] };
+          };
+        }) => {
+          return where.id.in
+            .map((id) => invoices.get(id))
+            .filter((invoice): invoice is Record<string, unknown> => {
+              if (!invoice) return false;
+              if (where.organisationId && invoice.organisationId !== where.organisationId)
+                return false;
+              if (where.customerId && invoice.customerId !== where.customerId) return false;
+              if (where.status?.in && !where.status.in.includes(invoice.status as InvoiceStatus))
+                return false;
+              return true;
+            });
+        },
+      ),
       findUniqueOrThrow: jest.fn(async ({ where }: { where: { id: string } }) => {
         const invoice = invoices.get(where.id);
         if (!invoice) throw new Error('invoice not found');
@@ -215,7 +239,7 @@ describe('PaymentRepository (deliberate exception — real transaction logic und
     const result = await repository.create({
       organisationId: 'org-1',
       customerId: 'customer-1',
-      invoiceId: 'invoice-1',
+      allocations: [{ invoiceId: 'invoice-1', amount: 1_000_000 }],
       amount: 1_000_000,
       method: PaymentMethod.CASH,
       paymentDate: new Date(),
@@ -223,14 +247,92 @@ describe('PaymentRepository (deliberate exception — real transaction logic und
     });
 
     expect(result.wasCreated).toBe(true);
-    expect(result.invoice.status).toBe(InvoiceStatus.PARTIALLY_PAID);
-    expect(result.invoice.amountPaid).toBe(1_000_000);
+    expect(result.invoices[0]!.status).toBe(InvoiceStatus.PARTIALLY_PAID);
+    expect(result.invoices[0]!.amountPaid).toBe(1_000_000);
+  });
+
+  it('allocates a single payment across multiple invoices atomically', async () => {
+    const invoices = new Map([
+      ['invoice-1', makeInvoice({ total: 600_000 })],
+      ['invoice-2', makeInvoice({ id: 'invoice-2', total: 500_000 })],
+    ]);
+    const payments = new Map<string, Record<string, unknown>>();
+    const repository = new PaymentRepository(makePrisma(invoices, payments));
+
+    const result = await repository.create({
+      organisationId: 'org-1',
+      customerId: 'customer-1',
+      allocations: [
+        { invoiceId: 'invoice-1', amount: 600_000 },
+        { invoiceId: 'invoice-2', amount: 400_000 },
+      ],
+      amount: 1_000_000,
+      method: PaymentMethod.CASH,
+      paymentDate: new Date(),
+      createdById: 'user-1',
+    });
+
+    expect(result.invoices).toHaveLength(2);
+    expect(invoices.get('invoice-1')!.status).toBe(InvoiceStatus.PAID);
+    expect(invoices.get('invoice-1')!.amountPaid).toBe(600_000);
+    expect(invoices.get('invoice-2')!.status).toBe(InvoiceStatus.PARTIALLY_PAID);
+    expect(invoices.get('invoice-2')!.amountPaid).toBe(400_000);
+  });
+
+  it('rejects a multi-invoice allocation whose total does not equal the payment amount', async () => {
+    const invoices = new Map([
+      ['invoice-1', makeInvoice({ total: 600_000 })],
+      ['invoice-2', makeInvoice({ id: 'invoice-2', total: 500_000 })],
+    ]);
+    const payments = new Map<string, Record<string, unknown>>();
+    const repository = new PaymentRepository(makePrisma(invoices, payments));
+
+    await expect(
+      repository.create({
+        organisationId: 'org-1',
+        customerId: 'customer-1',
+        allocations: [
+          { invoiceId: 'invoice-1', amount: 600_000 },
+          { invoiceId: 'invoice-2', amount: 300_000 },
+        ],
+        amount: 1_000_000,
+        method: PaymentMethod.CASH,
+        paymentDate: new Date(),
+        createdById: 'user-1',
+      }),
+    ).rejects.toThrow(OverPaymentError);
+  });
+
+  it('rejects a multi-invoice allocation when one invoice is ineligible, rolling back the whole payment', async () => {
+    const invoices = new Map([
+      ['invoice-1', makeInvoice({ total: 600_000 })],
+      ['invoice-2', makeInvoice({ id: 'invoice-2', total: 500_000, status: InvoiceStatus.VOID })],
+    ]);
+    const payments = new Map<string, Record<string, unknown>>();
+    const repository = new PaymentRepository(makePrisma(invoices, payments));
+
+    await expect(
+      repository.create({
+        organisationId: 'org-1',
+        customerId: 'customer-1',
+        allocations: [
+          { invoiceId: 'invoice-1', amount: 600_000 },
+          { invoiceId: 'invoice-2', amount: 400_000 },
+        ],
+        amount: 1_000_000,
+        method: PaymentMethod.CASH,
+        paymentDate: new Date(),
+        createdById: 'user-1',
+      }),
+    ).rejects.toThrow(PaymentInvoiceConflictError);
+    // Rolled back entirely — invoice-1 must NOT have been partially applied.
+    expect(invoices.get('invoice-1')!.amountPaid).toBe(0);
   });
 
   it('posts DR Cash / CR Accounts Receivable for a CASH payment, and DR Bank for BANK_TRANSFER', async () => {
     const invoices = new Map([
       ['invoice-1', makeInvoice()],
-      ['invoice-2', makeInvoice()],
+      ['invoice-2', makeInvoice({ id: 'invoice-2' })],
     ]);
     const payments = new Map<string, Record<string, unknown>>();
     const journalEntries = new Map<string, Record<string, unknown>>();
@@ -239,7 +341,7 @@ describe('PaymentRepository (deliberate exception — real transaction logic und
     await repository.create({
       organisationId: 'org-1',
       customerId: 'customer-1',
-      invoiceId: 'invoice-1',
+      allocations: [{ invoiceId: 'invoice-1', amount: 1_000_000 }],
       amount: 1_000_000,
       method: PaymentMethod.CASH,
       paymentDate: new Date(),
@@ -248,7 +350,7 @@ describe('PaymentRepository (deliberate exception — real transaction logic und
     await repository.create({
       organisationId: 'org-1',
       customerId: 'customer-1',
-      invoiceId: 'invoice-2',
+      allocations: [{ invoiceId: 'invoice-2', amount: 500_000 }],
       amount: 500_000,
       method: PaymentMethod.BANK_TRANSFER,
       paymentDate: new Date(),
@@ -285,15 +387,15 @@ describe('PaymentRepository (deliberate exception — real transaction logic und
     const result = await repository.create({
       organisationId: 'org-1',
       customerId: 'customer-1',
-      invoiceId: 'invoice-1',
+      allocations: [{ invoiceId: 'invoice-1', amount: 0.01 }],
       amount: 0.01,
       method: PaymentMethod.CASH,
       paymentDate: new Date(),
       createdById: 'user-1',
     });
 
-    expect(result.invoice.status).toBe(InvoiceStatus.PAID);
-    expect(result.invoice.amountPaid).toBe(2_500_000);
+    expect(result.invoices[0]!.status).toBe(InvoiceStatus.PAID);
+    expect(result.invoices[0]!.amountPaid).toBe(2_500_000);
   });
 
   it('rejects a payment exactly 0.01 beyond the outstanding boundary', async () => {
@@ -305,7 +407,7 @@ describe('PaymentRepository (deliberate exception — real transaction logic und
       repository.create({
         organisationId: 'org-1',
         customerId: 'customer-1',
-        invoiceId: 'invoice-1',
+        allocations: [{ invoiceId: 'invoice-1', amount: 0.02 }],
         amount: 0.02,
         method: PaymentMethod.CASH,
         paymentDate: new Date(),
@@ -323,7 +425,7 @@ describe('PaymentRepository (deliberate exception — real transaction logic und
       repository.create({
         organisationId: 'org-1',
         customerId: 'customer-1',
-        invoiceId: 'invoice-1',
+        allocations: [{ invoiceId: 'invoice-1', amount: 100 }],
         amount: 100,
         method: PaymentMethod.CASH,
         paymentDate: new Date(),
@@ -341,7 +443,7 @@ describe('PaymentRepository (deliberate exception — real transaction logic und
       repository.create({
         organisationId: 'org-1',
         customerId: 'customer-1',
-        invoiceId: 'invoice-1',
+        allocations: [{ invoiceId: 'invoice-1', amount: 100 }],
         amount: 100,
         method: PaymentMethod.CASH,
         paymentDate: new Date(),
@@ -359,7 +461,7 @@ describe('PaymentRepository (deliberate exception — real transaction logic und
       repository.create({
         organisationId: 'org-1',
         customerId: 'customer-1',
-        invoiceId: 'unknown',
+        allocations: [{ invoiceId: 'unknown', amount: 100 }],
         amount: 100,
         method: PaymentMethod.CASH,
         paymentDate: new Date(),
@@ -377,7 +479,7 @@ describe('PaymentRepository (deliberate exception — real transaction logic und
     const first = await repository.create({
       organisationId: 'org-1',
       customerId: 'customer-1',
-      invoiceId: 'invoice-1',
+      allocations: [{ invoiceId: 'invoice-1', amount: 1_000_000 }],
       amount: 1_000_000,
       method: PaymentMethod.CASH,
       paymentDate: new Date(),
@@ -387,7 +489,7 @@ describe('PaymentRepository (deliberate exception — real transaction logic und
     const second = await repository.create({
       organisationId: 'org-1',
       customerId: 'customer-1',
-      invoiceId: 'invoice-1',
+      allocations: [{ invoiceId: 'invoice-1', amount: 1_000_000 }],
       amount: 1_000_000,
       method: PaymentMethod.CASH,
       paymentDate: new Date(),
@@ -399,7 +501,7 @@ describe('PaymentRepository (deliberate exception — real transaction logic und
     expect(second.wasCreated).toBe(false);
     expect(second.payment.id).toBe(first.payment.id);
     // Only ONE payment's worth was ever applied — the invoice was not double-deducted.
-    expect(second.invoice.amountPaid).toBe(1_000_000);
+    expect(second.invoices[0]!.amountPaid).toBe(1_000_000);
     // And exactly one accounting journal was posted for this payment — a replay never
     // creates a second one (docs/domains/accounting.md idempotency guarantee).
     expect(journalEntries.size).toBe(1);
@@ -413,32 +515,32 @@ describe('PaymentRepository (deliberate exception — real transaction logic und
     const first = await repository.create({
       organisationId: 'org-1',
       customerId: 'customer-1',
-      invoiceId: 'invoice-1',
+      allocations: [{ invoiceId: 'invoice-1', amount: 1_500_000 }],
       amount: 1_500_000,
       method: PaymentMethod.CASH,
       paymentDate: new Date(),
       createdById: 'user-1',
     });
-    expect(first.invoice.amountPaid).toBe(1_500_000);
+    expect(first.invoices[0]!.amountPaid).toBe(1_500_000);
 
     // A second payment for the full remaining amount should succeed and land on PAID.
     const second = await repository.create({
       organisationId: 'org-1',
       customerId: 'customer-1',
-      invoiceId: 'invoice-1',
+      allocations: [{ invoiceId: 'invoice-1', amount: 1_000_000 }],
       amount: 1_000_000,
       method: PaymentMethod.CASH,
       paymentDate: new Date(),
       createdById: 'user-1',
     });
-    expect(second.invoice.status).toBe(InvoiceStatus.PAID);
+    expect(second.invoices[0]!.status).toBe(InvoiceStatus.PAID);
 
     // A third payment against the now-PAID invoice must be rejected — nothing left owing.
     await expect(
       repository.create({
         organisationId: 'org-1',
         customerId: 'customer-1',
-        invoiceId: 'invoice-1',
+        allocations: [{ invoiceId: 'invoice-1', amount: 1 }],
         amount: 1,
         method: PaymentMethod.CASH,
         paymentDate: new Date(),
@@ -492,6 +594,42 @@ describe('PaymentRepository (deliberate exception — real transaction logic und
     await repository.void('org-1', 'payment-1', 'user-1');
 
     expect(invoices.get('invoice-1')!.amountPaid).toBe(0);
+  });
+
+  it('void() reverses EVERY allocation of a multi-invoice payment, not just the first', async () => {
+    const invoices = new Map([
+      [
+        'invoice-1',
+        makeInvoice({ amountPaid: 600_000, total: 600_000, status: InvoiceStatus.PAID }),
+      ],
+      [
+        'invoice-2',
+        makeInvoice({ amountPaid: 400_000, total: 500_000, status: InvoiceStatus.PARTIALLY_PAID }),
+      ],
+    ]);
+    const payments = new Map<string, Record<string, unknown>>([
+      [
+        'payment-1',
+        {
+          id: 'payment-1',
+          organisationId: 'org-1',
+          status: PaymentStatus.RECORDED,
+          allocations: [
+            { id: 'alloc-1', invoiceId: 'invoice-1', amount: 600_000 },
+            { id: 'alloc-2', invoiceId: 'invoice-2', amount: 400_000 },
+          ],
+        },
+      ],
+    ]);
+    const repository = new PaymentRepository(makePrisma(invoices, payments));
+
+    const result = await repository.void('org-1', 'payment-1', 'user-1');
+
+    expect(result!.invoiceIds).toEqual(['invoice-1', 'invoice-2']);
+    expect(invoices.get('invoice-1')!.amountPaid).toBe(0);
+    expect(invoices.get('invoice-1')!.status).toBe(InvoiceStatus.ISSUED);
+    expect(invoices.get('invoice-2')!.amountPaid).toBe(0);
+    expect(invoices.get('invoice-2')!.status).toBe(InvoiceStatus.ISSUED);
   });
 });
 

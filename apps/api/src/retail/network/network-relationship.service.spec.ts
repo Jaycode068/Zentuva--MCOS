@@ -26,6 +26,7 @@ describe('NetworkRelationshipService', () => {
       country: null,
       territoryId: null,
       status: CustomerStatus.ACTIVE,
+      creditLimit: null,
       notes: null,
       createdById: 'user-1',
       updatedById: 'user-1',

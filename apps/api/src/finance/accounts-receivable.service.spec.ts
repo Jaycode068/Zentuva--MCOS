@@ -1,3 +1,4 @@
+import { PrismaService } from '../prisma/prisma.service';
 import { CustomerRepository } from '../retail/customer/customer.repository';
 import { AccountsReceivableService } from './accounts-receivable.service';
 import { InvoiceRepository } from './invoice.repository';
@@ -17,13 +18,19 @@ describe('AccountsReceivableService', () => {
     const customerRepository = {
       findById: jest.fn(),
     } as unknown as jest.Mocked<CustomerRepository>;
+    const prisma = {
+      invoice: { findMany: jest.fn().mockResolvedValue([]) },
+      paymentAllocation: { aggregate: jest.fn().mockResolvedValue({ _sum: { amount: null } }) },
+      creditNote: { aggregate: jest.fn().mockResolvedValue({ _sum: { amount: null } }) },
+    } as unknown as jest.Mocked<PrismaService>;
 
     const service = new AccountsReceivableService(
       invoiceRepository,
       paymentRepository,
       customerRepository,
+      prisma,
     );
-    return { service, invoiceRepository, paymentRepository, customerRepository };
+    return { service, invoiceRepository, paymentRepository, customerRepository, prisma };
   }
 
   describe('listByCustomer', () => {
@@ -97,6 +104,59 @@ describe('AccountsReceivableService', () => {
           totalOutstanding: 0,
         }),
       );
+    });
+  });
+
+  describe('getCustomerBalanceAsOf', () => {
+    it('excludes invoices/payments/credit notes dated on or after the cutoff', async () => {
+      const { service, customerRepository, prisma } = makeService();
+      customerRepository.findById.mockResolvedValue({
+        customerCode: 'CUS-0001',
+        customerName: 'ABC Supermarket',
+      } as never);
+      (prisma.invoice.findMany as jest.Mock).mockResolvedValue([{ id: 'inv-1', total: 100_000 }]);
+      (prisma.paymentAllocation.aggregate as jest.Mock).mockResolvedValue({
+        _sum: { amount: 40_000 },
+      });
+      (prisma.creditNote.aggregate as jest.Mock).mockResolvedValue({ _sum: { amount: 0 } });
+
+      const asOf = new Date('2026-06-01');
+      const balance = await service.getCustomerBalanceAsOf('org-1', 'customer-1', asOf);
+
+      expect(prisma.invoice.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ invoiceDate: { lt: asOf } }),
+        }),
+      );
+      expect(prisma.paymentAllocation.aggregate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            payment: expect.objectContaining({ paymentDate: { lt: asOf } }),
+          }),
+        }),
+      );
+      expect(balance).toEqual(
+        expect.objectContaining({
+          totalInvoiced: 100_000,
+          totalPaid: 40_000,
+          totalOutstanding: 60_000,
+        }),
+      );
+    });
+
+    it('returns an all-zero balance for a customer with no invoices before the cutoff', async () => {
+      const { service, customerRepository, prisma } = makeService();
+      customerRepository.findById.mockResolvedValue({
+        customerCode: 'CUS-0099',
+        customerName: 'No Invoices Ltd',
+      } as never);
+      (prisma.invoice.findMany as jest.Mock).mockResolvedValue([]);
+
+      const balance = await service.getCustomerBalanceAsOf('org-1', 'customer-99', new Date());
+
+      expect(balance.totalOutstanding).toBe(0);
+      // No invoices before the cutoff — never queries allocations/credit notes at all.
+      expect(prisma.paymentAllocation.aggregate).not.toHaveBeenCalled();
     });
   });
 

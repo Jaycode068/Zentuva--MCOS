@@ -7,4 +7,7 @@ export const CUSTOMER_AUDIT_ACTIONS = {
   UPDATED: 'customer.updated',
   ACTIVATED: 'customer.activated',
   DEACTIVATED: 'customer.deactivated',
+  /** Added Phase 1 — Customer Account Management
+   *  (docs/customer-account-inventory-audit.md §5.1/§7.1). */
+  CREDIT_LIMIT_UPDATED: 'customer.credit_limit_updated',
 } as const;

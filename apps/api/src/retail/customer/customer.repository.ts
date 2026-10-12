@@ -77,4 +77,25 @@ export class CustomerRepository {
     }
     return this.prisma.customer.findUniqueOrThrow({ where: { id } });
   }
+
+  /** `PATCH /:id/credit` (Phase 1 — Customer Account Management). Its own method,
+   *  separate from the generic `update()` above, since the caller (`CustomerService
+   *  .updateCreditLimit`) always needs the row's PRIOR `creditLimit` for the audit
+   *  `{old, new}` diff — same shape as every other such call in this codebase (see
+   *  `D2CConversationConfigService`). */
+  async updateCreditLimit(
+    organisationId: string,
+    id: string,
+    creditLimit: number | null,
+    actorUserId: string,
+  ): Promise<Customer | null> {
+    const result = await this.prisma.customer.updateMany({
+      where: { id, organisationId },
+      data: { creditLimit, updatedById: actorUserId },
+    });
+    if (result.count === 0) {
+      return null;
+    }
+    return this.prisma.customer.findUniqueOrThrow({ where: { id } });
+  }
 }

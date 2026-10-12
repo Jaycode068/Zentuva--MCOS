@@ -286,4 +286,133 @@ export class ReportingController {
       comparison: period.comparison,
     });
   }
+
+  // ---------------------------------------------------------------------
+  // Phase 1 — Customer Account Management (docs/customer-account-inventory-audit.md
+  // §9 "API and Service Architecture"). `customerId` is always a required query
+  // param here — every route below composes data for exactly ONE customer, never
+  // an org-wide listing.
+  // ---------------------------------------------------------------------
+
+  @Get('reports/customer-account')
+  getCustomerAccountOverview(
+    @CurrentUser() user: TokenPayload,
+    @Query('customerId') customerId: string,
+    @Query() periodQuery: Record<string, string>,
+  ) {
+    const period = reportingPeriodQuerySchema.parse(periodQuery);
+    return this.reportingService.getCustomerAccountOverview(
+      user.organisationId,
+      user.sub,
+      customerId,
+      {
+        preset: period.preset,
+        customFrom: period.customFrom,
+        customTo: period.customTo,
+        comparison: period.comparison,
+      },
+    );
+  }
+
+  @Get('reports/customer-account/transactions')
+  getCustomerTransactionHistory(
+    @CurrentUser() user: TokenPayload,
+    @Query('customerId') customerId: string,
+    @Query('type') type?: string,
+    @Query('status') status?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    const pagination = reportPaginationSchema.parse({ page, pageSize });
+    return this.reportingService.getCustomerTransactionHistory(
+      user.organisationId,
+      user.sub,
+      customerId,
+      {
+        type,
+        status,
+        from: from ? new Date(from) : undefined,
+        to: to ? new Date(to) : undefined,
+        ...pagination,
+      },
+    );
+  }
+
+  @Get('reports/customer-account/invoices')
+  getCustomerOutstandingInvoices(
+    @CurrentUser() user: TokenPayload,
+    @Query('customerId') customerId: string,
+  ) {
+    return this.reportingService.getCustomerOutstandingInvoices(
+      user.organisationId,
+      user.sub,
+      customerId,
+    );
+  }
+
+  @Get('reports/customer-account/payments')
+  getCustomerPaymentHistory(
+    @CurrentUser() user: TokenPayload,
+    @Query('customerId') customerId: string,
+  ) {
+    return this.reportingService.getCustomerPaymentHistory(
+      user.organisationId,
+      user.sub,
+      customerId,
+    );
+  }
+
+  @Get('reports/customer-statement')
+  getCustomerStatement(
+    @CurrentUser() user: TokenPayload,
+    @Query('customerId') customerId: string,
+    @Query() periodQuery: Record<string, string>,
+  ) {
+    const period = reportingPeriodQuerySchema.parse(periodQuery);
+    return this.reportingService.getCustomerStatement(user.organisationId, user.sub, customerId, {
+      preset: period.preset,
+      customFrom: period.customFrom,
+      customTo: period.customTo,
+      comparison: period.comparison,
+    });
+  }
+
+  @Get('reports/customer-statement/export')
+  @Header('Content-Type', 'text/csv')
+  @Header('Content-Disposition', 'attachment; filename="customer-statement.csv"')
+  async exportCustomerStatement(
+    @CurrentUser() user: TokenPayload,
+    @Query('customerId') customerId: string,
+    @Query() periodQuery: Record<string, string>,
+  ) {
+    const period = reportingPeriodQuerySchema.parse(periodQuery);
+    const statement = await this.reportingService.getCustomerStatement(
+      user.organisationId,
+      user.sub,
+      customerId,
+      {
+        preset: period.preset,
+        customFrom: period.customFrom,
+        customTo: period.customTo,
+        comparison: period.comparison,
+      },
+    );
+    if (!statement) {
+      return toCsv([{ key: 'message', label: 'Message' }], [{ message: 'Customer not found' }]);
+    }
+    return toCsv(
+      [
+        { key: 'date', label: 'Date', value: (row) => row.date.toISOString().slice(0, 10) },
+        { key: 'type', label: 'Type' },
+        { key: 'reference', label: 'Reference' },
+        { key: 'description', label: 'Description' },
+        { key: 'debit', label: 'Debit' },
+        { key: 'credit', label: 'Credit' },
+        { key: 'runningBalance', label: 'Running Balance' },
+      ],
+      statement.lines,
+    );
+  }
 }

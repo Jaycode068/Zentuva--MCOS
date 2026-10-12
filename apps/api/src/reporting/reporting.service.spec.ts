@@ -40,6 +40,15 @@ describe('ReportingService', () => {
     const executiveDashboardService = {
       getDashboard: jest.fn().mockResolvedValue({ dashboard: true }),
     };
+    const customerAccountReportService = {
+      getOverview: jest.fn().mockResolvedValue({ overview: true }),
+      getTransactionHistory: jest.fn().mockResolvedValue({ rows: [], total: 0 }),
+      getOutstandingInvoices: jest.fn().mockResolvedValue([]),
+      getPaymentHistory: jest.fn().mockResolvedValue([]),
+    };
+    const customerStatementReportService = {
+      getStatement: jest.fn().mockResolvedValue({ statement: true }),
+    };
 
     const service = new ReportingService(
       organisationService as never,
@@ -53,6 +62,8 @@ describe('ReportingService', () => {
       operationalExceptionsReportService as never,
       procurementSummaryReportService as never,
       executiveDashboardService as never,
+      customerAccountReportService as never,
+      customerStatementReportService as never,
     );
 
     return {
@@ -61,6 +72,8 @@ describe('ReportingService', () => {
       operationalExceptionsReportService,
       procurementSummaryReportService,
       executiveDashboardService,
+      customerAccountReportService,
+      customerStatementReportService,
       effectiveAccessResolver,
     };
   }
@@ -158,6 +171,76 @@ describe('ReportingService', () => {
       const { service } = makeService(makeAccess({ grantedKeys: ['notification.email.view'] }));
       const result = await service.getOperationalExceptions('org-1', 'user-1');
       expect(result.failedNotifications).toBeNull();
+    });
+  });
+
+  describe('Customer Account (Phase 1)', () => {
+    const period = {
+      preset: 'this_month' as const,
+      comparison: 'none' as const,
+    };
+
+    it('rejects a caller without sales.customer.view at all', async () => {
+      const { service } = makeService(makeAccess({ grantedKeys: [] }));
+      await expect(
+        service.getCustomerAccountOverview('org-1', 'user-1', 'customer-1', period),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('Owner bypass can view a customer account with no explicit grants', async () => {
+      const { service, customerAccountReportService } = makeService(
+        makeAccess({ isOwnerBypass: true }),
+      );
+      await service.getCustomerAccountOverview('org-1', 'user-1', 'customer-1', period);
+      expect(customerAccountReportService.getOverview).toHaveBeenCalledWith(
+        'org-1',
+        'customer-1',
+        expect.objectContaining({ canViewFinance: true, canViewSalesOrders: true }),
+        expect.anything(),
+      );
+    });
+
+    it('passes canViewFinance=false when the caller lacks finance.payment.view, even with finance.invoice.view', async () => {
+      const { service, customerAccountReportService } = makeService(
+        makeAccess({ grantedKeys: ['sales.customer.view', 'finance.invoice.view'] }),
+      );
+      await service.getCustomerAccountOverview('org-1', 'user-1', 'customer-1', period);
+      expect(customerAccountReportService.getOverview).toHaveBeenCalledWith(
+        'org-1',
+        'customer-1',
+        expect.objectContaining({ canViewFinance: false }),
+        expect.anything(),
+      );
+    });
+
+    it('getCustomerOutstandingInvoices returns null (not an error) without finance.invoice.view', async () => {
+      const { service } = makeService(makeAccess({ grantedKeys: ['sales.customer.view'] }));
+      const result = await service.getCustomerOutstandingInvoices('org-1', 'user-1', 'customer-1');
+      expect(result).toBeNull();
+    });
+
+    it('getCustomerStatement rejects without full finance visibility', async () => {
+      const { service } = makeService(
+        makeAccess({ grantedKeys: ['sales.customer.view', 'finance.invoice.view'] }),
+      );
+      await expect(
+        service.getCustomerStatement('org-1', 'user-1', 'customer-1', period),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('getCustomerStatement succeeds with full finance visibility', async () => {
+      const { service, customerStatementReportService } = makeService(
+        makeAccess({
+          grantedKeys: ['sales.customer.view', 'finance.invoice.view', 'finance.payment.view'],
+        }),
+      );
+      const result = await service.getCustomerStatement('org-1', 'user-1', 'customer-1', period);
+      expect(result).toEqual({ statement: true });
+      expect(customerStatementReportService.getStatement).toHaveBeenCalledWith(
+        'org-1',
+        'customer-1',
+        expect.anything(),
+      );
     });
   });
 });

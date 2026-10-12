@@ -66,13 +66,15 @@ describe('PaymentController', () => {
       const { controller, paymentService, auditService } = makeController();
       paymentService.create.mockResolvedValue({
         payment,
-        invoice: {
-          id: 'invoice-1',
-          status: InvoiceStatus.PARTIALLY_PAID,
-          amountPaid: 1_000_000,
-          amountCredited: 0,
-          total: 2_500_000,
-        },
+        invoices: [
+          {
+            id: 'invoice-1',
+            status: InvoiceStatus.PARTIALLY_PAID,
+            amountPaid: 1_000_000,
+            amountCredited: 0,
+            total: 2_500_000,
+          },
+        ],
         wasCreated: true,
       });
 
@@ -99,13 +101,15 @@ describe('PaymentController', () => {
       const { controller, paymentService, auditService } = makeController();
       paymentService.create.mockResolvedValue({
         payment,
-        invoice: {
-          id: 'invoice-1',
-          status: InvoiceStatus.PARTIALLY_PAID,
-          amountPaid: 1_000_000,
-          amountCredited: 0,
-          total: 2_500_000,
-        },
+        invoices: [
+          {
+            id: 'invoice-1',
+            status: InvoiceStatus.PARTIALLY_PAID,
+            amountPaid: 1_000_000,
+            amountCredited: 0,
+            total: 2_500_000,
+          },
+        ],
         wasCreated: false,
       });
 
@@ -122,6 +126,57 @@ describe('PaymentController', () => {
 
       expect(auditService.record).not.toHaveBeenCalled();
     });
+
+    it('audits every allocated invoice when a payment spans multiple invoices', async () => {
+      const { controller, paymentService, auditService } = makeController();
+      paymentService.create.mockResolvedValue({
+        payment,
+        invoices: [
+          {
+            id: 'invoice-1',
+            status: InvoiceStatus.PAID,
+            amountPaid: 600_000,
+            amountCredited: 0,
+            total: 600_000,
+          },
+          {
+            id: 'invoice-2',
+            status: InvoiceStatus.PARTIALLY_PAID,
+            amountPaid: 400_000,
+            amountCredited: 0,
+            total: 500_000,
+          },
+        ],
+        wasCreated: true,
+      });
+
+      await controller.create(
+        {
+          allocations: [
+            { invoiceId: 'invoice-1', amount: 600_000 },
+            { invoiceId: 'invoice-2', amount: 400_000 },
+          ],
+          amount: 1_000_000,
+          method: 'BANK_TRANSFER',
+          paymentDate: new Date(),
+        },
+        tokenUser,
+        req,
+      );
+
+      expect(auditService.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: FINANCE_AUDIT_ACTIONS.PAYMENT_RECORDED,
+          entityId: 'invoice-1',
+          metadata: expect.objectContaining({
+            allocations: [
+              { invoiceId: 'invoice-1', newInvoiceStatus: InvoiceStatus.PAID },
+              { invoiceId: 'invoice-2', newInvoiceStatus: InvoiceStatus.PARTIALLY_PAID },
+            ],
+          }),
+        }),
+      );
+    });
   });
 
   describe('void', () => {
@@ -129,7 +184,7 @@ describe('PaymentController', () => {
       const { controller, paymentService, auditService } = makeController();
       paymentService.void.mockResolvedValue({
         payment: { ...payment, status: PaymentStatus.VOIDED },
-        invoiceId: 'invoice-1',
+        invoiceIds: ['invoice-1'],
       });
 
       await controller.void('payment-1', tokenUser, req);

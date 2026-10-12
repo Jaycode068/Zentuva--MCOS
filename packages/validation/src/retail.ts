@@ -187,6 +187,25 @@ export const updateCustomerSchema = z.object({
 export type UpdateCustomerInput = z.infer<typeof updateCustomerSchema>;
 
 /**
+ * `PATCH /api/retail/customers/:id/credit` — Phase 1 Customer Account Management
+ * (docs/customer-account-inventory-audit.md §5.1/§7.1). Deliberately its own schema,
+ * separate from `updateCustomerSchema`, since setting a credit limit is a distinct,
+ * separately-permissioned action (`finance.customer_credit.manage`) from editing the
+ * customer's commercial profile (`sales.customer.manage`). `null` explicitly clears a
+ * previously-configured limit (back to "no limit configured"); `0` is a deliberately
+ * configured zero-credit account — both must be representable and distinguishable from
+ * "field omitted" (`undefined`, not accepted by this schema's single required key).
+ */
+export const updateCustomerCreditSchema = z.object({
+  creditLimit: z
+    .number()
+    .nonnegative('Credit limit cannot be negative')
+    .finite('Credit limit must be a finite number')
+    .nullable(),
+});
+export type UpdateCustomerCreditInput = z.infer<typeof updateCustomerCreditSchema>;
+
+/**
  * `POST /api/retail/outlets` (Sprint 4.8 brief §8). Required: `customerId`, `outletType`,
  * `name`. Coordinates are optional and must be supplied together — one without the other
  * is meaningless. No coordinates are ever required at onboarding (brief: "Do not require

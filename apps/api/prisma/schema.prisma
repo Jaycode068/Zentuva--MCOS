@@ -1871,6 +1871,15 @@ model Customer {
   /// or place an order.
   territoryId          String?
   status               CustomerStatus @default(ACTIVE)
+  /// Added Phase 1 — Customer Account Management (docs/customer-account-inventory-audit.md
+  /// §5.1/§7.1). `null` = no limit configured (today's unchanged default behaviour); `0` is
+  /// a deliberately configured zero-credit account, distinguishable from `null` by every
+  /// read site. Warning-only this phase — see `CustomerAccountReportService` for the
+  /// exposure calculation; nothing in Sales Order/Invoice/Payment creation reads this field
+  /// to block anything. Currency is always the single `Organisation.currency` (no
+  /// per-customer currency concept exists). Enforced non-negative at the DB level (see
+  /// migration) and in `updateCustomerCreditSchema`.
+  creditLimit          Float?
   notes                String?
   createdById          String?
   updatedById          String?

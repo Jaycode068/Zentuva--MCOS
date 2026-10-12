@@ -45,29 +45,70 @@ export class PaymentService {
   /** `POST /` — mirrors `DeliveryService.create()`'s exact three-part pre-check shape
    *  (invoice eligibility -> over-payment), then delegates to the atomic write. Both
    *  checks are UX-only fast-fail 400s; the repository's own transaction re-validates
-   *  each authoritatively. */
+   *  each authoritatively.
+   *
+   *  Widened Phase 1 — Customer Account Management (docs/customer-account-inventory-
+   *  audit.md §7.2): `input.invoiceId` (legacy, single-invoice) and `input.allocations`
+   *  (new, multi-invoice) are mutually exclusive per `createPaymentSchema`'s own
+   *  `.refine()` — normalized here into one `allocations` array so the repository only
+   *  ever has to handle one shape. Every allocation's target invoice must belong to the
+   *  SAME customer; allocations must sum to exactly `input.amount` (full allocation —
+   *  see `CreatePaymentData`'s own doc comment for why a partially-unallocated
+   *  "customer advance" is a deliberately deferred, separate capability). */
   async create(
     organisationId: string,
     input: CreatePaymentInput,
     actorUserId: string,
   ): Promise<CreatePaymentResult> {
-    const invoice = await this.getInvoiceOrThrow(organisationId, input.invoiceId);
-    if (!PAYABLE_INVOICE_STATUSES.includes(invoice.status)) {
-      throw new BadRequestException('This invoice is not eligible to receive a payment');
+    const allocationInputs = input.allocations ?? [
+      { invoiceId: input.invoiceId!, amount: input.amount },
+    ];
+
+    const invoices = await Promise.all(
+      allocationInputs.map((allocation) =>
+        this.getInvoiceOrThrow(organisationId, allocation.invoiceId),
+      ),
+    );
+
+    const customerId = invoices[0]!.customerId;
+    if (invoices.some((invoice) => invoice.customerId !== customerId)) {
+      throw new BadRequestException(
+        'Every invoice in a single payment must belong to the same customer',
+      );
     }
 
-    const outstanding = roundCurrency(invoice.total - invoice.amountPaid - invoice.amountCredited);
-    if (roundCurrency(input.amount) > outstanding) {
+    for (let i = 0; i < invoices.length; i += 1) {
+      const invoice = invoices[i]!;
+      const allocation = allocationInputs[i]!;
+      if (!PAYABLE_INVOICE_STATUSES.includes(invoice.status)) {
+        throw new BadRequestException(
+          `Invoice ${invoice.invoiceCode} is not eligible to receive a payment`,
+        );
+      }
+      const outstanding = roundCurrency(
+        invoice.total - invoice.amountPaid - invoice.amountCredited,
+      );
+      if (roundCurrency(allocation.amount) > outstanding) {
+        throw new BadRequestException(
+          `Cannot allocate ${allocation.amount} to invoice ${invoice.invoiceCode} — only ${outstanding} remains outstanding`,
+        );
+      }
+    }
+
+    const totalAllocated = roundCurrency(
+      allocationInputs.reduce((sum, allocation) => sum + allocation.amount, 0),
+    );
+    if (totalAllocated !== roundCurrency(input.amount)) {
       throw new BadRequestException(
-        `Cannot record a payment of ${input.amount} — only ${outstanding} remains outstanding`,
+        `Allocations (${totalAllocated}) must total the full payment amount (${input.amount})`,
       );
     }
 
     try {
       return await this.paymentRepository.create({
         organisationId,
-        customerId: invoice.customerId,
-        invoiceId: input.invoiceId,
+        customerId,
+        allocations: allocationInputs,
         amount: input.amount,
         method: input.method,
         paymentDate: input.paymentDate,
@@ -97,7 +138,7 @@ export class PaymentService {
     organisationId: string,
     id: string,
     actorUserId: string,
-  ): Promise<{ payment: PaymentWithRelations; invoiceId: string }> {
+  ): Promise<{ payment: PaymentWithRelations; invoiceIds: string[] }> {
     try {
       const result = await this.paymentRepository.void(organisationId, id, actorUserId);
       if (!result) {

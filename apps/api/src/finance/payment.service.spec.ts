@@ -65,13 +65,15 @@ describe('PaymentService', () => {
       invoiceRepository.findById.mockResolvedValue(issuedInvoice);
       const result: CreatePaymentResult = {
         payment,
-        invoice: {
-          id: 'invoice-1',
-          status: InvoiceStatus.PARTIALLY_PAID,
-          amountPaid: 1_000_000,
-          amountCredited: 0,
-          total: 2_500_000,
-        },
+        invoices: [
+          {
+            id: 'invoice-1',
+            status: InvoiceStatus.PARTIALLY_PAID,
+            amountPaid: 1_000_000,
+            amountCredited: 0,
+            total: 2_500_000,
+          },
+        ],
         wasCreated: true,
       };
       paymentRepository.create.mockResolvedValue(result);
@@ -91,11 +93,11 @@ describe('PaymentService', () => {
         expect.objectContaining({
           organisationId: 'org-1',
           customerId: 'customer-1',
-          invoiceId: 'invoice-1',
+          allocations: [{ invoiceId: 'invoice-1', amount: 1_000_000 }],
           amount: 1_000_000,
         }),
       );
-      expect(outcome.invoice.status).toBe(InvoiceStatus.PARTIALLY_PAID);
+      expect(outcome.invoices[0]!.status).toBe(InvoiceStatus.PARTIALLY_PAID);
     });
 
     it('records a final payment landing exactly on PAID', async () => {
@@ -103,13 +105,15 @@ describe('PaymentService', () => {
       invoiceRepository.findById.mockResolvedValue({ ...issuedInvoice, amountPaid: 1_000_000 });
       paymentRepository.create.mockResolvedValue({
         payment,
-        invoice: {
-          id: 'invoice-1',
-          status: InvoiceStatus.PAID,
-          amountPaid: 2_500_000,
-          amountCredited: 0,
-          total: 2_500_000,
-        },
+        invoices: [
+          {
+            id: 'invoice-1',
+            status: InvoiceStatus.PAID,
+            amountPaid: 2_500_000,
+            amountCredited: 0,
+            total: 2_500_000,
+          },
+        ],
         wasCreated: true,
       });
 
@@ -119,7 +123,109 @@ describe('PaymentService', () => {
         'user-1',
       );
 
-      expect(outcome.invoice.status).toBe(InvoiceStatus.PAID);
+      expect(outcome.invoices[0]!.status).toBe(InvoiceStatus.PAID);
+    });
+
+    it('allocates a single payment across multiple invoices for the same customer', async () => {
+      const { service, invoiceRepository, paymentRepository } = makeService();
+      const invoiceB = {
+        ...issuedInvoice,
+        id: 'invoice-2',
+        invoiceCode: 'INV-000002',
+        total: 500_000,
+      };
+      invoiceRepository.findById.mockImplementation((_org, id) =>
+        Promise.resolve(id === 'invoice-2' ? invoiceB : issuedInvoice),
+      );
+      paymentRepository.create.mockResolvedValue({
+        payment,
+        invoices: [
+          {
+            id: 'invoice-1',
+            status: InvoiceStatus.PARTIALLY_PAID,
+            amountPaid: 600_000,
+            amountCredited: 0,
+            total: 2_500_000,
+          },
+          {
+            id: 'invoice-2',
+            status: InvoiceStatus.PAID,
+            amountPaid: 400_000,
+            amountCredited: 0,
+            total: 500_000,
+          },
+        ],
+        wasCreated: true,
+      });
+
+      await service.create(
+        'org-1',
+        {
+          allocations: [
+            { invoiceId: 'invoice-1', amount: 600_000 },
+            { invoiceId: 'invoice-2', amount: 400_000 },
+          ],
+          amount: 1_000_000,
+          method: 'BANK_TRANSFER',
+          paymentDate: new Date(),
+        },
+        'user-1',
+      );
+
+      expect(paymentRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          customerId: 'customer-1',
+          allocations: [
+            { invoiceId: 'invoice-1', amount: 600_000 },
+            { invoiceId: 'invoice-2', amount: 400_000 },
+          ],
+        }),
+      );
+    });
+
+    it('rejects multi-invoice allocations that do not belong to the same customer', async () => {
+      const { service, invoiceRepository } = makeService();
+      invoiceRepository.findById.mockImplementation((_org, id) =>
+        Promise.resolve(
+          id === 'invoice-2'
+            ? { ...issuedInvoice, id: 'invoice-2', customerId: 'customer-2' }
+            : issuedInvoice,
+        ),
+      );
+
+      await expect(
+        service.create(
+          'org-1',
+          {
+            allocations: [
+              { invoiceId: 'invoice-1', amount: 600_000 },
+              { invoiceId: 'invoice-2', amount: 400_000 },
+            ],
+            amount: 1_000_000,
+            method: 'CASH',
+            paymentDate: new Date(),
+          },
+          'user-1',
+        ),
+      ).rejects.toThrow('Every invoice in a single payment must belong to the same customer');
+    });
+
+    it('rejects allocations that do not sum to the full payment amount', async () => {
+      const { service, invoiceRepository } = makeService();
+      invoiceRepository.findById.mockResolvedValue(issuedInvoice);
+
+      await expect(
+        service.create(
+          'org-1',
+          {
+            allocations: [{ invoiceId: 'invoice-1', amount: 600_000 }],
+            amount: 1_000_000,
+            method: 'CASH',
+            paymentDate: new Date(),
+          },
+          'user-1',
+        ),
+      ).rejects.toThrow('must total the full payment amount');
     });
 
     it('rejects an over-payment beyond the outstanding balance', async () => {
@@ -154,13 +260,15 @@ describe('PaymentService', () => {
       invoiceRepository.findById.mockResolvedValue({ ...issuedInvoice, amountPaid: 2_499_999.99 });
       paymentRepository.create.mockResolvedValue({
         payment,
-        invoice: {
-          id: 'invoice-1',
-          status: InvoiceStatus.PAID,
-          amountPaid: 2_500_000,
-          amountCredited: 0,
-          total: 2_500_000,
-        },
+        invoices: [
+          {
+            id: 'invoice-1',
+            status: InvoiceStatus.PAID,
+            amountPaid: 2_500_000,
+            amountCredited: 0,
+            total: 2_500_000,
+          },
+        ],
         wasCreated: true,
       });
 
@@ -185,7 +293,7 @@ describe('PaymentService', () => {
             { invoiceId: 'invoice-1', amount: 100, method: 'CASH', paymentDate: new Date() },
             'user-1',
           ),
-        ).rejects.toThrow('This invoice is not eligible to receive a payment');
+        ).rejects.toThrow('is not eligible to receive a payment');
       },
     );
 
@@ -235,13 +343,15 @@ describe('PaymentService', () => {
       invoiceRepository.findById.mockResolvedValue(issuedInvoice);
       paymentRepository.create.mockResolvedValue({
         payment,
-        invoice: {
-          id: 'invoice-1',
-          status: InvoiceStatus.PARTIALLY_PAID,
-          amountPaid: 1_000_000,
-          amountCredited: 0,
-          total: 2_500_000,
-        },
+        invoices: [
+          {
+            id: 'invoice-1',
+            status: InvoiceStatus.PARTIALLY_PAID,
+            amountPaid: 1_000_000,
+            amountCredited: 0,
+            total: 2_500_000,
+          },
+        ],
         wasCreated: false,
       });
 
@@ -266,7 +376,7 @@ describe('PaymentService', () => {
       const { service, paymentRepository } = makeService();
       paymentRepository.void.mockResolvedValue({
         payment: { ...payment, status: PaymentStatus.VOIDED },
-        invoiceId: 'invoice-1',
+        invoiceIds: ['invoice-1'],
       });
 
       const result = await service.void('org-1', 'payment-1', 'user-1');

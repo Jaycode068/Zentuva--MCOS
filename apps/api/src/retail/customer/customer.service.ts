@@ -1,6 +1,10 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Customer, CustomerStatus } from '@prisma/client';
-import { CreateCustomerInput, UpdateCustomerInput } from '@zentuva/validation';
+import {
+  CreateCustomerInput,
+  UpdateCustomerCreditInput,
+  UpdateCustomerInput,
+} from '@zentuva/validation';
 
 import { TerritoryRepository } from '../territory/territory.repository';
 import { CustomerRepository, ListCustomersParams } from './customer.repository';
@@ -99,6 +103,34 @@ export class CustomerService {
       throw new NotFoundException('Customer not found');
     }
     return updated;
+  }
+
+  /** `PATCH /:id/credit` (Phase 1 — Customer Account Management,
+   *  docs/customer-account-inventory-audit.md §5.1/§7.1). Warning-only this phase —
+   *  this method only ever stores the configured limit; nothing in Sales Order,
+   *  Invoice, or Payment creation reads it to block anything (see
+   *  `CustomerAccountReportService` for where the exposure/warning is actually
+   *  computed, at READ time, from this stored value plus the existing authoritative
+   *  AR balance). Returns the customer's PRIOR `creditLimit` alongside the updated
+   *  row so the controller can audit a field-level `{old, new}` diff — the same
+   *  pattern `D2CConversationConfigService` already established. */
+  async updateCreditLimit(
+    organisationId: string,
+    id: string,
+    input: UpdateCustomerCreditInput,
+    actorUserId: string,
+  ): Promise<{ customer: Customer; previousCreditLimit: number | null }> {
+    const existing = await this.getByIdOrThrow(organisationId, id);
+    const updated = await this.customerRepository.updateCreditLimit(
+      organisationId,
+      id,
+      input.creditLimit,
+      actorUserId,
+    );
+    if (!updated) {
+      throw new NotFoundException('Customer not found');
+    }
+    return { customer: updated, previousCreditLimit: existing.creditLimit };
   }
 
   async activate(organisationId: string, id: string, actorUserId: string): Promise<Customer> {

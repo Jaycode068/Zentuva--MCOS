@@ -13,8 +13,10 @@ import {
 import { Customer, CustomerStatus, CustomerType } from '@prisma/client';
 import {
   CreateCustomerInput,
+  UpdateCustomerCreditInput,
   UpdateCustomerInput,
   createCustomerSchema,
+  updateCustomerCreditSchema,
   updateCustomerSchema,
 } from '@zentuva/validation';
 import { Request } from 'express';
@@ -124,6 +126,42 @@ export class CustomerController {
     return toCustomerResponse(updated);
   }
 
+  /** Phase 1 — Customer Account Management (docs/customer-account-inventory-audit.md
+   *  §5.1/§7.1). Deliberately its own permission (`finance.customer_credit.manage`),
+   *  separate from `sales.customer.manage` — see the permission catalogue's own doc
+   *  comment for why. Warning-only: this endpoint only ever stores the configured
+   *  limit, never blocks anything. */
+  @Patch(':id/credit')
+  @RequirePermission('finance.customer_credit.manage')
+  async updateCredit(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(updateCustomerCreditSchema)) body: UpdateCustomerCreditInput,
+    @CurrentUser() user: TokenPayload,
+    @Req() req: Request,
+  ) {
+    const { customer, previousCreditLimit } = await this.customerService.updateCreditLimit(
+      user.organisationId,
+      id,
+      body,
+      user.sub,
+    );
+
+    await this.auditService.record({
+      action: CUSTOMER_AUDIT_ACTIONS.CREDIT_LIMIT_UPDATED,
+      entityType: 'Customer',
+      entityId: customer.id,
+      organisationId: user.organisationId,
+      actorUserId: user.sub,
+      metadata: {
+        creditLimit: { old: previousCreditLimit, new: customer.creditLimit },
+      },
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+    });
+
+    return toCustomerResponse(customer);
+  }
+
   @Post(':id/activate')
   @RequirePermission('sales.customer.manage')
   async activate(@Param('id') id: string, @CurrentUser() user: TokenPayload, @Req() req: Request) {
@@ -181,6 +219,8 @@ function toCustomerResponse(customer: Customer) {
     country: customer.country,
     territoryId: customer.territoryId,
     status: customer.status,
+    /** Added Phase 1 — Customer Account Management. `null` = no limit configured. */
+    creditLimit: customer.creditLimit,
     notes: customer.notes,
     createdAt: customer.createdAt,
     updatedAt: customer.updatedAt,

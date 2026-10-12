@@ -372,7 +372,15 @@ import { DecisionScenarioService } from './decision/decision-scenario.service';
    *  inject these already-authoritative read services directly (brief §4 "one
    *  authoritative definition per metric") instead of recomputing P&L/AR/AP/inventory
    *  valuation a second time. Purely additive — no existing provider's visibility is
-   *  narrowed, and `FinanceModule`'s own controllers/behaviour are unchanged. */
+   *  narrowed, and `FinanceModule`'s own controllers/behaviour are unchanged.
+   *
+   *  Widened again Phase 1 — Customer Account Management (docs/customer-account-
+   *  inventory-audit.md §5.2) — `InvoiceRepository`/`PaymentRepository`/
+   *  `CreditNoteRepository` are now also exported so the new `CustomerAccountReportService`/
+   *  `CustomerStatementReportService` (in `ReportingModule`) can read invoice/payment/
+   *  credit-note detail directly, reusing the exact same read-only repository methods
+   *  `InvoiceService`/`PaymentService`/`CreditNoteService` already call — never a second
+   *  invoice/payment/credit-note query engine. Same purely-additive rationale as above. */
   exports: [
     PaymentService,
     FinancialStatementService,
@@ -380,6 +388,9 @@ import { DecisionScenarioService } from './decision/decision-scenario.service';
     AccountsPayableService,
     InventoryValuationService,
     RevenueCogsService,
+    InvoiceRepository,
+    PaymentRepository,
+    CreditNoteRepository,
   ],
 })
 export class FinanceModule {}

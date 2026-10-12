@@ -194,6 +194,48 @@ export const REPORT_REGISTRY: ReportDefinition[] = [
     limitation:
       'Open-PO list capped at 25 rows (a dashboard summary, not a full procurement report) — use the existing Purchase Orders screen for the complete list. Payables figures are reused verbatim from Finance, never recomputed, so they never double-count a PO already reflected there.',
   },
+  // --- Phase 1 — Customer Account Management (docs/customer-account-inventory-
+  // audit.md §5.2/§5.4). Both require `customerId` — these compose data for ONE
+  // customer, never an org-wide listing, unlike every report above. Each finance/
+  // sales-order/credit-note/return SECTION within the response is additionally
+  // gated by its own existing permission at request time (`sales.customer.view`
+  // here is only the base "may you open this customer's account at all" gate). ---
+  {
+    id: 'customer-account',
+    displayName: 'Customer Account',
+    description:
+      "One customer's commercial profile, outstanding/overdue receivables, credit exposure, outstanding invoices, and payment history — composed entirely from existing Finance and Sales data, never a second balance-calculation engine.",
+    domain: 'FINANCE',
+    columns: [],
+    supportedFilters: ['period', 'customerId'],
+    sortableFields: [],
+    requiredPermission: 'sales.customer.view',
+    exportEligible: false,
+    availability: 'AVAILABLE',
+  },
+  {
+    id: 'customer-statement',
+    displayName: 'Customer Statement',
+    description:
+      'Opening balance, chronological invoices/payments/credit notes, running balance, and closing balance for one customer over a selected period. The closing balance always reconciles with the existing Accounts Receivable calculation for the same cutoff.',
+    domain: 'FINANCE',
+    columns: [
+      { key: 'date', label: 'Date', type: 'DATE' },
+      { key: 'type', label: 'Type', type: 'ENUM' },
+      { key: 'reference', label: 'Reference', type: 'STRING', drillDown: { kind: 'INVOICE' } },
+      { key: 'description', label: 'Description', type: 'STRING' },
+      { key: 'debit', label: 'Debit', type: 'CURRENCY' },
+      { key: 'credit', label: 'Credit', type: 'CURRENCY' },
+      { key: 'runningBalance', label: 'Running Balance', type: 'CURRENCY' },
+    ],
+    supportedFilters: ['period', 'customerId'],
+    sortableFields: [],
+    requiredPermission: 'sales.customer.view',
+    exportEligible: true,
+    availability: 'AVAILABLE',
+    limitation:
+      'A payment or credit note later voided is excluded from the balance entirely regardless of which side of the cutoff the void happened on — this schema has no event log to reconstruct its status AS OF a past date, so a statement generated today for a past period is not a true point-in-time snapshot (docs/customer-account-inventory-audit.md §5.4).',
+  },
 ];
 
 export function getReportDefinition(reportId: string): ReportDefinition | undefined {

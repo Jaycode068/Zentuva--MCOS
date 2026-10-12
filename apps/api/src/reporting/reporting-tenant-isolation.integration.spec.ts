@@ -73,6 +73,7 @@ describe('Reporting — tenant isolation across two real organisations (real Pos
     invoiceRepository,
     paymentRepository,
     customerRepository,
+    prisma as never,
   );
 
   const supplierRepository = new SupplierRepository(prisma as never);

@@ -1,7 +1,8 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useSearchParams } from 'next/navigation';
 import { Badge, Button, Input, Select } from '@zentuva/ui';
 
 import { FinanceTabs } from '@/components/app/finance-tabs';
@@ -14,10 +15,29 @@ import { INVOICE_STATUS_LABELS, INVOICE_STATUS_VARIANT } from '../labels';
 import { InvoiceDetailDialog } from './invoice-detail-dialog';
 import { InvoiceDialog } from './invoice-dialog';
 
+/** `useSearchParams()` requires a Suspense boundary for static generation (Next.js
+ *  app router) — this wrapper is the fix; `InvoicesPageContent` has the real page. */
 export default function InvoicesPage() {
+  return (
+    <Suspense fallback={null}>
+      <InvoicesPageContent />
+    </Suspense>
+  );
+}
+
+function InvoicesPageContent() {
   const queryClient = useQueryClient();
+  const searchParams = useSearchParams();
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(null);
+
+  // Phase 1 — Customer Account Management: supports deep-linking from the
+  // Customer Account page's Outstanding Invoices tab (`?open=<invoiceId>`),
+  // opening the same detail dialog a normal row click would.
+  useEffect(() => {
+    const openId = searchParams.get('open');
+    if (openId) setSelectedInvoiceId(openId);
+  }, [searchParams]);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'' | InvoiceStatus>('');
 

@@ -359,6 +359,187 @@ export function getExecutiveDashboard(period: PeriodParams): Promise<ExecutiveDa
   return apiFetch<ExecutiveDashboard>(`/reporting/dashboard/executive?${params}`);
 }
 
+// ---------------------------------------------------------------------
+// Phase 1 — Customer Account Management (docs/customer-account-inventory-audit.md
+// §5.2/§5.4). Every function below composes data for exactly ONE customer — never
+// an org-wide listing, unlike every report above.
+// ---------------------------------------------------------------------
+
+export type CreditExposureStatus =
+  'NO_LIMIT' | 'WITHIN_LIMIT' | 'APPROACHING_LIMIT' | 'AT_OR_OVER_LIMIT';
+
+export interface CustomerCreditExposure {
+  creditLimit: number | null;
+  totalOutstanding: number;
+  availableCredit: number | null;
+  status: CreditExposureStatus;
+  approachingThresholdRatio: number;
+  canManageCredit: boolean;
+}
+
+export interface CustomerAccountSummary {
+  totalInvoicedInPeriod: number;
+  totalPaymentsReceivedInPeriod: number;
+  currentOutstandingReceivable: number;
+  overdueReceivable: number;
+  outstandingInvoiceCount: number;
+  overdueInvoiceCount: number;
+  pendingSalesOrderCount: number | null;
+  unfulfilledSalesOrderValue: number | null;
+}
+
+export interface CustomerAccountOverview {
+  profile: {
+    id: string;
+    customerCode: string;
+    customerName: string;
+    customerType: string;
+    status: string;
+    contactPersonName: string | null;
+    phoneNumber: string;
+    alternatePhoneNumber: string | null;
+    email: string | null;
+    address: string | null;
+    city: string | null;
+    state: string | null;
+    country: string | null;
+    territoryId: string | null;
+    notes: string | null;
+    createdAt: string;
+    updatedAt: string;
+    outlets: { id: string; outletCode: string; name: string; outletType: string; status: string }[];
+  };
+  /** `null` when the caller lacks `finance.invoice.view` AND `finance.payment.view`. */
+  summary: CustomerAccountSummary | null;
+  /** `null` under the same condition as `summary`. */
+  credit: CustomerCreditExposure | null;
+}
+
+export function getCustomerAccountOverview(
+  customerId: string,
+  period: PeriodParams,
+): Promise<CustomerAccountOverview | null> {
+  const params = new URLSearchParams({ customerId, ...periodToQuery(period) });
+  return apiFetch<CustomerAccountOverview | null>(`/reporting/reports/customer-account?${params}`);
+}
+
+export interface CustomerTransactionRow {
+  type: 'SALES_ORDER' | 'INVOICE' | 'PAYMENT' | 'CREDIT_NOTE' | 'RETURN';
+  id: string;
+  reference: string;
+  date: string;
+  description: string;
+  status: string;
+  amount: number | null;
+}
+
+export function getCustomerTransactionHistory(
+  customerId: string,
+  filters: {
+    type?: string;
+    status?: string;
+    from?: string;
+    to?: string;
+    page: number;
+    pageSize: number;
+  },
+): Promise<ReportTableResult<CustomerTransactionRow>> {
+  const params = new URLSearchParams({
+    customerId,
+    page: String(filters.page),
+    pageSize: String(filters.pageSize),
+    ...(filters.type ? { type: filters.type } : {}),
+    ...(filters.status ? { status: filters.status } : {}),
+    ...(filters.from ? { from: filters.from } : {}),
+    ...(filters.to ? { to: filters.to } : {}),
+  });
+  return apiFetch<ReportTableResult<CustomerTransactionRow>>(
+    `/reporting/reports/customer-account/transactions?${params}`,
+  );
+}
+
+export interface CustomerOutstandingInvoiceRow {
+  id: string;
+  invoiceCode: string;
+  invoiceDate: string;
+  dueDate: string;
+  total: number;
+  amountPaid: number;
+  amountCredited: number;
+  amountOutstanding: number;
+  status: string;
+  isOverdue: boolean;
+}
+
+/** `null` when the caller lacks `finance.invoice.view` — distinct from `[]` (no
+ *  outstanding invoices), which the page must render differently. */
+export function getCustomerOutstandingInvoices(
+  customerId: string,
+): Promise<CustomerOutstandingInvoiceRow[] | null> {
+  return apiFetch<CustomerOutstandingInvoiceRow[] | null>(
+    `/reporting/reports/customer-account/invoices?customerId=${customerId}`,
+  );
+}
+
+export interface CustomerPaymentHistoryRow {
+  id: string;
+  paymentDate: string;
+  amount: number;
+  method: string;
+  reference: string | null;
+  status: string;
+  allocations: { invoiceId: string; amount: number }[];
+  allocatedAmount: number;
+  unallocatedAmount: number;
+  isFullyAllocated: boolean;
+}
+
+/** `null` when the caller lacks `finance.payment.view`. */
+export function getCustomerPaymentHistory(
+  customerId: string,
+): Promise<CustomerPaymentHistoryRow[] | null> {
+  return apiFetch<CustomerPaymentHistoryRow[] | null>(
+    `/reporting/reports/customer-account/payments?customerId=${customerId}`,
+  );
+}
+
+export interface CustomerStatementLine {
+  type: 'INVOICE' | 'PAYMENT' | 'CREDIT_NOTE';
+  id: string;
+  date: string;
+  reference: string;
+  description: string;
+  debit: number;
+  credit: number;
+  runningBalance: number;
+  dueDate?: string;
+}
+
+export interface CustomerStatement {
+  customerId: string;
+  customerCode: string;
+  customerName: string;
+  periodFrom: string;
+  periodTo: string;
+  openingBalance: number;
+  lines: CustomerStatementLine[];
+  closingBalance: number;
+  reconciliation: { lineBasedClosingBalance: number; authoritativeClosingBalance: number };
+}
+
+export function getCustomerStatement(
+  customerId: string,
+  period: PeriodParams,
+): Promise<CustomerStatement | null> {
+  const params = new URLSearchParams({ customerId, ...periodToQuery(period) });
+  return apiFetch<CustomerStatement | null>(`/reporting/reports/customer-statement?${params}`);
+}
+
+export function customerStatementExportPath(customerId: string, period: PeriodParams): string {
+  const params = new URLSearchParams({ customerId, ...periodToQuery(period) });
+  return `/reporting/reports/customer-statement/export?${params}`;
+}
+
 /** CSV export bypasses {@link apiFetch} (which always parses JSON) — fetches the raw
  *  text response directly and triggers a browser download via a throwaway object URL.
  *  Applies the exact same auth header/permission/tenant constraints as the interactive

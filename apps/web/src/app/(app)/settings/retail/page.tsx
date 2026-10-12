@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Badge, Button, Input, Select, cn } from '@zentuva/ui';
+import Link from 'next/link';
 
 import { TruckIcon, UsersIcon } from '@/components/workspace/icons';
 import { ApiError } from '@/lib/api-client';
@@ -268,6 +269,11 @@ function CustomersTab() {
                 </td>
                 <td className="px-4 py-3 text-right">
                   <div className="flex justify-end gap-2">
+                    <Link href={`/settings/retail/customers/${customer.id}`}>
+                      <Button variant="outline" size="sm">
+                        View Account
+                      </Button>
+                    </Link>
                     <Button
                       variant="outline"
                       size="sm"

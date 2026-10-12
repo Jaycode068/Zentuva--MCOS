@@ -31,6 +31,7 @@ describe('CustomerController', () => {
     country: null,
     territoryId: null,
     status: CustomerStatus.ACTIVE,
+    creditLimit: null,
     notes: null,
     createdById: 'user-1',
     updatedById: 'user-1',
@@ -44,6 +45,7 @@ describe('CustomerController', () => {
       getById: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
+      updateCreditLimit: jest.fn(),
       activate: jest.fn(),
       deactivate: jest.fn(),
     } as unknown as jest.Mocked<CustomerService>;
@@ -96,6 +98,32 @@ describe('CustomerController', () => {
       expect(auditService.record).toHaveBeenCalledWith(
         expect.objectContaining({ action: CUSTOMER_AUDIT_ACTIONS.UPDATED }),
       );
+    });
+  });
+
+  describe('updateCredit', () => {
+    it('updates the credit limit and audits an {old, new} diff', async () => {
+      const { controller, customerService, auditService } = makeController();
+      customerService.updateCreditLimit.mockResolvedValue({
+        customer: { ...customer, creditLimit: 500_000 },
+        previousCreditLimit: null,
+      });
+
+      const result = await controller.updateCredit(
+        'customer-1',
+        { creditLimit: 500_000 },
+        tokenUser,
+        req,
+      );
+
+      expect(auditService.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: CUSTOMER_AUDIT_ACTIONS.CREDIT_LIMIT_UPDATED,
+          entityId: 'customer-1',
+          metadata: { creditLimit: { old: null, new: 500_000 } },
+        }),
+      );
+      expect(result.creditLimit).toBe(500_000);
     });
   });
 

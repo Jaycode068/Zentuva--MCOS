@@ -113,6 +113,21 @@ export const PERMISSION_CATALOGUE: PermissionCatalogueEntry[] = [
   entry('finance.journal.void', 'NONE', 'Void a posted journal entry'),
   entry('finance.credit_note.view', 'SCOPABLE', 'View credit notes'),
   entry('finance.credit_note.manage', 'NONE', 'Create, issue, and void credit notes'),
+  // --- Finance: Customer Credit (Phase 1 — Customer Account Management,
+  // docs/customer-account-inventory-audit.md §5.1/§7.1/§10). Its OWN permission,
+  // deliberately not folded into `sales.customer.manage` — setting a customer's
+  // credit limit is a materially different risk than editing a phone number or
+  // address: it is a Finance-owned credit-exposure decision, not a routine Sales
+  // Administration edit, and a Sales Administrator holding `sales.customer.manage`
+  // should not automatically be able to authorize unlimited credit exposure. Reusing
+  // `finance.invoice.view`/`finance.reports.view` already covers VIEWING a
+  // customer's AR-derived exposure (no new view permission needed — the configured
+  // limit itself is just a `Customer` profile field, visible to anyone who can see
+  // the customer at all via `sales.customer.view`). Warning-only this phase — see
+  // `Customer.creditLimit`'s own schema doc comment; nothing in Sales Order/Invoice/
+  // Payment creation checks this permission or this field to block anything. Not
+  // granted to Member at seed time.
+  entry('finance.customer_credit.manage', 'NONE', "Set a customer's credit limit"),
   entry(
     'finance.supplier_invoice.manage',
     'NONE',

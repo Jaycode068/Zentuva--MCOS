@@ -1,5 +1,7 @@
 import { Injectable } from '@nestjs/common';
+import { InvoiceStatus, PaymentStatus, CreditNoteStatus } from '@prisma/client';
 
+import { PrismaService } from '../prisma/prisma.service';
 import { CustomerRepository } from '../retail/customer/customer.repository';
 import { InvoiceRepository } from './invoice.repository';
 import { PaymentRepository } from './payment.repository';
@@ -61,6 +63,7 @@ export class AccountsReceivableService {
     private readonly invoiceRepository: InvoiceRepository,
     private readonly paymentRepository: PaymentRepository,
     private readonly customerRepository: CustomerRepository,
+    private readonly prisma: PrismaService,
   ) {}
 
   /** One row per customer with at least one non-VOID invoice. */
@@ -134,6 +137,75 @@ export class AccountsReceivableService {
       totalOverdue,
       invoicedThisPeriod: roundCurrency(invoicedThisPeriod),
       paymentsReceivedThisPeriod: roundCurrency(paymentsReceivedThisPeriod),
+    };
+  }
+
+  /**
+   * A customer's receivable balance AS OF a given instant (Phase 1 — Customer Account
+   * Management, docs/customer-account-inventory-audit.md §5.4 "Customer Statement").
+   * Unlike `getCustomerBalance()` above (always "right now," using `Invoice`'s own
+   * running `amountPaid`/`amountCredited` aggregates), this re-derives the balance
+   * from the underlying dated transactions themselves — `Invoice.invoiceDate`,
+   * `Payment.paymentDate` (via its `PaymentAllocation` rows), `CreditNote
+   * .creditNoteDate` — so it can answer "what did this customer owe immediately
+   * before a given date," the statement's opening-balance requirement. Excludes
+   * `VOID` invoices, `VOIDED` payments, and non-`ISSUED` credit notes entirely, same
+   * "never happened" treatment `getCustomerBalance()` already gives them via the
+   * stored aggregates — this is NOT a true point-in-time snapshot (a payment voided
+   * AFTER `asOf` is excluded here too, since this schema has no event log to replay
+   * "what its status was back then") — see the Customer Statement's own
+   * documentation for this explicitly-accepted limitation.
+   */
+  async getCustomerBalanceAsOf(
+    organisationId: string,
+    customerId: string,
+    asOf: Date,
+  ): Promise<CustomerArRow> {
+    const customer = await this.customerRepository.findById(organisationId, customerId);
+    const invoices = await this.prisma.invoice.findMany({
+      where: {
+        organisationId,
+        customerId,
+        status: { not: InvoiceStatus.VOID },
+        invoiceDate: { lt: asOf },
+      },
+      select: { id: true, total: true },
+    });
+    const invoiceIds = invoices.map((invoice) => invoice.id);
+    const totalInvoiced = roundCurrency(invoices.reduce((sum, invoice) => sum + invoice.total, 0));
+
+    const [paidAgg, creditedAgg] =
+      invoiceIds.length === 0
+        ? [{ _sum: { amount: null } }, { _sum: { amount: null } }]
+        : await Promise.all([
+            this.prisma.paymentAllocation.aggregate({
+              where: {
+                invoiceId: { in: invoiceIds },
+                payment: { status: { not: PaymentStatus.VOIDED }, paymentDate: { lt: asOf } },
+              },
+              _sum: { amount: true },
+            }),
+            this.prisma.creditNote.aggregate({
+              where: {
+                invoiceId: { in: invoiceIds },
+                status: CreditNoteStatus.ISSUED,
+                creditNoteDate: { lt: asOf },
+              },
+              _sum: { amount: true },
+            }),
+          ]);
+
+    const totalPaid = roundCurrency(paidAgg._sum.amount ?? 0);
+    const totalCredited = roundCurrency(creditedAgg._sum.amount ?? 0);
+
+    return {
+      customerId,
+      customerCode: customer?.customerCode ?? '',
+      customerName: customer?.customerName ?? '',
+      totalInvoiced,
+      totalPaid,
+      totalCredited,
+      totalOutstanding: roundCurrency(totalInvoiced - totalPaid - totalCredited),
     };
   }
 

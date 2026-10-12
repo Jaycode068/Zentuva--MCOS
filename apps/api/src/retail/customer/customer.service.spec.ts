@@ -22,6 +22,7 @@ describe('CustomerService', () => {
     country: null,
     territoryId: null,
     status: CustomerStatus.ACTIVE,
+    creditLimit: null,
     notes: null,
     createdById: 'user-1',
     updatedById: 'user-1',
@@ -51,6 +52,7 @@ describe('CustomerService', () => {
       findManyByOrganisation: jest.fn(),
       existsByCode: jest.fn().mockResolvedValue(false),
       update: jest.fn(),
+      updateCreditLimit: jest.fn(),
     } as unknown as jest.Mocked<CustomerRepository>;
     const territoryRepository = {
       findById: jest.fn(),
@@ -166,6 +168,56 @@ describe('CustomerService', () => {
 
       const updateData = customerRepository.update.mock.calls[0]?.[2];
       expect(updateData).not.toHaveProperty('customerCode');
+    });
+  });
+
+  describe('updateCreditLimit', () => {
+    it('sets a configured limit and returns the prior value for the audit diff', async () => {
+      const { service, customerRepository } = makeService();
+      customerRepository.findById.mockResolvedValue(customer); // creditLimit: null
+      customerRepository.updateCreditLimit.mockResolvedValue({ ...customer, creditLimit: 500_000 });
+
+      const result = await service.updateCreditLimit(
+        'org-1',
+        'customer-1',
+        { creditLimit: 500_000 },
+        'user-1',
+      );
+
+      expect(customerRepository.updateCreditLimit).toHaveBeenCalledWith(
+        'org-1',
+        'customer-1',
+        500_000,
+        'user-1',
+      );
+      expect(result.previousCreditLimit).toBeNull();
+      expect(result.customer.creditLimit).toBe(500_000);
+    });
+
+    it('clears a previously-configured limit back to null', async () => {
+      const { service, customerRepository } = makeService();
+      customerRepository.findById.mockResolvedValue({ ...customer, creditLimit: 500_000 });
+      customerRepository.updateCreditLimit.mockResolvedValue({ ...customer, creditLimit: null });
+
+      const result = await service.updateCreditLimit(
+        'org-1',
+        'customer-1',
+        { creditLimit: null },
+        'user-1',
+      );
+
+      expect(result.previousCreditLimit).toBe(500_000);
+      expect(result.customer.creditLimit).toBeNull();
+    });
+
+    it('throws NotFoundException for a customer belonging to another organisation', async () => {
+      const { service, customerRepository } = makeService();
+      customerRepository.findById.mockResolvedValue(null);
+
+      await expect(
+        service.updateCreditLimit('org-1', 'missing', { creditLimit: 100 }, 'user-1'),
+      ).rejects.toThrow(NotFoundException);
+      expect(customerRepository.updateCreditLimit).not.toHaveBeenCalled();
     });
   });
 
