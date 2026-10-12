@@ -3125,3 +3125,48 @@ disappeared from the real menu and was rejected on direct invocation; a customiz
 message and its reset-to-default both took effect on real, Meta-delivered replies; and
 cancelling from inside the ordering flow confirmed no `SalesOrder` was created. Full
 evidence in `docs/sprint-44-completion-report.md` §15.
+
+## 133. Collection Point Dedicated-Location Requirement & Pre-Consumption Cancellation (Phase 2C)
+
+Full detail in
+[`docs/sprint-customer-location-inventory-phase-2c-completion-report.md`](../sprint-customer-location-inventory-phase-2c-completion-report.md)
+and [Inventory](inventory.md) §15.3/§15.4. Summary from this domain's own
+perspective:
+
+- **`CollectionPointFulfillmentService.isEligible()`/`.findEligibleOutlet()`/
+  `.listEligibleOutletsForReassignment()`** now require the target Outlet to
+  have its OWN dedicated, `ACTIVE` `CUSTOMER_LOCATION` (the Phase 2A/2B
+  `InventoryLocation.outletId` bridge) — not merely a non-null
+  `outlet.inventoryLocationId` (the §78/Sprint 37 bridge, which may point at
+  the shared Main Warehouse this very domain's own audit flagged). No NEW
+  order can be assigned to a Collection Point sharing the Main Warehouse
+  location going forward.
+- **Already-in-progress orders are not stranded.**
+  `resolveFulfilmentLocation()` falls back to the legacy
+  `outlet.inventoryLocationId` only for a `CollectionPointFulfillment` that was
+  assigned BEFORE its outlet had a dedicated location — provably never a new
+  one, since the assignment gate above closes that path. Every time the
+  fallback is used, it is recorded in the `READY_FOR_COLLECTION`/`COLLECTED`
+  audit metadata (`usedLegacySharedLocation: true`).
+  `confirmCollection()`/`SalesFulfilmentService.fulfil()`'s own exactly-once
+  stock-deduction guarantee (§121 above) is completely unmodified — this phase
+  only changes WHICH location id gets passed in, never the deduction mechanism
+  itself.
+- **Neither real seeded Collection Point was cut over** — see
+  [Inventory](inventory.md) §15.6 for the per-outlet status table. Terminology
+  unchanged throughout: "Collection Point," "Ready for Collection," "Collect
+  Order" — never "Pickup."
+- **New: `cancel()`** (`POST /d2c/collection-point-fulfillments/:id/cancel`,
+  same `.fulfil` permission as every other mutation here) — cancels a paid
+  order from `ASSIGNED`/`PREPARING`/`READY_FOR_COLLECTION` (before
+  `confirmCollection()` has ever run, so there is no stock to reverse). No
+  refund is issued (this codebase has no refund mechanism at all — verified,
+  not assumed) and no consumer WhatsApp notification is sent yet (would
+  require widening `ConsumerNotificationKind`, deliberately deferred — see
+  Inventory §15.4). Cancelling an already-`COLLECTED` order is explicitly NOT
+  supported — it would need a compensating inventory/accounting event the D2C
+  accounting decision gate below leaves unresolved.
+- **D2C accounting remains an open production blocker.** See
+  [Finance](finance.md) §22 for the full decision note — a D2C order's entire
+  payment lifecycle posts no GL entry at all; this phase does not change that,
+  per its own explicit instruction not to invent accounting policy.

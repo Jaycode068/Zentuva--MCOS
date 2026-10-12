@@ -1060,33 +1060,35 @@ model InventoryLocation {
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
 
-  organisation     Organisation           @relation(fields: [organisationId], references: [id], onDelete: Cascade)
-  goodsReceipts    GoodsReceipt[]
-  stock            InventoryStock[]
-  transactions     InventoryTransaction[]
+  organisation              Organisation           @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  goodsReceipts             GoodsReceipt[]
+  stock                     InventoryStock[]
+  transactions              InventoryTransaction[]
   /// Added Sprint 4.6 — Production & Bill of Materials (docs/domains/production.md).
-  productionOrders ProductionOrder[]
+  productionOrders          ProductionOrder[]
   /// Added Sprint 4.9 — Sales Fulfilment (docs/domains/sales.md "Fulfilment").
-  salesFulfilments SalesFulfilment[]
+  salesFulfilments          SalesFulfilment[]
   /// Added Sprint 5 — Distribution & Delivery (docs/domains/distribution.md). The only
   /// relation this sprint adds to `InventoryLocation` — `InventoryStock`/
   /// `InventoryTransaction` gain nothing, since Dispatch/Delivery never touch them.
-  dispatches       Dispatch[]
+  dispatches                Dispatch[]
   /// Added Sprint 11 — Returns, Claims & Reversals (docs/domains/sales.md,
   /// docs/domains/procurement.md).
-  customerReturns  CustomerReturn[]
-  supplierReturns  SupplierReturn[]
+  customerReturns           CustomerReturn[]
+  supplierReturns           SupplierReturn[]
   /// Added Sprint 37 — Collection Point Fulfillment (docs/domains/d2c.md). The audited
   /// bridge FROM `Outlet` (several Collection Points may share one location, so this is
   /// deliberately a one-to-many, not one-to-one) — see `outletId` above for the
   /// opposite-direction, Phase 2A bridge TO `Outlet`. Explicitly named to disambiguate
   /// from that second relation between these same two models.
-  outlets          Outlet[]               @relation("CollectionPointSourceLocation")
+  outlets                   Outlet[]               @relation("CollectionPointSourceLocation")
   /// Added Phase 2A — the reverse side of `outletId` above.
-  outlet           Outlet?                @relation("InventoryLocationOutlet", fields: [outletId], references: [id], onDelete: SetNull)
+  outlet                    Outlet?                @relation("InventoryLocationOutlet", fields: [outletId], references: [id], onDelete: SetNull)
   /// Added Phase 2B — every transfer where this location was the source or destination.
-  transfersFrom    InventoryTransfer[]    @relation("TransferSourceLocation")
-  transfersTo      InventoryTransfer[]    @relation("TransferDestinationLocation")
+  transfersFrom             InventoryTransfer[]    @relation("TransferSourceLocation")
+  transfersTo               InventoryTransfer[]    @relation("TransferDestinationLocation")
+  /// Added Phase 2C — the reverse side of `SalesFulfilment.destinationLocationId`.
+  salesFulfilmentDeliveries SalesFulfilment[]      @relation("SalesFulfilmentDestination")
 
   @@index([organisationId])
   @@index([organisationId, status])
@@ -1455,6 +1457,18 @@ enum InventoryTransactionType {
   /// (source/destination, SKU, quantity, ownership/arrangement preservation, audit,
   /// idempotency, reversal) a future Phase 2B implementation must satisfy.
   TRANSFER
+  /// Added Phase 2C — Customer Outlet Inventory Integration, Collection Point
+  /// Cutover & D2C Accounting (docs/customer-location-inventory-architecture-audit.md,
+  /// docs/sprint-customer-location-inventory-phase-2c-completion-report.md). Stock
+  /// recognised as delivered into a CUSTOMER-owned balance at an outlet, as a
+  /// BY-PRODUCT of an existing `SalesFulfilment` (`referenceType: 'SalesFulfilment'`,
+  /// `referenceId` = the SAME fulfilment id the paired `ISSUE` row at the warehouse
+  /// already uses) — deliberately NOT `TRANSFER`: no `InventoryTransfer` row exists
+  /// for this event, and there is no separate source-side decrement to pair with (the
+  /// existing `ISSUE` row already IS the source side, written by the SAME
+  /// fulfilment). `DELIVERY` is the destination-only half of one atomic business
+  /// event, not a movement between two tracked legs.
+  DELIVERY
 }
 
 /// Controlled reasons for an `ADJUSTMENT` transaction (Sprint 4.5 brief §5) — a simple
@@ -2465,19 +2479,31 @@ model SalesOrderItem {
 /// shipments), same as Production's material issues (Sprint 4.9, docs/domains/sales.md
 /// "Fulfilment"). THE only place a Sales Order's inventory is ever deducted.
 model SalesFulfilment {
-  id             String   @id @default(cuid())
-  organisationId String
-  salesOrderId   String
+  id                    String   @id @default(cuid())
+  organisationId        String
+  salesOrderId          String
   /// The `InventoryLocation` every item in this batch was deducted from — one location
   /// per fulfilment event, same "one location per batch" shape as
   /// `ProductionMaterialIssue`/`GoodsReceipt`. Multi-location fulfilment of a single order
   /// is out of scope this sprint (docs/backlog.md).
-  locationId     String
-  fulfilmentDate DateTime
+  locationId            String
+  /// Added Phase 2C (docs/customer-location-inventory-architecture-audit.md,
+  /// docs/sprint-customer-location-inventory-phase-2c-completion-report.md). The
+  /// customer outlet's dedicated `CUSTOMER_LOCATION` this fulfilment ALSO delivered
+  /// stock into, as the approved ownership-transition event (recognise outlet stock
+  /// at the SAME Sales Fulfilment that removes warehouse stock — never at Dispatch/
+  /// Delivery). `null` whenever no reliable destination exists: a D2C order, a B2B
+  /// order with no `outletId`, or an outlet with no dedicated location yet — this
+  /// phase never fabricates a destination; `null` here means exactly "today's
+  /// pre-Phase-2C behaviour, unchanged" for that fulfilment. One location per batch,
+  /// same shape as `locationId` above — `SalesOrder.outletId` is one value for the
+  /// whole order, so every item in one fulfilment batch shares the same destination.
+  destinationLocationId String?
+  fulfilmentDate        DateTime
   /// Plain id, no FK relation — same convention as `ProductionMaterialIssue.issuedById`.
   /// Always the authenticated caller.
-  fulfilledById  String?
-  notes          String?
+  fulfilledById         String?
+  notes                 String?
   /// Client-supplied, optional. When present, a retried request (double-tap, flaky
   /// mobile network) with the SAME key against the SAME order returns the original
   /// `SalesFulfilment` instead of creating a duplicate. A practical, database-backed
@@ -2485,25 +2511,30 @@ model SalesFulfilment {
   /// `ProductionRun.productionOrderId`'s `@@unique` being the only other hard
   /// duplicate-protection constraint in this codebase. Postgres treats every `NULL` as
   /// distinct, so a caller that never sends a key is never blocked.
-  idempotencyKey String?
-  createdAt      DateTime @default(now())
+  idempotencyKey        String?
+  createdAt             DateTime @default(now())
 
-  organisation Organisation          @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  organisation        Organisation          @relation(fields: [organisationId], references: [id], onDelete: Cascade)
   /// `Restrict`, not `Cascade` — a fulfilment is history and must survive even if a
   /// future feature ever allowed deleting a Sales Order (it doesn't today), same
   /// rationale as `ProductionMaterialIssue.productionOrder`.
-  salesOrder   SalesOrder            @relation(fields: [salesOrderId], references: [id], onDelete: Restrict)
+  salesOrder          SalesOrder            @relation(fields: [salesOrderId], references: [id], onDelete: Restrict)
   /// `Restrict` — same rationale as every other `InventoryLocation` FK: a location that
   /// has been used in a real stock movement can never be silently deleted out from under
   /// history.
-  location     InventoryLocation     @relation(fields: [locationId], references: [id], onDelete: Restrict)
-  items        SalesFulfilmentItem[]
+  location            InventoryLocation     @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  /// Added Phase 2C — the reverse side of `destinationLocationId` above. Explicitly
+  /// named to disambiguate from `location` (the source warehouse) — these are two
+  /// independent relations between `SalesFulfilment` and `InventoryLocation`.
+  destinationLocation InventoryLocation?    @relation("SalesFulfilmentDestination", fields: [destinationLocationId], references: [id], onDelete: Restrict)
+  items               SalesFulfilmentItem[]
   /// Added Sprint 5 — Distribution & Delivery (docs/domains/distribution.md).
-  dispatches   Dispatch[]
+  dispatches          Dispatch[]
 
   @@unique([salesOrderId, idempotencyKey])
   @@index([organisationId])
   @@index([organisationId, salesOrderId])
+  @@index([destinationLocationId])
   @@map("sales_fulfilments")
 }
 
@@ -2584,6 +2615,14 @@ enum CollectionPointFulfillmentStatus {
   PREPARING
   READY_FOR_COLLECTION
   COLLECTED
+  /// Added Phase 2C — a paid order cancelled BEFORE inventory was consumed (i.e. from
+  /// `ASSIGNED`/`PREPARING`/`READY_FOR_COLLECTION` — `confirmCollection()` is the only
+  /// point stock is ever deducted, so no state before it has anything to reverse).
+  /// Reaching `CANCELLED` from `COLLECTED` is deliberately NOT implemented this phase
+  /// — a post-consumption reversal needs a compensating inventory/accounting event
+  /// this phase's own D2C accounting decision gate explicitly leaves unresolved; see
+  /// the Phase 2C completion report's "Known Limitations."
+  CANCELLED
 }
 
 /// THE record of "which Collection Point is fulfilling this paid D2C order, and how far
@@ -2597,30 +2636,35 @@ enum CollectionPointFulfillmentStatus {
 /// Collection Point X and being prepared" — that is genuinely new information, not a
 /// relabelling of an existing status.
 model CollectionPointFulfillment {
-  id             String                           @id @default(cuid())
-  organisationId String
+  id                 String                           @id @default(cuid())
+  organisationId     String
   /// One Collection Point fulfillment per order — a D2C order is assigned once, never
   /// re-parented to a different Collection Point this sprint (brief §4: "reassignment, if
   /// supported" was left optional; not built — see docs/domains/d2c.md "Known
   /// Limitations").
-  salesOrderId   String                           @unique
+  salesOrderId       String                           @unique
   /// The assigned Collection Point. `Restrict` — this row is a fulfillment history record
   /// and must never be silently re-pointed or orphaned if the outlet were ever deactivated
   /// (deactivating an Outlet already leaves existing rows referencing it untouched
   /// elsewhere in this codebase — same convention here).
-  outletId       String
-  status         CollectionPointFulfillmentStatus @default(ASSIGNED)
-  assignedAt     DateTime                         @default(now())
-  preparingAt    DateTime?
-  readyAt        DateTime?
-  collectedAt    DateTime?
+  outletId           String
+  status             CollectionPointFulfillmentStatus @default(ASSIGNED)
+  assignedAt         DateTime                         @default(now())
+  preparingAt        DateTime?
+  readyAt            DateTime?
+  collectedAt        DateTime?
   /// Plain id, no FK relation — the same `SalesOrder.salesAgentId`/`Outlet
   /// .collectionPointResponsibleUserId` convention. The authenticated Collection Point
   /// user who confirmed collection (brief "COLLECTION CONFIRMATION" — an authorized
   /// action is the proof, never a consumer-facing OTP/QR/signature).
-  collectedById  String?
-  createdAt      DateTime                         @default(now())
-  updatedAt      DateTime                         @updatedAt
+  collectedById      String?
+  /// Added Phase 2C — set only when `status` is `CANCELLED` (pre-consumption only,
+  /// see the enum's own doc comment).
+  cancelledAt        DateTime?
+  cancelledById      String?
+  cancellationReason String?
+  createdAt          DateTime                         @default(now())
+  updatedAt          DateTime                         @updatedAt
 
   organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
   salesOrder   SalesOrder   @relation(fields: [salesOrderId], references: [id], onDelete: Restrict)

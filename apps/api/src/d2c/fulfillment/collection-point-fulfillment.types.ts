@@ -6,7 +6,13 @@
  */
 
 export type CollectionPointFulfillmentStatusValue =
-  'ASSIGNED' | 'PREPARING' | 'READY_FOR_COLLECTION' | 'COLLECTED';
+  | 'ASSIGNED'
+  | 'PREPARING'
+  | 'READY_FOR_COLLECTION'
+  | 'COLLECTED'
+  /** Added Phase 2C — see the Prisma enum's own doc comment: reachable only from
+   *  `ASSIGNED`/`PREPARING`/`READY_FOR_COLLECTION` (before inventory is consumed). */
+  | 'CANCELLED';
 
 export interface CollectionPointFulfillmentResult {
   id: string;
@@ -24,6 +30,9 @@ export interface CollectionPointFulfillmentResult {
   preparingAt: Date | null;
   readyAt: Date | null;
   collectedAt: Date | null;
+  /** Added Phase 2C — `null` unless `status` is `CANCELLED`. */
+  cancelledAt: Date | null;
+  cancellationReason: string | null;
   salesOrderStatus: string;
   /** Added Sprint 38 — derived from the most recent `Payment.status`/`.paymentDate` for
    *  this `SalesOrder` (`SalesOrder.payments`, Sprint 35). `null` only in the

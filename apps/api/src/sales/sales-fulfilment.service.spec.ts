@@ -9,6 +9,7 @@ import {
 import {
   FulfilSalesOrderResult,
   InsufficientStockError,
+  OutletOwnershipTransitionError,
   SalesFulfilmentConflictError,
   SalesFulfilmentRepository,
   SalesFulfilmentWithItems,
@@ -73,6 +74,10 @@ describe('SalesFulfilmentService', () => {
     } as unknown as jest.Mocked<InventoryStockRepository>;
     const inventoryLocationRepository = {
       getOrCreateDefault: jest.fn().mockResolvedValue({ id: 'location-1' }),
+      // Phase 2C — no dedicated outlet location by default, matching every
+      // pre-Phase-2C test's existing expectation: `resolveOutletStockDestination`
+      // resolves to `undefined`, exactly preserving pre-Phase-2C behaviour.
+      findByOutletId: jest.fn().mockResolvedValue(null),
     } as unknown as jest.Mocked<InventoryLocationRepository>;
 
     const service = new SalesFulfilmentService(
@@ -389,6 +394,186 @@ describe('SalesFulfilmentService', () => {
         }),
       );
       expect(result.order.status).toBe(SalesOrderStatus.PARTIALLY_FULFILLED);
+    });
+
+    describe('Phase 2C — outlet-stock destination resolution', () => {
+      async function fulfilWith(
+        service: ReturnType<typeof makeService>['service'],
+        salesFulfilmentRepository: ReturnType<typeof makeService>['salesFulfilmentRepository'],
+      ) {
+        const fulfilmentResult: FulfilSalesOrderResult = {
+          fulfilment: { id: 'fulfilment-1', items: [] } as unknown as SalesFulfilmentWithItems,
+          order: { ...confirmedOrder, status: SalesOrderStatus.FULFILLED },
+          journalEntry: null,
+          wasCreated: true,
+        };
+        salesFulfilmentRepository.create.mockResolvedValue(fulfilmentResult);
+        return service.fulfil(
+          'org-1',
+          'order-1',
+          {
+            locationId: 'warehouse-1',
+            fulfilmentDate: new Date('2026-08-22'),
+            items: [{ salesOrderItemId: 'item-1', quantity: 100 }],
+          },
+          'user-1',
+        );
+      }
+
+      it("resolves the destination from the order's own outletId when a dedicated, active CUSTOMER_LOCATION exists", async () => {
+        const {
+          service,
+          salesOrderRepository,
+          inventoryStockRepository,
+          salesFulfilmentRepository,
+          inventoryLocationRepository,
+        } = makeService();
+        salesOrderRepository.findById.mockResolvedValue(confirmedOrder);
+        inventoryStockRepository.findManyByProductsAndLocation.mockResolvedValue([
+          { productId: 'product-1', quantityOnHand: 100 } as unknown as InventoryStockWithProduct,
+        ]);
+        inventoryLocationRepository.findByOutletId.mockResolvedValue({
+          id: 'outlet-loc-1',
+          status: 'ACTIVE',
+          locationType: 'CUSTOMER_LOCATION',
+        } as never);
+
+        await fulfilWith(service, salesFulfilmentRepository);
+
+        expect(inventoryLocationRepository.findByOutletId).toHaveBeenCalledWith(
+          'org-1',
+          'outlet-1',
+        );
+        expect(salesFulfilmentRepository.create).toHaveBeenCalledWith(
+          expect.objectContaining({ destinationLocationId: 'outlet-loc-1' }),
+        );
+      });
+
+      it('resolves to no destination when the outlet has no dedicated location yet', async () => {
+        const {
+          service,
+          salesOrderRepository,
+          inventoryStockRepository,
+          salesFulfilmentRepository,
+          inventoryLocationRepository,
+        } = makeService();
+        salesOrderRepository.findById.mockResolvedValue(confirmedOrder);
+        inventoryStockRepository.findManyByProductsAndLocation.mockResolvedValue([
+          { productId: 'product-1', quantityOnHand: 100 } as unknown as InventoryStockWithProduct,
+        ]);
+        inventoryLocationRepository.findByOutletId.mockResolvedValue(null);
+
+        await fulfilWith(service, salesFulfilmentRepository);
+
+        expect(salesFulfilmentRepository.create).toHaveBeenCalledWith(
+          expect.objectContaining({ destinationLocationId: undefined }),
+        );
+      });
+
+      it('resolves to no destination when the dedicated location exists but is INACTIVE', async () => {
+        const {
+          service,
+          salesOrderRepository,
+          inventoryStockRepository,
+          salesFulfilmentRepository,
+          inventoryLocationRepository,
+        } = makeService();
+        salesOrderRepository.findById.mockResolvedValue(confirmedOrder);
+        inventoryStockRepository.findManyByProductsAndLocation.mockResolvedValue([
+          { productId: 'product-1', quantityOnHand: 100 } as unknown as InventoryStockWithProduct,
+        ]);
+        inventoryLocationRepository.findByOutletId.mockResolvedValue({
+          id: 'outlet-loc-1',
+          status: 'INACTIVE',
+          locationType: 'CUSTOMER_LOCATION',
+        } as never);
+
+        await fulfilWith(service, salesFulfilmentRepository);
+
+        expect(salesFulfilmentRepository.create).toHaveBeenCalledWith(
+          expect.objectContaining({ destinationLocationId: undefined }),
+        );
+      });
+
+      it('resolves to no destination for an order with no outletId at all', async () => {
+        const {
+          service,
+          salesOrderRepository,
+          inventoryStockRepository,
+          salesFulfilmentRepository,
+          inventoryLocationRepository,
+        } = makeService();
+        salesOrderRepository.findById.mockResolvedValue({ ...confirmedOrder, outletId: null });
+        inventoryStockRepository.findManyByProductsAndLocation.mockResolvedValue([
+          { productId: 'product-1', quantityOnHand: 100 } as unknown as InventoryStockWithProduct,
+        ]);
+
+        await fulfilWith(service, salesFulfilmentRepository);
+
+        expect(inventoryLocationRepository.findByOutletId).not.toHaveBeenCalled();
+        expect(salesFulfilmentRepository.create).toHaveBeenCalledWith(
+          expect.objectContaining({ destinationLocationId: undefined }),
+        );
+      });
+
+      it('resolves to no destination for a D2C order, even if it somehow has an outletId', async () => {
+        const {
+          service,
+          salesOrderRepository,
+          inventoryStockRepository,
+          salesFulfilmentRepository,
+          inventoryLocationRepository,
+        } = makeService();
+        salesOrderRepository.findById.mockResolvedValue({
+          ...confirmedOrder,
+          source: SalesOrderSource.D2C,
+        });
+        inventoryStockRepository.findManyByProductsAndLocation.mockResolvedValue([
+          { productId: 'product-1', quantityOnHand: 100 } as unknown as InventoryStockWithProduct,
+        ]);
+
+        await fulfilWith(service, salesFulfilmentRepository);
+
+        expect(inventoryLocationRepository.findByOutletId).not.toHaveBeenCalled();
+        expect(salesFulfilmentRepository.create).toHaveBeenCalledWith(
+          expect.objectContaining({ destinationLocationId: undefined }),
+        );
+      });
+
+      it('translates a repository OutletOwnershipTransitionError into a BadRequestException', async () => {
+        const {
+          service,
+          salesOrderRepository,
+          inventoryStockRepository,
+          salesFulfilmentRepository,
+          inventoryLocationRepository,
+        } = makeService();
+        salesOrderRepository.findById.mockResolvedValue(confirmedOrder);
+        inventoryStockRepository.findManyByProductsAndLocation.mockResolvedValue([
+          { productId: 'product-1', quantityOnHand: 100 } as unknown as InventoryStockWithProduct,
+        ]);
+        inventoryLocationRepository.findByOutletId.mockResolvedValue({
+          id: 'outlet-loc-1',
+          status: 'ACTIVE',
+          locationType: 'CUSTOMER_LOCATION',
+        } as never);
+        salesFulfilmentRepository.create.mockRejectedValue(
+          new OutletOwnershipTransitionError('Ownership mismatch at destination'),
+        );
+
+        await expect(
+          service.fulfil(
+            'org-1',
+            'order-1',
+            {
+              locationId: 'warehouse-1',
+              fulfilmentDate: new Date('2026-08-22'),
+              items: [{ salesOrderItemId: 'item-1', quantity: 100 }],
+            },
+            'user-1',
+          ),
+        ).rejects.toThrow(BadRequestException);
+      });
     });
 
     it('translates a repository InsufficientStockError into a BadRequestException', async () => {

@@ -1128,3 +1128,33 @@ inspection: no Sales Order, Invoice, or Payment creation code path reads
 only display a warning on the Customer Account page itself (see
 [Customers](customers.md) §9.2 for the permission and audit trail governing changes
 to the limit).
+
+## 22. D2C Accounting — Open Production Blocker (Phase 2C)
+
+**Status: analysed, not resolved.** Full detail, verified call-chain tracing,
+viable alternatives, and a recommendation are in the Phase 2C completion
+report's own "D2C Accounting Decision Note"
+(`docs/sprint-customer-location-inventory-phase-2c-completion-report.md`).
+
+Confirmed by direct inspection of the current code (not assumed from an older
+audit): a D2C consumer order's entire payment lifecycle —
+`PaymentRepository.createPendingForConsumer()` creating the `Payment` row,
+through `D2CPaymentService.handleProviderCallback()`'s provider-verified
+success path — posts **zero** `JournalEntry` rows. No cash/bank debit, no
+Accounts Receivable, no Sales Revenue credit, ever. `InvoiceService`
+explicitly refuses to create an `Invoice` for a D2C order
+(`consumerId` is set, `customerId` is `null`), so the existing B2B
+Invoice-then-Payment revenue path (§6/§7 above) structurally cannot apply to a
+D2C sale either. The only GL effect any D2C order ever produces, at any point
+in its lifecycle, is the existing `DR Cost of Goods Sold / CR Finished Goods
+Inventory` posting at Collection Point fulfilment (docs/domains/inventory.md
+§11c) — unchanged by Phase 2C.
+
+This means real cash received from consumers via the payment gateway currently
+has **no footprint in the general ledger at all**. Per the Phase 2C brief's own
+Mandatory Stop Gate ("D2C revenue recognition... requires an unapproved
+accounting policy"), no new posting was added this phase — doing so would mean
+silently choosing between materially different revenue-recognition and
+Collection-Point-commercial-treatment policies with real tax/reporting
+consequences. This remains an **open production blocker**: documenting it is
+not the same as resolving it.

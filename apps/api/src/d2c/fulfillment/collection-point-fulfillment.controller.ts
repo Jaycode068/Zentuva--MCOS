@@ -12,8 +12,10 @@ import {
 import { CollectionPointFulfillmentStatus } from '@prisma/client';
 import {
   AssignCollectionPointInput,
+  CancelCollectionPointFulfillmentInput,
   ReassignCollectionPointInput,
   assignCollectionPointSchema,
+  cancelCollectionPointFulfillmentSchema,
   paginationSchema,
   reassignCollectionPointSchema,
 } from '@zentuva/validation';
@@ -217,6 +219,25 @@ export class CollectionPointFulfillmentController {
   async confirmCollection(@Param('id') id: string, @CurrentUser() user: TokenPayload) {
     try {
       return await this.service.confirmCollection(user.organisationId, id, user.sub);
+    } catch (error) {
+      throw toHttpException(error);
+    }
+  }
+
+  /** Added Phase 2C — cancels a paid order BEFORE inventory is consumed (see
+   *  `CollectionPointFulfillmentService.cancel`'s own doc comment for exactly which
+   *  states this supports, and why `COLLECTED` is deliberately excluded). Gated by the
+   *  SAME `.fulfil` permission as every other mutation here — no new permission. */
+  @Post(':id/cancel')
+  @RequirePermission('d2c.collection_point.fulfil')
+  async cancel(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(cancelCollectionPointFulfillmentSchema))
+    body: CancelCollectionPointFulfillmentInput,
+    @CurrentUser() user: TokenPayload,
+  ) {
+    try {
+      return await this.service.cancel(user.organisationId, id, user.sub, body.reason);
     } catch (error) {
       throw toHttpException(error);
     }

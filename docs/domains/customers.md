@@ -231,6 +231,23 @@ other's data. Collection Point outlets are unaffected: Phase 2B does not create,
 assign, or move any Collection Point to a dedicated location (that cutover remains
 Phase 2C, per Inventory §14.6/§14.7).
 
+### 9.5 B2B fulfilment ownership transition (Phase 2C)
+
+When a B2B `SalesOrder` with a non-null `outletId` is fulfilled AND that Outlet
+already has a dedicated `CUSTOMER_LOCATION` (§9.4), the fulfilled quantity is
+now also recognised as `CUSTOMER`-owned stock at that location — see
+[Inventory](inventory.md) §15.1 for the full mechanics. This is visibility and
+ownership bookkeeping only: no new field was added to `Customer`/`Outlet`, no
+new permission was added, and nothing here changes how a Sales Order or
+Customer record itself behaves. An Outlet with no dedicated location, or a B2B
+order with no `outletId` at all, is completely unaffected — today's behaviour
+is exactly preserved in both cases.
+
+A `CustomerReturn` against such a fulfilment also reconciles the Outlet's
+`CUSTOMER`-owned claim (§Inventory §15.2) — independent of, and never
+conflated with, the existing credit-note/COGS-reversal logic this domain
+already relies on.
+
 ## 10. Known Limitations
 
 - No dedicated Sales Agent role — see §5.

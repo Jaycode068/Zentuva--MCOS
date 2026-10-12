@@ -7,6 +7,41 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Phase 2C — Customer Outlet Inventory Integration, Collection Point Cutover & D2C Accounting] - 2026-10-12
+
+Implements the third of three phases proposed in
+`docs/customer-location-inventory-architecture-audit.md` — partially, with
+every gap explicitly reported rather than guessed past (see the completion
+report for the full, honest breakdown).
+
+**New.** B2B `SalesOrder` fulfilment now recognises the corresponding outlet
+stock at the SAME event that removes warehouse stock and posts COGS — never
+at Dispatch/Delivery — via a new `InventoryTransactionType.DELIVERY` and
+`SalesFulfilment.destinationLocationId`, reusing Phase 2B's own atomic
+increment primitive rather than a second source decrement. `CustomerReturn`
+now reconciles the outlet's ownership claim independently of the existing
+credit-note/COGS-reversal logic. Collection Point assignment now requires a
+dedicated, verified `CUSTOMER_LOCATION` (closing the audit's shared-Main-
+Warehouse ambiguity for future orders), with an audited legacy fallback so
+already-in-progress orders are never stranded. A new pre-consumption
+cancellation path (`CollectionPointFulfillmentService.cancel()`) for orders
+not yet collected.
+
+**Explicitly NOT resolved this phase, reported as open blockers**: neither
+real seeded Collection Point was actually cut over to a dedicated location —
+their physical stock has never been verified by a real count, and this phase
+will not fabricate one. Post-consumption Collection Point reversal, refunds,
+and damaged/incorrectly-collected-order correction are not implemented — no
+refund mechanism exists in this codebase at all. D2C revenue recognition
+remains fully unimplemented — confirmed by direct inspection that a D2C
+order's entire payment lifecycle posts zero GL entries; a decision note
+analyses the options but intentionally does not choose one. See
+`docs/sprint-customer-location-inventory-phase-2c-completion-report.md`,
+including a disclosed and fully-recovered test-cleanup incident during this
+phase's own development (18 real journal entries were briefly deleted by an
+over-broad test-cleanup query and were reconstructed byte-identical to the
+original baseline before this phase concluded).
+
 ## [Phase 2B — Customer Outlet Stock Tracking & Transfers] - 2026-10-12
 
 Implements the second of three phases proposed in

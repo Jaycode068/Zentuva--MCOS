@@ -174,6 +174,20 @@ export const reassignCollectionPointSchema = z.object({
 });
 export type ReassignCollectionPointInput = z.infer<typeof reassignCollectionPointSchema>;
 
+/**
+ * Added Phase 2C (docs/customer-location-inventory-architecture-audit.md §7,
+ * docs/sprint-customer-location-inventory-phase-2c-completion-report.md) —
+ * cancels a paid order BEFORE inventory is consumed (reachable from `ASSIGNED`/
+ * `PREPARING`/`READY_FOR_COLLECTION` only — `COLLECTED` is not supported through
+ * this path, see `CollectionPointFulfillmentService.cancel`'s own doc comment).
+ */
+export const cancelCollectionPointFulfillmentSchema = z.object({
+  reason: z.string().trim().max(2000).optional(),
+});
+export type CancelCollectionPointFulfillmentInput = z.infer<
+  typeof cancelCollectionPointFulfillmentSchema
+>;
+
 // ---------------------------------------------------------------------------
 // Sprint 44 — Tenant D2C Conversation Configuration (docs/domains/d2c.md "Tenant
 // Conversation Configuration"). Literal string enums, not a `@prisma/client` import —

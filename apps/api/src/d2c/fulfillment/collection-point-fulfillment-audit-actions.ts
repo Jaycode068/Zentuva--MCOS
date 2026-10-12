@@ -11,4 +11,8 @@ export const COLLECTION_POINT_FULFILLMENT_AUDIT_ACTIONS = {
   COLLECTED: 'collection_point_fulfillment.collected',
   /** Added Sprint 39 — the admin-only reassignment override (docs/domains/d2c.md). */
   REASSIGNED: 'collection_point_fulfillment.reassigned',
+  /** Added Phase 2C — a paid order cancelled BEFORE inventory was consumed
+   *  (docs/customer-location-inventory-architecture-audit.md,
+   *  docs/sprint-customer-location-inventory-phase-2c-completion-report.md §7). */
+  CANCELLED: 'collection_point_fulfillment.cancelled',
 } as const;

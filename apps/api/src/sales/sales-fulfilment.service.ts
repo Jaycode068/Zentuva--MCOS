@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { SalesOrderStatus } from '@prisma/client';
+import { LocationStatus, LocationType, SalesOrderSource, SalesOrderStatus } from '@prisma/client';
 import { CreateSalesFulfilmentInput } from '@zentuva/validation';
 
 import {
@@ -11,6 +11,7 @@ import { InventoryStockRepository } from '../inventory/inventory-stock.repositor
 import {
   FulfilSalesOrderResult,
   InsufficientStockError,
+  OutletOwnershipTransitionError,
   SalesFulfilmentConflictError,
   SalesFulfilmentRepository,
   SalesFulfilmentWithItems,
@@ -169,12 +170,24 @@ export class SalesFulfilmentService {
       }
     }
 
+    let destinationLocationId = await this.resolveOutletStockDestination(organisationId, order);
+    // Defensive — a dedicated outlet location can never legitimately BE the
+    // fulfilment's own warehouse source (`LocationType.CUSTOMER_LOCATION` and
+    // `WAREHOUSE` are mutually exclusive by the Phase 2A database `CHECK`
+    // constraint), but a self-delivery would be semantically nonsensical if it
+    // ever occurred, so it is explicitly treated as "no destination" rather than
+    // trusted.
+    if (destinationLocationId === input.locationId) {
+      destinationLocationId = undefined;
+    }
+
     try {
       return await this.salesFulfilmentRepository.create({
         organisationId,
         salesOrderId,
         salesOrderNumber: order.orderCode,
         locationId: input.locationId,
+        destinationLocationId,
         fulfilmentDate: input.fulfilmentDate,
         fulfilledById: actorUserId,
         notes: input.notes,
@@ -188,7 +201,8 @@ export class SalesFulfilmentService {
     } catch (error) {
       if (
         error instanceof InsufficientStockError ||
-        error instanceof SalesFulfilmentConflictError
+        error instanceof SalesFulfilmentConflictError ||
+        error instanceof OutletOwnershipTransitionError
       ) {
         throw new BadRequestException(error.message);
       }
@@ -203,6 +217,53 @@ export class SalesFulfilmentService {
       }
       throw error;
     }
+  }
+
+  /**
+   * Added Phase 2C (docs/customer-location-inventory-architecture-audit.md,
+   * docs/sprint-customer-location-inventory-phase-2c-completion-report.md §3.2) —
+   * the approved B2B outlet-stock-recognition timing, resolved to a concrete
+   * destination `InventoryLocation` id, or `undefined` when no reliable one exists.
+   *
+   * Authoritative relationship: `SalesOrder.outletId` — the order's own ordering
+   * Outlet, never the invoiced `Customer` (which may have many Outlets) and never
+   * inferred from the Dispatch/Delivery destination (a B2B order's delivery
+   * address may legitimately differ from its ordering Outlet; this phase does not
+   * attempt to reconcile that — see the completion report's "Known Limitations").
+   *
+   * Deliberately returns `undefined` (never throws, never invents a default) for
+   * every case where the data is ambiguous or the destination isn't ready:
+   * - `source !== B2B` — a D2C order has no B2B Outlet relationship; D2C stock
+   *   consumption is Collection-Point-specific and handled entirely separately
+   *   (§6 of the brief), never through this path.
+   * - `outletId` is `null` — a real, common case (a B2B order placed directly
+   *   against a Customer with no specific Outlet named). Today's behaviour
+   *   (warehouse decrement + COGS only) is exactly preserved.
+   * - The Outlet has no dedicated `CUSTOMER_LOCATION` yet (Phase 2B's own
+   *   opt-in model) — establishing one is a separate, explicit admin action;
+   *   this method never creates one.
+   * - The dedicated location exists but is `INACTIVE`, or (defensively) happens
+   *   to equal the fulfilment's own source `locationId`.
+   */
+  private async resolveOutletStockDestination(
+    organisationId: string,
+    order: { source: SalesOrderSource; outletId: string | null },
+  ): Promise<string | undefined> {
+    if (order.source !== SalesOrderSource.B2B || !order.outletId) {
+      return undefined;
+    }
+    const destination = await this.inventoryLocationRepository.findByOutletId(
+      organisationId,
+      order.outletId,
+    );
+    if (
+      !destination ||
+      destination.status !== LocationStatus.ACTIVE ||
+      destination.locationType !== LocationType.CUSTOMER_LOCATION
+    ) {
+      return undefined;
+    }
+    return destination.id;
   }
 
   private async getOrderOrThrow(organisationId: string, id: string) {

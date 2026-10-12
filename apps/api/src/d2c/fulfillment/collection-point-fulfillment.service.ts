@@ -10,10 +10,12 @@ import { CollectionPointFulfillmentStatus } from '@prisma/client';
 
 import { EffectiveAccessResolver } from '../../identity/authorization/effective-access-resolver';
 import { AuditService } from '../../identity/audit/audit.service';
+import { InventoryLocationRepository } from '../../inventory/inventory-location.repository';
 import { InventoryStockRepository } from '../../inventory/inventory-stock.repository';
 import { OutletRepository } from '../../retail/outlet/outlet.repository';
 import { SalesFulfilmentService } from '../../sales/sales-fulfilment.service';
 import { SalesOrderRepository } from '../../sales/sales-order.repository';
+import { SalesOrderService } from '../../sales/sales-order.service';
 import { ConsumerService } from '../consumer/consumer.service';
 import { renderConversationMessage } from '../conversation-config/d2c-conversation-config-rendering';
 import { D2CConversationConfigService } from '../conversation-config/d2c-conversation-config.service';
@@ -56,10 +58,12 @@ export class CollectionPointFulfillmentService {
     private readonly outletRepository: OutletRepository,
     private readonly salesOrderRepository: SalesOrderRepository,
     private readonly salesFulfilmentService: SalesFulfilmentService,
+    private readonly salesOrderService: SalesOrderService,
     private readonly consumerService: ConsumerService,
     private readonly auditService: AuditService,
     private readonly effectiveAccessResolver: EffectiveAccessResolver,
     private readonly inventoryStockRepository: InventoryStockRepository,
+    private readonly inventoryLocationRepository: InventoryLocationRepository,
     @Inject(CONSUMER_NOTIFICATION_PORT)
     private readonly consumerNotificationPort: ConsumerNotificationPort,
     private readonly conversationConfigService: D2CConversationConfigService,
@@ -147,7 +151,7 @@ export class CollectionPointFulfillmentService {
     let outlet;
     if (outletId) {
       outlet = await this.outletRepository.findById(organisationId, outletId);
-      if (!outlet || !this.isEligible(outlet)) {
+      if (!outlet || !(await this.isEligible(organisationId, outlet))) {
         throw new CollectionPointNotEligibleError(
           'This outlet is not an eligible Collection Point',
         );
@@ -230,13 +234,17 @@ export class CollectionPointFulfillmentService {
     this.assertPaymentStillValid(cpf);
 
     const outlet = await this.outletRepository.findById(organisationId, cpf.outletId);
-    if (!outlet?.inventoryLocationId) {
+    if (!outlet) {
+      throw new NotFoundException('Outlet not found');
+    }
+    const resolvedLocation = await this.resolveFulfilmentLocation(organisationId, outlet);
+    if (!resolvedLocation) {
       throw new BadRequestException('This Collection Point has no inventory location configured');
     }
     const availability = await this.salesFulfilmentService.getAvailability(
       organisationId,
       cpf.salesOrderId,
-      outlet.inventoryLocationId,
+      resolvedLocation.locationId,
     );
     const shortfalls = availability.filter((row) => row.shortfall > 0);
     if (shortfalls.length > 0) {
@@ -264,6 +272,10 @@ export class CollectionPointFulfillmentService {
       entityId: id,
       organisationId,
       actorUserId,
+      // Phase 2C — visible, never silent, whenever this still-uncut-over outlet's
+      // legacy shared location was used (see `resolveFulfilmentLocation`'s own
+      // doc comment).
+      metadata: { usedLegacySharedLocation: resolvedLocation.usedLegacyFallback },
     });
 
     // Sprint 42 brief §16 — best-effort, AFTER the transition/audit already committed;
@@ -323,9 +335,14 @@ export class CollectionPointFulfillmentService {
       throw new InvalidFulfillmentTransitionError('This order is not ready for collection yet');
     }
 
+    let resolvedLocation: { locationId: string; usedLegacyFallback: boolean } | null = null;
     try {
       const outlet = await this.outletRepository.findById(organisationId, cpf.outletId);
-      if (!outlet?.inventoryLocationId) {
+      if (!outlet) {
+        throw new NotFoundException('Outlet not found');
+      }
+      resolvedLocation = await this.resolveFulfilmentLocation(organisationId, outlet);
+      if (!resolvedLocation) {
         // Should be unreachable — markReadyForCollection already required this — but
         // fail loudly rather than silently skip the inventory deduction it guards.
         throw new BadRequestException('This Collection Point has no inventory location configured');
@@ -346,7 +363,7 @@ export class CollectionPointFulfillmentService {
           organisationId,
           cpf.salesOrderId,
           {
-            locationId: outlet.inventoryLocationId,
+            locationId: resolvedLocation.locationId,
             fulfilmentDate: new Date(),
             notes: 'D2C Collection Point fulfillment',
             idempotencyKey: `collection-point-fulfillment:${cpf.id}`,
@@ -383,7 +400,10 @@ export class CollectionPointFulfillmentService {
       entityId: id,
       organisationId,
       actorUserId,
-      metadata: { salesOrderId: cpf.salesOrderId },
+      metadata: {
+        salesOrderId: cpf.salesOrderId,
+        usedLegacySharedLocation: resolvedLocation?.usedLegacyFallback ?? false,
+      },
     });
 
     // Sprint 42 brief §20 — best-effort, AFTER the transition/inventory
@@ -393,6 +413,114 @@ export class CollectionPointFulfillmentService {
     if (cpf.salesOrder.consumerId) {
       await this.notifyCollected(organisationId, cpf.salesOrder.consumerId, updated);
     }
+
+    return this.toResult(updated);
+  }
+
+  /**
+   * Added Phase 2C (docs/customer-location-inventory-architecture-audit.md §7,
+   * docs/sprint-customer-location-inventory-phase-2c-completion-report.md) —
+   * cancels a paid order BEFORE inventory is consumed. Reachable from `ASSIGNED`,
+   * `PREPARING`, or `READY_FOR_COLLECTION` — never from `COLLECTED`:
+   * `confirmCollection()` is the ONLY point stock is ever deducted, so every
+   * pre-`COLLECTED` state has nothing physical to reverse, and all three collapse
+   * to the exact same system consequence (no stock, no COGS, nothing to undo).
+   * Deliberately NOT implemented for `COLLECTED` — a post-consumption reversal
+   * needs a compensating inventory/accounting event this phase's own D2C
+   * accounting decision gate leaves unresolved (see the completion report's
+   * "Known Limitations" §8).
+   *
+   * No refund is issued — this codebase has no payment-refund mechanism at all
+   * (verified by inspection before writing this method); issuing one would
+   * violate the brief's own "do not issue refunds unless the existing
+   * architecture explicitly supports it" instruction. A cancelled, paid order's
+   * refund remains an explicit, documented manual/off-system follow-up.
+   *
+   * The CPF status flip is the race-guard (a conditional `updateMany`, identical
+   * shape to every other transition here) — claimed FIRST, then the underlying
+   * `SalesOrder` is cancelled via the EXISTING, unmodified `SalesOrderService
+   * .cancel()` (never a duplicated status-transition rule). If that fails, the
+   * CPF flip is compensated back to its exact prior status — the same
+   * "never strand a record at a terminal status when the cross-domain call
+   * fails" pattern `confirmCollection()` already established.
+   */
+  async cancel(
+    organisationId: string,
+    id: string,
+    actorUserId: string,
+    reason: string | undefined,
+  ): Promise<CollectionPointFulfillmentResult> {
+    const cpf = await this.getByIdOrThrow(organisationId, id);
+    await this.assertAuthorized(organisationId, cpf, actorUserId);
+
+    const previousStatus = cpf.status;
+    const updated = await this.repository.updateStatus(
+      organisationId,
+      id,
+      [
+        CollectionPointFulfillmentStatus.ASSIGNED,
+        CollectionPointFulfillmentStatus.PREPARING,
+        CollectionPointFulfillmentStatus.READY_FOR_COLLECTION,
+      ],
+      {
+        status: CollectionPointFulfillmentStatus.CANCELLED,
+        cancelledAt: new Date(),
+        cancelledById: actorUserId,
+        cancellationReason: reason,
+      },
+    );
+    if (!updated) {
+      // Zero rows matched — either already CANCELLED (a genuinely concurrent
+      // duplicate request that lost the race: idempotent, report current state)
+      // or already COLLECTED (a real out-of-order attempt — post-consumption
+      // cancellation is not supported by this method).
+      const current = await this.getByIdOrThrow(organisationId, id);
+      if (current.status === CollectionPointFulfillmentStatus.CANCELLED) {
+        return this.toResult(current);
+      }
+      throw new InvalidFulfillmentTransitionError(
+        current.status === CollectionPointFulfillmentStatus.COLLECTED
+          ? 'This order has already been collected and cannot be cancelled through this path — inventory has already been consumed'
+          : 'This order cannot be cancelled in its current state',
+      );
+    }
+
+    try {
+      await this.salesOrderService.cancel(organisationId, cpf.salesOrderId, actorUserId);
+    } catch (error) {
+      await this.repository.updateStatus(
+        organisationId,
+        id,
+        [CollectionPointFulfillmentStatus.CANCELLED],
+        {
+          status: previousStatus,
+          cancelledAt: null,
+          cancelledById: null,
+          cancellationReason: null,
+        },
+      );
+      throw error;
+    }
+
+    await this.auditService.record({
+      action: COLLECTION_POINT_FULFILLMENT_AUDIT_ACTIONS.CANCELLED,
+      entityType: 'CollectionPointFulfillment',
+      entityId: id,
+      organisationId,
+      actorUserId,
+      metadata: { salesOrderId: cpf.salesOrderId, previousStatus, reason },
+    });
+
+    // Known, documented gap (see the Phase 2C completion report): no consumer
+    // WhatsApp notification is sent here. `ConsumerNotificationKind`/the Prisma
+    // `ConsumerWhatsAppNotificationKind` enum only cover `COLLECTION_READY`/
+    // `COLLECTION_CONFIRMED` today; adding a third kind would require widening
+    // the delivery-tracking schema and the operational-exceptions dashboard's
+    // own label logic (`d2c-operational-exceptions.service.ts`) — out of this
+    // phase's scope (inventory/ownership/accounting), not bundled in here
+    // speculatively. A consumer whose order reached READY_FOR_COLLECTION and
+    // was then cancelled is NOT automatically told; this is flagged, not
+    // silently skipped.
 
     return this.toResult(updated);
   }
@@ -473,7 +601,7 @@ export class CollectionPointFulfillmentService {
     const cpf = await this.getByIdOrThrow(organisationId, id);
 
     const newOutlet = await this.outletRepository.findById(organisationId, newOutletId);
-    if (!newOutlet || !this.isEligible(newOutlet)) {
+    if (!newOutlet || !(await this.isEligible(organisationId, newOutlet))) {
       throw new CollectionPointNotEligibleError('This outlet is not an eligible Collection Point');
     }
     if (newOutlet.id === cpf.outletId) {
@@ -546,7 +674,8 @@ export class CollectionPointFulfillmentService {
       throw new NotFoundException('Outlet not found');
     }
     await this.assertActorAuthorizedForOutlet(organisationId, outlet, actorUserId);
-    if (!outlet.inventoryLocationId) {
+    const resolvedLocation = await this.resolveFulfilmentLocation(organisationId, outlet);
+    if (!resolvedLocation) {
       return [];
     }
 
@@ -578,7 +707,7 @@ export class CollectionPointFulfillmentService {
     const stockRows = await this.inventoryStockRepository.findManyByProductsAndLocation(
       organisationId,
       [...required.keys()],
-      outlet.inventoryLocationId,
+      resolvedLocation.locationId,
     );
     const stockByProduct = new Map(stockRows.map((row) => [row.productId, row.quantityOnHand]));
 
@@ -641,9 +770,13 @@ export class CollectionPointFulfillmentService {
       collectionPointStatus: 'ENABLED',
       status: 'ACTIVE',
     });
-    return candidates
-      .filter((outlet) => outlet.inventoryLocationId)
-      .map((outlet) => ({ id: outlet.id, name: outlet.name }));
+    const eligible: { id: string; name: string }[] = [];
+    for (const outlet of candidates) {
+      if (await this.hasDedicatedLocation(organisationId, outlet.id)) {
+        eligible.push({ id: outlet.id, name: outlet.name });
+      }
+    }
+    return eligible;
   }
 
   private async findEligibleOutlet(organisationId: string, territoryId: string) {
@@ -652,22 +785,81 @@ export class CollectionPointFulfillmentService {
       status: 'ACTIVE',
       collectionPointStatus: 'ENABLED',
     });
-    const eligible = candidates
-      .filter((outlet) => outlet.inventoryLocationId)
-      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
-    return eligible[0] ?? null;
+    const sorted = candidates.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+    for (const outlet of sorted) {
+      if (await this.hasDedicatedLocation(organisationId, outlet.id)) {
+        return outlet;
+      }
+    }
+    return null;
   }
 
-  private isEligible(outlet: {
-    status: string;
-    collectionPointStatus: string;
-    inventoryLocationId: string | null;
-  }): boolean {
+  /**
+   * Added Phase 2C (docs/customer-location-inventory-architecture-audit.md §5,
+   * docs/sprint-customer-location-inventory-phase-2c-completion-report.md) — a
+   * Collection Point is eligible for a NEW assignment only once it has its own
+   * dedicated, ACTIVE `CUSTOMER_LOCATION` (the Phase 2B bridge,
+   * `InventoryLocationRepository.findByOutletId`), never merely `outlet
+   * .inventoryLocationId` (the Sprint 37 bridge, which may point at the SHARED
+   * Main Warehouse — exactly the ambiguity this phase closes). This intentionally
+   * tightens the ORIGINAL Sprint 37 `isEligible()` check, which only required a
+   * non-null `inventoryLocationId` of any kind.
+   */
+  private async isEligible(
+    organisationId: string,
+    outlet: { id: string; status: string; collectionPointStatus: string },
+  ): Promise<boolean> {
     return (
       outlet.status === 'ACTIVE' &&
       outlet.collectionPointStatus === 'ENABLED' &&
-      !!outlet.inventoryLocationId
+      (await this.hasDedicatedLocation(organisationId, outlet.id))
     );
+  }
+
+  private async hasDedicatedLocation(organisationId: string, outletId: string): Promise<boolean> {
+    const location = await this.inventoryLocationRepository.findByOutletId(
+      organisationId,
+      outletId,
+    );
+    return (
+      !!location && location.status === 'ACTIVE' && location.locationType === 'CUSTOMER_LOCATION'
+    );
+  }
+
+  /**
+   * Added Phase 2C — resolves the location `markReadyForCollection`/
+   * `confirmCollection`/`getInventoryViewForOutlet` should actually read/deduct
+   * stock from for an ALREADY-ASSIGNED `CollectionPointFulfillment`. Prefers the
+   * dedicated `CUSTOMER_LOCATION` if one now exists; falls back to the legacy
+   * `outlet.inventoryLocationId` (the shared Main Warehouse, in practice) only for
+   * orders ASSIGNED before this outlet was cut over — `isEligible()`'s own
+   * dedicated-location requirement guarantees every assignment created AFTER this
+   * phase shipped already has one, so the fallback branch is provably exercised
+   * only by pre-existing, already-in-progress assignments, never a new one. This
+   * is the explicit reconciliation path the brief's §5.3 requires: existing paid
+   * orders are never stranded, while no NEW assignment can ever reach the shared
+   * location. `usedLegacyFallback` is surfaced so callers can audit it — the
+   * fallback is visible, never silent.
+   */
+  private async resolveFulfilmentLocation(
+    organisationId: string,
+    outlet: { id: string; inventoryLocationId: string | null },
+  ): Promise<{ locationId: string; usedLegacyFallback: boolean } | null> {
+    const dedicated = await this.inventoryLocationRepository.findByOutletId(
+      organisationId,
+      outlet.id,
+    );
+    if (
+      dedicated &&
+      dedicated.status === 'ACTIVE' &&
+      dedicated.locationType === 'CUSTOMER_LOCATION'
+    ) {
+      return { locationId: dedicated.id, usedLegacyFallback: false };
+    }
+    if (outlet.inventoryLocationId) {
+      return { locationId: outlet.inventoryLocationId, usedLegacyFallback: true };
+    }
+    return null;
   }
 
   /** Sprint 42 brief §22 "Payment reversed/refunded" — re-checked at every transition
@@ -844,6 +1036,8 @@ export class CollectionPointFulfillmentService {
       outletName: cpf.outlet.name,
       status: cpf.status,
       assignedAt: cpf.assignedAt,
+      cancelledAt: cpf.cancelledAt,
+      cancellationReason: cpf.cancellationReason,
       preparingAt: cpf.preparingAt,
       readyAt: cpf.readyAt,
       collectedAt: cpf.collectedAt,

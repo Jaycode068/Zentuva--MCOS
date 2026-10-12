@@ -1371,3 +1371,190 @@ transfer mechanism (§14.2) is intentionally generic — usable by a future Coll
 Point cutover without any Collection-Point-specific code existing yet — but no
 Collection-Point-specific workflow was activated. Phase 2C/3 remain exactly as
 scoped in the original audit.
+
+## 15. Customer Outlet Inventory Integration, Collection Point Cutover & D2C Accounting (Phase 2C)
+
+**Status: partial — see each subsection.** Full detail, test evidence, and the
+required D2C accounting decision note are in
+[the Phase 2C completion report](../sprint-customer-location-inventory-phase-2c-completion-report.md).
+This section documents only what actually shipped.
+
+### 15.1 B2B outlet-stock recognition — timing and mechanism
+
+**Approved direction, implemented exactly as specified**: outlet stock is
+recognised at the SAME `SalesFulfilmentRepository.create()` event that already
+removes warehouse stock and posts COGS — never at Dispatch/Delivery, and the
+existing COGS timing/amount is completely unchanged.
+
+- **Destination resolution** (`SalesFulfilmentService.resolveOutletStockDestination`):
+  the authoritative relationship is `SalesOrder.outletId` — the order's own
+  ordering Outlet, for `B2B` orders only. Resolves to "no destination" (today's
+  pre-Phase-2C behaviour, exactly preserved) whenever: the order is D2C; `outletId`
+  is `null` (a real, common case — a B2B order placed directly against a Customer
+  with no named Outlet); the Outlet has no dedicated, `ACTIVE` `CUSTOMER_LOCATION`
+  yet (Phase 2B's own opt-in model — nothing here ever creates one); or the
+  resolved destination would equal the fulfilment's own warehouse source
+  (defensive, never actually reachable given `CUSTOMER_LOCATION`/`WAREHOUSE` are
+  mutually exclusive by the Phase 2A `CHECK` constraint).
+- **The write itself is NOT a `Transfer`.** `SalesFulfilmentRepository.create()`
+  already performs the source-side decrement (the existing `ISSUE` row); adding a
+  second, independent source decrement via `InventoryTransfer` would double-deduct.
+  Instead, a new `InventoryTransactionType.DELIVERY` row is written directly inside
+  the SAME transaction, sharing the fulfilment's own id as `referenceId` with the
+  existing `ISSUE` row (two rows, one business event — the same
+  `referenceType`/`referenceId` pairing convention `TRANSFER`/`RETURN` already
+  established). A new `SalesFulfilment.destinationLocationId` (nullable) records
+  which location, if any.
+- **Ownership transition**: always `StockOwnership.CUSTOMER` /
+  `StockArrangement.WHOLESALE` — never copied from anywhere, never client-supplied.
+  This is the one explicit business event Phase 2B's own design reserved for a
+  genuine ORGANISATION→CUSTOMER ownership change (a `Transfer` only ever
+  preserves ownership). The increment reuses Phase 2B's
+  `incrementStockWithCostIfCompatible()` — the SAME atomic
+  `INSERT … ON CONFLICT … DO UPDATE` primitive, carrying forward the EXACT
+  `unitCost` already computed for the COGS line (never a second, invented cost
+  basis).
+- **Atomicity**: a destination-side failure (most likely `OutletOwnershipTransitionError`
+  — the destination already holds this product under a different
+  ownership/arrangement) rolls back the ENTIRE fulfilment, including the warehouse
+  decrement and the COGS posting already applied earlier in the same transaction —
+  "succeed or fail together," never a partial fulfilment.
+- **Idempotency**: no new mechanism — the EXISTING `(salesOrderId, idempotencyKey)`
+  check-then-return at the top of `create()` already covers the whole operation;
+  a retry returns the original fulfilment (with its own `destinationLocationId`
+  intact) without re-running anything.
+- **Value conservation, proven, not assumed**: a real-database integration test
+  seeded two different costs at source and destination and confirmed the
+  organisation's total valuation is byte-identical before and after a transfer of
+  this kind — stock relocates, value is neither created nor destroyed. See the
+  completion report §"Migration and Reconciliation Evidence."
+
+### 15.2 Returns reconcile the outlet claim, independently of disposition
+
+`CustomerReturnRepository.receive()` gained one new step, inserted before the
+existing disposition-write loop: for every returned item whose originating
+`SalesFulfilmentItem.salesFulfilment.destinationLocationId` is non-null, the
+OUTLET's `CUSTOMER`-owned balance is decremented by the item's FULL
+`quantityReturned` — resalable, damaged, quarantined, and scrapped alike, since
+all four dispositions equally mean the outlet no longer has those units in its
+own claimed position. This is completely independent of, and never conflated
+with, the EXISTING COGS-reversal/credit-note logic (which continues to operate
+exactly as before, driven only by `quantityResalable`/`quantityCredited`) — a
+physical ownership correction and a financial credit are two separate questions,
+answered by two separate, non-interfering code paths.
+
+A return whose originating fulfilment recorded no outlet delivery at all (a D2C
+order, an outlet-less B2B order, or a pre-Phase-2C fulfilment) is completely
+unaffected — nothing new runs.
+
+**Documented, open policy gap** (a genuine Mandatory Stop Gate outcome, not
+guessed past): if the outlet's recorded `CUSTOMER`-owned balance can no longer
+cover the quantity being returned — for example, something this phase doesn't
+model already reduced it — the `receive()` call is rejected with
+`OutletStockReconciliationError`, rolling back the whole receive (financial
+postings included). There is no existing business policy for what should happen
+in that case (write off the difference? treat it as a shortage/loss event
+requiring its own disposition? Those are new accounting/ownership decisions
+this phase does not make); until one exists, the return is simply blocked
+rather than silently clamped.
+
+### 15.3 Collection Point dedicated-location requirement
+
+Closes the audit's central shared-row finding for the SUPPORTED rollout, without
+performing an unverifiable cutover of the two real seeded Collection Points.
+
+- **New assignment requires a dedicated location.**
+  `CollectionPointFulfillmentService.isEligible()`/`.findEligibleOutlet()`/
+  `.listEligibleOutletsForReassignment()` now require the outlet to have its OWN
+  `ACTIVE` `CUSTOMER_LOCATION` (the Phase 2A/2B `outletId` bridge) — not merely a
+  non-null `outlet.inventoryLocationId` (the Sprint 37 bridge, which may point at
+  the shared Main Warehouse). `autoAssign`/`assignManually`/`reassign` can
+  therefore NEVER newly point an order at the shared location again.
+- **Already-assigned orders are never stranded.**
+  `resolveFulfilmentLocation()` — used by `markReadyForCollection`/
+  `confirmCollection`/`getInventoryViewForOutlet` — prefers the dedicated location
+  if one now exists, and falls back to the legacy `outlet.inventoryLocationId`
+  ONLY for an order that was already `ASSIGNED` before its outlet had a dedicated
+  location. Because the assignment gate above guarantees every NEWLY-assigned
+  order already has one, this fallback branch is provably exercised only by
+  pre-existing, already-in-progress assignments — never a new one. Every time the
+  fallback is actually used, it is recorded in the `READY_FOR_COLLECTION`/
+  `COLLECTED` audit event's own metadata (`usedLegacySharedLocation: true`) —
+  visible, never silent.
+- **Establishing a dedicated location reuses EXISTING Phase 2B tooling —
+  nothing new was built for "cutover" itself.** `POST /api/inventory/locations`
+  (create the dedicated `CUSTOMER_LOCATION`) and
+  `POST /api/inventory/locations/:id/opening-stock` (record a verified physical
+  count, `ownership: ORGANISATION`, `arrangement: D2C_COLLECTION_POINT` — the
+  exact arrangement value Phase 2A added for precisely this purpose and left
+  unused until now) together ARE the cutover mechanism. Eligibility for new
+  assignment is derived automatically the moment a dedicated location exists —
+  there is no separate "mark this Collection Point cut over" flag to set.
+- **Neither real seeded Collection Point was cut over this phase** — see §15.6.
+
+### 15.4 Collection Point pre-consumption cancellation
+
+A new `CollectionPointFulfillmentService.cancel()` (`POST
+/d2c/collection-point-fulfillments/:id/cancel`, same `.fulfil` permission as
+every other mutation on this controller — no new permission) cancels a paid
+order from `ASSIGNED`, `PREPARING`, or `READY_FOR_COLLECTION` — collapsed into
+one operation because all three have the identical system consequence:
+`confirmCollection()` is the ONLY point stock is ever deducted, so nothing before
+it has anything physical to reverse. The `CollectionPointFulfillment` status
+flip (a new `CANCELLED` value) is the race-guard, claimed first; the underlying
+`SalesOrder` is then cancelled via the EXISTING, unmodified
+`SalesOrderService.cancel()`; a failure there compensates the CPF status back to
+its exact prior value, the same "never strand a record at a terminal status"
+pattern `confirmCollection()`'s own failure handling already established.
+
+**No refund is issued.** This codebase has no payment-refund mechanism at all
+(verified by inspection, not assumed) — issuing one would require inventing
+financial-architecture behaviour the brief explicitly forbids guessing at. A
+cancelled, paid order's refund remains an explicit, manual, off-system
+follow-up until a real refund mechanism exists.
+
+**No consumer WhatsApp notification is sent.** `ConsumerNotificationKind`
+only covers `COLLECTION_READY`/`COLLECTION_CONFIRMED` today; widening it would
+require a new value on the `ConsumerWhatsAppNotificationKind` Prisma enum and a
+label fix in the operational-exceptions dashboard — a real, small piece of work,
+deliberately deferred rather than bundled speculatively into a phase scoped to
+inventory/ownership/accounting, not consumer messaging infrastructure.
+
+**Deliberately NOT implemented**: cancellation/reversal of an already-`COLLECTED`
+order (stock already consumed), a damaged/missing/incorrectly-collected
+correction, and anything refund-contingent — every one of these needs a
+compensating inventory and/or accounting event this phase's own D2C accounting
+decision gate (§15.5) leaves unresolved. See the completion report's "Known
+Limitations" for the full, un-narrowed list from the original brief's §7.
+
+### 15.5 D2C accounting — the decision note is in the completion report
+
+The prior audit's finding is reconfirmed by direct inspection of the current
+code, not assumed from history: a D2C order's entire payment lifecycle
+(`PaymentRepository.createPendingForConsumer` → `D2CPaymentService
+.handleProviderCallback` → `applyProviderCallback`) posts **zero** `JournalEntry`
+rows — no cash, no AR, no revenue — anywhere. The only GL effect a D2C order
+ever produces is the `DR COGS / CR Finished Goods Inventory` posting at
+fulfilment (unchanged by this phase). `InvoiceService` explicitly refuses to
+create an Invoice for a D2C order, so the existing B2B Invoice/Payment revenue
+path structurally cannot apply either.
+
+Per Mandatory Stop Gate §15 item 5, **no new GL posting was added for D2C
+payments this phase.** The required accounting-policy analysis, viable
+alternatives, and recommendation are recorded in the completion report's own
+"D2C Accounting Decision Note" section — this remains an **open production
+blocker**, not resolved by documenting it.
+
+### 15.6 Collection Point cutover status (per audit §12's own reporting requirement)
+
+| Collection Point                              | Status                                                                                                                                                |
+| --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| OUT-000011 (Sprint36 Concurrency Outlet)      | Awaiting a verified physical count — shares the Main Warehouse location; no reliable ownership/quantity determination exists for this phase to act on |
+| OUT-000003 (Bodija Supermart — Bodija Branch) | Awaiting a verified physical count — same shared-location situation                                                                                   |
+| OUT-000004 (Mama Ngozi Provisions Shop)       | Never configured with any inventory location (pre-existing gap, unrelated to this phase) — unaffected either way                                      |
+
+Three real `CollectionPointFulfillment` rows are currently in-flight
+(`ASSIGNED`/`PREPARING`/`READY_FOR_COLLECTION`) against the two shared-location
+outlets above — none were migrated, reassigned, or otherwise touched; they
+remain eligible to proceed via the legacy-fallback path described in §15.3 and
+will complete normally when the holding rep works through the queue.

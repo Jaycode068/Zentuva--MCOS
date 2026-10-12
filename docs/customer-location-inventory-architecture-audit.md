@@ -55,12 +55,35 @@ implementation:
    them was judged outside Phase 2B's "smallest safe" scope; see the completion
    report's "Known Limitations."
 
-Phase 2C (§11) remains entirely unimplemented, exactly as this document's
-original Known-Limitations framing anticipated. The shared-`InventoryStock`-row
-risk between B2B and D2C Collection Point fulfilment (§3.3, §9) and the missing
-Collection Point reversal path (§3.2 item 7) both remain fully open — neither
-was in Phase 2B's scope, and Phase 2B's own regression tests confirm neither
-seeded Collection Point outlet's `Outlet.inventoryLocationId` changed.
+**Phase 2C (§11's third phase) has since been PARTIALLY implemented** — see
+[the Phase 2C completion report](sprint-customer-location-inventory-phase-2c-completion-report.md)
+for the complete, honest accounting of what shipped versus what remains an
+explicit, reported blocker:
+
+6. **B2B outlet-stock recognition shipped, at the approved event.** Resolved
+   exactly as this document's own §7 table anticipated the "smallest required
+   prerequisite" would need to: a new `InventoryTransactionType.DELIVERY` (not
+   `TRANSFER` — there is no second source leg to pair with, since the existing
+   `ISSUE` row already IS the source side of the same event) and a new
+   `SalesFulfilment.destinationLocationId`, written inside the SAME transaction
+   that already decrements the warehouse and posts COGS.
+7. **The shared-location risk (§3.3, §9) is closed for the SUPPORTED rollout,
+   not for the two real seeded Collection Points.** A Collection Point now
+   requires a dedicated, verified `CUSTOMER_LOCATION` before it can receive any
+   NEW order assignment — but neither `OUT-000011` nor `OUT-000003` has a
+   verified physical count to cut over onto one, so both remain on the shared
+   Main Warehouse location, exactly as before, serving their existing
+   in-progress orders via an explicit, audited legacy-fallback path. This is
+   the Mandatory Stop Gate outcome §12/§15 of this document anticipated
+   ("if a physical count... is missing, do not fabricate the balance"), not an
+   oversight.
+8. **The Collection Point reversal path (§3.2 item 7) is PARTIALLY closed** —
+   only the pre-consumption case (cancel before `confirmCollection()` ever
+   runs, so nothing was deducted). Post-consumption reversal, refunds, and the
+   D2C revenue-recognition gap (§3.2 item 8, confirmed STILL fully open by
+   direct inspection of the current payment code, not assumed from this
+   document's own earlier finding) remain exactly as open as this document
+   originally found them.
 
 **Scope:** Requested as the pre-Phase-2 investigation into whether, and how,
 Zentuva can track stock at every registered customer outlet (including Collection
@@ -742,6 +765,19 @@ the least amount of proven supporting infrastructure.
   decision, §13).
 
 ### Phase 2C — Collection Point Inventory Integration
+
+> **⚠️ Partially implemented.** See
+> [the Phase 2C completion report](sprint-customer-location-inventory-phase-2c-completion-report.md).
+> The DEDICATED-LOCATION REQUIREMENT shipped (new assignment is blocked for any
+> outlet sharing the Main Warehouse; already-in-progress orders proceed via an
+> audited legacy fallback) — but the actual CUTOVER of the two real seeded
+> Collection Points did NOT happen, because neither has a verified physical
+> count, exactly the condition this section's own "Migration" bullet below
+> requires before moving anything. B2B outlet-stock recognition (a Phase
+> 2B/2C-adjacent capability this document didn't originally scope here, since
+> the approved business direction — recognise it at Sales Fulfilment, not
+> Dispatch — was decided after this audit was written) also shipped. The
+> reversal/cancellation path shipped for the pre-consumption case only.
 
 - **Objective**: close this audit's central finding — give every
   Collection-Point-capable outlet its own `CUSTOMER_LOCATION` (not a shared

@@ -6,6 +6,7 @@ import {
   CustomerReturnRepository,
   DispositionMismatchError,
   NoEligibleInvoiceError,
+  OutletStockReconciliationError,
   OverReturnError,
   ReceiveCustomerReturnData,
 } from './customer-return.repository';
@@ -19,6 +20,12 @@ import {
  * `tx` technique both those files already established.
  */
 const PRODUCT = { id: 'product-1', code: 'PRD-000027', name: 'Plantain Chips 500g', unit: 'Pack' };
+
+/** Added Phase 2C — normalized key for the `inventoryStock.updateMany` fake above,
+ *  also used by tests to seed an outlet's pre-existing balance. */
+function outletStockKey(organisationId: string, productId: string, locationId: string): string {
+  return `${organisationId}|${productId}|${locationId}`;
+}
 
 function makeFakeTx(options: {
   fulfilmentItems: Map<string, Record<string, unknown>>;
@@ -187,6 +194,37 @@ function makeFakeTx(options: {
       findUnique: jest.fn(async ({ where }: { where: unknown }) => {
         return inventoryStocks.get(JSON.stringify(where)) ?? null;
       }),
+      // Added Phase 2C — backs `decrementStockIfAvailable` (the outlet-stock
+      // reversal step in `receive()`). Uses its OWN normalized key
+      // (`${organisationId}|${productId}|${locationId}`, see `outletStockKey`
+      // below) — deliberately distinct from `findUnique`/`upsert`'s
+      // `JSON.stringify(where)` keying above, which backs the UNRELATED
+      // resalable-restock-at-warehouse step; the two never collide because the key
+      // formats are different, and no existing test exercises this new method (its
+      // guard condition — a non-null `destinationLocationId` — is never true for
+      // any pre-Phase-2C fulfilment-item fixture).
+      updateMany: jest.fn(
+        async ({
+          where,
+          data,
+        }: {
+          where: {
+            organisationId: string;
+            productId: string;
+            locationId: string;
+            quantityOnHand: { gte: number };
+          };
+          data: { quantityOnHand: { decrement: number } };
+        }) => {
+          const key = outletStockKey(where.organisationId, where.productId, where.locationId);
+          const row = inventoryStocks.get(key);
+          if (!row || row.quantityOnHand < where.quantityOnHand.gte) {
+            return { count: 0 };
+          }
+          row.quantityOnHand -= data.quantityOnHand.decrement;
+          return { count: 1 };
+        },
+      ),
       upsert: jest.fn(
         async ({
           where,
@@ -580,6 +618,125 @@ describe('CustomerReturnRepository (deliberate exception — real transaction lo
       });
       return created.customerReturn.id;
     }
+
+    describe('Phase 2C — outlet-stock reversal', () => {
+      it('decrements the outlet CUSTOMER-owned claim by the FULL returned quantity, regardless of disposition', async () => {
+        const fulfilmentItems = new Map([
+          [
+            'sfi-1',
+            makeFulfilmentItem({
+              salesFulfilment: {
+                organisationId: 'org-1',
+                salesOrderId: 'so-1',
+                destinationLocationId: 'outlet-loc-1',
+              },
+            }),
+          ],
+        ]);
+        const { repository, inventoryStocks, inventoryTransactions } = setup({ fulfilmentItems });
+        inventoryStocks.set(outletStockKey('org-1', 'product-1', 'outlet-loc-1'), {
+          quantityOnHand: 10,
+          averageUnitCost: 0,
+        });
+        const id = await createReturn(repository, 10);
+
+        await repository.receive({
+          organisationId: 'org-1',
+          customerReturnId: id,
+          receivedById: 'user-2',
+          items: [
+            {
+              customerReturnItemId: `reti-ret-1-0`,
+              quantityResalable: 7,
+              quantityDamaged: 3,
+              quantityQuarantine: 0,
+              quantityScrap: 0,
+            },
+          ],
+        });
+
+        // The FULL 10 (not just the 7 resalable) is removed from the outlet's claim.
+        expect(
+          inventoryStocks.get(outletStockKey('org-1', 'product-1', 'outlet-loc-1'))!.quantityOnHand,
+        ).toBe(0);
+        const reversalRow = inventoryTransactions.find(
+          (t) => t.referenceType === 'CustomerReturnOutletReversal',
+        );
+        expect(reversalRow).toMatchObject({ quantity: 10, locationId: 'outlet-loc-1' });
+      });
+
+      it('leaves the outlet untouched when the originating fulfilment recorded no outlet delivery (pre-Phase-2C/no-outlet order)', async () => {
+        // Default `makeFulfilmentItem()` has no `destinationLocationId` at all —
+        // exactly the pre-Phase-2C/no-outlet case.
+        const { repository, inventoryTransactions } = setup();
+        const id = await createReturn(repository, 10);
+
+        await repository.receive({
+          organisationId: 'org-1',
+          customerReturnId: id,
+          receivedById: 'user-2',
+          items: [
+            {
+              customerReturnItemId: `reti-ret-1-0`,
+              quantityResalable: 10,
+              quantityDamaged: 0,
+              quantityQuarantine: 0,
+              quantityScrap: 0,
+            },
+          ],
+        });
+
+        expect(
+          inventoryTransactions.some((t) => t.referenceType === 'CustomerReturnOutletReversal'),
+        ).toBe(false);
+      });
+
+      it('rejects (and rolls back) when the outlet no longer holds enough to reconcile the return', async () => {
+        const fulfilmentItems = new Map([
+          [
+            'sfi-1',
+            makeFulfilmentItem({
+              salesFulfilment: {
+                organisationId: 'org-1',
+                salesOrderId: 'so-1',
+                destinationLocationId: 'outlet-loc-1',
+              },
+            }),
+          ],
+        ]);
+        const { repository, inventoryStocks } = setup({ fulfilmentItems });
+        // Only 4 remain at the outlet, but the return claims 10 — e.g. some were
+        // already redistributed in a way this phase doesn't model.
+        inventoryStocks.set(outletStockKey('org-1', 'product-1', 'outlet-loc-1'), {
+          quantityOnHand: 4,
+          averageUnitCost: 0,
+        });
+        const id = await createReturn(repository, 10);
+
+        await expect(
+          repository.receive({
+            organisationId: 'org-1',
+            customerReturnId: id,
+            receivedById: 'user-2',
+            items: [
+              {
+                customerReturnItemId: `reti-ret-1-0`,
+                quantityResalable: 10,
+                quantityDamaged: 0,
+                quantityQuarantine: 0,
+                quantityScrap: 0,
+              },
+            ],
+          }),
+        ).rejects.toThrow(OutletStockReconciliationError);
+
+        // Rolled back — the outlet balance is untouched, and the return is still
+        // REQUESTED, not RECEIVED (the whole transaction aborted).
+        expect(
+          inventoryStocks.get(outletStockKey('org-1', 'product-1', 'outlet-loc-1'))!.quantityOnHand,
+        ).toBe(4);
+      });
+    });
 
     it('Boby Bites scenario: 7 resalable / 3 damaged posts COGS reversal on 7 only and a full credit note for 10', async () => {
       const { repository, inventoryStocks, journalEntries, creditNotes, invoices } = setup();

@@ -5,6 +5,8 @@ import {
   Prisma,
   SalesFulfilment,
   SalesOrderStatus,
+  StockArrangement,
+  StockOwnership,
 } from '@prisma/client';
 
 import { SYSTEM_ACCOUNT_KEYS } from '../finance/accounting/chart-of-account-keys';
@@ -13,6 +15,7 @@ import {
   decrementStockIfAvailable,
   getCurrentAverageUnitCost,
   getCurrentQuantityOnHand,
+  incrementStockWithCostIfCompatible,
 } from '../inventory/inventory-stock-concurrency.util';
 import { PrismaService } from '../prisma/prisma.service';
 import { SalesOrderWithRelations } from './sales-order.repository';
@@ -22,6 +25,9 @@ const LOCATION_SELECT = { id: true, name: true };
 
 export type SalesFulfilmentWithItems = SalesFulfilment & {
   location: { id: string; name: string };
+  /** Added Phase 2C — `null` whenever no reliable outlet-stock destination existed
+   *  for this fulfilment (see `destinationLocationId`'s own schema comment). */
+  destinationLocation: { id: string; name: string } | null;
   items: {
     id: string;
     productId: string;
@@ -64,6 +70,7 @@ export type SalesFulfilmentWithOrder = SalesFulfilmentWithItems & {
 
 const RELATIONS_INCLUDE = {
   location: { select: LOCATION_SELECT },
+  destinationLocation: { select: LOCATION_SELECT },
   items: { include: { product: { select: PRODUCT_SELECT } } },
 };
 
@@ -98,6 +105,15 @@ export interface FulfilSalesOrderData {
    *  since the caller already has it, avoids a second in-transaction read. */
   salesOrderNumber: string;
   locationId: string;
+  /** Added Phase 2C (docs/customer-location-inventory-architecture-audit.md,
+   *  docs/sprint-customer-location-inventory-phase-2c-completion-report.md) — the
+   *  customer outlet's dedicated location to ALSO deliver stock into, resolved by
+   *  `SalesFulfilmentService.fulfil()` BEFORE this call (never re-derived here —
+   *  this method trusts the caller's resolution the same way it already trusts
+   *  `locationId` itself). `undefined` whenever no reliable destination exists —
+   *  this phase never fabricates one; today's behaviour (warehouse decrement + COGS
+   *  only) is exactly preserved in that case. */
+  destinationLocationId?: string;
   fulfilmentDate: Date;
   fulfilledById: string;
   notes?: string;
@@ -131,6 +147,17 @@ export class InsufficientStockError extends Error {}
  *  status change between `SalesFulfilmentService`'s pre-check and this transaction, same
  *  role as `ProductionMaterialIssueConflictError`. */
 export class SalesFulfilmentConflictError extends Error {}
+
+/** Added Phase 2C — thrown when the destination outlet location already holds this
+ *  product under a DIFFERENT `StockOwnership`/`StockArrangement` than the
+ *  `CUSTOMER`/`WHOLESALE` this ownership transition would write (see
+ *  `incrementStockWithCostIfCompatible`'s own doc comment). Per the brief's own
+ *  "all inventory mutations... succeed or fail together" instruction, this rolls
+ *  back the ENTIRE fulfilment — including the warehouse decrement and COGS posting
+ *  already applied earlier in the same transaction — rather than letting a
+ *  legitimate order partially fulfil while silently skipping its outlet-stock
+ *  recognition. */
+export class OutletOwnershipTransitionError extends Error {}
 
 /**
  * Thin Prisma access for the `SalesFulfilment` aggregate (Sprint 4.9,
@@ -293,11 +320,51 @@ export class SalesFulfilmentRepository {
         }
       }
 
+      // Phase 2C — the approved ownership-transition event (docs/customer-location-
+      // inventory-architecture-audit.md, docs/sprint-customer-location-inventory-
+      // phase-2c-completion-report.md §3): recognise the corresponding outlet stock
+      // at the SAME event that removed warehouse stock above, never at Dispatch/
+      // Delivery. Only runs when `destinationLocationId` was resolved by the service
+      // layer — `undefined` here means today's pre-Phase-2C behaviour is exactly
+      // preserved for this fulfilment (no reliable destination, so nothing is
+      // fabricated). Reuses the SAME `unitCost` already computed above for COGS — a
+      // transition never invents a second cost basis. `ownership`/`arrangement` are
+      // ALWAYS `CUSTOMER`/`WHOLESALE` here — this is the one explicit business event
+      // Phase 2B's own design reserved for a genuine ownership change (never a
+      // Transfer, which only ever preserves ownership). A failure here rolls back
+      // the WHOLE transaction, including the warehouse decrement and COGS posting
+      // already applied — "succeed or fail together," not a partial fulfilment.
+      if (data.destinationLocationId) {
+        for (const item of data.items) {
+          const cost = itemCosts.get(item.productId)!;
+          const incrementResult = await incrementStockWithCostIfCompatible(
+            tx,
+            {
+              organisationId: data.organisationId,
+              productId: item.productId,
+              locationId: data.destinationLocationId,
+            },
+            item.quantity,
+            cost.unitCost,
+            StockOwnership.CUSTOMER,
+            StockArrangement.WHOLESALE,
+          );
+          if (!incrementResult.applied) {
+            throw new OutletOwnershipTransitionError(
+              incrementResult.ownershipMismatch
+                ? `The destination outlet location already holds product ${item.productId} under a different ownership/arrangement; this fulfilment cannot be completed without ambiguity`
+                : `Failed to apply the outlet stock recognition for product ${item.productId}`,
+            );
+          }
+        }
+      }
+
       const fulfilment = await tx.salesFulfilment.create({
         data: {
           organisationId: data.organisationId,
           salesOrderId: data.salesOrderId,
           locationId: data.locationId,
+          destinationLocationId: data.destinationLocationId,
           fulfilmentDate: data.fulfilmentDate,
           fulfilledById: data.fulfilledById,
           notes: data.notes,
@@ -317,6 +384,20 @@ export class SalesFulfilmentRepository {
         },
         include: RELATIONS_INCLUDE,
       });
+
+      if (data.destinationLocationId) {
+        await tx.inventoryTransaction.createMany({
+          data: data.items.map((item) => ({
+            organisationId: data.organisationId,
+            productId: item.productId,
+            locationId: data.destinationLocationId!,
+            transactionType: InventoryTransactionType.DELIVERY,
+            quantity: item.quantity,
+            referenceType: 'SalesFulfilment',
+            referenceId: fulfilment.id,
+          })),
+        });
+      }
 
       await tx.inventoryTransaction.createMany({
         data: data.items.map((item) => ({

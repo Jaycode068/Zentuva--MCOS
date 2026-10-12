@@ -14,6 +14,7 @@ import { SYSTEM_ACCOUNT_KEYS } from '../finance/accounting/chart-of-account-keys
 import { postSystemJournalEntry } from '../finance/accounting/journal-posting';
 import { issueCreditNoteWithinTransaction } from '../finance/credit-note.repository';
 import { PAYABLE_INVOICE_STATUSES } from '../finance/invoice.repository';
+import { decrementStockIfAvailable } from '../inventory/inventory-stock-concurrency.util';
 import { PrismaService } from '../prisma/prisma.service';
 
 const PRODUCT_SELECT = { id: true, code: true, name: true, unit: true };
@@ -142,6 +143,17 @@ export class DispositionMismatchError extends Error {}
  *  transaction aborts rather than silently skipping the commercial settlement (brief
  *  §10/§27: never inventory-without-accounting or accounting-without-inventory). */
 export class NoEligibleInvoiceError extends Error {}
+
+/** Added Phase 2C (docs/customer-location-inventory-architecture-audit.md §3.3,
+ *  docs/sprint-customer-location-inventory-phase-2c-completion-report.md) — thrown
+ *  when the returned item's originating `SalesFulfilment` recorded an outlet-stock
+ *  delivery, but the outlet's current `CUSTOMER`-owned balance can no longer cover
+ *  the quantity being returned (e.g. the outlet's recorded position was already
+ *  reduced by something this phase does not model). A genuine, documented policy
+ *  gap — rejected rather than silently clamped or guessed past, rolling back the
+ *  whole `receive()` (financial postings included), per "succeed or fail
+ *  together." See the completion report's "Known Limitations." */
+export class OutletStockReconciliationError extends Error {}
 
 /**
  * Thin Prisma access for the `CustomerReturn` aggregate (Sprint 11,
@@ -470,6 +482,71 @@ export class CustomerReturnRepository {
         totalCreditAmount = roundCurrency(
           totalCreditAmount + roundCurrency(quantityCredited * item.unitPrice),
         );
+      }
+
+      // Phase 2C (docs/customer-location-inventory-architecture-audit.md §3.3,
+      // docs/sprint-customer-location-inventory-phase-2c-completion-report.md) —
+      // close the stale outlet-ownership claim a Phase 2C fulfilment may have
+      // established for the quantity now being returned. Independent of, and
+      // never conflated with, the disposition/COGS/credit-note logic above: ALL
+      // returned units (resalable, damaged, quarantined, or scrapped) are equally
+      // being removed from the outlet's claimed position — the outlet no longer
+      // has them in its own custody regardless of what happens to them next. A
+      // return whose originating fulfilment recorded NO outlet delivery
+      // (`destinationLocationId` was `null` — a D2C order, an outlet-less B2B
+      // order, or a pre-Phase-2C fulfilment) is completely unaffected: nothing
+      // runs, matching today's behaviour exactly.
+      const fulfilmentItemIds = resolvedItems.map(({ item }) => item.salesFulfilmentItemId);
+      const originatingFulfilmentItems = await tx.salesFulfilmentItem.findMany({
+        where: {
+          id: { in: fulfilmentItemIds },
+          salesFulfilment: {
+            organisationId: data.organisationId,
+            salesOrderId: existing.salesOrderId,
+          },
+        },
+        select: {
+          id: true,
+          salesFulfilment: { select: { destinationLocationId: true } },
+        },
+      });
+      const destinationByFulfilmentItemId = new Map(
+        originatingFulfilmentItems.map((row) => [
+          row.id,
+          row.salesFulfilment.destinationLocationId,
+        ]),
+      );
+
+      for (const { item } of resolvedItems) {
+        const destinationLocationId = destinationByFulfilmentItemId.get(item.salesFulfilmentItemId);
+        if (!destinationLocationId) {
+          continue;
+        }
+        const reversed = await decrementStockIfAvailable(
+          tx,
+          {
+            organisationId: data.organisationId,
+            productId: item.productId,
+            locationId: destinationLocationId,
+          },
+          item.quantityReturned,
+        );
+        if (!reversed) {
+          throw new OutletStockReconciliationError(
+            `The outlet location no longer holds enough of product ${item.productId} to reconcile this return (expected at least ${item.quantityReturned} there)`,
+          );
+        }
+        await tx.inventoryTransaction.create({
+          data: {
+            organisationId: data.organisationId,
+            productId: item.productId,
+            locationId: destinationLocationId,
+            transactionType: InventoryTransactionType.RETURN,
+            quantity: item.quantityReturned,
+            referenceType: 'CustomerReturnOutletReversal',
+            referenceId: existing.id,
+          },
+        });
       }
 
       for (const { item, input, quantityCredited } of resolvedItems) {

@@ -15,6 +15,7 @@ import {
   DispositionMismatchError,
   InvalidFulfilmentReferenceError,
   NoEligibleInvoiceError,
+  OutletStockReconciliationError,
   OverReturnError,
   CreateCustomerReturnResult,
   ReceiveCustomerReturnResult,
@@ -151,7 +152,8 @@ export class CustomerReturnService {
       if (
         error instanceof CustomerReturnConflictError ||
         error instanceof DispositionMismatchError ||
-        error instanceof NoEligibleInvoiceError
+        error instanceof NoEligibleInvoiceError ||
+        error instanceof OutletStockReconciliationError
       ) {
         throw new BadRequestException(error.message);
       }

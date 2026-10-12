@@ -3,10 +3,12 @@ import { CollectionPointFulfillmentStatus } from '@prisma/client';
 
 import { AuditService } from '../../identity/audit/audit.service';
 import { EffectiveAccessResolver } from '../../identity/authorization/effective-access-resolver';
+import { InventoryLocationRepository } from '../../inventory/inventory-location.repository';
 import { InventoryStockRepository } from '../../inventory/inventory-stock.repository';
 import { OutletRepository } from '../../retail/outlet/outlet.repository';
 import { SalesFulfilmentService } from '../../sales/sales-fulfilment.service';
 import { SalesOrderRepository } from '../../sales/sales-order.repository';
+import { SalesOrderService } from '../../sales/sales-order.service';
 import { ConsumerService } from '../consumer/consumer.service';
 import { D2CConversationConfigService } from '../conversation-config/d2c-conversation-config.service';
 import { DEFAULT_MESSAGES } from '../conversation-config/d2c-conversation-config.types';
@@ -105,6 +107,9 @@ describe('CollectionPointFulfillmentService', () => {
       getAvailability: jest.fn(),
       fulfil: jest.fn(),
     } as unknown as jest.Mocked<SalesFulfilmentService>;
+    const salesOrderService = {
+      cancel: jest.fn().mockResolvedValue({ id: 'so-1', status: 'CANCELLED' }),
+    } as unknown as jest.Mocked<SalesOrderService>;
     const consumerService = {
       getById: jest.fn(),
     } as unknown as jest.Mocked<ConsumerService>;
@@ -115,6 +120,19 @@ describe('CollectionPointFulfillmentService', () => {
     const inventoryStockRepository = {
       findManyByProductsAndLocation: jest.fn().mockResolvedValue([]),
     } as unknown as jest.Mocked<InventoryStockRepository>;
+    // Phase 2C — defaults to "this outlet IS already cut over, to the SAME id as
+    // `eligibleOutlet.inventoryLocationId`" so every pre-Phase-2C test's existing
+    // assertions (which expect `'location-1'` to be used) keep passing unchanged,
+    // whichever of the dedicated/legacy-fallback branches actually resolves it.
+    const inventoryLocationRepository = {
+      findByOutletId: jest
+        .fn()
+        .mockResolvedValue({
+          id: 'location-1',
+          status: 'ACTIVE',
+          locationType: 'CUSTOMER_LOCATION',
+        }),
+    } as unknown as jest.Mocked<InventoryLocationRepository>;
     const consumerNotificationPort = {
       notify: jest.fn().mockResolvedValue(undefined),
     } as unknown as jest.Mocked<ConsumerNotificationPort>;
@@ -138,10 +156,12 @@ describe('CollectionPointFulfillmentService', () => {
       outletRepository,
       salesOrderRepository,
       salesFulfilmentService,
+      salesOrderService,
       consumerService,
       auditService,
       effectiveAccessResolver,
       inventoryStockRepository,
+      inventoryLocationRepository,
       consumerNotificationPort,
       conversationConfigService,
     );
@@ -151,10 +171,12 @@ describe('CollectionPointFulfillmentService', () => {
       outletRepository,
       salesOrderRepository,
       salesFulfilmentService,
+      salesOrderService,
       consumerService,
       auditService,
       effectiveAccessResolver,
       inventoryStockRepository,
+      inventoryLocationRepository,
       consumerNotificationPort,
       conversationConfigService,
     };
@@ -226,15 +248,20 @@ describe('CollectionPointFulfillmentService', () => {
       );
     });
 
-    it('excludes an eligible-looking outlet with no inventoryLocationId', async () => {
-      const { service, repository, salesOrderRepository, consumerService, outletRepository } =
-        makeService();
+    it('excludes an eligible-looking outlet with no dedicated inventory location (Phase 2C)', async () => {
+      const {
+        service,
+        repository,
+        salesOrderRepository,
+        consumerService,
+        outletRepository,
+        inventoryLocationRepository,
+      } = makeService();
       repository.findBySalesOrderId.mockResolvedValue(null);
       salesOrderRepository.findById.mockResolvedValue(order as never);
       consumerService.getById.mockResolvedValue(consumer as never);
-      outletRepository.findManyByOrganisation.mockResolvedValue([
-        { ...eligibleOutlet, inventoryLocationId: null },
-      ] as never);
+      outletRepository.findManyByOrganisation.mockResolvedValue([eligibleOutlet] as never);
+      inventoryLocationRepository.findByOutletId.mockResolvedValue(null);
 
       await service.autoAssign(orgId, 'so-1');
 
@@ -386,13 +413,14 @@ describe('CollectionPointFulfillmentService', () => {
     });
 
     it('markReadyForCollection: rejects when the outlet has no inventory location configured', async () => {
-      const { service, repository, outletRepository } = makeService();
+      const { service, repository, outletRepository, inventoryLocationRepository } = makeService();
       const preparing = { ...cpf, status: CollectionPointFulfillmentStatus.PREPARING };
       repository.findById.mockResolvedValue(preparing as never);
       outletRepository.findById.mockResolvedValue({
         ...eligibleOutlet,
         inventoryLocationId: null,
       } as never);
+      inventoryLocationRepository.findByOutletId.mockResolvedValue(null);
 
       await expect(service.markReadyForCollection(orgId, 'cpf-1', 'rep-1')).rejects.toThrow(
         BadRequestException,
@@ -544,6 +572,103 @@ describe('CollectionPointFulfillmentService', () => {
         'rep-1',
       );
       expect(result.status).toBe('COLLECTED');
+    });
+
+    describe('Phase 2C — dedicated vs. legacy shared location', () => {
+      it('prefers the dedicated CUSTOMER_LOCATION over the legacy outlet.inventoryLocationId when both exist', async () => {
+        const {
+          service,
+          repository,
+          outletRepository,
+          salesOrderRepository,
+          salesFulfilmentService,
+          inventoryLocationRepository,
+        } = makeService();
+        repository.findById.mockResolvedValue(ready as never);
+        repository.updateStatus.mockResolvedValue({
+          ...ready,
+          status: CollectionPointFulfillmentStatus.COLLECTED,
+        } as never);
+        outletRepository.findById.mockResolvedValue(eligibleOutlet as never);
+        salesOrderRepository.findById.mockResolvedValue(order as never);
+        inventoryLocationRepository.findByOutletId.mockResolvedValue({
+          id: 'dedicated-location-1',
+          status: 'ACTIVE',
+          locationType: 'CUSTOMER_LOCATION',
+        } as never);
+
+        await service.confirmCollection(orgId, 'cpf-1', 'rep-1');
+
+        expect(salesFulfilmentService.fulfil).toHaveBeenCalledWith(
+          orgId,
+          'so-1',
+          expect.objectContaining({ locationId: 'dedicated-location-1' }),
+          'rep-1',
+        );
+      });
+
+      it('falls back to the legacy shared location for an already-assigned order whose outlet has no dedicated location yet, and audits the fallback', async () => {
+        const {
+          service,
+          repository,
+          outletRepository,
+          salesOrderRepository,
+          salesFulfilmentService,
+          inventoryLocationRepository,
+          auditService,
+        } = makeService();
+        repository.findById.mockResolvedValue(ready as never);
+        repository.updateStatus.mockResolvedValue({
+          ...ready,
+          status: CollectionPointFulfillmentStatus.COLLECTED,
+        } as never);
+        outletRepository.findById.mockResolvedValue(eligibleOutlet as never); // inventoryLocationId: 'location-1'
+        salesOrderRepository.findById.mockResolvedValue(order as never);
+        inventoryLocationRepository.findByOutletId.mockResolvedValue(null); // not cut over yet
+
+        await service.confirmCollection(orgId, 'cpf-1', 'rep-1');
+
+        expect(salesFulfilmentService.fulfil).toHaveBeenCalledWith(
+          orgId,
+          'so-1',
+          expect.objectContaining({ locationId: 'location-1' }),
+          'rep-1',
+        );
+        expect(auditService.record).toHaveBeenCalledWith(
+          expect.objectContaining({
+            action: expect.stringContaining('collected'),
+            metadata: expect.objectContaining({ usedLegacySharedLocation: true }),
+          }),
+        );
+      });
+
+      it('rejects when the outlet has neither a dedicated nor a legacy location at all', async () => {
+        const { service, repository, outletRepository, inventoryLocationRepository } =
+          makeService();
+        repository.findById.mockResolvedValue(ready as never);
+        repository.updateStatus.mockResolvedValue({
+          ...ready,
+          status: CollectionPointFulfillmentStatus.COLLECTED,
+        } as never);
+        outletRepository.findById.mockResolvedValue({
+          ...eligibleOutlet,
+          inventoryLocationId: null,
+        } as never);
+        inventoryLocationRepository.findByOutletId.mockResolvedValue(null);
+
+        await expect(service.confirmCollection(orgId, 'cpf-1', 'rep-1')).rejects.toThrow(
+          BadRequestException,
+        );
+        // The optimistic COLLECTED flip must be rolled back — never stranded.
+        expect(repository.updateStatus).toHaveBeenCalledWith(
+          orgId,
+          'cpf-1',
+          [CollectionPointFulfillmentStatus.COLLECTED],
+          expect.objectContaining({
+            status: CollectionPointFulfillmentStatus.READY_FOR_COLLECTION,
+          }),
+        );
+      });
     });
 
     it('reverts to READY_FOR_COLLECTION (never stranding the record at COLLECTED) when fulfil() fails', async () => {
@@ -753,13 +878,14 @@ describe('CollectionPointFulfillmentService', () => {
    *  selectable in a naive "enabled outlets" picker while `reassign()` would reject it.
    *  This method must apply the full eligibility check, not just `collectionPointStatus`. */
   describe('listEligibleOutletsForReassignment', () => {
-    it('excludes an ENABLED+ACTIVE outlet with no inventory location configured', async () => {
-      const { service, outletRepository, effectiveAccessResolver } = makeService();
+    it('excludes an ENABLED+ACTIVE outlet with no dedicated inventory location (Phase 2C)', async () => {
+      const { service, outletRepository, effectiveAccessResolver, inventoryLocationRepository } =
+        makeService();
       effectiveAccessResolver.resolve.mockResolvedValue({
         isOwnerBypass: false,
         grants: new Map([['sales.customer.manage', {}]]),
       } as never);
-      const noInventoryLocation = {
+      const noDedicatedLocation = {
         ...eligibleOutlet,
         id: 'outlet-2',
         name: 'Mama Ngozi Provisions Shop',
@@ -767,8 +893,16 @@ describe('CollectionPointFulfillmentService', () => {
       };
       outletRepository.findManyByOrganisation.mockResolvedValue([
         eligibleOutlet,
-        noInventoryLocation,
+        noDedicatedLocation,
       ] as never);
+      inventoryLocationRepository.findByOutletId.mockImplementation(
+        (_org: string, outletId: string) =>
+          Promise.resolve(
+            outletId === 'outlet-1'
+              ? ({ id: 'location-1', status: 'ACTIVE', locationType: 'CUSTOMER_LOCATION' } as never)
+              : null,
+          ),
+      );
 
       const result = await service.listEligibleOutletsForReassignment(orgId, 'admin-1');
 
@@ -937,11 +1071,12 @@ describe('CollectionPointFulfillmentService', () => {
     });
 
     it('returns an empty list when the outlet has no inventory location configured', async () => {
-      const { service, outletRepository, repository } = makeService();
+      const { service, outletRepository, repository, inventoryLocationRepository } = makeService();
       outletRepository.findById.mockResolvedValue({
         ...eligibleOutlet,
         inventoryLocationId: null,
       } as never);
+      inventoryLocationRepository.findByOutletId.mockResolvedValue(null);
 
       const result = await service.getInventoryViewForOutlet(orgId, 'outlet-1', 'rep-1');
 
@@ -1045,6 +1180,116 @@ describe('CollectionPointFulfillmentService', () => {
   });
 
   /** Added Sprint 39 — the admin-only reassignment override (docs/domains/d2c.md). */
+  describe('cancel (Phase 2C — pre-consumption cancellation)', () => {
+    it('cancels an ASSIGNED order: flips CPF to CANCELLED and cancels the underlying SalesOrder', async () => {
+      const { service, repository, salesOrderService, auditService } = makeService();
+      repository.findById.mockResolvedValue(cpf as never); // status: ASSIGNED
+      repository.updateStatus.mockResolvedValue({
+        ...cpf,
+        status: CollectionPointFulfillmentStatus.CANCELLED,
+        cancelledAt: new Date(),
+        cancellationReason: 'Consumer requested cancellation',
+      } as never);
+
+      const result = await service.cancel(
+        orgId,
+        'cpf-1',
+        'rep-1',
+        'Consumer requested cancellation',
+      );
+
+      expect(repository.updateStatus).toHaveBeenCalledWith(
+        orgId,
+        'cpf-1',
+        [
+          CollectionPointFulfillmentStatus.ASSIGNED,
+          CollectionPointFulfillmentStatus.PREPARING,
+          CollectionPointFulfillmentStatus.READY_FOR_COLLECTION,
+        ],
+        expect.objectContaining({ status: CollectionPointFulfillmentStatus.CANCELLED }),
+      );
+      expect(salesOrderService.cancel).toHaveBeenCalledWith(orgId, 'so-1', 'rep-1');
+      expect(auditService.record).toHaveBeenCalledWith(
+        expect.objectContaining({ action: expect.stringContaining('cancelled') }),
+      );
+      expect(result.status).toBe('CANCELLED');
+    });
+
+    it('cancels a READY_FOR_COLLECTION order the same way — no stock has been consumed yet', async () => {
+      const { service, repository } = makeService();
+      const ready = { ...cpf, status: CollectionPointFulfillmentStatus.READY_FOR_COLLECTION };
+      repository.findById.mockResolvedValue(ready as never);
+      repository.updateStatus.mockResolvedValue({
+        ...ready,
+        status: CollectionPointFulfillmentStatus.CANCELLED,
+      } as never);
+
+      const result = await service.cancel(orgId, 'cpf-1', 'rep-1', undefined);
+
+      expect(result.status).toBe('CANCELLED');
+    });
+
+    it('rejects cancelling an already-COLLECTED order — stock has already been consumed', async () => {
+      const { service, repository } = makeService();
+      const collected = { ...cpf, status: CollectionPointFulfillmentStatus.COLLECTED };
+      repository.findById.mockResolvedValueOnce(collected as never);
+      repository.updateStatus.mockResolvedValueOnce(null); // no row matched the from-statuses
+      repository.findById.mockResolvedValueOnce(collected as never); // re-fetch for current status
+
+      await expect(service.cancel(orgId, 'cpf-1', 'rep-1', undefined)).rejects.toThrow(
+        InvalidFulfillmentTransitionError,
+      );
+    });
+
+    it('is idempotent: a second cancel attempt on an already-CANCELLED order returns the current state rather than erroring', async () => {
+      const { service, repository } = makeService();
+      const cancelled = { ...cpf, status: CollectionPointFulfillmentStatus.CANCELLED };
+      repository.findById.mockResolvedValueOnce(cancelled as never);
+      repository.updateStatus.mockResolvedValueOnce(null);
+      repository.findById.mockResolvedValueOnce(cancelled as never);
+
+      const result = await service.cancel(orgId, 'cpf-1', 'rep-1', undefined);
+
+      expect(result.status).toBe('CANCELLED');
+    });
+
+    it('compensates (reverts) the CPF status when the underlying SalesOrder cancellation fails', async () => {
+      const { service, repository, salesOrderService } = makeService();
+      repository.findById.mockResolvedValue(cpf as never); // status: ASSIGNED
+      repository.updateStatus.mockResolvedValueOnce({
+        ...cpf,
+        status: CollectionPointFulfillmentStatus.CANCELLED,
+      } as never);
+      salesOrderService.cancel.mockRejectedValue(
+        new BadRequestException('Order already fulfilled'),
+      );
+
+      await expect(service.cancel(orgId, 'cpf-1', 'rep-1', undefined)).rejects.toThrow(
+        BadRequestException,
+      );
+
+      expect(repository.updateStatus).toHaveBeenCalledWith(
+        orgId,
+        'cpf-1',
+        [CollectionPointFulfillmentStatus.CANCELLED],
+        expect.objectContaining({ status: CollectionPointFulfillmentStatus.ASSIGNED }),
+      );
+    });
+
+    it('rejects a caller who is neither the assigned rep nor an admin', async () => {
+      const { service, repository, effectiveAccessResolver } = makeService();
+      repository.findById.mockResolvedValue(cpf as never);
+      effectiveAccessResolver.resolve.mockResolvedValue({
+        isOwnerBypass: false,
+        grants: new Map(),
+      } as never);
+
+      await expect(service.cancel(orgId, 'cpf-1', 'someone-else', undefined)).rejects.toThrow(
+        NotAuthorizedForCollectionPointError,
+      );
+    });
+  });
+
   describe('reassign', () => {
     const otherOutlet = { ...eligibleOutlet, id: 'outlet-2', name: 'Other Outlet' };
 
