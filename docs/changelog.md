@@ -7,6 +7,46 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Phase 2B — Customer Outlet Stock Tracking & Transfers] - 2026-10-12
+
+Implements the second of three phases proposed in
+`docs/customer-location-inventory-architecture-audit.md`, building on Phase
+2A's schema foundation. Collection Point cutover, D2C fulfilment changes, and
+any new settlement/accounting rule remain Phase 2C/3.
+
+**New.** A real, atomic stock transfer between two locations
+(`POST /api/inventory/transfers`, `inventory.transfer.create`) — a new
+`InventoryTransfer` header model (not a widened ledger or a second balance
+authority) recording a single-product, single-quantity movement; ownership/
+arrangement are always copied from the source location, never client-supplied.
+A safe, traceable reversal (`POST /api/inventory/transfers/:id/reverse`,
+`inventory.transfer.reverse`) that records a new mirror-direction transfer
+rather than mutating history, reversible at most once (database-enforced). A
+controlled opening-stock mechanism
+(`POST /api/inventory/locations/:id/opening-stock`, reuses
+`inventory.adjustment.create`) that establishes — never fabricates from
+historical orders — the first confirmed physical count at a location, with
+duplicate-submission protection needing no new idempotency column. A
+convenience read (`GET /api/inventory/locations/:id/stock`) for an outlet's
+recorded position. `InventoryLocation.outletId` now carries a database
+`@@unique` constraint — at most one dedicated location per outlet.
+
+**Fixed, scoped to the new code only.** The known, documented increment-side
+weighted-average-cost concurrency race (flagged in the Phase 2A completion
+report) is closed for the new transfer destination-increment path via a
+single atomic `INSERT ... ON CONFLICT ... DO UPDATE` statement — proven safe
+under genuine concurrent transfers into the same destination. The three
+pre-existing call sites (Goods Receipt, Production Completion, Customer
+Return) are deliberately left exactly as they were.
+
+**Explicitly NOT built this phase**: any automatic link between a completed
+B2B sale and outlet stock (reported as an open blocker — the ownership-
+transfer timing decision it requires is unreviewed, not guessed at); Collection
+Point dedicated-location cutover or reversal; consignment drawdown, commission,
+or settlement; any in-transit/dispatch-then-receive transfer lifecycle (a
+transfer is modelled as a single atomic, instantaneous movement). See
+`docs/sprint-customer-location-inventory-phase-2b-completion-report.md`.
+
 ## [Phase 2A — Customer-Location Inventory Foundation] - 2026-10-12
 
 Implements the first of three phases proposed in

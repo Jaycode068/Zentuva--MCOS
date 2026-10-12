@@ -199,3 +199,72 @@ export const createInventoryAdjustmentSchema = z.object({
   notes: z.string().trim().max(2000).optional(),
 });
 export type CreateInventoryAdjustmentInput = z.infer<typeof createInventoryAdjustmentSchema>;
+
+/** Added Phase 2B — Customer Outlet Stock Tracking & Transfers
+ *  (docs/customer-location-inventory-architecture-audit.md §11, docs/sprint-customer-
+ *  location-inventory-phase-2b-completion-report.md). Mirrors the Prisma
+ *  `StockOwnership` enum. */
+export const stockOwnershipSchema = z.enum(['ORGANISATION', 'CUSTOMER']);
+export type StockOwnershipInput = z.infer<typeof stockOwnershipSchema>;
+
+/** Added Phase 2B. Mirrors the Prisma `StockArrangement` enum. */
+export const stockArrangementSchema = z.enum(['WHOLESALE', 'CONSIGNMENT', 'D2C_COLLECTION_POINT']);
+export type StockArrangementInput = z.infer<typeof stockArrangementSchema>;
+
+/**
+ * `POST /api/inventory/transfers` (Phase 2B). A single-product, single-quantity stock
+ * movement between two `InventoryLocation`s in the caller's own organisation.
+ * Deliberately does NOT accept `ownership`/`arrangement` — see
+ * `InventoryTransferRepository.create`'s own doc comment for why: both are always
+ * copied from the source location's current `InventoryStock` row, never trusted from
+ * the client, which is how "preserve ownership unless an explicit business event"
+ * (the Phase 2B brief §3.1) is actually enforced. `idempotencyKey` follows the same
+ * `GoodsReceipt`/`SalesOrder` double-submit-protection convention — a retried
+ * submission with the same key returns the original transfer rather than moving the
+ * same stock twice.
+ */
+export const createInventoryTransferSchema = z
+  .object({
+    productId: z.string().trim().min(1, 'Product is required'),
+    sourceLocationId: z.string().trim().min(1, 'Source location is required'),
+    destinationLocationId: z.string().trim().min(1, 'Destination location is required'),
+    quantity: z.number().positive('Transfer quantity must be greater than zero'),
+    notes: z.string().trim().max(2000).optional(),
+    idempotencyKey: z.string().trim().min(1).optional(),
+  })
+  .refine((data) => data.sourceLocationId !== data.destinationLocationId, {
+    message: 'Source and destination locations must be different',
+    path: ['destinationLocationId'],
+  });
+export type CreateInventoryTransferInput = z.infer<typeof createInventoryTransferSchema>;
+
+/** `POST /api/inventory/transfers/:id/reverse` (Phase 2B) — reverses a `COMPLETED`
+ *  transfer by recording a new, mirror-direction transfer against it (the original
+ *  row is never deleted or mutated beyond its own `status` flip). A transfer may be
+ *  reversed at most once — enforced by a database `@unique` constraint, not just this
+ *  schema. */
+export const reverseInventoryTransferSchema = z.object({
+  notes: z.string().trim().max(2000).optional(),
+});
+export type ReverseInventoryTransferInput = z.infer<typeof reverseInventoryTransferSchema>;
+
+/**
+ * `POST /api/inventory/locations/:id/opening-stock` (Phase 2B brief §6) — establishes
+ * the FIRST confirmed physical count of a product at a location that has never had an
+ * `InventoryStock` row for it before. Deliberately rejected (not merged/overwritten)
+ * if a balance already exists for that `(location, product)` pair — see
+ * `InventoryStockRepository.recordOpeningStock`'s own doc comment for why this alone
+ * is what makes the operation safe against duplicate submission, with no separate
+ * `idempotencyKey` column needed. `quantity` may be zero (confirming "this location
+ * has zero of this product" is a legitimate, deliberate reconciliation outcome,
+ * distinct from no row existing at all — brief §4: "Do not imply that an Outlet has
+ * zero physical stock merely because Zentuva has no recorded opening balance").
+ */
+export const recordOpeningStockSchema = z.object({
+  productId: z.string().trim().min(1, 'Product is required'),
+  quantity: z.number().nonnegative('Opening quantity cannot be negative'),
+  ownership: stockOwnershipSchema,
+  arrangement: stockArrangementSchema.optional(),
+  notes: z.string().trim().max(2000).optional(),
+});
+export type RecordOpeningStockInput = z.infer<typeof recordOpeningStockSchema>;

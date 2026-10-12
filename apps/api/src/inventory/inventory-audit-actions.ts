@@ -37,4 +37,12 @@ export const INVENTORY_AUDIT_ACTIONS = {
   /** Fired alongside `SUPPLIER_RETURN_CREATED` only when a non-zero-value reversal
    *  Journal Entry was actually posted. */
   SUPPLIER_RETURN_JOURNAL_POSTED: 'supplier-return.journal-entry-posted',
+  /** Added Phase 2B — Customer Outlet Stock Tracking & Transfers. Recorded on every
+   *  fresh `POST /transfers` (never on an idempotent replay, same `wasCreated` gating
+   *  convention as `GOODS_RECEIVED`). */
+  TRANSFER_CREATED: 'inventory.transfer.created',
+  /** Recorded on every `POST /transfers/:id/reverse`. */
+  TRANSFER_REVERSED: 'inventory.transfer.reversed',
+  /** Recorded on every `POST /locations/:id/opening-stock`. */
+  OPENING_STOCK_RECORDED: 'inventory.opening-stock.recorded',
 } as const;

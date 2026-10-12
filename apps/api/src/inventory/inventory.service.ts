@@ -8,11 +8,15 @@ import {
   ProductStatus,
   ProductType,
   PurchaseOrderStatus,
+  StockArrangement,
+  StockOwnership,
 } from '@prisma/client';
 import {
   CreateGoodsReceiptInput,
   CreateInventoryAdjustmentInput,
   CreateInventoryLocationInput,
+  CreateInventoryTransferInput,
+  RecordOpeningStockInput,
   UpdateInventoryLocationInput,
 } from '@zentuva/validation';
 
@@ -36,15 +40,25 @@ import {
   InventoryStockRepository,
   ListInventoryStockParams,
   NegativeStockError,
+  OpeningStockAlreadyRecordedError,
 } from './inventory-stock.repository';
 import {
   InventoryTransactionRepository,
   InventoryTransactionWithProduct,
   ListInventoryTransactionsParams,
 } from './inventory-transaction.repository';
+import {
+  InsufficientStockError,
+  InventoryTransferRepository,
+  InventoryTransferWithRelations,
+  OwnershipMismatchError,
+  TransferNotReversibleError,
+} from './inventory-transfer.repository';
 
 const GOODS_RECEIPT_NUMBER_PREFIX = 'GRN';
 const GOODS_RECEIPT_NUMBER_SEQUENCE_LENGTH = 6;
+const TRANSFER_NUMBER_PREFIX = 'TRF';
+const TRANSFER_NUMBER_SEQUENCE_LENGTH = 6;
 
 /**
  * A Purchase Order is receivable in every status except `DRAFT` (never issued to the
@@ -160,6 +174,40 @@ export interface StockAdjustmentResult {
   transactionId: string;
 }
 
+/** Added Phase 2B — Customer Outlet Stock Tracking & Transfers. */
+export interface TransferSummary {
+  id: string;
+  transferNumber: string;
+  product: { id: string; code: string; name: string; unit: string };
+  sourceLocation: { id: string; name: string };
+  destinationLocation: { id: string; name: string };
+  quantity: number;
+  ownership: StockOwnership;
+  arrangement: StockArrangement;
+  status: string;
+  notes: string | null;
+  reversalOfTransferId: string | null;
+  createdById: string | null;
+  createdAt: Date;
+}
+
+export interface CreateTransferResult extends TransferSummary {
+  /** `true` only when this call created a new transfer; `false` when an existing
+   *  `(organisationId, idempotencyKey)` match was returned instead — same convention
+   *  as `ReceiveGoodsResult.wasCreated`. */
+  wasCreated: boolean;
+}
+
+export interface OpeningStockResult {
+  productId: string;
+  product: { id: string; code: string; name: string; unit: string };
+  location: { id: string; name: string };
+  quantity: number;
+  ownership: StockOwnership;
+  arrangement: StockArrangement;
+  transactionId: string;
+}
+
 /**
  * Domain service for Inventory (Sprint 4.4, refined Sprint 4.4.1, extended Sprint 4.5 for
  * locations and controlled stock adjustments — docs/domains/inventory.md). Owns read
@@ -181,6 +229,7 @@ export class InventoryService {
     private readonly inventoryLocationRepository: InventoryLocationRepository,
     private readonly purchaseOrderRepository: PurchaseOrderRepository,
     private readonly productRepository: ProductRepository,
+    private readonly inventoryTransferRepository: InventoryTransferRepository,
   ) {}
 
   async listStock(
@@ -629,6 +678,17 @@ export class InventoryService {
       if (!exists) {
         throw new BadRequestException('Outlet not found');
       }
+      // Added Phase 2B (brief §4: "Do not create duplicate locations for an Outlet")
+      // — a friendly pre-check; the database's own `@@unique([outletId])` constraint
+      // is the true authority against a concurrent race (see
+      // `InventoryLocationRepository.findByOutletId`'s own doc comment).
+      const existingLocation = await this.inventoryLocationRepository.findByOutletId(
+        organisationId,
+        input.outletId,
+      );
+      if (existingLocation) {
+        throw new BadRequestException('This outlet already has a dedicated inventory location');
+      }
     }
 
     const created = await this.inventoryLocationRepository.create({
@@ -697,6 +757,174 @@ export class InventoryService {
     };
   }
 
+  /** `POST /api/inventory/transfers` (Phase 2B brief §3). Validates the product and
+   *  both locations exist and are tenant-scoped/active (`requireActiveLocation`
+   *  already filters by `organisationId`, so a cross-tenant id simply 404s — a
+   *  cross-tenant SOURCE/DESTINATION combination is therefore rejected before the
+   *  repository is ever reached, not merely by the repository's own query shape).
+   *  `ownership`/`arrangement` are never read from `input` — see
+   *  `InventoryTransferRepository.create`'s own doc comment. */
+  async createTransfer(
+    organisationId: string,
+    input: CreateInventoryTransferInput,
+    actorUserId: string,
+  ): Promise<CreateTransferResult> {
+    const product = await this.productRepository.findById(organisationId, input.productId);
+    if (!product) {
+      throw new NotFoundException('Product not found');
+    }
+    const sourceLocation = await this.requireActiveLocation(organisationId, input.sourceLocationId);
+    const destinationLocation = await this.requireActiveLocation(
+      organisationId,
+      input.destinationLocationId,
+    );
+
+    const transferNumber = await this.generateUniqueTransferNumber();
+    try {
+      const result = await this.inventoryTransferRepository.create({
+        organisationId,
+        transferNumber,
+        productId: input.productId,
+        sourceLocationId: sourceLocation.id,
+        destinationLocationId: destinationLocation.id,
+        quantity: input.quantity,
+        notes: input.notes,
+        idempotencyKey: input.idempotencyKey,
+        createdById: actorUserId,
+      });
+      return { ...toTransferSummary(result.transfer), wasCreated: result.wasCreated };
+    } catch (error) {
+      if (error instanceof InsufficientStockError) {
+        throw new BadRequestException(error.message);
+      }
+      if (error instanceof OwnershipMismatchError) {
+        throw new BadRequestException(error.message);
+      }
+      throw error;
+    }
+  }
+
+  /** `POST /api/inventory/transfers/:id/reverse` (Phase 2B brief §3.1). A transfer may
+   *  be reversed at most once — enforced by `InventoryTransferRepository.reverse`'s
+   *  conditional `status` claim and the schema's own `@unique([reversalOfTransferId])`
+   *  constraint, not merely by this pre-check (which only produces a clean `404` for
+   *  the common case of an unknown/cross-tenant id). */
+  async reverseTransfer(
+    organisationId: string,
+    transferId: string,
+    notes: string | undefined,
+    actorUserId: string,
+  ): Promise<TransferSummary> {
+    const existing = await this.inventoryTransferRepository.findById(organisationId, transferId);
+    if (!existing) {
+      throw new NotFoundException('Transfer not found');
+    }
+
+    const reversalTransferNumber = await this.generateUniqueTransferNumber();
+    try {
+      const result = await this.inventoryTransferRepository.reverse(
+        organisationId,
+        transferId,
+        reversalTransferNumber,
+        notes,
+        actorUserId,
+      );
+      return toTransferSummary(result.transfer);
+    } catch (error) {
+      if (
+        error instanceof TransferNotReversibleError ||
+        error instanceof InsufficientStockError ||
+        error instanceof OwnershipMismatchError
+      ) {
+        throw new BadRequestException(error.message);
+      }
+      throw error;
+    }
+  }
+
+  async listTransfers(
+    organisationId: string,
+    params?: { productId?: string; locationId?: string },
+  ): Promise<TransferSummary[]> {
+    const rows = await this.inventoryTransferRepository.findManyByOrganisation(
+      organisationId,
+      params,
+    );
+    return rows.map(toTransferSummary);
+  }
+
+  async getTransferById(organisationId: string, id: string): Promise<TransferSummary> {
+    const transfer = await this.inventoryTransferRepository.findById(organisationId, id);
+    if (!transfer) {
+      throw new NotFoundException('Transfer not found');
+    }
+    return toTransferSummary(transfer);
+  }
+
+  /** `POST /api/inventory/locations/:id/opening-stock` (Phase 2B brief §6). See
+   *  `InventoryStockRepository.recordOpeningStock`'s own doc comment for the full
+   *  idempotency/valuation rationale. A `WAREHOUSE` location may only be told it holds
+   *  `ORGANISATION`-owned stock — the inverse of the invariant Phase 2A already
+   *  established for every existing warehouse row. */
+  async recordOpeningStock(
+    organisationId: string,
+    locationId: string,
+    input: RecordOpeningStockInput,
+    actorUserId: string,
+  ): Promise<OpeningStockResult> {
+    const product = await this.productRepository.findById(organisationId, input.productId);
+    if (!product) {
+      throw new NotFoundException('Product not found');
+    }
+    const location = await this.requireActiveLocation(organisationId, locationId);
+    if (
+      location.locationType === LocationType.WAREHOUSE &&
+      input.ownership !== StockOwnership.ORGANISATION
+    ) {
+      throw new BadRequestException('A WAREHOUSE location can only hold ORGANISATION-owned stock');
+    }
+
+    const arrangement = input.arrangement ?? StockArrangement.WHOLESALE;
+    try {
+      const result = await this.inventoryStockRepository.recordOpeningStock({
+        organisationId,
+        productId: input.productId,
+        locationId: location.id,
+        quantity: input.quantity,
+        ownership: input.ownership,
+        arrangement,
+        notes: input.notes,
+        createdById: actorUserId,
+      });
+      return {
+        productId: product.id,
+        product: { id: product.id, code: product.code, name: product.name, unit: product.unit },
+        location: { id: location.id, name: location.name },
+        quantity: result.stock.quantityOnHand,
+        ownership: result.stock.ownership,
+        arrangement: result.stock.arrangement,
+        transactionId: result.transaction.id,
+      };
+    } catch (error) {
+      if (error instanceof OpeningStockAlreadyRecordedError) {
+        throw new BadRequestException(error.message);
+      }
+      throw error;
+    }
+  }
+
+  /** Added Phase 2B — a tenant-scoped existence check with no active/inactive
+   *  restriction, used by read paths (`GET .../locations/:id/stock`) where even a
+   *  deactivated location's historical stock should remain visible. Deliberately
+   *  separate from `requireActiveLocation` below, which is for WRITE paths only. */
+  async getLocationOrThrow(organisationId: string, locationId: string) {
+    const location = await this.inventoryLocationRepository.findById(organisationId, locationId);
+    if (!location) {
+      throw new NotFoundException('Location not found');
+    }
+    return location;
+  }
+
   private async requireActiveLocation(organisationId: string, locationId: string) {
     const location = await this.inventoryLocationRepository.findById(organisationId, locationId);
     if (!location) {
@@ -720,6 +948,40 @@ export class InventoryService {
     }
     return candidate;
   }
+
+  /** `TRF-000001`, `TRF-000002`, ... — same collision-avoidance loop as
+   *  `generateUniqueNumber` above. */
+  private async generateUniqueTransferNumber(): Promise<string> {
+    let sequence = 1;
+    let candidate = formatTransferNumber(sequence);
+    while (await this.inventoryTransferRepository.existsByNumber(candidate)) {
+      sequence += 1;
+      candidate = formatTransferNumber(sequence);
+    }
+    return candidate;
+  }
+}
+
+function toTransferSummary(transfer: InventoryTransferWithRelations): TransferSummary {
+  return {
+    id: transfer.id,
+    transferNumber: transfer.transferNumber,
+    product: transfer.product,
+    sourceLocation: transfer.sourceLocation,
+    destinationLocation: transfer.destinationLocation,
+    quantity: transfer.quantity,
+    ownership: transfer.ownership,
+    arrangement: transfer.arrangement,
+    status: transfer.status,
+    notes: transfer.notes,
+    reversalOfTransferId: transfer.reversalOfTransferId,
+    createdById: transfer.createdById,
+    createdAt: transfer.createdAt,
+  };
+}
+
+function formatTransferNumber(sequence: number): string {
+  return `${TRANSFER_NUMBER_PREFIX}-${String(sequence).padStart(TRANSFER_NUMBER_SEQUENCE_LENGTH, '0')}`;
 }
 
 function toStockSummary(

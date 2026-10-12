@@ -9,8 +9,17 @@ import {
 import { GoodsReceiptConflictError, GoodsReceiptRepository } from './goods-receipt.repository';
 import { InventoryService } from './inventory.service';
 import { InventoryLocationRepository } from './inventory-location.repository';
-import { InventoryStockRepository } from './inventory-stock.repository';
+import {
+  InventoryStockRepository,
+  OpeningStockAlreadyRecordedError,
+} from './inventory-stock.repository';
 import { InventoryTransactionRepository } from './inventory-transaction.repository';
+import {
+  InsufficientStockError,
+  InventoryTransferRepository,
+  OwnershipMismatchError,
+  TransferNotReversibleError,
+} from './inventory-transfer.repository';
 
 const defaultLocation = {
   id: 'loc-1',
@@ -143,6 +152,7 @@ describe('InventoryService', () => {
       findManyByProduct: jest.fn().mockResolvedValue([]),
       findByProductAndLocation: jest.fn(),
       adjustStock: jest.fn(),
+      recordOpeningStock: jest.fn(),
     } as unknown as jest.Mocked<InventoryStockRepository>;
     const inventoryTransactionRepository = {
       findManyByOrganisation: jest.fn(),
@@ -156,6 +166,7 @@ describe('InventoryService', () => {
       update: jest.fn(),
       getOrCreateDefault: jest.fn().mockResolvedValue(defaultLocation),
       outletExists: jest.fn().mockResolvedValue(true),
+      findByOutletId: jest.fn().mockResolvedValue(null),
     } as unknown as jest.Mocked<InventoryLocationRepository>;
     const purchaseOrderRepository = {
       findById: jest.fn(),
@@ -163,6 +174,13 @@ describe('InventoryService', () => {
     const productRepository = {
       findById: jest.fn().mockResolvedValue(product),
     } as unknown as jest.Mocked<ProductRepository>;
+    const inventoryTransferRepository = {
+      create: jest.fn(),
+      reverse: jest.fn(),
+      findById: jest.fn(),
+      findManyByOrganisation: jest.fn().mockResolvedValue([]),
+      existsByNumber: jest.fn().mockResolvedValue(false),
+    } as unknown as jest.Mocked<InventoryTransferRepository>;
 
     const service = new InventoryService(
       goodsReceiptRepository,
@@ -171,6 +189,7 @@ describe('InventoryService', () => {
       inventoryLocationRepository,
       purchaseOrderRepository,
       productRepository,
+      inventoryTransferRepository,
     );
     return {
       service,
@@ -180,6 +199,7 @@ describe('InventoryService', () => {
       inventoryLocationRepository,
       purchaseOrderRepository,
       productRepository,
+      inventoryTransferRepository,
     };
   }
 
@@ -844,6 +864,388 @@ describe('InventoryService', () => {
         'other-org-outlet',
       );
       expect(inventoryLocationRepository.create).not.toHaveBeenCalled();
+    });
+
+    it('Phase 2B: rejects a second CUSTOMER_LOCATION for an outlet that already has one', async () => {
+      const { service, inventoryLocationRepository } = makeService();
+      inventoryLocationRepository.outletExists.mockResolvedValue(true);
+      inventoryLocationRepository.findByOutletId.mockResolvedValue({
+        ...defaultLocation,
+        id: 'loc-existing',
+        locationType: 'CUSTOMER_LOCATION',
+        outletId: 'outlet-1',
+      });
+
+      await expect(
+        service.createLocation(
+          'org-1',
+          { name: 'Duplicate', locationType: 'CUSTOMER_LOCATION', outletId: 'outlet-1' } as never,
+          'user-1',
+        ),
+      ).rejects.toThrow(BadRequestException);
+      expect(inventoryLocationRepository.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('createTransfer (Phase 2B)', () => {
+    const sourceLocation = { ...defaultLocation, id: 'loc-1' };
+    const destinationLocation = {
+      ...defaultLocation,
+      id: 'loc-2',
+      isDefault: false,
+      locationType: 'CUSTOMER_LOCATION' as const,
+      outletId: 'outlet-1',
+    };
+    const transferRecord = {
+      id: 'transfer-1',
+      organisationId: 'org-1',
+      transferNumber: 'TRF-000001',
+      productId: 'product-1',
+      product: { id: 'product-1', code: 'PRD-000009', name: 'Salt', unit: 'Kilogram' },
+      sourceLocationId: 'loc-1',
+      sourceLocation: { id: 'loc-1', name: 'Main Warehouse' },
+      destinationLocationId: 'loc-2',
+      destinationLocation: { id: 'loc-2', name: 'Bodija Branch Stock' },
+      quantity: 10,
+      ownership: 'ORGANISATION' as const,
+      arrangement: 'WHOLESALE' as const,
+      status: 'COMPLETED' as const,
+      notes: null,
+      idempotencyKey: null,
+      reversalOfTransferId: null,
+      createdById: 'user-1',
+      createdAt: new Date('2026-10-12'),
+    };
+
+    function mockLocations(
+      inventoryLocationRepository: ReturnType<typeof makeService>['inventoryLocationRepository'],
+    ) {
+      inventoryLocationRepository.findById.mockImplementation((_org: string, id: string) =>
+        Promise.resolve(
+          id === 'loc-1' ? sourceLocation : id === 'loc-2' ? destinationLocation : null,
+        ),
+      );
+    }
+
+    it('creates a transfer between two valid same-organisation locations', async () => {
+      const { service, inventoryLocationRepository, inventoryTransferRepository } = makeService();
+      mockLocations(inventoryLocationRepository);
+      inventoryTransferRepository.create.mockResolvedValue({
+        transfer: transferRecord,
+        wasCreated: true,
+      });
+
+      const result = await service.createTransfer(
+        'org-1',
+        {
+          productId: 'product-1',
+          sourceLocationId: 'loc-1',
+          destinationLocationId: 'loc-2',
+          quantity: 10,
+        } as never,
+        'user-1',
+      );
+
+      expect(inventoryTransferRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          organisationId: 'org-1',
+          productId: 'product-1',
+          sourceLocationId: 'loc-1',
+          destinationLocationId: 'loc-2',
+          quantity: 10,
+          createdById: 'user-1',
+        }),
+      );
+      expect(result.wasCreated).toBe(true);
+      expect(result.transferNumber).toBe('TRF-000001');
+    });
+
+    it('404s when the product does not exist in this organisation', async () => {
+      const { service, productRepository } = makeService();
+      productRepository.findById.mockResolvedValue(null);
+
+      await expect(
+        service.createTransfer(
+          'org-1',
+          {
+            productId: 'missing',
+            sourceLocationId: 'loc-1',
+            destinationLocationId: 'loc-2',
+            quantity: 10,
+          } as never,
+          'user-1',
+        ),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('404s when the source location is unknown or belongs to another tenant', async () => {
+      const { service, inventoryLocationRepository } = makeService();
+      inventoryLocationRepository.findById.mockResolvedValue(null);
+
+      await expect(
+        service.createTransfer(
+          'org-1',
+          {
+            productId: 'product-1',
+            sourceLocationId: 'other-org-loc',
+            destinationLocationId: 'loc-2',
+            quantity: 10,
+          } as never,
+          'user-1',
+        ),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('translates InsufficientStockError into a 400', async () => {
+      const { service, inventoryLocationRepository, inventoryTransferRepository } = makeService();
+      mockLocations(inventoryLocationRepository);
+      inventoryTransferRepository.create.mockRejectedValue(
+        new InsufficientStockError('Insufficient stock at the source location'),
+      );
+
+      await expect(
+        service.createTransfer(
+          'org-1',
+          {
+            productId: 'product-1',
+            sourceLocationId: 'loc-1',
+            destinationLocationId: 'loc-2',
+            quantity: 10,
+          } as never,
+          'user-1',
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('translates OwnershipMismatchError into a 400', async () => {
+      const { service, inventoryLocationRepository, inventoryTransferRepository } = makeService();
+      mockLocations(inventoryLocationRepository);
+      inventoryTransferRepository.create.mockRejectedValue(
+        new OwnershipMismatchError('Destination holds a different ownership/arrangement'),
+      );
+
+      await expect(
+        service.createTransfer(
+          'org-1',
+          {
+            productId: 'product-1',
+            sourceLocationId: 'loc-1',
+            destinationLocationId: 'loc-2',
+            quantity: 10,
+          } as never,
+          'user-1',
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('an idempotent replay returns the original transfer without re-creating it', async () => {
+      const { service, inventoryLocationRepository, inventoryTransferRepository } = makeService();
+      mockLocations(inventoryLocationRepository);
+      inventoryTransferRepository.create.mockResolvedValue({
+        transfer: transferRecord,
+        wasCreated: false,
+      });
+
+      const result = await service.createTransfer(
+        'org-1',
+        {
+          productId: 'product-1',
+          sourceLocationId: 'loc-1',
+          destinationLocationId: 'loc-2',
+          quantity: 10,
+          idempotencyKey: 'key-1',
+        } as never,
+        'user-1',
+      );
+
+      expect(result.wasCreated).toBe(false);
+      expect(result.id).toBe('transfer-1');
+    });
+  });
+
+  describe('reverseTransfer (Phase 2B)', () => {
+    const transferRecord = {
+      id: 'transfer-1',
+      organisationId: 'org-1',
+      transferNumber: 'TRF-000001',
+      productId: 'product-1',
+      product: { id: 'product-1', code: 'PRD-000009', name: 'Salt', unit: 'Kilogram' },
+      sourceLocationId: 'loc-1',
+      sourceLocation: { id: 'loc-1', name: 'Main Warehouse' },
+      destinationLocationId: 'loc-2',
+      destinationLocation: { id: 'loc-2', name: 'Bodija Branch Stock' },
+      quantity: 10,
+      ownership: 'ORGANISATION' as const,
+      arrangement: 'WHOLESALE' as const,
+      status: 'COMPLETED' as const,
+      notes: null,
+      idempotencyKey: null,
+      reversalOfTransferId: null,
+      createdById: 'user-1',
+      createdAt: new Date('2026-10-12'),
+    };
+
+    it('404s when the transfer does not exist in this organisation', async () => {
+      const { service, inventoryTransferRepository } = makeService();
+      inventoryTransferRepository.findById.mockResolvedValue(null);
+
+      await expect(
+        service.reverseTransfer('org-1', 'missing', undefined, 'user-1'),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('reverses a COMPLETED transfer', async () => {
+      const { service, inventoryTransferRepository } = makeService();
+      inventoryTransferRepository.findById.mockResolvedValue(transferRecord);
+      inventoryTransferRepository.reverse.mockResolvedValue({
+        transfer: {
+          ...transferRecord,
+          id: 'transfer-2',
+          transferNumber: 'TRF-000002',
+          sourceLocation: transferRecord.destinationLocation,
+          destinationLocation: transferRecord.sourceLocation,
+          reversalOfTransferId: 'transfer-1',
+        },
+        wasCreated: true,
+      });
+
+      const result = await service.reverseTransfer(
+        'org-1',
+        'transfer-1',
+        'count discrepancy',
+        'user-1',
+      );
+
+      expect(result.reversalOfTransferId).toBe('transfer-1');
+      expect(inventoryTransferRepository.reverse).toHaveBeenCalledWith(
+        'org-1',
+        'transfer-1',
+        'TRF-000001',
+        'count discrepancy',
+        'user-1',
+      );
+    });
+
+    it('translates TransferNotReversibleError (already reversed) into a 400', async () => {
+      const { service, inventoryTransferRepository } = makeService();
+      inventoryTransferRepository.findById.mockResolvedValue(transferRecord);
+      inventoryTransferRepository.reverse.mockRejectedValue(
+        new TransferNotReversibleError('Already reversed'),
+      );
+
+      await expect(
+        service.reverseTransfer('org-1', 'transfer-1', undefined, 'user-1'),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('translates InsufficientStockError (destination moved on) into a 400', async () => {
+      const { service, inventoryTransferRepository } = makeService();
+      inventoryTransferRepository.findById.mockResolvedValue(transferRecord);
+      inventoryTransferRepository.reverse.mockRejectedValue(
+        new InsufficientStockError('Destination no longer holds enough stock'),
+      );
+
+      await expect(
+        service.reverseTransfer('org-1', 'transfer-1', undefined, 'user-1'),
+      ).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('recordOpeningStock (Phase 2B)', () => {
+    const customerLocation = {
+      ...defaultLocation,
+      id: 'loc-2',
+      isDefault: false,
+      locationType: 'CUSTOMER_LOCATION' as const,
+      outletId: 'outlet-1',
+    };
+
+    it('404s when the product does not exist in this organisation', async () => {
+      const { service, productRepository } = makeService();
+      productRepository.findById.mockResolvedValue(null);
+
+      await expect(
+        service.recordOpeningStock(
+          'org-1',
+          'loc-1',
+          { productId: 'missing', quantity: 10, ownership: 'ORGANISATION' } as never,
+          'user-1',
+        ),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('rejects CUSTOMER ownership at a WAREHOUSE location', async () => {
+      const { service, inventoryLocationRepository } = makeService();
+      inventoryLocationRepository.findById.mockResolvedValue(defaultLocation);
+
+      await expect(
+        service.recordOpeningStock(
+          'org-1',
+          'loc-1',
+          { productId: 'product-1', quantity: 10, ownership: 'CUSTOMER' } as never,
+          'user-1',
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('accepts ORGANISATION ownership at a WAREHOUSE location', async () => {
+      const { service, inventoryLocationRepository, inventoryStockRepository } = makeService();
+      inventoryLocationRepository.findById.mockResolvedValue(defaultLocation);
+      inventoryStockRepository.recordOpeningStock.mockResolvedValue({
+        stock: {
+          quantityOnHand: 10,
+          ownership: 'ORGANISATION',
+          arrangement: 'WHOLESALE',
+        } as never,
+        transaction: { id: 'txn-1' } as never,
+      });
+
+      const result = await service.recordOpeningStock(
+        'org-1',
+        'loc-1',
+        { productId: 'product-1', quantity: 10, ownership: 'ORGANISATION' } as never,
+        'user-1',
+      );
+
+      expect(result.quantity).toBe(10);
+      expect(inventoryStockRepository.recordOpeningStock).toHaveBeenCalledWith(
+        expect.objectContaining({ ownership: 'ORGANISATION', arrangement: 'WHOLESALE' }),
+      );
+    });
+
+    it('accepts CUSTOMER ownership at a CUSTOMER_LOCATION', async () => {
+      const { service, inventoryLocationRepository, inventoryStockRepository } = makeService();
+      inventoryLocationRepository.findById.mockResolvedValue(customerLocation);
+      inventoryStockRepository.recordOpeningStock.mockResolvedValue({
+        stock: { quantityOnHand: 25, ownership: 'CUSTOMER', arrangement: 'WHOLESALE' } as never,
+        transaction: { id: 'txn-2' } as never,
+      });
+
+      const result = await service.recordOpeningStock(
+        'org-1',
+        'loc-2',
+        { productId: 'product-1', quantity: 25, ownership: 'CUSTOMER' } as never,
+        'user-1',
+      );
+
+      expect(result.ownership).toBe('CUSTOMER');
+    });
+
+    it('translates OpeningStockAlreadyRecordedError into a 400', async () => {
+      const { service, inventoryLocationRepository, inventoryStockRepository } = makeService();
+      inventoryLocationRepository.findById.mockResolvedValue(defaultLocation);
+      inventoryStockRepository.recordOpeningStock.mockRejectedValue(
+        new OpeningStockAlreadyRecordedError('Already recorded'),
+      );
+
+      await expect(
+        service.recordOpeningStock(
+          'org-1',
+          'loc-1',
+          { productId: 'product-1', quantity: 10, ownership: 'ORGANISATION' } as never,
+          'user-1',
+        ),
+      ).rejects.toThrow(BadRequestException);
     });
   });
 });

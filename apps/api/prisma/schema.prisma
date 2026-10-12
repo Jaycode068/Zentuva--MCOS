@@ -129,6 +129,8 @@ model Organisation {
   inventoryTransactions                 InventoryTransaction[]
   /// Added Sprint 4.5 — Inventory Locations (docs/domains/inventory.md).
   inventoryLocations                    InventoryLocation[]
+  /// Added Phase 2B — Customer Outlet Stock Tracking & Transfers.
+  inventoryTransfers                    InventoryTransfer[]
   /// Added Sprint 4.6 — Production & Bill of Materials (docs/domains/production.md).
   billOfMaterials                       BillOfMaterial[]
   productionOrders                      ProductionOrder[]
@@ -680,6 +682,8 @@ model Product {
   goodsReceiptItems            GoodsReceiptItem[]
   inventoryStock               InventoryStock[]
   inventoryTransactions        InventoryTransaction[]
+  /// Added Phase 2B — Customer Outlet Stock Tracking & Transfers.
+  inventoryTransfers           InventoryTransfer[]
   /// Added Sprint 4.6 — Production & Bill of Materials (docs/domains/production.md).
   /// `billOfMaterials`/`billOfMaterialItems` cover this product appearing as either the
   /// finished output of a recipe or one of its components — a product may legitimately
@@ -1043,7 +1047,14 @@ model InventoryLocation {
   /// this outlet's own premises." The two are independent and may both be unset, both
   /// set to unrelated things, or (once Phase 2C exists) eventually point at each other
   /// — Phase 2A creates the column only; nothing yet sets it outside a test fixture.
-  outletId       String?
+  /// Phase 2B (docs/customer-location-inventory-architecture-audit.md §4,
+  /// docs/sprint-customer-location-inventory-phase-2b-completion-report.md) adds a
+  /// database-enforced `@@unique` below — Phase 2A left this column unconstrained, but
+  /// the Phase 2B brief explicitly requires "Do not create duplicate locations for an
+  /// Outlet." Nullable-unique is safe under Postgres (multiple `NULL`s are never
+  /// considered duplicates of each other), so every pre-Phase-2B `WAREHOUSE` row
+  /// (always `NULL` here) is completely unaffected.
+  outletId       String?        @unique
   createdById    String?
   updatedById    String?
   createdAt      DateTime       @default(now())
@@ -1073,6 +1084,9 @@ model InventoryLocation {
   outlets          Outlet[]               @relation("CollectionPointSourceLocation")
   /// Added Phase 2A — the reverse side of `outletId` above.
   outlet           Outlet?                @relation("InventoryLocationOutlet", fields: [outletId], references: [id], onDelete: SetNull)
+  /// Added Phase 2B — every transfer where this location was the source or destination.
+  transfersFrom    InventoryTransfer[]    @relation("TransferSourceLocation")
+  transfersTo      InventoryTransfer[]    @relation("TransferDestinationLocation")
 
   @@index([organisationId])
   @@index([organisationId, status])
@@ -1314,11 +1328,11 @@ enum DiscrepancyResolutionAction {
 /// nets out, always re-derivable by summing this product's transactions at this
 /// location.
 model InventoryStock {
-  id               String   @id @default(cuid())
+  id               String           @id @default(cuid())
   organisationId   String
   productId        String
   locationId       String
-  quantityOnHand   Float    @default(0)
+  quantityOnHand   Float            @default(0)
   /// Added Sprint 4.5, always `0` this sprint — no reservation workflow exists yet
   /// (brief §1: "Do not create reservation workflows in this sprint"). Kept as a real
   /// column now, not retrofitted later, so a future reservation feature (Sales order
@@ -1326,7 +1340,7 @@ model InventoryStock {
   /// `InventoryStock` migration. `quantityAvailable` is never stored — always computed
   /// as `quantityOnHand - quantityReserved` at read time (`InventoryService`), and today
   /// that's simply `quantityOnHand`.
-  quantityReserved Float    @default(0)
+  quantityReserved Float            @default(0)
   /// Added Sprint 9 — the first persisted inventory costing figure in this codebase
   /// (Sprint 8's valuation was a one-time, transient Goods Receipt journal
   /// computation, never stored for later reuse). A moving weighted-average cost per
@@ -1339,7 +1353,7 @@ model InventoryStock {
   /// `InventoryStockRepository.adjustStock` — a manual correction carries no cost
   /// information. `@default(0)` — a product with no valued receipt yet has no known
   /// cost.
-  averageUnitCost  Float    @default(0)
+  averageUnitCost  Float            @default(0)
   /// Added Phase 2A — Customer-Location Inventory Foundation (docs/customer-location-
   /// inventory-architecture-audit.md §5/§7). WHO owns this stock position — distinct
   /// from, and never inferred from, `location.locationType`: a `CUSTOMER_LOCATION` does
@@ -1356,15 +1370,15 @@ model InventoryStock {
   /// ownership states for the same product at the same location simultaneously, THAT
   /// will require a genuinely new design (e.g. a separate ownership ledger), not a
   /// wider enum here — see the Phase 2A completion report for the full reasoning.
-  ownership        StockOwnership    @default(ORGANISATION)
+  ownership        StockOwnership   @default(ORGANISATION)
   /// Added Phase 2A. WHY/under what commercial purpose this stock position is held —
   /// independent of `ownership` (e.g. `CONSIGNMENT` stock is `ORGANISATION`-owned AND
   /// `CONSIGNMENT`-arranged; the two dimensions answer different questions). Same
   /// per-row grain and same "no mixed values at one location yet" caveat as `ownership`
   /// above. `@default(WHOLESALE)` is correct for every pre-Phase-2A row.
-  arrangement      StockArrangement  @default(WHOLESALE)
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  arrangement      StockArrangement @default(WHOLESALE)
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
 
   organisation Organisation      @relation(fields: [organisationId], references: [id], onDelete: Cascade)
   product      Product           @relation(fields: [productId], references: [id], onDelete: Cascade)
@@ -1503,6 +1517,84 @@ model InventoryTransaction {
   @@index([locationId])
   @@index([referenceType, referenceId])
   @@map("inventory_transactions")
+}
+
+/// Added Phase 2B — Customer Outlet Stock Tracking & Transfers
+/// (docs/customer-location-inventory-architecture-audit.md §11, docs/sprint-customer-
+/// location-inventory-phase-2b-completion-report.md). `COMPLETED` is the only status a
+/// transfer is ever created with — Phase 2B deliberately chose a single atomic
+/// completed movement over a multi-stage dispatch/in-transit/receipt-confirmation
+/// lifecycle (see the completion report's "Transfer Lifecycle" section for why that is
+/// the smallest safe model for this phase). `REVERSED` is set on the ORIGINAL transfer
+/// once a corresponding reversal transfer has been recorded against it — the original
+/// row is never deleted or otherwise mutated, preserving full history.
+enum TransferStatus {
+  COMPLETED
+  REVERSED
+}
+
+/// Added Phase 2B — the header record for a stock movement between two
+/// `InventoryLocation`s within the SAME organisation. Deliberately modelled exactly like
+/// `GoodsReceipt`/`CustomerReturn`: a thin, auditable aggregate on top of the existing
+/// `InventoryStock` balance and `InventoryTransaction` ledger — NOT a parallel balance
+/// authority. Every completed transfer writes exactly two `InventoryTransaction` rows
+/// (`TRANSFER` type, `referenceType` `"TransferOut"`/`"TransferIn"`, both sharing this
+/// row's `id` as `referenceId`) — the same "direction carried by `referenceType` string,
+/// not a sign or extra column" convention `RETURN` (`CustomerReturn`/`SupplierReturn`)
+/// already established in `InventoryTransaction`.
+///
+/// Single product, single quantity per row — no multi-line items. The brief's own
+/// required-fields list ("SKU", singular) and "smallest safe" instruction both point at
+/// this shape; a multi-item transfer can always be submitted as several `InventoryTransfer`
+/// rows sharing a caller-chosen `notes` reference if ever needed, without a schema change.
+///
+/// `ownership`/`arrangement` are NEVER accepted from the client — see
+/// `InventoryTransferRepository.create`. They are always copied from the SOURCE
+/// `InventoryStock` row at the moment of transfer, which is how "preserve ownership
+/// unless an explicitly supported business event authorises a change" (brief §3.1) is
+/// actually enforced: there is no input field that could misrepresent it. Denormalised
+/// onto this header (rather than only inferred from the resulting `InventoryTransaction`
+/// rows) purely for cheap, direct reads on the transfer list/detail views.
+model InventoryTransfer {
+  id                    String           @id @default(cuid())
+  organisationId        String
+  /// Auto-generated (`TRF-000001`, ...), globally unique, immutable — same
+  /// collision-avoidance pattern as `GoodsReceipt.goodsReceiptNumber`.
+  transferNumber        String           @unique
+  productId             String
+  sourceLocationId      String
+  destinationLocationId String
+  quantity              Float
+  ownership             StockOwnership
+  arrangement           StockArrangement
+  status                TransferStatus   @default(COMPLETED)
+  notes                 String?
+  /// Same double-submit protection as `GoodsReceipt.idempotencyKey`/
+  /// `SalesOrder.idempotencyKey` — a retried `POST /transfers` with the same key
+  /// returns the original transfer instead of moving the same stock twice.
+  idempotencyKey        String?
+  /// Set only on a transfer that itself IS a reversal — points at the original
+  /// transfer it reverses. `@unique` so a transfer can be reversed at MOST once; a
+  /// second reversal attempt hits this constraint directly (defense-in-depth alongside
+  /// the service's own conditional `status` check — see
+  /// `InventoryTransferRepository.reverse`).
+  reversalOfTransferId  String?          @unique
+  createdById           String?
+  createdAt             DateTime         @default(now())
+
+  organisation        Organisation       @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  product             Product            @relation(fields: [productId], references: [id], onDelete: Restrict)
+  sourceLocation      InventoryLocation  @relation("TransferSourceLocation", fields: [sourceLocationId], references: [id], onDelete: Restrict)
+  destinationLocation InventoryLocation  @relation("TransferDestinationLocation", fields: [destinationLocationId], references: [id], onDelete: Restrict)
+  reversalOfTransfer  InventoryTransfer? @relation("TransferReversal", fields: [reversalOfTransferId], references: [id], onDelete: Restrict)
+  reversedByTransfer  InventoryTransfer? @relation("TransferReversal")
+
+  @@unique([organisationId, idempotencyKey])
+  @@index([organisationId])
+  @@index([organisationId, productId])
+  @@index([sourceLocationId])
+  @@index([destinationLocationId])
+  @@map("inventory_transfers")
 }
 
 /// Sprint 4.6 (docs/domains/production.md) — DRAFT/ACTIVE/INACTIVE, not a numbered

@@ -136,7 +136,8 @@ full Quality Management System (4.4.1 brief §4/§18).
   (`Boolean`, exactly one `true` row per organisation), `createdById`/`updatedById`.
   **Added Phase 2A** (§13): `locationType` (`LocationType`, default `WAREHOUSE`) and
   `outletId` (nullable, `CUSTOMER_LOCATION`-only) — set only at creation, never on
-  update.
+  update. **Added Phase 2B** (§14): `outletId` now carries a database `@@unique`
+  constraint — at most one dedicated location per outlet, ever.
 
 ### InventoryStock
 
@@ -155,8 +156,11 @@ full Quality Management System (4.4.1 brief §4/§18).
   currently nets out — always re-derivable by summing that product's transactions, never
   the source of truth itself. Every write to this table happens as a side effect of
   first writing an `InventoryTransaction` row, inside the same database transaction —
-  `GoodsReceiptRepository.receive` (receiving) and `InventoryStockRepository.adjustStock`
-  (corrections) are the only two write paths.
+  `GoodsReceiptRepository.receive` (receiving), `InventoryStockRepository.adjustStock`
+  (corrections), and, **added Phase 2B** (§14), `InventoryStockRepository
+.recordOpeningStock` (first confirmed count at a location) and
+  `InventoryTransferRepository.create`/`.reverse` (relocating stock between two
+  locations) are the write paths.
 - **Important Business Rule (4.4.1, unchanged by 4.5):** inventory only ever increases by
   **Accepted** quantity, never **Delivered** quantity. A line that was entirely rejected
   (`acceptedQuantity === 0`) writes no stock/ledger row at all.
@@ -171,7 +175,12 @@ full Quality Management System (4.4.1 brief §4/§18).
   (`StockOwnership`, default `ORGANISATION`) and WHY/under what commercial purpose it's
   held (`StockArrangement`, default `WHOLESALE`) — two independent classification
   dimensions, distinct from `InventoryLocation.locationType`, never inferred from it.
-  Nothing writes a non-default value to either field yet.
+  **Added Phase 2B** (§14): both are now written by `recordOpeningStock` (caller-
+  supplied, validated against `locationType`) and copied forward unchanged by every
+  `Transfer` — never client-supplied on a transfer, never inferred from the
+  destination's `locationType`. A location+product pair's `ownership`/`arrangement`
+  cannot be changed once stock exists there under a different value — a conflicting
+  write is rejected (`OwnershipMismatchError`), never merged.
 
 ### AdjustmentReason (Sprint 4.5)
 
@@ -425,6 +434,12 @@ this codebase uses.
 | `POST /api/inventory/locations`                                 | Owner or Administrator only (`403` for Member) | `{ name }`                                                                                                                                                                  | `201` — the created `InventoryLocation`                                                                                                                   |
 | `PATCH /api/inventory/locations/:id`                            | Owner or Administrator only (`403` for Member) | `{ name?, status? }`                                                                                                                                                        | `200` — the updated `InventoryLocation`; `400` if trying to deactivate the default location; `404` if not found                                           |
 | `POST /api/inventory/adjustments`                               | Owner or Administrator only (`403` for Member) | `{ productId, locationId?, quantity, reason, notes? }`                                                                                                                      | `201` — the resulting balance/transaction; `400` if the result would be negative or the location is inactive; `404` if the product/location doesn't exist |
+| `GET /api/inventory/locations/:id/stock` _(Phase 2B)_           | Any authenticated user                         | —                                                                                                                                                                           | `200 { items: InventoryStockSummary[] }` scoped to one location; `404` if the location doesn't exist in this organisation                                 |
+| `POST /api/inventory/locations/:id/opening-stock` _(Phase 2B)_  | Owner or Administrator only (`403` for Member) | `{ productId, quantity, ownership, arrangement?, notes? }`                                                                                                                  | `201` — the resulting balance/transaction; `400` if a balance already exists for this (location, product), or ownership is incompatible with the location |
+| `GET /api/inventory/transfers` _(Phase 2B)_                     | Any authenticated user                         | Optional `?productId=`, `?locationId=`                                                                                                                                      | `200 { items: InventoryTransfer[] }`                                                                                                                      |
+| `GET /api/inventory/transfers/:id` _(Phase 2B)_                 | Any authenticated user                         | —                                                                                                                                                                           | `200` — a single `InventoryTransfer`; `404` if not found                                                                                                  |
+| `POST /api/inventory/transfers` _(Phase 2B)_                    | Owner or Administrator only (`403` for Member) | `{ productId, sourceLocationId, destinationLocationId, quantity, notes?, idempotencyKey? }`                                                                                 | `201` — the created `InventoryTransfer`; `400` if source/destination are equal, stock is insufficient, or ownership/arrangement would be ambiguous        |
+| `POST /api/inventory/transfers/:id/reverse` _(Phase 2B)_        | Owner or Administrator only (`403` for Member) | `{ notes? }`                                                                                                                                                                | `201` — the reversing `InventoryTransfer`; `400` if not `COMPLETED` or the destination can no longer supply the reversal; `404` if not found              |
 | `GET /api/inventory/:productId`                                 | Any authenticated user                         | —                                                                                                                                                                           | `200` — a zero-balance view if the product has never been received; `404` if the product doesn't exist                                                    |
 
 Route order matters for the underlying Nest controller: `/locations`, `/adjustments`,
@@ -451,6 +466,9 @@ what was actually received.
 | `inventory.location.deactivated`       | `PATCH /api/inventory/locations/:id`, only when the new status is `INACTIVE`                 |
 | `supplier-return.created`              | `POST /api/inventory/supplier-returns` — every fresh call (Sprint 11)                        |
 | `supplier-return.journal-entry-posted` | Same call, only when a non-zero-value reversal Journal Entry was actually posted (Sprint 11) |
+| `inventory.transfer.created`           | `POST /api/inventory/transfers` — every fresh call (Phase 2B); never on an idempotent replay |
+| `inventory.transfer.reversed`          | `POST /api/inventory/transfers/:id/reverse` — every call (Phase 2B)                          |
+| `inventory.opening-stock.recorded`     | `POST /api/inventory/locations/:id/opening-stock` — every call (Phase 2B)                    |
 
 No audit action was invented for functionality that isn't actually implemented
 (Sprint 4.4.1 brief §14, extended Sprint 4.5, extended Sprint 8, extended Sprint 11).
@@ -802,13 +820,13 @@ narrow consumer reading a table it already owned.
 ## 11. Known Limitations (Sprint 4.5)
 
 - **No full Warehouse Management System.** `InventoryLocation` is deliberately minimal —
-  no bins, shelves, zones, barcode/RFID scanning, capacity limits, or transfers between
-  locations. Moving stock from one location to another today means one `ADJUSTMENT`
-  decreasing the source and a second increasing the destination — there is no atomic
-  "transfer" operation. **Updated Phase 2A**: `InventoryTransactionType.TRANSFER` now
-  exists in the schema as reserved vocabulary (see §13) — this does not yet change the
-  "two unlinked `ADJUSTMENT` rows" workaround described above; nothing writes a
-  `TRANSFER` row yet.
+  no bins, shelves, zones, barcode/RFID scanning, or capacity limits. **Updated Phase
+  2B** (§14): a real, atomic stock transfer between two locations now exists
+  (`POST /api/inventory/transfers`) — the "two unlinked `ADJUSTMENT` rows" workaround
+  this bullet used to describe is superseded for the general case. What remains
+  genuinely absent: multi-stage dispatch/in-transit tracking (a transfer is modelled
+  as instantaneous, never "in transit" — §14.2), and any Collection-Point-specific
+  transfer workflow (Phase 2C).
 - **No reservation/allocation.** `InventoryStock.quantityReserved` exists in the schema
   (always `0` today) so a future Sales/Production reservation workflow doesn't need a
   shape change, but nothing writes to it yet — `quantityAvailable` always equals
@@ -1094,3 +1112,262 @@ remains an entirely open, unresolved business decision (audit §9/§13), explici
 deferred to Phase 3. Phase 2A's own test suite asserts zero unexpected
 `JournalEntry` rows are produced by any of its schema changes or the one new
 service-layer code path it adds (location creation) — see the completion report.
+
+## 14. Customer Outlet Stock Tracking & Transfers (Phase 2B)
+
+**Status: general outlet stock tracking and transfers only.** Builds directly on
+§13's foundation. See
+[`docs/customer-location-inventory-architecture-audit.md`](../customer-location-inventory-architecture-audit.md)
+and
+[`docs/sprint-customer-location-inventory-phase-2b-completion-report.md`](../sprint-customer-location-inventory-phase-2b-completion-report.md)
+for the full rationale, tests, and reconciliation evidence. **Collection Point
+cutover, D2C fulfilment changes, Collection Point reversal, consignment drawdown,
+and any new settlement/accounting rule remain out of scope — explicitly deferred to
+Phase 2C/3, exactly as before.**
+
+### 14.1 Outlet location association
+
+`InventoryLocation.outletId` now carries a database `@@unique` constraint (it was
+unconstrained in Phase 2A) — an outlet may have at most one dedicated location,
+ever. `POST /api/inventory/locations` (unchanged route, same body shape introduced
+in Phase 2A) is the only way to create one; `InventoryService.createLocation()`
+rejects a second attempt for the same outlet with a friendly `400`
+(`InventoryLocationRepository.findByOutletId`) before the database constraint is
+ever reached. No location is created automatically for any outlet — establishing
+one remains a controlled, explicit, permission-gated action
+(`inventory.location.manage`), exactly as §13.2 described.
+
+Reading an outlet's stock reuses the existing stock-listing machinery rather than a
+new read path: `GET /api/inventory/locations/:id/stock` is a thin, tenant-checked
+wrapper over `GET /api/inventory?locationId=`. Three states are distinguishable by
+construction, never conflated:
+
+| State                                                   | How it looks                                                                                                                                          |
+| ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Outlet exists, no dedicated location                    | `InventoryLocationRepository.findByOutletId` returns `null` — there is nothing to view at `.../locations/:id/stock` because no location id exists yet |
+| Dedicated location exists, no confirmed opening balance | The location exists; `GET .../stock` returns an empty list (no `InventoryStock` row for any product yet)                                              |
+| Dedicated location with reconciled stock                | `GET .../stock` returns one row per product that has ever had an opening count or a transfer land there                                               |
+
+An outlet is never described as "zero stock" merely because no row exists — the
+absence of a row and a confirmed zero-quantity row are different, explicit states
+(see §14.3).
+
+### 14.2 Stock transfers — lifecycle, representation, and why
+
+A new `InventoryTransfer` header model (`POST /api/inventory/transfers`,
+`inventory.transfer.create`) — modelled exactly like `GoodsReceipt`: a thin,
+auditable aggregate on top of the existing `InventoryStock` balance and
+`InventoryTransaction` ledger, never a second balance authority. Single product,
+single quantity per row (no multi-line items — the brief's own required-field list
+and "smallest safe" instruction both point at this shape).
+
+**Lifecycle: a single atomic `COMPLETED` movement, not a multi-stage dispatch/
+in-transit/receipt-confirmation workflow.** §13.5 anticipated this choice would need
+making; Phase 2B makes it explicitly, for the smallest-safe reason the brief itself
+allows: this codebase has no existing dispatch/approval architecture for an internal
+stock relocation to plug into, and inventing one here would be new complexity the
+brief did not ask for. **Known limitation**: the system cannot represent a transfer
+"in transit" — a transfer either hasn't happened or has fully happened,
+instantaneously, in the same database transaction. A multi-day physical movement
+between a warehouse and a distant outlet is not modelled as a separate state; it is
+simply recorded once it is known to be complete. A future phase that needs
+in-transit visibility would add that as a genuinely new status, not retrofit this
+one.
+
+**Representation** — refined from §13.5's prediction once real implementation
+confirmed the right shape: TWO `InventoryTransaction` rows, `transactionType:
+TRANSFER`, sharing the `InventoryTransfer.id` as `referenceId`, but with TWO
+DISTINCT `referenceType` strings — `'TransferOut'` (source, decrease) and
+`'TransferIn'` (destination, increase) — rather than one shared string. This
+mirrors the established convention `RETURN` already uses (`'CustomerReturn'` vs.
+`'SupplierReturn'` distinguish direction), which turned out to be the better fit
+than a single shared `referenceType` once the model was actually built.
+
+**Ownership/arrangement are never client-supplied.** `createInventoryTransferSchema`
+has no `ownership`/`arrangement` fields at all. `InventoryTransferRepository.create`
+always reads both off the SOURCE location's current `InventoryStock` row and
+carries them to the destination unchanged — this is the actual mechanism behind
+"preserve ownership unless an explicitly supported business event authorises a
+change" (brief §3.1): there is no input that could misrepresent it, because there
+is no input for it.
+
+**Collapse-into-one-balance protection** (the §2.1 gate this phase's brief
+required resolving before writing any code — see the completion report for the
+full reasoning): if the destination already holds this product under a DIFFERENT
+`ownership`/`arrangement` than the source is about to bring in, the transfer is
+rejected outright (`OwnershipMismatchError`), not merged. This is enforced
+atomically inside the same `INSERT ... ON CONFLICT ... DO UPDATE ... WHERE` that
+performs the increment (§14.4) — never a separate, racy read-then-check.
+`InventoryStock`'s own `@@unique([organisationId, productId, locationId])`
+constraint is **unchanged** — a location still holds at most one balance per
+product, which is what makes this guard necessary in the first place.
+
+**Atomicity, idempotency, reversal**:
+
+- The source decrement and destination increment happen inside one
+  `$transaction` — a failed transfer leaves both balances exactly as they were
+  (proven by an integration test that deliberately overdraws the source and
+  confirms neither side moved).
+- `idempotencyKey` + `@@unique([organisationId, idempotencyKey])` — the same
+  convention `GoodsReceipt`/`SalesOrder` already use. A retried submission returns
+  the original transfer; no stock moves twice.
+- Reversal (`POST /api/inventory/transfers/:id/reverse`,
+  `inventory.transfer.reverse`) records a NEW `InventoryTransfer` row
+  (`reversalOfTransferId` set, source/destination swapped) rather than mutating or
+  deleting the original — the original is only ever flipped to `status: REVERSED`.
+  A transfer can be reversed at most once: enforced by BOTH a conditional
+  `status`-claiming `updateMany` (`COMPLETED` → `REVERSED`, racing concurrent
+  reversal attempts correctly — proven by a concurrency test) AND the schema's own
+  `@@unique([reversalOfTransferId])` as defense-in-depth. A reversal that would
+  oversell the destination (some of the transferred stock already moved on by the
+  time of reversal) fails cleanly with `InsufficientStockError` and leaves the
+  original `COMPLETED`, not stuck half-reversed.
+
+**Deliberately NOT wired to B2B SalesOrder fulfilment.** §5.1/§5.2 of the brief
+permitted stopping and reporting this as a blocker rather than guessing, and that
+is the path taken: connecting a completed wholesale sale's ownership transfer to
+outlet stock requires deciding exactly WHEN ownership transfers (order
+confirmation? invoice? payment? physical delivery?) — an unreviewed accounting-
+timing decision this phase does not make. The general transfer mechanism above is
+entirely manual and decoupled from `SalesFulfilmentRepository`; no existing B2B
+code path was touched. Wiring the two together is required Phase 2C/3 work, not
+yet attempted.
+
+### 14.3 Opening stock and reconciliation
+
+`InventoryStockRepository.recordOpeningStock()`
+(`POST /api/inventory/locations/:id/opening-stock`, reuses the existing
+`inventory.adjustment.create` permission — it IS a stock adjustment, just one that
+establishes rather than deltas a balance) — usable only when no `InventoryStock`
+row yet exists for `(organisation, product, location)`. The existence of the row
+IS the "confirmed" marker the brief required (§6): absence means unconfirmed,
+presence with `quantityOnHand = 0` means a confirmed physical count of zero — two
+different, legible states, never conflated.
+
+**Idempotency needs no new column.** A duplicate submission either finds no row
+(and genuinely is the first count) or hits `InventoryStock`'s own
+`@@unique([organisationId, productId, locationId])` constraint, caught and
+translated to `OpeningStockAlreadyRecordedError` — the same "find-then-create-
+then-recover-from-P2002" convention `SalesOrder.idempotencyKey`'s own schema
+comment already documents elsewhere in this codebase, specialised here to a
+natural uniqueness check instead of a client-supplied key. Proven under genuine
+concurrency: two simultaneous opening-count submissions for the same
+location/product, exactly one succeeds.
+
+**`averageUnitCost` is always `0`** — there is no reliable cost basis for a manual
+physical count (brief: "Do not fabricate... where reliable evidence is missing").
+This is a deliberate, conservative simplification with a direct, useful
+consequence: opening stock recorded this way contributes nothing to inventory
+valuation (`quantityOnHand × 0 = 0`) until a later, COSTED movement (a `Transfer`
+FROM a costed warehouse location, §14.2) establishes a real cost at that location.
+See §14.5 and §14.6 below.
+
+A `WAREHOUSE` location may only record `ORGANISATION`-owned opening stock
+(`InventoryService.recordOpeningStock` rejects `CUSTOMER` ownership there) — the
+mirror of the invariant the database `CHECK` constraint already enforces for
+`locationType`/`outletId` pairing, now extended by application-layer validation to
+`locationType`/`ownership` pairing. A `CUSTOMER_LOCATION` may record either value.
+
+No historical sales order, dispatch, or fulfilment record is ever read to fabricate
+an opening count — every opening balance traces to an explicit, server-recorded,
+human-confirmed count, matching §13.4's reasoning exactly.
+
+### 14.4 Costing and valuation treatment
+
+Preserves the existing moving-weighted-average architecture completely — a
+transfer is explicitly NOT treated like a goods receipt (not a purchase, carries
+no new cost information of its own). The destination's new average cost is
+computed the same formula every increment-with-cost path in this codebase already
+uses, with the SOURCE's current `averageUnitCost` standing in for the "incoming
+unit cost" a goods receipt would otherwise supply:
+
+```
+newAverageCost = (destinationQty × destinationCost + transferQty × sourceCost)
+                 / (destinationQty + transferQty)
+```
+
+**A genuine concurrency improvement over the existing three increment-with-cost
+call sites, scoped only to this new path.** §13.7 flagged that
+`GoodsReceiptRepository`/`ProductionRunRepository`/`CustomerReturnRepository`'s
+read-then-upsert cost recompute carries a known, accepted, documented lost-update
+race under concurrent increments into the SAME `(organisation, product, location)`
+row, and asked Phase 2B to assess whether it becomes a hard prerequisite once
+`CUSTOMER_LOCATION` rows start accumulating real transferred stock. The answer: it
+would have, so the new transfer destination-increment does NOT reuse that
+read-then-upsert pattern. `incrementStockWithCostIfCompatible()`
+(`inventory-stock-concurrency.util.ts`) is a single atomic
+`INSERT ... ON CONFLICT ... DO UPDATE` statement — the entire read-prior-state,
+compute-new-weighted-average, write-new-state sequence happens against whatever row
+state Postgres has just locked, in one statement, closing the lost-update class of
+race for transfers specifically. Proven under genuine concurrency: two simultaneous
+transfers from two different sources into the same destination, both increments
+land, no total is lost. **The three pre-existing call sites are deliberately left
+exactly as they were** — retrofitting them was explicitly out of this phase's
+"smallest safe" scope and risked destabilising established, working warehouse
+operations for no requirement this phase actually has; see §14.6.
+
+No new revenue, COGS, or GL posting is ever produced by a transfer or an opening
+count — both are pure stock/ledger operations. Customer-owned stock is excluded
+from company valuation by construction, not by a special-cased filter: its
+`averageUnitCost` is always `0` from the moment it is recorded (opening count) or
+inherited (a transfer can only ever carry `CUSTOMER` ownership onward from a source
+that was already `CUSTOMER`-owned, which itself only ever got that way via an
+opening count — see §14.3).
+
+### 14.5 Permissions and audit
+
+Two new permissions (`inventory.transfer.create`, `inventory.transfer.reverse`),
+`NONE`-scope, matching the existing `inventory.adjustment.create`/
+`inventory.location.manage` convention — administrative mutations, organisation-
+wide the moment granted, no fabricated territory/location scope (this codebase's
+own `ASSIGNED_TERRITORY`/`ASSIGNED_RECORDS` scopes are honestly left unenforced
+wherever no server-side data actually links a user to a territory or outlet —
+exactly the existing `sales.order.view` precedent documented in
+`SalesOrderController`). Viewing a transfer or an outlet's stock reuses the
+existing `inventory.stock.view`; recording opening stock reuses
+`inventory.adjustment.create` — both are genuinely the same class of action as
+their existing permission already covers, so no new permission was added for
+either (brief §7: "Add new permissions only when necessary").
+
+Three new audit actions (`inventory.transfer.created`, `inventory.transfer.reversed`,
+`inventory.opening-stock.recorded`) — each recorded only on the operation it
+actually names, `wasCreated`-gated for transfer creation (an idempotent replay
+never re-emits an audit event, matching every other write path's convention).
+
+### 14.6 Known limitations
+
+- **The shared-`InventoryStock`-row risk between B2B and D2C Collection Point
+  fulfilment (§13.6) remains fully open.** Nothing in Phase 2B touches
+  `Outlet.inventoryLocationId` for either seeded Collection Point outlet —
+  confirmed unchanged by this phase's own regression tests.
+- **The Collection Point reversal/cancellation path (§13.6) remains missing.**
+  Unrelated to transfers; still a Phase 2C deliverable.
+- **No in-transit transfer state** (§14.2) — a transfer is atomic/instantaneous in
+  this system's model, never "dispatched but not yet received."
+- **No mixed ownership at one `(location, product)` pair** — if a location ever
+  genuinely needs to hold two different ownership/arrangement states of the SAME
+  product simultaneously (e.g. some consignment-arranged units alongside some
+  customer-owned units of the same SKU on the same outlet shelf), this schema
+  cannot represent it; `OwnershipMismatchError` rejects the attempt rather than
+  silently merging. Solving this, if ever required, needs a genuinely new design
+  (e.g. a separate ownership ledger at a finer grain than today's
+  `(organisation, product, location)` balance row) — not a wider enum.
+- **B2B SalesOrder fulfilment is not connected to outlet stock** (§14.2) — an
+  explicit, reported blocker, not an oversight.
+- **The increment-side costing concurrency gap is fixed ONLY for transfers**
+  (§14.4) — `GoodsReceiptRepository`/`ProductionRunRepository`/
+  `CustomerReturnRepository` still carry the original, documented race. Revisiting
+  those three remains open, unscoped work.
+- **No consignment drawdown, Collection Point consumption rule, commission, or
+  settlement** — `StockArrangement.CONSIGNMENT`/`.D2C_COLLECTION_POINT` remain
+  vocabulary only, exactly as §13.8 described; nothing in Phase 2B changes that.
+
+### 14.7 Separation from Phase 2C/3
+
+Nothing in Phase 2B reassigns a Collection Point's `inventoryLocationId`, changes
+the Sprint 42 Collection Point deduction path, implements a reservation/allocation
+concept, or introduces any new GL account or accounting treatment. The general
+transfer mechanism (§14.2) is intentionally generic — usable by a future Collection
+Point cutover without any Collection-Point-specific code existing yet — but no
+Collection-Point-specific workflow was activated. Phase 2C/3 remain exactly as
+scoped in the original audit.

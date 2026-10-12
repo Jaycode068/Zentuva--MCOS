@@ -6,6 +6,9 @@ import { PrismaService } from '../prisma/prisma.service';
 export interface ListInventoryTransactionsParams {
   productId?: string;
   transactionType?: InventoryTransactionType;
+  /** Added Phase 2B — narrow to one physical location's movement history (brief §5
+   *  "relevant stock movement history" for an Outlet). */
+  locationId?: string;
 }
 
 export type InventoryTransactionWithProduct = InventoryTransaction & {
@@ -31,6 +34,7 @@ export class InventoryTransactionRepository {
         organisationId,
         ...(params.productId ? { productId: params.productId } : {}),
         ...(params.transactionType ? { transactionType: params.transactionType } : {}),
+        ...(params.locationId ? { locationId: params.locationId } : {}),
       },
       include: { product: { select: { id: true, code: true, name: true, unit: true } } },
       orderBy: { createdAt: 'desc' },

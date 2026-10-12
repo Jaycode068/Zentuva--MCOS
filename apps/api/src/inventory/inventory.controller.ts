@@ -11,13 +11,19 @@ import {
   CreateGoodsReceiptInput,
   CreateInventoryAdjustmentInput,
   CreateInventoryLocationInput,
+  CreateInventoryTransferInput,
   CreateSupplierReturnInput,
+  RecordOpeningStockInput,
+  ReverseInventoryTransferInput,
   UpdateGoodsReceiptDiscrepancyInput,
   UpdateInventoryLocationInput,
   createGoodsReceiptSchema,
   createInventoryAdjustmentSchema,
   createInventoryLocationSchema,
+  createInventoryTransferSchema,
   createSupplierReturnSchema,
+  recordOpeningStockSchema,
+  reverseInventoryTransferSchema,
   updateGoodsReceiptDiscrepancySchema,
   updateInventoryLocationSchema,
 } from '@zentuva/validation';
@@ -32,10 +38,13 @@ import { PermissionsGuard } from '../identity/auth/guards/permissions.guard';
 import { TokenPayload } from '../identity/auth/ports/token.port';
 import { GoodsReceiptWithRelations } from './goods-receipt.repository';
 import {
+  CreateTransferResult,
   InventoryStockSummary,
   InventoryService,
+  OpeningStockResult,
   PurchaseOrderReceivingSummary,
   StockAdjustmentResult,
+  TransferSummary,
 } from './inventory.service';
 import { INVENTORY_AUDIT_ACTIONS } from './inventory-audit-actions';
 import { InventoryTransactionWithProduct } from './inventory-transaction.repository';
@@ -162,6 +171,151 @@ export class InventoryController {
     return location;
   }
 
+  /** Added Phase 2B (brief §5 "minimum useful view" for an Outlet's stock position) —
+   *  a thin convenience wrapper over the existing `GET /inventory?locationId=` filter,
+   *  scoped to one location and tenant-checked first so an unknown/cross-tenant id
+   *  404s instead of silently returning an empty list. No new read logic: reuses
+   *  `listStock` exactly as the top-level `list` route above already does. */
+  @Get('locations/:id/stock')
+  @RequirePermission('inventory.stock.view')
+  async getLocationStock(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
+    await this.inventoryService.getLocationOrThrow(user.organisationId, id);
+    const stock = await this.inventoryService.listStock(user.organisationId, { locationId: id });
+    return { items: stock.map(toStockResponse) };
+  }
+
+  /** Added Phase 2B (brief §6 "Opening Stock and Reconciliation"). See
+   *  `InventoryService.recordOpeningStock`'s own doc comment. Reuses the existing
+   *  `inventory.adjustment.create` permission — see the permission catalogue's own
+   *  comment on why no new permission was added for this action. */
+  @Post('locations/:id/opening-stock')
+  @RequirePermission('inventory.adjustment.create')
+  async recordOpeningStock(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(recordOpeningStockSchema)) body: RecordOpeningStockInput,
+    @CurrentUser() user: TokenPayload,
+    @Req() req: Request,
+  ) {
+    const result = await this.inventoryService.recordOpeningStock(
+      user.organisationId,
+      id,
+      body,
+      user.sub,
+    );
+
+    await this.auditService.record({
+      action: INVENTORY_AUDIT_ACTIONS.OPENING_STOCK_RECORDED,
+      entityType: 'InventoryStock',
+      entityId: result.productId,
+      organisationId: user.organisationId,
+      actorUserId: user.sub,
+      metadata: {
+        productId: result.productId,
+        productName: result.product.name,
+        locationId: result.location.id,
+        locationName: result.location.name,
+        quantity: result.quantity,
+        ownership: result.ownership,
+        arrangement: result.arrangement,
+      },
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+    });
+
+    return toOpeningStockResponse(result);
+  }
+
+  /** Added Phase 2B (brief §3). Route declared before the `:productId` wildcard, same
+   *  "literal segments first" rule as `locations`/`adjustments`/`transactions`. */
+  @Get('transfers')
+  @RequirePermission('inventory.stock.view')
+  async listTransfers(
+    @CurrentUser() user: TokenPayload,
+    @Query('productId') productId?: string,
+    @Query('locationId') locationId?: string,
+  ) {
+    const transfers = await this.inventoryService.listTransfers(user.organisationId, {
+      productId,
+      locationId,
+    });
+    return { items: transfers.map(toTransferResponse) };
+  }
+
+  @Get('transfers/:id')
+  @RequirePermission('inventory.stock.view')
+  async getTransfer(@CurrentUser() user: TokenPayload, @Param('id') id: string) {
+    const transfer = await this.inventoryService.getTransferById(user.organisationId, id);
+    return toTransferResponse(transfer);
+  }
+
+  @Post('transfers')
+  @RequirePermission('inventory.transfer.create')
+  async createTransfer(
+    @Body(new ZodValidationPipe(createInventoryTransferSchema)) body: CreateInventoryTransferInput,
+    @CurrentUser() user: TokenPayload,
+    @Req() req: Request,
+  ) {
+    const result = await this.inventoryService.createTransfer(user.organisationId, body, user.sub);
+
+    if (result.wasCreated) {
+      await this.auditService.record({
+        action: INVENTORY_AUDIT_ACTIONS.TRANSFER_CREATED,
+        entityType: 'InventoryTransfer',
+        entityId: result.id,
+        organisationId: user.organisationId,
+        actorUserId: user.sub,
+        metadata: {
+          transferNumber: result.transferNumber,
+          productId: result.product.id,
+          sourceLocationId: result.sourceLocation.id,
+          destinationLocationId: result.destinationLocation.id,
+          quantity: result.quantity,
+          ownership: result.ownership,
+          arrangement: result.arrangement,
+        },
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      });
+    }
+
+    return toTransferResponse(result);
+  }
+
+  @Post('transfers/:id/reverse')
+  @RequirePermission('inventory.transfer.reverse')
+  async reverseTransfer(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(reverseInventoryTransferSchema))
+    body: ReverseInventoryTransferInput,
+    @CurrentUser() user: TokenPayload,
+    @Req() req: Request,
+  ) {
+    const reversal = await this.inventoryService.reverseTransfer(
+      user.organisationId,
+      id,
+      body.notes,
+      user.sub,
+    );
+
+    await this.auditService.record({
+      action: INVENTORY_AUDIT_ACTIONS.TRANSFER_REVERSED,
+      entityType: 'InventoryTransfer',
+      entityId: reversal.id,
+      organisationId: user.organisationId,
+      actorUserId: user.sub,
+      metadata: {
+        transferNumber: reversal.transferNumber,
+        reversalOfTransferId: reversal.reversalOfTransferId,
+        productId: reversal.product.id,
+        quantity: reversal.quantity,
+      },
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+    });
+
+    return toTransferResponse(reversal);
+  }
+
   @Post('adjustments')
   @RequirePermission('inventory.adjustment.create')
   async createAdjustment(
@@ -201,10 +355,12 @@ export class InventoryController {
     @CurrentUser() user: TokenPayload,
     @Query('productId') productId?: string,
     @Query('transactionType') transactionType?: InventoryTransactionType,
+    @Query('locationId') locationId?: string,
   ) {
     const transactions = await this.inventoryService.listTransactions(user.organisationId, {
       productId,
       transactionType,
+      locationId,
     });
     return { items: transactions.map(toTransactionResponse) };
   }
@@ -519,6 +675,36 @@ function toStockResponse(stock: InventoryStockSummary) {
     quantityAvailable: stock.quantityAvailable,
     lastMovement: stock.lastMovement,
     updatedAt: stock.updatedAt,
+  };
+}
+
+function toTransferResponse(transfer: TransferSummary | CreateTransferResult) {
+  return {
+    id: transfer.id,
+    transferNumber: transfer.transferNumber,
+    product: transfer.product,
+    sourceLocation: transfer.sourceLocation,
+    destinationLocation: transfer.destinationLocation,
+    quantity: transfer.quantity,
+    ownership: transfer.ownership,
+    arrangement: transfer.arrangement,
+    status: transfer.status,
+    notes: transfer.notes,
+    reversalOfTransferId: transfer.reversalOfTransferId,
+    createdById: transfer.createdById,
+    createdAt: transfer.createdAt,
+  };
+}
+
+function toOpeningStockResponse(result: OpeningStockResult) {
+  return {
+    productId: result.productId,
+    product: result.product,
+    location: result.location,
+    quantity: result.quantity,
+    ownership: result.ownership,
+    arrangement: result.arrangement,
+    transactionId: result.transactionId,
   };
 }
 

@@ -213,6 +213,24 @@ invoices in one request — see [Finance](finance.md) §21.3 for the exact mecha
 constraints (allocations must sum to exactly the payment amount), and the
 `void()` reversal behaviour.
 
+### 9.4 Outlet inventory visibility (Phase 2B)
+
+An `Outlet` may now have a dedicated `InventoryLocation` of its own
+(`locationType: CUSTOMER_LOCATION`) — see [Inventory](inventory.md) §14 for the full
+design. This is a one-to-at-most-one relationship (`InventoryLocation.outletId` is
+database-unique): an `Outlet` either has no dedicated location yet, or has exactly
+one. Establishing it, viewing its stock, and moving stock into/out of it are all
+Inventory-domain actions (`inventory.location.manage`/`inventory.stock.view`/
+`inventory.transfer.create`/`inventory.adjustment.create`) — nothing was added to
+`sales.customer.manage`/`sales.customer.view`, and no new field was added to
+`Customer` or `Outlet` themselves. The relationship stays exactly where it already
+lived: `Outlet` is one join away from its `Customer`
+(`Outlet.customerId`, unchanged), and a dedicated location is one join away from
+its `Outlet` (`InventoryLocation.outletId`, new) — neither record duplicates the
+other's data. Collection Point outlets are unaffected: Phase 2B does not create,
+assign, or move any Collection Point to a dedicated location (that cutover remains
+Phase 2C, per Inventory §14.6/§14.7).
+
 ## 10. Known Limitations
 
 - No dedicated Sales Agent role — see §5.

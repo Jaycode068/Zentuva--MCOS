@@ -10,6 +10,7 @@ import { InventoryService } from './inventory.service';
 import { InventoryLocationRepository } from './inventory-location.repository';
 import { InventoryStockRepository } from './inventory-stock.repository';
 import { InventoryTransactionRepository } from './inventory-transaction.repository';
+import { InventoryTransferRepository } from './inventory-transfer.repository';
 import { SupplierReturnRepository } from './supplier-return.repository';
 import { SupplierReturnService } from './supplier-return.service';
 
@@ -48,6 +49,7 @@ import { SupplierReturnService } from './supplier-return.service';
     InventoryStockRepository,
     InventoryTransactionRepository,
     InventoryLocationRepository,
+    InventoryTransferRepository,
     InventoryService,
     SupplierReturnRepository,
     SupplierReturnService,

@@ -1,4 +1,6 @@
-import { Prisma } from '@prisma/client';
+import { randomUUID } from 'node:crypto';
+
+import { Prisma, StockArrangement, StockOwnership } from '@prisma/client';
 
 /**
  * Sprint 37.1 — Inventory Fulfillment Concurrency Integrity Hardening
@@ -154,6 +156,81 @@ export async function getCurrentQuantityOnHand(
     select: { quantityOnHand: true },
   });
   return stock?.quantityOnHand ?? 0;
+}
+
+export interface IncrementWithCostResult {
+  applied: boolean;
+  /** Only meaningful when `applied` is `false`: distinguishes "the destination already
+   *  holds this product under a DIFFERENT ownership/arrangement" (a deliberate reject —
+   *  see below) from any other reason the statement affected zero rows. */
+  ownershipMismatch: boolean;
+}
+
+/**
+ * Added Phase 2B (docs/customer-location-inventory-architecture-audit.md §11,
+ * docs/sprint-customer-location-inventory-phase-2b-completion-report.md) — the
+ * increment-with-moving-weighted-average-cost counterpart to
+ * `decrementStockIfAvailable` above, used ONLY by the new `InventoryTransfer` path (the
+ * three pre-existing increment-with-cost call sites —`GoodsReceiptRepository`,
+ * `ProductionRunRepository`, `CustomerReturnRepository` — are deliberately NOT migrated
+ * to this function; see this file's own top-of-file doc comment and the Phase 2B
+ * completion report's "Known Limitations" for why leaving them exactly as they were is
+ * the correct, smallest-safe choice).
+ *
+ * A single atomic `INSERT ... ON CONFLICT ... DO UPDATE` — the entire read-prior-state,
+ * compute-new-weighted-average, write-new-state sequence happens in ONE statement,
+ * evaluated against whatever row state Postgres has *just locked*, not a value read
+ * moments earlier in application code. Two concurrent transfers into the same
+ * `(organisation, product, location)` destination therefore serialize correctly on the
+ * row's own lock, exactly like `decrementStockIfAvailable`'s guarded `UPDATE` — this
+ * closes the lost-update class of race the three pre-existing call sites still carry
+ * (by design, out of this phase's scope) for every OTHER increment-with-cost path in
+ * this codebase.
+ *
+ * The `WHERE` clause on the `DO UPDATE` additionally makes the statement a safe no-op
+ * (`RETURNING` yields zero rows, nothing is written) when the destination already holds
+ * this product under a DIFFERENT `ownership`/`arrangement` than the one being
+ * transferred in — the application-layer guard against the "collapse into one balance"
+ * risk flagged in the Phase 2B brief §2.1, enforced atomically rather than via a
+ * separate, racy read-then-check-then-write.
+ */
+export async function incrementStockWithCostIfCompatible(
+  tx: Prisma.TransactionClient,
+  ref: StockLocationRef,
+  quantity: number,
+  unitCost: number,
+  ownership: StockOwnership,
+  arrangement: StockArrangement,
+): Promise<IncrementWithCostResult> {
+  const id = randomUUID();
+  const rows = await tx.$queryRaw<{ id: string }[]>`
+    INSERT INTO "inventory_stock"
+      ("id", "organisationId", "productId", "locationId", "quantityOnHand", "averageUnitCost", "ownership", "arrangement", "createdAt", "updatedAt")
+    VALUES
+      (${id}, ${ref.organisationId}, ${ref.productId}, ${ref.locationId}, ${quantity}, ${unitCost}, ${ownership}::"StockOwnership", ${arrangement}::"StockArrangement", now(), now())
+    ON CONFLICT ("organisationId", "productId", "locationId")
+    DO UPDATE SET
+      "quantityOnHand" = "inventory_stock"."quantityOnHand" + EXCLUDED."quantityOnHand",
+      "averageUnitCost" = CASE WHEN ("inventory_stock"."quantityOnHand" + EXCLUDED."quantityOnHand") > 0
+        THEN ("inventory_stock"."quantityOnHand" * "inventory_stock"."averageUnitCost" + EXCLUDED."quantityOnHand" * EXCLUDED."averageUnitCost") / ("inventory_stock"."quantityOnHand" + EXCLUDED."quantityOnHand")
+        ELSE 0 END,
+      "updatedAt" = now()
+    WHERE "inventory_stock"."ownership" = EXCLUDED."ownership" AND "inventory_stock"."arrangement" = EXCLUDED."arrangement"
+    RETURNING "id"
+  `;
+  if (rows.length > 0) {
+    return { applied: true, ownershipMismatch: false };
+  }
+  // Zero rows affected — either a genuine ownership/arrangement mismatch (the row
+  // exists under different values and the `DO UPDATE ... WHERE` excluded it) or some
+  // other reason; a follow-up read distinguishes the two rather than guessing.
+  const existing = await tx.inventoryStock.findUnique({
+    where: { organisationId_productId_locationId: ref },
+    select: { ownership: true, arrangement: true },
+  });
+  const mismatch =
+    !!existing && (existing.ownership !== ownership || existing.arrangement !== arrangement);
+  return { applied: false, ownershipMismatch: mismatch };
 }
 
 /**

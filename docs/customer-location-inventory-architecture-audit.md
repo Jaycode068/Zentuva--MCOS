@@ -25,8 +25,42 @@ brief's own stricter design guidance:
    hardcoding the first tenant's name into a reusable platform enum (Engineering
    Handbook Principle 2).
 
-Phase 2B and Phase 2C (§11) remain entirely unimplemented, exactly as this
-document's original Known-Limitations framing anticipated.
+**Phase 2B (§11's second phase) has since been implemented** — see
+[`docs/sprint-customer-location-inventory-phase-2b-completion-report.md`](sprint-customer-location-inventory-phase-2b-completion-report.md)
+for exactly what was built and the design refinements made during
+implementation:
+
+3. **The transfer's two `InventoryTransaction` legs use two distinct
+   `referenceType` strings** (`'TransferOut'`/`'TransferIn'`), not the single
+   shared string §13.5 of the Phase 2A completion report's own doc comment
+   anticipated — mirroring the established `RETURN` convention
+   (`'CustomerReturn'`/`'SupplierReturn'`) once the model was actually built,
+   which turned out to fit better than a shared string.
+4. **The §2.1 "collapse into one balance" risk is resolved at the application
+   layer, not by widening `InventoryStock`'s unique key.** This document's own
+   §7 table left the exact mechanism open; Phase 2B resolved it by rejecting
+   (not merging) any transfer or opening-stock write that would place a
+   different `ownership`/`arrangement` at a `(location, product)` pair that
+   already holds stock under a different one — enforced atomically inside the
+   same `INSERT ... ON CONFLICT ... DO UPDATE ... WHERE` that performs the
+   increment. `InventoryStock.@@unique([organisationId, productId, locationId])`
+   is unchanged.
+5. **The increment-side weighted-average-cost concurrency gap (§6, "the one
+   documented gap this audit does NOT recommend silently carrying forward") is
+   now fixed — but only for the new Transfer destination-increment path**, via
+   the same atomic `INSERT ... ON CONFLICT ... DO UPDATE` statement just
+   mentioned. The three pre-existing call sites
+   (`GoodsReceiptRepository`/`ProductionRunRepository`/
+   `CustomerReturnRepository`) were deliberately left unmodified — retrofitting
+   them was judged outside Phase 2B's "smallest safe" scope; see the completion
+   report's "Known Limitations."
+
+Phase 2C (§11) remains entirely unimplemented, exactly as this document's
+original Known-Limitations framing anticipated. The shared-`InventoryStock`-row
+risk between B2B and D2C Collection Point fulfilment (§3.3, §9) and the missing
+Collection Point reversal path (§3.2 item 7) both remain fully open — neither
+was in Phase 2B's scope, and Phase 2B's own regression tests confirm neither
+seeded Collection Point outlet's `Outlet.inventoryLocationId` changed.
 
 **Scope:** Requested as the pre-Phase-2 investigation into whether, and how,
 Zentuva can track stock at every registered customer outlet (including Collection
@@ -662,6 +696,19 @@ the least amount of proven supporting infrastructure.
   UI exposes the new fields yet; no behavioural change to any fulfilment path.
 
 ### Phase 2B — Customer Outlet Stock Tracking
+
+> **✅ Implemented.** See
+> [the Phase 2B completion report](sprint-customer-location-inventory-phase-2b-completion-report.md)
+> for full detail, test results, and reconciliation evidence. Shipped as a new
+> `InventoryTransfer` header model (not a widened `InventoryTransaction` or a
+> second balance authority) plus `InventoryStockRepository.recordOpeningStock()`
+> — see this document's own header addendum for the two refinements made
+> during implementation (the `referenceType` naming, and how the §2.1
+> ambiguity risk was actually resolved). The automatic "every B2B sale creates
+> customer-held stock" integration this section's own "Explicit exclusions"
+> already ruled out remains ruled out — connecting `SalesFulfilmentRepository`
+> to outlet stock requires an unreviewed ownership-transfer-timing decision,
+> reported as an open blocker rather than guessed at.
 
 - **Objective**: make it possible to record stock at a registered customer
   outlet, opt-in, for outlets where it has real business value (not every

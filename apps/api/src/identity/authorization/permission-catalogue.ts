@@ -170,6 +170,17 @@ export const PERMISSION_CATALOGUE: PermissionCatalogueEntry[] = [
   entry('inventory.adjustment.create', 'NONE', 'Record an inventory adjustment'),
   entry('inventory.location.manage', 'NONE', 'Create/edit inventory locations'),
   entry('inventory.supplier_return.create', 'NONE', 'Record a supplier return of received goods'),
+  // Phase 2B — Customer Outlet Stock Tracking & Transfers
+  // (docs/customer-location-inventory-architecture-audit.md §11, docs/sprint-customer-
+  // location-inventory-phase-2b-completion-report.md). Viewing a transfer reuses the
+  // existing `inventory.stock.view` (a transfer is just another lens on the same
+  // `InventoryStock`/`InventoryTransaction` data); recording opening stock reuses the
+  // existing `inventory.adjustment.create` (it IS a stock adjustment, see
+  // `InventoryStockRepository.recordOpeningStock`). Only the two mutations with no
+  // existing equivalent get new permissions, matching every other `NONE`-scope
+  // inventory write permission's convention.
+  entry('inventory.transfer.create', 'NONE', 'Create a stock transfer between locations'),
+  entry('inventory.transfer.reverse', 'NONE', 'Reverse a completed stock transfer'),
 
   // --- Production ---
   entry('production.order.view', 'SCOPABLE', 'View production orders'),

@@ -66,6 +66,14 @@ export class InventoryLocationRepository {
     return count > 0;
   }
 
+  /** Added Phase 2B (brief §4: "Do not create duplicate locations for an Outlet") — a
+   *  friendly, UX-only pre-check so a duplicate attempt gets a clear `400` instead of
+   *  a raw constraint-violation `500`; the database's own `@@unique([outletId])` is
+   *  the true authority against a concurrent race. */
+  findByOutletId(organisationId: string, outletId: string): Promise<InventoryLocation | null> {
+    return this.prisma.inventoryLocation.findFirst({ where: { organisationId, outletId } });
+  }
+
   /** Every organisation needs exactly one default location for Goods Receiving/Stock
    *  Adjustments to fall back to when the caller doesn't specify one (brief §17: "Do
    *  not break the existing Goods Receiving flow"). Rather than hooking this into
