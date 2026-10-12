@@ -1,5 +1,11 @@
 import { Injectable } from '@nestjs/common';
-import { InventoryTransactionType, InventoryTransfer, TransferStatus } from '@prisma/client';
+import {
+  InventoryTransactionType,
+  InventoryTransfer,
+  LocationType,
+  StockOwnership,
+  TransferStatus,
+} from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -50,6 +56,19 @@ export class InsufficientStockError extends Error {}
  *  `incrementStockWithCostIfCompatible`'s doc comment. Deliberately rejected, never
  *  silently merged. */
 export class OwnershipMismatchError extends Error {}
+
+/** Thrown when a transfer would bring non-`ORGANISATION` ownership into a `WAREHOUSE`
+ *  location — the same invariant `InventoryService.recordOpeningStock` already
+ *  enforces for opening counts (every pre-Phase-2A row, and every row a `WAREHOUSE`
+ *  can ever legitimately hold, is `ORGANISATION`-owned by construction), now also
+ *  enforced on the transfer path. Found during a Phase 2B post-implementation review:
+ *  without this check, a transfer into a `WAREHOUSE` location that had never before
+ *  held the given product would hit the `INSERT` branch of
+ *  `incrementStockWithCostIfCompatible` (no existing row to conflict with), silently
+ *  writing `CUSTOMER` ownership into a warehouse — a genuine gap, not a Phase 2C
+ *  concern, fixed here. Checked BEFORE the source decrement, so a rejected transfer
+ *  never partially applies. */
+export class WarehouseOwnershipViolationError extends Error {}
 
 /** Thrown when a transfer being reversed is not currently `COMPLETED` (already
  *  reversed, or a concurrent reversal attempt won the race). */
@@ -145,6 +164,24 @@ export class InventoryTransferRepository {
         );
       }
       const { ownership, arrangement, averageUnitCost: sourceCost } = sourceStock;
+
+      // Mirror of `InventoryService.recordOpeningStock`'s own "a WAREHOUSE location
+      // can only hold ORGANISATION-owned stock" invariant — checked here too, since a
+      // transfer is a second way `InventoryStock.ownership` can be set at a location
+      // (see `WarehouseOwnershipViolationError`'s own doc comment for the gap this
+      // closes). Checked before the decrement so a rejected transfer never partially
+      // applies.
+      if (ownership !== StockOwnership.ORGANISATION) {
+        const destinationLocation = await tx.inventoryLocation.findUnique({
+          where: { id: data.destinationLocationId },
+          select: { locationType: true },
+        });
+        if (destinationLocation?.locationType === LocationType.WAREHOUSE) {
+          throw new WarehouseOwnershipViolationError(
+            'A WAREHOUSE location can only hold ORGANISATION-owned stock; this transfer would bring non-organisation-owned stock into one',
+          );
+        }
+      }
 
       const decremented = await decrementStockIfAvailable(tx, sourceStockRef, data.quantity);
       if (!decremented) {

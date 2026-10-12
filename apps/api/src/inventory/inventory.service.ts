@@ -53,6 +53,7 @@ import {
   InventoryTransferWithRelations,
   OwnershipMismatchError,
   TransferNotReversibleError,
+  WarehouseOwnershipViolationError,
 } from './inventory-transfer.repository';
 
 const GOODS_RECEIPT_NUMBER_PREFIX = 'GRN';
@@ -595,6 +596,25 @@ export class InventoryService {
     );
     const previousQuantity = existing?.quantityOnHand ?? 0;
 
+    // Added during the Phase 2B post-implementation review (found alongside
+    // `WarehouseOwnershipViolationError`): without this check, this generic
+    // adjustment endpoint could establish a location's FIRST-EVER balance at a
+    // `CUSTOMER_LOCATION` with no ownership confirmation at all — the write path
+    // never asks, and `InventoryStockRepository.adjustStock`'s `upsert` would
+    // silently default a brand-new row to `ORGANISATION`/`WHOLESALE` regardless of
+    // the location's actual intended ownership. This is exactly the "unconfirmed
+    // opening balance" risk §6 of the Phase 2B brief required a controlled path for
+    // — `recordOpeningStock()` is that path; this endpoint must stay a CORRECTION
+    // mechanism for an already-established balance, never a backdoor to create one
+    // at a customer location. Ordinary corrections to an EXISTING balance (any
+    // location type) are unaffected — this only blocks creating a brand-new row at
+    // a `CUSTOMER_LOCATION`.
+    if (!existing && location.locationType === LocationType.CUSTOMER_LOCATION) {
+      throw new BadRequestException(
+        'This location has no recorded balance for this product yet. Use the opening-stock endpoint to establish it with an explicit ownership, not a general adjustment.',
+      );
+    }
+
     try {
       const result = await this.inventoryStockRepository.adjustStock({
         organisationId,
@@ -800,6 +820,9 @@ export class InventoryService {
       if (error instanceof OwnershipMismatchError) {
         throw new BadRequestException(error.message);
       }
+      if (error instanceof WarehouseOwnershipViolationError) {
+        throw new BadRequestException(error.message);
+      }
       throw error;
     }
   }
@@ -834,7 +857,8 @@ export class InventoryService {
       if (
         error instanceof TransferNotReversibleError ||
         error instanceof InsufficientStockError ||
-        error instanceof OwnershipMismatchError
+        error instanceof OwnershipMismatchError ||
+        error instanceof WarehouseOwnershipViolationError
       ) {
         throw new BadRequestException(error.message);
       }

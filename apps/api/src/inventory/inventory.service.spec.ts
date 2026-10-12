@@ -759,6 +759,55 @@ describe('InventoryService', () => {
         ),
       ).rejects.toThrow(NotFoundException);
     });
+
+    it('Phase 2B review finding: rejects establishing a brand-new balance at a CUSTOMER_LOCATION via the generic adjustment endpoint', async () => {
+      const { service, productRepository, inventoryLocationRepository, inventoryStockRepository } =
+        makeService();
+      productRepository.findById.mockResolvedValue(product);
+      inventoryLocationRepository.findById.mockResolvedValue({
+        ...defaultLocation,
+        id: 'loc-2',
+        locationType: 'CUSTOMER_LOCATION',
+        outletId: 'outlet-1',
+      });
+      inventoryStockRepository.findByProductAndLocation.mockResolvedValue(null);
+
+      await expect(
+        service.adjustStock(
+          'org-1',
+          { productId: 'product-1', locationId: 'loc-2', quantity: 10, reason: 'PHYSICAL_COUNT' },
+          'user-2',
+        ),
+      ).rejects.toThrow(BadRequestException);
+      expect(inventoryStockRepository.adjustStock).not.toHaveBeenCalled();
+    });
+
+    it('still allows an ordinary correction to an ALREADY-established CUSTOMER_LOCATION balance', async () => {
+      const { service, productRepository, inventoryLocationRepository, inventoryStockRepository } =
+        makeService();
+      productRepository.findById.mockResolvedValue(product);
+      inventoryLocationRepository.findById.mockResolvedValue({
+        ...defaultLocation,
+        id: 'loc-2',
+        locationType: 'CUSTOMER_LOCATION',
+        outletId: 'outlet-1',
+      });
+      inventoryStockRepository.findByProductAndLocation.mockResolvedValue({
+        quantityOnHand: 25,
+        location: { id: 'loc-2', name: 'Outlet Stock' },
+      } as never);
+      inventoryStockRepository.adjustStock.mockResolvedValue({
+        stock: { quantityOnHand: 20 } as never,
+        transaction: { id: 'txn-3' } as never,
+      });
+
+      const result = await service.adjustStock(
+        'org-1',
+        { productId: 'product-1', locationId: 'loc-2', quantity: -5, reason: 'DAMAGE' },
+        'user-2',
+      );
+      expect(result.newQuantity).toBe(20);
+    });
   });
 
   // ---------------------------------------------------------------------

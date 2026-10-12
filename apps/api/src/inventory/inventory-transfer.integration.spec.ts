@@ -11,6 +11,7 @@ import {
   InventoryTransferRepository,
   OwnershipMismatchError,
   TransferNotReversibleError,
+  WarehouseOwnershipViolationError,
 } from './inventory-transfer.repository';
 
 /**
@@ -520,6 +521,61 @@ describe('Phase 2B — Inventory Transfer & Opening Stock (real PostgreSQL)', ()
       });
       expect(destination.quantityOnHand).toBe(5);
       expect(destination.ownership).toBe('CUSTOMER');
+    });
+
+    it('rejects a transfer that would bring CUSTOMER-owned stock into a WAREHOUSE location that has never held the product before (post-implementation review finding)', async () => {
+      // Found during the Phase 2B post-implementation review: without an explicit
+      // check, this scenario would hit the INSERT branch of
+      // `incrementStockWithCostIfCompatible` (no existing destination row to conflict
+      // with) and silently write CUSTOMER ownership into a WAREHOUSE location —
+      // verified to actually happen before the fix, via a disposable script against
+      // this same database. `WarehouseOwnershipViolationError` now rejects it, and the
+      // source decrement must not have been applied either.
+      await stockRepository.recordOpeningStock({
+        organisationId,
+        productId: productBId,
+        locationId: outletLocationId,
+        quantity: 10,
+        ownership: 'CUSTOMER',
+        arrangement: 'WHOLESALE',
+        createdById: 'test-user',
+      });
+
+      await expect(
+        transferRepository.create({
+          organisationId,
+          transferNumber: nextRef('TRF-TEST'),
+          productId: productBId,
+          sourceLocationId: outletLocationId,
+          // `secondWarehouseLocationId` has never held productB — the INSERT branch,
+          // not the UPDATE/conflict branch, would otherwise run.
+          destinationLocationId: secondWarehouseLocationId,
+          quantity: 5,
+          createdById: 'test-user',
+        }),
+      ).rejects.toThrow(WarehouseOwnershipViolationError);
+
+      const source = await prisma.inventoryStock.findUniqueOrThrow({
+        where: {
+          organisationId_productId_locationId: {
+            organisationId,
+            productId: productBId,
+            locationId: outletLocationId,
+          },
+        },
+      });
+      expect(source.quantityOnHand).toBe(10);
+
+      const destination = await prisma.inventoryStock.findUnique({
+        where: {
+          organisationId_productId_locationId: {
+            organisationId,
+            productId: productBId,
+            locationId: secondWarehouseLocationId,
+          },
+        },
+      });
+      expect(destination).toBeNull();
     });
 
     it('concurrent transfers competing for the same limited source stock: the database never oversells', async () => {
