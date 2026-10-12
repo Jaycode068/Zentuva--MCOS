@@ -148,10 +148,11 @@ describes typical real-world timing, not a technical dependency Finance can enfo
   transaction reference), `notes`, `status` (`RECORDED`/`VOIDED`).
 - **Allocation model.** `Payment` has no direct `invoiceId` FK. A separate
   `PaymentAllocation` join table (`paymentId`, `invoiceId`, `amount`) links payments to
-  invoices. Sprint 6's `PaymentService.create()` always creates exactly **one**
-  allocation row per payment — single-invoice allocation only, explicitly a Sprint 6
-  limitation — but the schema already supports N allocations per payment with **zero
-  future migration**: multi-invoice allocation is a service-layer change only.
+  invoices. Sprint 6's `PaymentService.create()` originally always created exactly
+  **one** allocation row per payment; **Phase 1 — Customer Account Management**
+  (§21.3) widened this to N allocation rows per payment — exactly the "service-layer
+  change only, zero schema migration" extension this section used to predict. The
+  legacy single-`invoiceId` request shape remains fully supported, unchanged.
 - **Overpayment/void guards.** `amount` must be `> 0` and `<= amountOutstanding` at the
   target invoice (exact boundary: `amount === outstanding` succeeds, one cent more is
   rejected). Payment against a `VOID`/`DRAFT`/`PAID` invoice is rejected. `void()`
@@ -219,8 +220,10 @@ Math.round(v * 100) / 100` helper at every computed monetary value, and financia
 `PaymentTermType` is a closed enum (`CASH`/`DUE_ON_RECEIPT`/`NET_7`/`NET_14`/`NET_30`),
 not a tenant-configurable table — matching every other closed status-set in this
 codebase. A pure `PAYMENT_TERM_DAYS` map derives `dueDate = invoiceDate +
-paymentTermDays(paymentTerms)` server-side. No credit-management engine (customer
-credit limits, approval workflows, credit scoring) — explicitly deferred. Note:
+paymentTermDays(paymentTerms)` server-side. **Updated Phase 1:** a warning-only
+customer credit limit now exists (§21.4) — but no credit-management _engine_ in the
+fuller sense (approval workflows, credit holds, credit scoring) — those remain
+explicitly deferred. Note:
 `DUE_ON_RECEIPT` maps to 0 days, so `dueDate === invoiceDate`; because dates carry no
 time-of-day granularity beyond the calendar boundary, a `DUE_ON_RECEIPT` invoice
 becomes technically overdue (via the lazy sweep) any time after midnight on its issue
@@ -314,45 +317,47 @@ credit note back to the `CustomerReturn` that issued it. See `accounting.md`
 
 ## 10. API Reference
 
-| Endpoint                                     | Auth                | Notes                                         |
-| -------------------------------------------- | ------------------- | --------------------------------------------- |
-| `GET /api/finance/eligible-sales-orders`     | Any authenticated   | `FULFILLED`, no non-`VOID` invoice yet        |
-| `GET /api/finance/invoices`                  | Any authenticated   | `?status=&customerId=&salesOrderId=&search=`  |
-| `GET /api/finance/invoices/:id`              | Any authenticated   |                                               |
-| `POST /api/finance/invoices`                 | Owner/Administrator | Create from an eligible Sales Order           |
-| `POST /api/finance/invoices/:id/issue`       | Owner/Administrator | `DRAFT → ISSUED`                              |
-| `POST /api/finance/invoices/:id/void`        | Owner/Administrator | Guarded per §3                                |
-| `GET /api/finance/invoices/:id/payments`     | Any authenticated   | Drill-down                                    |
-| `GET /api/finance/invoices/:id/credit-notes` | Any authenticated   | Drill-down                                    |
-| `GET /api/finance/payments`                  | Any authenticated   | `?customerId=&invoiceId=`                     |
-| `GET /api/finance/payments/:id`              | Any authenticated   |                                               |
-| `POST /api/finance/payments`                 | Owner/Administrator | Atomic, idempotent, single-invoice allocation |
-| `POST /api/finance/payments/:id/void`        | Owner/Administrator | Reverses the cumulative increment             |
-| `GET /api/finance/credit-notes`              | Any authenticated   | `?customerId=&invoiceId=`                     |
-| `GET /api/finance/credit-notes/:id`          | Any authenticated   |                                               |
-| `POST /api/finance/credit-notes`             | Owner/Administrator | Creates `DRAFT`, no side effects yet          |
-| `POST /api/finance/credit-notes/:id/issue`   | Owner/Administrator | `DRAFT → ISSUED`, applies the credit          |
-| `POST /api/finance/credit-notes/:id/void`    | Owner/Administrator | Reverses if it had been `ISSUED`              |
-| `GET /api/finance/receivables/summary`       | Any authenticated   | Org-wide AR aggregate (Overview cards)        |
-| `GET /api/finance/receivables/by-customer`   | Any authenticated   | Per-customer AR rows                          |
-| `GET /api/finance/receivables/customers/:id` | Any authenticated   | Single customer's balance                     |
+| Endpoint                                     | Auth                | Notes                                                                                       |
+| -------------------------------------------- | ------------------- | ------------------------------------------------------------------------------------------- |
+| `GET /api/finance/eligible-sales-orders`     | Any authenticated   | `FULFILLED`, no non-`VOID` invoice yet                                                      |
+| `GET /api/finance/invoices`                  | Any authenticated   | `?status=&customerId=&salesOrderId=&search=`                                                |
+| `GET /api/finance/invoices/:id`              | Any authenticated   |                                                                                             |
+| `POST /api/finance/invoices`                 | Owner/Administrator | Create from an eligible Sales Order                                                         |
+| `POST /api/finance/invoices/:id/issue`       | Owner/Administrator | `DRAFT → ISSUED`                                                                            |
+| `POST /api/finance/invoices/:id/void`        | Owner/Administrator | Guarded per §3                                                                              |
+| `GET /api/finance/invoices/:id/payments`     | Any authenticated   | Drill-down                                                                                  |
+| `GET /api/finance/invoices/:id/credit-notes` | Any authenticated   | Drill-down                                                                                  |
+| `GET /api/finance/payments`                  | Any authenticated   | `?customerId=&invoiceId=`                                                                   |
+| `GET /api/finance/payments/:id`              | Any authenticated   |                                                                                             |
+| `POST /api/finance/payments`                 | Owner/Administrator | Atomic, idempotent; accepts a single `invoiceId` or a multi-invoice `allocations[]` (§21.3) |
+| `POST /api/finance/payments/:id/void`        | Owner/Administrator | Reverses the cumulative increment                                                           |
+| `GET /api/finance/credit-notes`              | Any authenticated   | `?customerId=&invoiceId=`                                                                   |
+| `GET /api/finance/credit-notes/:id`          | Any authenticated   |                                                                                             |
+| `POST /api/finance/credit-notes`             | Owner/Administrator | Creates `DRAFT`, no side effects yet                                                        |
+| `POST /api/finance/credit-notes/:id/issue`   | Owner/Administrator | `DRAFT → ISSUED`, applies the credit                                                        |
+| `POST /api/finance/credit-notes/:id/void`    | Owner/Administrator | Reverses if it had been `ISSUED`                                                            |
+| `GET /api/finance/receivables/summary`       | Any authenticated   | Org-wide AR aggregate (Overview cards)                                                      |
+| `GET /api/finance/receivables/by-customer`   | Any authenticated   | Per-customer AR rows                                                                        |
+| `GET /api/finance/receivables/customers/:id` | Any authenticated   | Single customer's balance                                                                   |
 
 ## 11. Known Limitations
 
-- **Single-invoice payment allocation.** A payment always settles exactly one invoice
-  this sprint. The `PaymentAllocation` join table already supports N invoices per
-  payment; extending to multi-invoice allocation or unapplied customer credit is a
-  service-layer change only, requiring no schema migration.
-  `GET /api/finance/receivables/aging` (Sprint 13, §13) now provides
-  Current/1-30/31-60/61-90/90+ buckets — this limitation is about allocation, not aging.
+- **Single-invoice payment allocation — resolved, Phase 1.** A payment can now settle
+  multiple invoices in one request (§21.3). What remains genuinely unsupported:
+  unapplied/unallocated customer credit (a "customer advance" with no invoice at
+  all) — still a service-layer change away, but requires a new suspense/liability
+  system account this codebase does not yet have, so it is deliberately not built.
+  `GET /api/finance/receivables/aging` (Sprint 13, §13) continues to provide
+  Current/1-30/31-60/61-90/90+ buckets, unaffected by this change.
 - **`OVERDUE` collapses `PARTIALLY_PAID`.** See §3 — an overdue invoice's status label
   does not distinguish "nothing paid" from "partially paid"; the underlying
   `amountPaid`/`amountOutstanding` figures remain fully accurate regardless.
 - **No `CreditNoteItem` line detail** — a single flat `amount` per credit note, even
   when Sprint 11's `CustomerReturn` issues one for a multi-line return (the sum across
   every returned line, not a breakdown).
-- **No sophisticated credit management** — no customer credit limits, approval
-  workflows, or credit scoring.
+- **No sophisticated credit management.** A warning-only customer credit limit now
+  exists (Phase 1, §21.4) — but still no approval workflows, credit holds, or credit
+  scoring, and no order/invoice/payment creation path is blocked by it.
 - **No Nigerian bank/payment-gateway integration** — Payments are a manual
   record-entry foundation (Cash/Bank Transfer/POS/Other), not a live payment rail.
 - **No General Ledger / accounting** — see §9.
@@ -976,3 +981,150 @@ the full statement. Zentuva Finance should not expand further (payroll,
 tax filing, advanced treasury, multi-currency, IFRS, consolidation,
 fixed-asset depreciation, portfolio trading) without a new, deliberate
 roadmap decision.
+
+## 21. Customer Account Management (Phase 1) — Credit Limits, Statements & Multi-Invoice Allocation
+
+Not a Finance expansion in the sense §20 warns against — no new Finance subsystem,
+no new accounting entries, no new permission module beyond one narrow addition
+(§21.4). This section documents how the Customer-domain-owned Customer Account page
+(see [Customers](customers.md) §9) is built entirely on top of Finance's existing
+`AccountsReceivableService`/`InvoiceRepository`/`PaymentRepository`/
+`CreditNoteRepository` — see
+[`docs/sprint-customer-account-phase-1-completion-report.md`](../sprint-customer-account-phase-1-completion-report.md)
+for the authoritative record of what shipped, test results, and live-verification
+evidence.
+
+### 21.1 Authoritative source of customer receivables
+
+Unchanged from §3's "Accounts Receivable" description: `AccountsReceivableService`
+remains the single authoritative source for a customer's outstanding balance.
+`getCustomerBalance()` (always "right now," from `Invoice`'s own running
+`amountPaid`/`amountCredited`) is reused as-is for the Customer Account Overview's
+"Current Outstanding"/"Overdue" figures and for the credit-exposure calculation
+(§21.4) — no second balance-calculation engine was introduced anywhere in Phase 1.
+
+### 21.2 Customer Statement — calculation and its one documented limitation
+
+A new method, `AccountsReceivableService.getCustomerBalanceAsOf(organisationId,
+customerId, asOf)`, re-derives a customer's balance from the underlying **dated**
+`Invoice`/`PaymentAllocation`/`CreditNote` rows (`invoiceDate`/`paymentDate`/
+`creditNoteDate` each compared against `asOf`), rather than from `Invoice`'s
+always-current `amountPaid`/`amountCredited` aggregates. `CustomerStatementReportService`
+(`apps/api/src/reporting/reports/customer-statement-report.service.ts`) calls this
+method twice — once at the period's start (`openingBalance`) and once at its end
+(`closingBalance`) — then independently builds the chronological line-item list and
+walks a running balance from the opening figure. Both numbers are exposed under
+`reconciliation: { lineBasedClosingBalance, authoritativeClosingBalance }`, and they
+agree by construction for any well-formed dataset — verified both by unit test
+(`customer-statement-report.service.spec.ts`) and against real seeded data (real
+closing balance ₦1,407,000.00 reconciled exactly across the Overview tab, the
+Invoices tab's own sum, and the statement's own CSV export).
+
+**Documented limitation — historical point-in-time accuracy after a later void.**
+Verified directly against the implementation (both `getCustomerBalanceAsOf()` and
+`CustomerStatementReportService`'s own line-item queries): every query filters by
+**current** status —
+`Invoice.status: { not: VOID }`, `Payment.status: { not: VOIDED }`,
+`CreditNote.status: ISSUED` — never by what that status _was_ on the date in
+question. Neither method is passed, nor consults, any record of a transaction's
+status history.
+
+The concrete consequence: if an invoice, payment, or credit note dated **within** a
+given statement period is voided **at any later time** — whether before or after the
+statement is actually generated — regenerating that same statement will silently
+omit that transaction's line entirely, and every running-balance figure after it
+shifts accordingly. This is true even if the statement is regenerated for a period
+that has long since closed. The void is applied retroactively to every historical
+statement that covers it; there is no reversal entry dated at the time of the void,
+because this schema has no event log capable of reconstructing "what this
+transaction's status was as of an earlier date."
+
+**What this does and does not affect:**
+
+- The **closing balance** for _today_ (or any `asOf` not preceded by a later void)
+  is unaffected and remains fully authoritative — it already reflects the current,
+  correct state of every invoice/payment/credit note, which is the only state this
+  schema has ever claimed to track.
+- The **historical transaction-line reproduction** is the limited part: a statement
+  regenerated for a past period, after something dated in that period was
+  subsequently voided, will not necessarily match a statement that was generated (or
+  that could have been generated) for that same period before the void happened.
+- This is **not** a defect in the balance arithmetic itself (§21.1's reconciliation
+  identity still holds for whatever the current, post-void state is) — it is a gap
+  in historical reproducibility specifically.
+
+**Operational guidance:** do not treat a regenerated statement for a past period as
+a guaranteed byte-for-byte reproduction of what that period's statement showed
+before any subsequent void. If a transaction dated in that period has since been
+voided, the regenerated statement will reflect its absence, not its original
+presence. No snapshot, append-only ledger, or point-in-time reconstruction exists to
+close this gap — recording it here for future prioritisation, not attempting to
+solve it in this phase.
+
+### 21.3 Multi-invoice payment allocation
+
+`createPaymentSchema` (`packages/validation/src/finance.ts`) now accepts **either**
+the original single `invoiceId` **or** a new `allocations: [{invoiceId, amount}]`
+array — mutually exclusive on one request, enforced by the schema's own refinement.
+`PaymentRepository.create()`/`.void()` (`apps/api/src/finance/payment.repository.ts`)
+were widened accordingly:
+
+- **Constraint, deliberate**: allocation amounts must sum to **exactly** the
+  payment's total amount. This is not an arbitrary restriction — it preserves the
+  pre-existing invariant exactly (the original single-invoice path always applied
+  100% of the payment to its one target invoice); Phase 1 only widens that same
+  100%-applied rule across multiple invoices. A genuinely **unapplied/partial
+  advance payment** (money received with no invoice, or less than fully allocated)
+  remains unsupported, because it would require a new suspense or customer-deposit
+  **system account** in the Chart of Accounts that does not exist today — adding one
+  is a real accounting-design decision, deliberately left for a future phase rather
+  than invented here.
+- **Validation** (checked twice — a fast-fail pre-check in `PaymentService.create()`,
+  then re-verified inside the repository's own atomic transaction): every
+  allocation's target invoice must belong to the same organisation **and** the same
+  customer as every other allocation on the request, must be in a payable status,
+  and must not be allocated beyond its own remaining outstanding balance. Any
+  failure rolls back the entire payment — no partial application.
+- **The journal posting is unchanged in shape.** One balanced `DR Cash-or-Bank / CR
+Accounts Receivable` entry is still posted for the full payment amount, in the
+  same transaction as the `Payment`/`PaymentAllocation` writes (§9's existing
+  guarantee). Multi-invoice allocation only changes how many `Invoice.amountPaid`
+  rows get incremented inside that one transaction — never how the GL entry itself
+  is structured, and never a second journal entry.
+- **`void()` reverses every allocation**, not just the first. The original
+  single-invoice `void()` only ever read `allocations[0]`; Phase 1 widened it to
+  loop over the full `allocations` array, decrementing each target invoice's
+  `amountPaid` and recomputing each invoice's status independently. Live-verified:
+  a real two-invoice payment was voided and both invoices reverted to their exact
+  pre-payment balances.
+- **Concurrency**: a real-PostgreSQL integration test fires two genuinely concurrent
+  payment-creation requests against the same invoice, together exceeding its
+  outstanding balance, and passed consistently (no over-allocation) across repeated
+  runs. Its own doc comment records an honest caveat, reproduced here: the
+  underlying write pattern (`tx.invoice.update()` keyed by id, not `SELECT ... FOR
+UPDATE`) is unchanged from this codebase's pre-existing single-invoice path — a
+  true adversarial lost-update race was not mathematically eliminated, only shown
+  empirically safe, consistent with how this codebase's Invoice-mutation paths have
+  always worked.
+
+### 21.4 Credit limits — storage and warning-only exposure, no second AR engine
+
+`Customer.creditLimit` (see [Customers](customers.md) §2) is a plain nullable
+column on the existing `Customer` row — not a new table, not a new domain. Its only
+consumer is `CustomerAccountReportService.buildCreditExposure()`
+(`apps/api/src/reporting/reports/customer-account-report.service.ts`), which combines
+it with `AccountsReceivableService.getCustomerBalance()`'s existing
+`totalOutstanding` figure at **read time only**:
+
+```
+availableCredit = creditLimit - totalOutstanding          // null if creditLimit is null
+status: NO_LIMIT | WITHIN_LIMIT | APPROACHING_LIMIT (>= 80% of limit) | AT_OR_OVER_LIMIT (>= limit)
+```
+
+No new balance is stored, computed in advance, or cached — the exposure figure is
+recalculated from the same two existing numbers on every page load. Confirmed by
+inspection: no Sales Order, Invoice, or Payment creation code path reads
+`Customer.creditLimit` — the limit cannot block or delay any existing workflow,
+only display a warning on the Customer Account page itself (see
+[Customers](customers.md) §9.2 for the permission and audit trail governing changes
+to the limit).
