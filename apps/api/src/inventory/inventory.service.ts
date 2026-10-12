@@ -4,6 +4,7 @@ import {
   DiscrepancyResolutionAction,
   DiscrepancyStatus,
   LocationStatus,
+  LocationType,
   ProductStatus,
   ProductType,
   PurchaseOrderStatus,
@@ -140,6 +141,10 @@ export interface InventoryLocationSummary {
   status: LocationStatus;
   isDefault: boolean;
   productCount: number;
+  /** Added Phase 2A — docs/customer-location-inventory-architecture-audit.md §7. */
+  locationType: LocationType;
+  /** Added Phase 2A. `null` for every location except a `CUSTOMER_LOCATION`. */
+  outletId: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -577,6 +582,8 @@ export class InventoryService {
       status: row.status,
       isDefault: row.isDefault,
       productCount: row.productCount,
+      locationType: row.locationType,
+      outletId: row.outletId,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
     }));
@@ -585,7 +592,17 @@ export class InventoryService {
   /** `POST /api/inventory/locations` — Owner/Administrator only (enforced by
    *  `RolesGuard` at the controller). Every organisation's first location is created
    *  lazily as the default on first actual use rather than here; this endpoint is for
-   *  additional locations, always starting `ACTIVE`. */
+   *  additional locations, always starting `ACTIVE`.
+   *
+   *  Widened Phase 2A (docs/customer-location-inventory-architecture-audit.md §7) to
+   *  accept an optional `locationType`/`outletId` pair. This does NOT automatically
+   *  create, assign, or migrate any Collection Point or live stock — it only lets an
+   *  operator explicitly create a NEW, empty `CUSTOMER_LOCATION` associated with an
+   *  existing outlet, the capability the audit's §7 recommended establishing now
+   *  without yet building any operational workflow around it (Phase 2B/2C). The
+   *  mutual-exclusion rule is re-validated here (UX-only fast-fail, same convention as
+   *  every other such pre-check in this codebase) even though `createInventoryLocationSchema`
+   *  already enforces it and the database `CHECK` constraint is the true authority. */
   async createLocation(
     organisationId: string,
     input: CreateInventoryLocationInput,
@@ -597,11 +614,30 @@ export class InventoryService {
     // with two non-default locations and no default at all.
     await this.inventoryLocationRepository.getOrCreateDefault(organisationId, actorUserId);
 
+    const locationType = input.locationType ?? LocationType.WAREHOUSE;
+    if (locationType === LocationType.CUSTOMER_LOCATION && !input.outletId) {
+      throw new BadRequestException('A CUSTOMER_LOCATION requires an outletId');
+    }
+    if (locationType === LocationType.WAREHOUSE && input.outletId) {
+      throw new BadRequestException('A WAREHOUSE location must not have an outletId');
+    }
+    if (input.outletId) {
+      const exists = await this.inventoryLocationRepository.outletExists(
+        organisationId,
+        input.outletId,
+      );
+      if (!exists) {
+        throw new BadRequestException('Outlet not found');
+      }
+    }
+
     const created = await this.inventoryLocationRepository.create({
       organisation: { connect: { id: organisationId } },
       name: input.name,
       status: LocationStatus.ACTIVE,
       isDefault: false,
+      locationType,
+      ...(input.outletId ? { outlet: { connect: { id: input.outletId } } } : {}),
       createdById: actorUserId,
       updatedById: actorUserId,
     });
@@ -611,6 +647,8 @@ export class InventoryService {
       status: created.status,
       isDefault: created.isDefault,
       productCount: 0,
+      locationType: created.locationType,
+      outletId: created.outletId,
       createdAt: created.createdAt,
       updatedAt: created.updatedAt,
     };
@@ -652,6 +690,8 @@ export class InventoryService {
       status: updated.status,
       isDefault: updated.isDefault,
       productCount: withCount?.productCount ?? 0,
+      locationType: updated.locationType,
+      outletId: updated.outletId,
       createdAt: updated.createdAt,
       updatedAt: updated.updatedAt,
     };

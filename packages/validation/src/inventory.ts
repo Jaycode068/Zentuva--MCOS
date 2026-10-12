@@ -118,18 +118,49 @@ export type UpdateGoodsReceiptDiscrepancyInput = z.infer<
 export const locationStatusSchema = z.enum(['ACTIVE', 'INACTIVE']);
 export type LocationStatusInput = z.infer<typeof locationStatusSchema>;
 
-/** `POST /api/inventory/locations` (Sprint 4.5 brief §16/§20). Every organisation's
- *  first location is auto-created as the default "Main Warehouse" on first use
- *  (`InventoryLocationRepository.getOrCreateDefault`) — this schema is for
- *  Owner/Administrator-created *additional* locations, always starting `ACTIVE`. */
-export const createInventoryLocationSchema = z.object({
-  name: z.string().trim().min(1, 'Location name is required').max(200),
-});
+/** Added Phase 2A — Customer-Location Inventory Foundation
+ *  (docs/customer-location-inventory-architecture-audit.md §5/§7). Mirrors the Prisma
+ *  `LocationType` enum. */
+export const locationTypeSchema = z.enum(['WAREHOUSE', 'CUSTOMER_LOCATION']);
+export type LocationTypeInput = z.infer<typeof locationTypeSchema>;
+
+/** `POST /api/inventory/locations` (Sprint 4.5 brief §16/§20, widened Phase 2A). Every
+ *  organisation's first location is auto-created as the default "Main Warehouse" on
+ *  first use (`InventoryLocationRepository.getOrCreateDefault`) — this schema is for
+ *  Owner/Administrator-created *additional* locations, always starting `ACTIVE`.
+ *  `locationType`/`outletId` are new, both optional (omitting either yields today's
+ *  unchanged `WAREHOUSE`, no-outlet behaviour) — but once either is supplied, the pair
+ *  must obey the same mutual-exclusion rule enforced at the database level (a
+ *  `CUSTOMER_LOCATION` requires `outletId`; a `WAREHOUSE` must not carry one).
+ *  Phase 2A deliberately does NOT accept either field on update — see
+ *  `updateInventoryLocationSchema`'s own doc comment. */
+export const createInventoryLocationSchema = z
+  .object({
+    name: z.string().trim().min(1, 'Location name is required').max(200),
+    locationType: locationTypeSchema.optional(),
+    outletId: z.string().trim().min(1).optional(),
+  })
+  .refine(
+    (data) => {
+      const type = data.locationType ?? 'WAREHOUSE';
+      return type === 'CUSTOMER_LOCATION' ? !!data.outletId : !data.outletId;
+    },
+    {
+      message:
+        'A CUSTOMER_LOCATION requires an outletId; a WAREHOUSE (the default) must not have one',
+      path: ['outletId'],
+    },
+  );
 export type CreateInventoryLocationInput = z.infer<typeof createInventoryLocationSchema>;
 
 /** `PATCH /api/inventory/locations/:id` — rename and/or deactivate/reactivate. No
  *  delete (brief §16/§20: "Do not allow deleting locations that already have inventory
- *  history"). */
+ *  history"). Deliberately does NOT accept `locationType`/`outletId` (Phase 2A,
+ *  docs/customer-location-inventory-architecture-audit.md §7) — both are set only at
+ *  creation. Allowing either to change after a location may already hold stock would
+ *  silently reclassify that stock's meaning (e.g. turning already-counted warehouse
+ *  stock into "customer location" stock with no corresponding physical event) — exactly
+ *  the kind of risk Phase 2A's own brief says to stop and flag rather than guess past. */
 export const updateInventoryLocationSchema = z.object({
   name: z.string().trim().min(1, 'Location name is required').max(200).optional(),
   status: locationStatusSchema.optional(),

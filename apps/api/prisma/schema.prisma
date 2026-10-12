@@ -1021,6 +1021,29 @@ model InventoryLocation {
   /// `InventoryLocationRepository`/`InventoryLocationService`, not a database
   /// constraint (Prisma has no native "at most one true per group" constraint).
   isDefault      Boolean        @default(false)
+  /// Added Phase 2A — Customer-Location Inventory Foundation
+  /// (docs/customer-location-inventory-architecture-audit.md §5/§7). Every row created
+  /// before this phase is, and remains, `WAREHOUSE` — definitionally correct, since no
+  /// other kind of location existed until now. Distinct from (never inferred from)
+  /// `outletId` below, `InventoryStock.ownership`, or `InventoryStock.arrangement` — see
+  /// the audit's own "three independent dimensions" model. Set only at creation time
+  /// (service-enforced, not accepted on `PATCH`) — changing a location's type after it
+  /// already holds stock would silently reclassify that stock's meaning, which this
+  /// phase deliberately does not allow.
+  locationType   LocationType   @default(WAREHOUSE)
+  /// Added Phase 2A. Nullable — most locations (every one today) have no outlet
+  /// association at all. Enforced by a database `CHECK` constraint (see the migration)
+  /// to always pair with `locationType`: `WAREHOUSE` ⇒ `NULL`, `CUSTOMER_LOCATION` ⇒
+  /// required. Deliberately `outletId`, not `customerId` — an outlet is the precise,
+  /// unambiguous physical place this location represents; the owning `Customer` is one
+  /// join away via `Outlet.customerId` and is never duplicated here. This is the
+  /// REVERSE direction from the existing `Outlet.inventoryLocationId` bridge (Sprint
+  /// 37) — that FK says "where does this outlet's Collection Point draw stock FROM"
+  /// (often a shared warehouse); this FK says "this location physically IS/represents
+  /// this outlet's own premises." The two are independent and may both be unset, both
+  /// set to unrelated things, or (once Phase 2C exists) eventually point at each other
+  /// — Phase 2A creates the column only; nothing yet sets it outside a test fixture.
+  outletId       String?
   createdById    String?
   updatedById    String?
   createdAt      DateTime       @default(now())
@@ -1043,13 +1066,30 @@ model InventoryLocation {
   customerReturns  CustomerReturn[]
   supplierReturns  SupplierReturn[]
   /// Added Sprint 37 — Collection Point Fulfillment (docs/domains/d2c.md). The audited
-  /// bridge to `Outlet`: several Collection Points may share one location, so this is
-  /// deliberately a one-to-many, not one-to-one.
-  outlets          Outlet[]
+  /// bridge FROM `Outlet` (several Collection Points may share one location, so this is
+  /// deliberately a one-to-many, not one-to-one) — see `outletId` above for the
+  /// opposite-direction, Phase 2A bridge TO `Outlet`. Explicitly named to disambiguate
+  /// from that second relation between these same two models.
+  outlets          Outlet[]               @relation("CollectionPointSourceLocation")
+  /// Added Phase 2A — the reverse side of `outletId` above.
+  outlet           Outlet?                @relation("InventoryLocationOutlet", fields: [outletId], references: [id], onDelete: SetNull)
 
   @@index([organisationId])
   @@index([organisationId, status])
+  @@index([outletId])
   @@map("inventory_locations")
+}
+
+/// Added Phase 2A — Customer-Location Inventory Foundation (docs/customer-location-
+/// inventory-architecture-audit.md §5/§7). The first of two deliberately SEPARATE
+/// classification dimensions this phase adds (the other being `StockOwnership`/
+/// `StockArrangement` on `InventoryStock`) — physical location, who owns stock sitting
+/// there, and why it's there are three independent axes, never conflated into one
+/// field. `WAREHOUSE` is the default and the only value every pre-Phase-2A row has ever
+/// had or will ever get without an explicit, deliberate choice at creation time.
+enum LocationType {
+  WAREHOUSE
+  CUSTOMER_LOCATION
 }
 
 /// `Supplier`/`Product` both use `ACTIVE`/`INACTIVE` for the same "usable vs. retired,
@@ -1300,6 +1340,29 @@ model InventoryStock {
   /// information. `@default(0)` — a product with no valued receipt yet has no known
   /// cost.
   averageUnitCost  Float    @default(0)
+  /// Added Phase 2A — Customer-Location Inventory Foundation (docs/customer-location-
+  /// inventory-architecture-audit.md §5/§7). WHO owns this stock position — distinct
+  /// from, and never inferred from, `location.locationType`: a `CUSTOMER_LOCATION` does
+  /// NOT imply `CUSTOMER` ownership (consignment stock at a customer's premises stays
+  /// `ORGANISATION`-owned), and a `WAREHOUSE` location is always `ORGANISATION`-owned by
+  /// construction. `@default(ORGANISATION)` is definitionally correct for every
+  /// pre-Phase-2A row — under the prior architecture, no other kind of ownership could
+  /// exist. Deliberately named `ORGANISATION`, not a hardcoded tenant name (Handbook
+  /// Principle 2: "Boby Bites is the first tenant — not the only tenant"). Granularity:
+  /// one value per `(organisation, product, location)` row, same grain as
+  /// `averageUnitCost` — NOT per-batch/per-unit. This is a deliberate Phase 2A
+  /// simplification, safe because Phase 2A creates no location where mixed ownership of
+  /// the same product could ever occur; if Phase 2B/2C later needs two different
+  /// ownership states for the same product at the same location simultaneously, THAT
+  /// will require a genuinely new design (e.g. a separate ownership ledger), not a
+  /// wider enum here — see the Phase 2A completion report for the full reasoning.
+  ownership        StockOwnership    @default(ORGANISATION)
+  /// Added Phase 2A. WHY/under what commercial purpose this stock position is held —
+  /// independent of `ownership` (e.g. `CONSIGNMENT` stock is `ORGANISATION`-owned AND
+  /// `CONSIGNMENT`-arranged; the two dimensions answer different questions). Same
+  /// per-row grain and same "no mixed values at one location yet" caveat as `ownership`
+  /// above. `@default(WHOLESALE)` is correct for every pre-Phase-2A row.
+  arrangement      StockArrangement  @default(WHOLESALE)
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
@@ -1311,6 +1374,42 @@ model InventoryStock {
   @@index([organisationId])
   @@index([locationId])
   @@map("inventory_stock")
+}
+
+/// Added Phase 2A (docs/customer-location-inventory-architecture-audit.md §5/§7) — WHO
+/// legally/commercially owns an `InventoryStock` position. Exactly two values: either
+/// the tenant organisation itself owns it, or a customer does (the point past which the
+/// business has no further operational interest in tracking it — see
+/// `CUSTOMER`'s own doc comment). There is no third "owner"; consignment stock is
+/// `ORGANISATION`-owned under a `CONSIGNMENT` `StockArrangement` (below) — ownership and
+/// arrangement are independent axes, not two names for the same thing.
+enum StockOwnership {
+  /// The tenant organisation (e.g. Boby Bites) owns this stock — today's only real
+  /// case, and the default for every existing row.
+  ORGANISATION
+  /// Ownership has transferred to a customer (e.g. via a completed B2B wholesale sale).
+  /// Informational/traceability only where it exists at all — excluded from the
+  /// organisation's own inventory valuation (docs/domains/inventory.md). Phase 2A adds
+  /// this value to the vocabulary; nothing yet writes it.
+  CUSTOMER
+}
+
+/// Added Phase 2A — WHY/under what commercial purpose a stock position is held,
+/// independent of `StockOwnership` above. `WHOLESALE` is the default and the only value
+/// every pre-Phase-2A row has ever had.
+enum StockArrangement {
+  /// Ordinary stock destined for, or resulting from, a normal wholesale sale — the
+  /// default, and today's only real case.
+  WHOLESALE
+  /// Organisation-owned stock placed at a customer/outlet location, ownership retained
+  /// until an explicit future drawdown event (Phase 3 territory — see the audit §9).
+  /// Phase 2A adds this value to the vocabulary; no consignment workflow exists yet.
+  CONSIGNMENT
+  /// Organisation-owned stock earmarked for D2C Collection Point fulfilment. Phase 2A
+  /// adds this value to the vocabulary; the existing Sprint 37/42 Collection Point flow
+  /// does not read or write it yet (see the audit §3 for why that remains a Phase 2C
+  /// gap, not something this phase changes).
+  D2C_COLLECTION_POINT
 }
 
 /// Sprint 4.4 only wrote `RECEIPT` rows (Goods Receiving); Sprint 4.5 added `ADJUSTMENT`
@@ -1329,6 +1428,19 @@ enum InventoryTransactionType {
   /// "Returns" (a Return is a business event, not a manual stock correction).
   /// `referenceType` is `"CustomerReturn"`/`"SupplierReturn"`.
   RETURN
+  /// Added Phase 2A — Customer-Location Inventory Foundation (docs/customer-location-
+  /// inventory-architecture-audit.md §5/§7/§11, Phase 2B territory). Reserved vocabulary
+  /// ONLY this phase — nothing writes a `TRANSFER` row yet, and no API/service/UI exists
+  /// to create one. `InventoryTransaction` still has exactly one `locationId` per row
+  /// (no `destinationLocationId` was added — see the audit's own "smallest required
+  /// prerequisite" note); a future transfer is intended to be represented as TWO rows
+  /// (a decrease at the source, an increase at the destination) sharing one
+  /// `referenceType`/`referenceId` pair, reusing the existing polymorphic-reference
+  /// convention every other event in this table already uses — not a new pairing
+  /// column. See docs/domains/inventory.md for the full required-semantics writeup
+  /// (source/destination, SKU, quantity, ownership/arrangement preservation, audit,
+  /// idempotency, reversal) a future Phase 2B implementation must satisfy.
+  TRANSFER
 }
 
 /// Controlled reasons for an `ADJUSTMENT` transaction (Sprint 4.5 brief §5) — a simple
@@ -1979,7 +2091,16 @@ model Outlet {
   /// would rewrite sales-order attribution.
   customer                    Customer                     @relation(fields: [customerId], references: [id], onDelete: Restrict)
   territory                   Territory?                   @relation(fields: [territoryId], references: [id], onDelete: SetNull)
-  inventoryLocation           InventoryLocation?           @relation(fields: [inventoryLocationId], references: [id], onDelete: Restrict)
+  /// Explicitly named (Phase 2A) to disambiguate from the second, opposite-direction
+  /// relation `InventoryLocation.outletId` now also creates between these two models —
+  /// this one is unchanged in every other respect.
+  inventoryLocation           InventoryLocation?           @relation("CollectionPointSourceLocation", fields: [inventoryLocationId], references: [id], onDelete: Restrict)
+  /// Added Phase 2A — the reverse side of `InventoryLocation.outletId`
+  /// (docs/customer-location-inventory-architecture-audit.md §5/§7). Zero rows
+  /// reference this today; nothing in Phase 2A creates one outside a test fixture. A
+  /// genuine one-to-many (an outlet could, in principle, have more than one dedicated
+  /// location) — Phase 2A does not constrain this further.
+  dedicatedInventoryLocations InventoryLocation[]          @relation("InventoryLocationOutlet")
   photos                      OutletPhoto[]
   salesOrders                 SalesOrder[]
   /// Sprint 37 — docs/domains/d2c.md "Order Assignment Model". At most one per D2C

@@ -52,6 +52,20 @@ export class InventoryLocationRepository {
     return this.prisma.inventoryLocation.findUniqueOrThrow({ where: { id } });
   }
 
+  /** Added Phase 2A — Customer-Location Inventory Foundation
+   *  (docs/customer-location-inventory-architecture-audit.md §7/§10). A narrow, direct,
+   *  read-only `Outlet` existence check — reading another domain's table directly
+   *  rather than importing `OutletModule`, the same "documented exception" pattern
+   *  `SalesPerformanceReportService` already uses for `SalesOrder` (the alternative,
+   *  importing `OutletModule` here, would create the first circular module dependency
+   *  in this codebase, since `OutletModule` already imports `InventoryModule`).
+   *  Tenant-scoped: an outlet belonging to another organisation is indistinguishable
+   *  from a nonexistent one. */
+  async outletExists(organisationId: string, outletId: string): Promise<boolean> {
+    const count = await this.prisma.outlet.count({ where: { id: outletId, organisationId } });
+    return count > 0;
+  }
+
   /** Every organisation needs exactly one default location for Goods Receiving/Stock
    *  Adjustments to fall back to when the caller doesn't specify one (brief §17: "Do
    *  not break the existing Goods Receiving flow"). Rather than hooking this into

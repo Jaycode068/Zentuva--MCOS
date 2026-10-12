@@ -77,6 +77,8 @@ describe('ProductionOrderService', () => {
     name: 'Main Warehouse',
     status: LocationStatus.ACTIVE,
     isDefault: true,
+    locationType: 'WAREHOUSE' as const,
+    outletId: null,
     createdById: 'user-1',
     updatedById: 'user-1',
     createdAt: new Date('2026-01-01'),

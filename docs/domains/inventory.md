@@ -134,6 +134,9 @@ full Quality Management System (4.4.1 brief §4/§18).
   offline would strand every caller that doesn't pick one explicitly.
 - **Fields:** `name`, `status` (`LocationStatus`, default `ACTIVE`), `isDefault`
   (`Boolean`, exactly one `true` row per organisation), `createdById`/`updatedById`.
+  **Added Phase 2A** (§13): `locationType` (`LocationType`, default `WAREHOUSE`) and
+  `outletId` (nullable, `CUSTOMER_LOCATION`-only) — set only at creation, never on
+  update.
 
 ### InventoryStock
 
@@ -164,6 +167,11 @@ full Quality Management System (4.4.1 brief §4/§18).
   implemented this sprint — see Known Limitations.
 - **Negative-stock guard:** any write that would leave `quantityOnHand < 0` is rejected
   (`NegativeStockError` → `400`), never silently clamped to zero.
+- **`ownership`/`arrangement` (Phase 2A, §13):** WHO owns this stock position
+  (`StockOwnership`, default `ORGANISATION`) and WHY/under what commercial purpose it's
+  held (`StockArrangement`, default `WHOLESALE`) — two independent classification
+  dimensions, distinct from `InventoryLocation.locationType`, never inferred from it.
+  Nothing writes a non-default value to either field yet.
 
 ### AdjustmentReason (Sprint 4.5)
 
@@ -797,7 +805,10 @@ narrow consumer reading a table it already owned.
   no bins, shelves, zones, barcode/RFID scanning, capacity limits, or transfers between
   locations. Moving stock from one location to another today means one `ADJUSTMENT`
   decreasing the source and a second increasing the destination — there is no atomic
-  "transfer" operation.
+  "transfer" operation. **Updated Phase 2A**: `InventoryTransactionType.TRANSFER` now
+  exists in the schema as reserved vocabulary (see §13) — this does not yet change the
+  "two unlinked `ADJUSTMENT` rows" workaround described above; nothing writes a
+  `TRANSFER` row yet.
 - **No reservation/allocation.** `InventoryStock.quantityReserved` exists in the schema
   (always `0` today) so a future Sales/Production reservation workflow doesn't need a
   shape change, but nothing writes to it yet — `quantityAvailable` always equals
@@ -909,3 +920,177 @@ real HTTP API) was re-run after the fix: one order succeeded (stock 23 → 8, `S
 `FULFILLED`), the other was cleanly rejected (`400 Insufficient stock...`, left
 `READY_FOR_COLLECTION`, fully retryable — not stranded), and a subsequent retry after
 restocking succeeded cleanly. See `docs/sprint-37.1-completion-report.md`.
+
+## 13. Customer-Location Inventory Foundation (Phase 2A)
+
+**Status: foundation only.** This section documents a purely additive schema
+extension — see
+[`docs/customer-location-inventory-architecture-audit.md`](../customer-location-inventory-architecture-audit.md)
+for the full audit and roadmap this implements, and
+[`docs/sprint-customer-location-inventory-phase-2a-completion-report.md`](../sprint-customer-location-inventory-phase-2a-completion-report.md)
+for the complete implementation record, tests, and reconciliation evidence. **No
+operational workflow — no transfer, no customer-outlet stock tracking, no Collection
+Point cutover — was built this phase.** Every example below describing what a future
+phase will do is exactly that: a documented plan, not working code.
+
+### 13.1 Three independent dimensions, never conflated
+
+The audit's own central design principle, now reflected in the schema: physical
+**location**, stock **ownership**, and stock **arrangement** are three separate
+questions, each answered by its own field, none ever inferred from another.
+
+| Dimension   | Question it answers                           | Field                            | Values                                                         |
+| ----------- | --------------------------------------------- | -------------------------------- | -------------------------------------------------------------- |
+| Location    | Where is this stock physically?               | `InventoryLocation.locationType` | `WAREHOUSE` (default) · `CUSTOMER_LOCATION`                    |
+| Ownership   | Who legally/commercially owns it?             | `InventoryStock.ownership`       | `ORGANISATION` (default) · `CUSTOMER`                          |
+| Arrangement | Why/under what commercial purpose is it held? | `InventoryStock.arrangement`     | `WHOLESALE` (default) · `CONSIGNMENT` · `D2C_COLLECTION_POINT` |
+
+A `CUSTOMER_LOCATION` does **not** imply `CUSTOMER` ownership — consignment stock
+sitting at a customer's premises is physically at a `CUSTOMER_LOCATION` while
+remaining `ORGANISATION`-owned under a `CONSIGNMENT` arrangement. A Collection Point
+is a fulfilment _capability_ of an existing `Outlet`; enabling it never, by itself,
+changes any location's type or any stock's ownership/arrangement.
+
+### 13.2 `InventoryLocation.outletId` — the new, opposite-direction bridge
+
+Sprint 37 already added `Outlet.inventoryLocationId` ("which location does this
+outlet's Collection Point draw stock FROM" — often a shared warehouse). Phase 2A
+adds the reverse relation, `InventoryLocation.outletId` ("this location physically
+IS/represents this outlet's own premises") — a genuinely different relationship,
+not a duplicate. The two FKs are independent: a location can have neither, either,
+or (in a future phase) both set to a mutually consistent pair.
+
+`outletId`, not `customerId`, deliberately — an `Outlet` is the precise, unambiguous
+physical place; the owning `Customer` is always one join away
+(`InventoryLocation.outlet.customerId`) and is never duplicated onto
+`InventoryLocation` itself. Enforced, not just documented: a database `CHECK`
+constraint requires `locationType = 'WAREHOUSE' ⟺ outletId IS NULL` (equivalently,
+`locationType = 'CUSTOMER_LOCATION' ⟺ outletId IS NOT NULL`) — the same
+defense-in-depth pattern Phase 1's `Customer.creditLimit` non-negativity check
+already established, re-validated at the Zod and service layers as a fast-fail UX
+convenience, but the database constraint is the true authority. Tenant isolation for
+`outletId` is enforced at the service layer
+(`InventoryService.createLocation()` → `InventoryLocationRepository.outletExists()`,
+a tenant-scoped existence check) — the raw foreign key alone only proves the
+referenced `Outlet` row exists _somewhere_, not that it belongs to the caller's own
+organisation (verified directly, not assumed — see the Phase 2A completion report's
+test evidence).
+
+**Immutable after creation.** Neither `locationType` nor `outletId` can be changed
+via `PATCH /api/inventory/locations/:id` — both are accepted only on
+`POST /api/inventory/locations`. Allowing either to change after a location already
+holds stock would silently reclassify that stock's meaning with no corresponding
+physical event — exactly the kind of risk this phase's own brief required stopping
+and flagging rather than guessing past.
+
+### 13.3 How existing warehouse stock remains compatible
+
+Every `InventoryLocation` row that existed before this phase is, and remains,
+`locationType = WAREHOUSE` with `outletId = NULL` — definitionally correct, since no
+other kind of location existed under the prior architecture. Every existing
+`InventoryStock` row is, and remains, `ownership = ORGANISATION` /
+`arrangement = WHOLESALE` — equally definitionally correct. These are not guesses or
+best-effort backfills; they are the only values that could ever have been true,
+confirmed by reconciling exact pre- and post-migration row counts, summed
+quantities, and total valuation (`quantityOnHand × averageUnitCost`) against the
+real seeded "Boby Bites" organisation — byte-identical before and after (full
+figures in the completion report). No existing Goods Receipt, Production Completion,
+Sales Fulfilment, Customer Return, or Adjustment code path was touched — all four
+continue to read/write exactly the columns they always did, now alongside two new
+columns with safe defaults they never reference.
+
+### 13.4 Why no historical customer-outlet balance is backfilled
+
+Phase 2A creates **zero** `CUSTOMER_LOCATION` rows against real data (the only ones
+that exist anywhere are disposable test fixtures, created and deleted within a
+single test). No customer/outlet has ever had its stock tracked separately from the
+organisation's own warehouse pool, so there is no historical position to recover —
+attempting to synthesize one from past `SalesFulfilment`/`Dispatch` records would
+assert something never actually verified (a sold wholesale customer's goods are
+simply gone from this system's perspective, by design — see the audit's §8). Any
+future `CUSTOMER_LOCATION`'s opening balance must come from an explicit, physically
+confirmed count or a real forward-dated transfer — never a computed guess.
+
+### 13.5 The transfer foundation — vocabulary only
+
+`InventoryTransactionType.TRANSFER` now exists as a reserved enum value. **Nothing
+writes one.** No `destinationLocationId` column was added to `InventoryTransaction`
+— the audit's own finding was that the existing single-`locationId`-per-row shape
+can represent a transfer safely only as an additive pattern, not a schema widening,
+so none was forced. The required semantics for a future implementation (Phase 2B):
+
+- **Representation**: two `InventoryTransaction` rows — a decrease at the source
+  location, an increase at the destination — sharing one `referenceType`/
+  `referenceId` pair (e.g. `referenceType: 'InventoryTransfer'`), reusing the exact
+  polymorphic-reference convention every other event in this table already uses.
+  No new pairing column.
+- **Atomicity**: both legs, plus the owning `InventoryTransfer`-equivalent record
+  (if one is introduced) and any ownership/arrangement change, must commit in one
+  `$transaction` — the same convention `SalesFulfilmentRepository.create()` already
+  establishes.
+- **SKU/quantity**: the destination leg's quantity must always equal the source
+  leg's — a transfer never creates or destroys stock, only relocates it.
+- **Ownership/arrangement preservation or change**: an ordinary warehouse-to-
+  warehouse transfer preserves `ownership`/`arrangement` unchanged; a transfer that
+  deliberately changes them (e.g. placing organisation-owned stock at a customer
+  location under a new `CONSIGNMENT` arrangement) must do so explicitly, never
+  implicitly from the destination's `locationType` alone (§13.1).
+- **Idempotency**: the same `@@unique([..., idempotencyKey])` convention every other
+  write path in this domain already uses (`GoodsReceipt`, `SalesFulfilment`,
+  `CustomerReturn`).
+- **Concurrency**: the source leg's decrement must reuse
+  `decrementStockIfAvailable()` verbatim — the same Sprint 37.1-proven primitive,
+  never a new concurrency mechanism.
+- **Audit**: a new `inventory.transfer.created` action (and a reversal action, if a
+  transfer reversal is built) — not yet added to `inventory-audit-actions.ts`,
+  since no operation exists to generate it (per this phase's own "do not invent
+  audit events for operations that do not yet exist" instruction).
+- **Reversal**: an explicit, separate reversing `TRANSFER` pair (source and
+  destination swapped) — never a destructive edit of the original rows, matching
+  this domain's append-only ledger convention throughout.
+
+### 13.6 Remaining, explicitly unresolved risks (not addressed by this phase)
+
+Two material findings from the architecture audit remain **fully open** after Phase
+2A — neither was in this phase's scope, and neither should be read as resolved:
+
+- **The shared-`InventoryStock`-row risk between B2B and D2C Collection Point
+  fulfilment** (audit §3.3): the seeded Collection Point's
+  `Outlet.inventoryLocationId` still points at the same "Main Warehouse" location
+  B2B fulfilment uses, confirmed unchanged by this phase's own migration
+  verification (the completion report's reconciliation evidence). Closing this is
+  explicitly Phase 2C's job — it requires giving the Collection Point its own
+  `CUSTOMER_LOCATION` (now schema-possible) and re-pointing
+  `Outlet.inventoryLocationId` at it, an operational cutover this phase does not
+  perform.
+- **The missing Collection Point reversal/cancellation path** (audit §3.2 item 7):
+  still no code path anywhere restores inventory for a collected D2C order. This is
+  independent of the location-sharing problem and remains a Phase 2C deliverable.
+
+### 13.7 The increment-side weighted-average-cost concurrency gap — unaffected, not fixed
+
+`GoodsReceiptRepository.receive()`, `ProductionRunRepository.complete()`, and
+`CustomerReturnRepository.receive()`'s read-then-write cost recompute (§12 above)
+is **unmodified by Phase 2A**. The two new columns on `InventoryStock`
+(`ownership`/`arrangement`) are written with their default values via the exact
+same `upsert`/`create` calls those three methods already use — no new read-then-
+write window was introduced, and the existing one was not closed either. The
+Phase 2A completion report evaluated fixing it as part of this foundation and
+concluded it is not necessary as a prerequisite: Phase 2A creates no location where
+concurrent, cost-bearing increments against mixed-ownership stock could occur (no
+`CUSTOMER_LOCATION` carries real stock yet), so the gap's consequences are
+unchanged in practice by this phase. It remains an open, documented finding,
+inherited by Phase 2B — which should revisit whether it becomes a hard
+prerequisite once `CUSTOMER_LOCATION` rows start accumulating real, cost-bearing
+stock via the transfer mechanism (§13.5).
+
+### 13.8 Separation from Phase 3 commercial/accounting decisions
+
+Nothing in Phase 2A changes any accounting posting, introduces any new GL account,
+or implies any commission/settlement/reimbursement treatment. `StockArrangement
+.CONSIGNMENT`/`.D2C_COLLECTION_POINT` are vocabulary only — what financial event (if
+any) should fire when stock under either arrangement is drawn down or consumed
+remains an entirely open, unresolved business decision (audit §9/§13), explicitly
+deferred to Phase 3. Phase 2A's own test suite asserts zero unexpected
+`JournalEntry` rows are produced by any of its schema changes or the one new
+service-layer code path it adds (location creation) — see the completion report.

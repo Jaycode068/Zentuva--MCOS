@@ -7,6 +7,37 @@ All notable, user-facing or significant changes to Zentuva are documented here, 
 
 _Nothing yet._
 
+## [Phase 2A — Customer-Location Inventory Foundation] - 2026-10-12
+
+Implements the first of three phases proposed in
+`docs/customer-location-inventory-architecture-audit.md` — a purely additive
+schema foundation. No operational workflow (transfer, customer-outlet stock
+tracking, or Collection Point cutover) was built; those remain Phase 2B/2C.
+
+**New.** Three independent, never-conflated classification dimensions: WHERE
+(`InventoryLocation.locationType`: `WAREHOUSE`/`CUSTOMER_LOCATION`, plus a new
+`outletId` bridge to the owning `Outlet`), WHO OWNS IT
+(`InventoryStock.ownership`: `ORGANISATION`/`CUSTOMER`), and WHY IT'S HELD
+(`InventoryStock.arrangement`: `WHOLESALE`/`CONSIGNMENT`/`D2C_COLLECTION_POINT`).
+A reserved `InventoryTransactionType.TRANSFER` enum value (vocabulary only — no
+transfer workflow exists yet). A database `CHECK` constraint enforces the
+`locationType`↔`outletId` pairing rule; a new `outletExists()` tenant-scoped
+check backs it at the service layer. Every field defaults to exactly what every
+pre-existing row already was (`WAREHOUSE`/`ORGANISATION`/`WHOLESALE`) —
+definitionally correct, not a guess.
+
+**Explicitly unchanged, verified by migration reconciliation**: existing
+location/stock row counts, quantities, total inventory valuation, Collection
+Point `Outlet.inventoryLocationId` assignments, and B2B/D2C fulfilment behaviour
+— all byte-identical before and after, confirmed against the real seeded
+database.
+
+**Explicitly NOT fixed or built this phase** (deferred to Phase 2B/2C,
+recorded as open): the shared-`InventoryStock`-row risk between B2B and D2C
+Collection Point fulfilment; the missing Collection Point order
+reversal/cancellation path; the pre-existing increment-side weighted-average-
+cost concurrency gap. See `docs/sprint-customer-location-inventory-phase-2a-completion-report.md`.
+
 ## [Phase 1 — Customer Account Management] - 2026-10-11
 
 Follows the audit in `docs/customer-account-inventory-audit.md` — implements its

@@ -115,7 +115,14 @@ export class InventoryController {
       entityId: location.id,
       organisationId: user.organisationId,
       actorUserId: user.sub,
-      metadata: { name: location.name },
+      // `locationType`/`outletId` added Phase 2A — the existing LOCATION_CREATED
+      // action already covers this; no new audit action was introduced for it (see
+      // docs/customer-location-inventory-architecture-audit.md §10).
+      metadata: {
+        name: location.name,
+        locationType: location.locationType,
+        outletId: location.outletId,
+      },
       ipAddress: req.ip,
       userAgent: req.headers['user-agent'],
     });

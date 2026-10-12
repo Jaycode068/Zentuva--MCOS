@@ -18,6 +18,8 @@ const defaultLocation = {
   name: 'Main Warehouse',
   status: 'ACTIVE' as const,
   isDefault: true,
+  locationType: 'WAREHOUSE' as const,
+  outletId: null,
   createdById: 'user-2',
   updatedById: 'user-2',
   createdAt: new Date('2026-01-01'),
@@ -153,6 +155,7 @@ describe('InventoryService', () => {
       create: jest.fn(),
       update: jest.fn(),
       getOrCreateDefault: jest.fn().mockResolvedValue(defaultLocation),
+      outletExists: jest.fn().mockResolvedValue(true),
     } as unknown as jest.Mocked<InventoryLocationRepository>;
     const purchaseOrderRepository = {
       findById: jest.fn(),
@@ -735,6 +738,112 @@ describe('InventoryService', () => {
           'user-2',
         ),
       ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // Phase 2A — Customer-Location Inventory Foundation
+  // (docs/customer-location-inventory-architecture-audit.md §7). Schema/
+  // backward-compatibility coverage for `locationType`/`outletId` — no transfer,
+  // outlet-stock, or Collection Point workflow exists to test yet (deliberately
+  // out of scope for this phase).
+  // ---------------------------------------------------------------------
+  describe('createLocation', () => {
+    it('backward compatible: omitting locationType/outletId still creates a WAREHOUSE with no outlet, exactly as before Phase 2A', async () => {
+      const { service, inventoryLocationRepository } = makeService();
+      inventoryLocationRepository.create.mockResolvedValue({
+        ...defaultLocation,
+        id: 'loc-2',
+        isDefault: false,
+      });
+
+      await service.createLocation('org-1', { name: 'Cold Storage' } as never, 'user-1');
+
+      expect(inventoryLocationRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ name: 'Cold Storage', locationType: 'WAREHOUSE' }),
+      );
+      expect(inventoryLocationRepository.create.mock.calls[0]?.[0]).not.toHaveProperty('outlet');
+      expect(inventoryLocationRepository.outletExists).not.toHaveBeenCalled();
+    });
+
+    it('creates a CUSTOMER_LOCATION when a valid, same-organisation outletId is supplied', async () => {
+      const { service, inventoryLocationRepository } = makeService();
+      inventoryLocationRepository.outletExists.mockResolvedValue(true);
+      inventoryLocationRepository.create.mockResolvedValue({
+        ...defaultLocation,
+        id: 'loc-3',
+        isDefault: false,
+        locationType: 'CUSTOMER_LOCATION',
+        outletId: 'outlet-1',
+      });
+
+      const result = await service.createLocation(
+        'org-1',
+        {
+          name: 'Bodija Branch Stock',
+          locationType: 'CUSTOMER_LOCATION',
+          outletId: 'outlet-1',
+        } as never,
+        'user-1',
+      );
+
+      expect(inventoryLocationRepository.outletExists).toHaveBeenCalledWith('org-1', 'outlet-1');
+      expect(inventoryLocationRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          locationType: 'CUSTOMER_LOCATION',
+          outlet: { connect: { id: 'outlet-1' } },
+        }),
+      );
+      expect(result.locationType).toBe('CUSTOMER_LOCATION');
+      expect(result.outletId).toBe('outlet-1');
+    });
+
+    it('rejects a CUSTOMER_LOCATION with no outletId', async () => {
+      const { service, inventoryLocationRepository } = makeService();
+
+      await expect(
+        service.createLocation(
+          'org-1',
+          { name: 'Invalid', locationType: 'CUSTOMER_LOCATION' } as never,
+          'user-1',
+        ),
+      ).rejects.toThrow(BadRequestException);
+      expect(inventoryLocationRepository.create).not.toHaveBeenCalled();
+    });
+
+    it('rejects a WAREHOUSE with an outletId supplied', async () => {
+      const { service, inventoryLocationRepository } = makeService();
+
+      await expect(
+        service.createLocation(
+          'org-1',
+          { name: 'Invalid', locationType: 'WAREHOUSE', outletId: 'outlet-1' } as never,
+          'user-1',
+        ),
+      ).rejects.toThrow(BadRequestException);
+      expect(inventoryLocationRepository.create).not.toHaveBeenCalled();
+    });
+
+    it('rejects a cross-tenant / nonexistent outletId — the established validation mechanism', async () => {
+      const { service, inventoryLocationRepository } = makeService();
+      inventoryLocationRepository.outletExists.mockResolvedValue(false);
+
+      await expect(
+        service.createLocation(
+          'org-1',
+          {
+            name: 'Invalid',
+            locationType: 'CUSTOMER_LOCATION',
+            outletId: 'other-org-outlet',
+          } as never,
+          'user-1',
+        ),
+      ).rejects.toThrow(BadRequestException);
+      expect(inventoryLocationRepository.outletExists).toHaveBeenCalledWith(
+        'org-1',
+        'other-org-outlet',
+      );
+      expect(inventoryLocationRepository.create).not.toHaveBeenCalled();
     });
   });
 });
