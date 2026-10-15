@@ -1,0 +1,13 @@
+{
+  "start": "2026-10-15T17:54:06.691Z",
+  "end": "2026-10-15T17:54:20.522Z",
+  "exitCode": 1,
+  "signal": null,
+  "preflight": {
+    "organisations": 1,
+    "conversations": 0,
+    "messageConfig": 0,
+    "capabilityConfig": 0,
+    "adjustmentJournals": 0
+  }
+}

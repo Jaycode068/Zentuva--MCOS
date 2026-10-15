@@ -119,12 +119,14 @@ export const envSchema = baseEnvSchema
      *  logged. */
     WHATSAPP_WEBHOOK_VERIFY_TOKEN: z.string().min(1).optional(),
     /** The Meta APP secret used to verify `X-Hub-Signature-256` on inbound
-     *  webhook POSTs — a different credential from `WHATSAPP_TOKEN`. Left
-     *  genuinely optional: unset today in this deployment's `.env`, in which
-     *  case `whatsapp-webhook.controller.ts` skips signature verification
-     *  and logs a loud warning rather than silently claiming the webhook is
-     *  authenticated — see docs/sprint-40.5-completion-report.md
-     *  "Limitations." */
+     *  webhook POSTs — a different credential from `WHATSAPP_TOKEN`. Genuinely
+     *  optional only while `WHATSAPP_PROVIDER_MODE=local` (unset today in this
+     *  deployment's `.env`, which is why that mode is still used here) —
+     *  Stage 5C.1's `assertWebhookSignatureConfigured`
+     *  (`meta-whatsapp-provider.ts`) fails the app at boot if
+     *  `WHATSAPP_PROVIDER_MODE=meta` and this is still unset, so it can no
+     *  longer be silently absent in any deployment that claims to talk to
+     *  real Meta. */
     WHATSAPP_APP_SECRET: z.string().min(1).optional(),
     /** Which organisation owns a brand-new (never-before-seen) WhatsApp
      *  contact, since this deployment shares one Meta WhatsApp Business
@@ -133,6 +135,21 @@ export const envSchema = baseEnvSchema
      *  existing `Consumer.normalizedPhone` instead; this is only consulted
      *  when no such match exists anywhere. */
     WHATSAPP_DEFAULT_ORGANISATION_ID: z.string().trim().min(1).optional(),
+    /** Stage 5C.1 — WhatsApp Notification Reliability. The approved template
+     *  for the D2C "ready for collection" notification, used ONLY when the
+     *  consumer's last inbound message is more than 24h old (Meta's
+     *  customer-service messaging window) — within the window, the existing
+     *  free-form `sendText` path is used unchanged. Genuinely optional, with
+     *  NO assumed default name (unlike the two Sprint 29/30 templates above):
+     *  no D2C template has been submitted for approval yet, and guessing a
+     *  plausible-sounding name would only fail with a more confusing Meta
+     *  error than the clear, already-classified "no template configured"
+     *  failure this stage's code produces when these are left unset. */
+    WHATSAPP_D2C_COLLECTION_READY_TEMPLATE_NAME: z.string().trim().min(1).optional(),
+    WHATSAPP_D2C_COLLECTION_READY_TEMPLATE_LANGUAGE: z.string().trim().min(1).optional(),
+    /** Same reasoning, for the "collection confirmed" notification. */
+    WHATSAPP_D2C_COLLECTION_CONFIRMED_TEMPLATE_NAME: z.string().trim().min(1).optional(),
+    WHATSAPP_D2C_COLLECTION_CONFIRMED_TEMPLATE_LANGUAGE: z.string().trim().min(1).optional(),
 
     /** Sprint 35 — the first backend-constructed link back to `apps/web`
      *  (OPay's `returnUrl`/`cancelUrl`). Defaults to the local dev web

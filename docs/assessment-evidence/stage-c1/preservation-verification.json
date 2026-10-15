@@ -1,0 +1,16 @@
+{
+  "source_hash_changes": [],
+  "pre_existing_tracked_patch_unchanged": true,
+  "backup": {
+    "path": "/Users/user/Zentuva--MCOS-backups/zentuva-dev-20261014-230612.dump",
+    "sha256": "9e9ad2cccd6d55e35bc63c3fd9d97156f874cab2b19f950c47d821be9e202260",
+    "matches_verified_checksum": true,
+    "size": 759251,
+    "mtime_ns": 1792015585000000000
+  },
+  "safety_copy": {
+    "path": "/Users/user/Zentuva--MCOS-SAFE-COPY-20261014-080827",
+    "exists": true,
+    "directory_mtime_ns": 1791917549000000000
+  }
+}

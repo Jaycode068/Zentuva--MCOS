@@ -181,11 +181,50 @@ pnpm test
 ```
 
 Runs every app/package's test suite via Turborepo. `apps/api` uses Jest; `apps/web` has no test
-suite yet. Run a single app's tests directly when iterating:
+suite yet. These are fully mocked, DB-less tests — no Postgres connection required. Run a single
+app's tests directly when iterating:
 
 ```bash
 pnpm --filter @zentuva/api test
 ```
+
+### Running integration tests safely
+
+`*.integration.spec.ts` files need a real Postgres database and are **not** part of `pnpm test`.
+They run against a separate, disposable Postgres instance — never the operational database you
+just set up above — see
+[Test Database Isolation & Destructive-Operation Safety](../sprint-test-database-isolation-completion-report.md)
+for why.
+
+```bash
+pnpm infra:test:up       # start the disposable test Postgres (separate container, port 5433)
+pnpm test:db:migrate     # apply migrations to it (fails closed if misconfigured)
+pnpm test:integration    # run the integration suite against it
+```
+
+The first time, also copy the test env template and (optionally) seed reference data some
+integration tests expect:
+
+```bash
+cp apps/api/.env.test.example apps/api/.env.test
+pnpm test:db:seed
+```
+
+Every entry point above verifies it's actually connected to the isolated `zentuva_test`
+database — using an unprivileged, non-superuser role that cannot authenticate against the
+operational Postgres container at all — before running anything that writes data. If that
+can't be verified, the command fails loudly instead of silently touching the operational
+database.
+
+**`pnpm infra:test:down` / `pnpm infra:test:reset` run against `docker-compose.test.yml`, a
+separate file with its own Compose project (`zentuva-dev-test`) from `docker-compose.dev.yml`'s
+`zentuva-dev`.** This is a real project-level boundary, not a `--profile` flag — a Compose
+profile only filters what `up` starts by default, it does not scope `down`/`down -v`, which
+tears down the entire named project regardless of profile. An earlier version of this setup put
+the test Postgres service in `docker-compose.dev.yml` on a `test` profile and relied on that
+profile to protect the operational `postgres`/`redis` services from `infra:test:reset`'s
+`down -v` — it did not, and `infra:test:reset` deleted the operational database on
+2026-10-14 as a result. Never assume a Compose profile is a teardown isolation boundary.
 
 ## Linting
 
@@ -253,17 +292,19 @@ debug both apps at once (requires `dev:debug` already running for the API, per a
 
 Zentuva intentionally uses a small number of environment files, each with one clear owner:
 
-| File                                            | Read by                                                   | Why                                                                                                                                                                                                                                                             |
-| ----------------------------------------------- | --------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `apps/api/.env`                                 | NestJS (`@nestjs/config`), Prisma CLI                     | NestJS's config module and the Prisma CLI both load `.env` from the app's working directory — there's no alternative filename to use here.                                                                                                                      |
-| `apps/web/.env.local`                           | Next.js                                                   | Next.js auto-loads `.env.local` for local overrides, and it's gitignored by default — this is the standard Next.js convention, and the only file you need for local web dev.                                                                                    |
-| `.env` (repo root)                              | `docker-compose.dev.yml`, `docker-compose.production.yml` | Optional. Only needed if you want to override the default Postgres/Redis credentials or ports — both compose files have working defaults baked in via `${VAR:-default}`, so `pnpm infra:up` works with zero setup.                                              |
-| `apps/api/.env` / `apps/web/.env` (no `.local`) | `docker-compose.production.yml` only                      | The full-stack compose file uses Docker's `env_file` directive, which doesn't understand Next's `.env.local` convention — it just needs a plain `.env`. You only need this if you're running the full containerized stack, which is not the daily dev workflow. |
+| File                                            | Read by                                                   | Why                                                                                                                                                                                                                                                                                                                                     |
+| ----------------------------------------------- | --------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/api/.env`                                 | NestJS (`@nestjs/config`), Prisma CLI                     | NestJS's config module and the Prisma CLI both load `.env` from the app's working directory — there's no alternative filename to use here.                                                                                                                                                                                              |
+| `apps/web/.env.local`                           | Next.js                                                   | Next.js auto-loads `.env.local` for local overrides, and it's gitignored by default — this is the standard Next.js convention, and the only file you need for local web dev.                                                                                                                                                            |
+| `.env` (repo root)                              | `docker-compose.dev.yml`, `docker-compose.production.yml` | Optional. Only needed if you want to override the default Postgres/Redis credentials or ports — both compose files have working defaults baked in via `${VAR:-default}`, so `pnpm infra:up` works with zero setup.                                                                                                                      |
+| `apps/api/.env` / `apps/web/.env` (no `.local`) | `docker-compose.production.yml` only                      | The full-stack compose file uses Docker's `env_file` directive, which doesn't understand Next's `.env.local` convention — it just needs a plain `.env`. You only need this if you're running the full containerized stack, which is not the daily dev workflow.                                                                         |
+| `apps/api/.env.test`                            | Integration tests only (`jest.integration.config.js`)     | Deliberately separate from `apps/api/.env` — holds `TEST_DATABASE_URL`, never `DATABASE_URL`, so the running API and the operational `pnpm db:*` commands never read it, and integration tests never read the operational `DATABASE_URL`. Only needed if you run `pnpm test:integration`; see "Running integration tests safely" above. |
 
 **In short:** for daily development you need exactly two files —
 `apps/api/.env` and `apps/web/.env.local` — copied once from their `.example` counterparts. The
 root `.env` and the non-`.local` app `.env` files only come into play if you run
-`docker-compose.production.yml`.
+`docker-compose.production.yml`; `apps/api/.env.test` only comes into play if you run the
+integration suite.
 
 ## Common troubleshooting
 
@@ -340,3 +381,5 @@ existing migrations without prompting.
 - [Development Workflow](../handbook/development-workflow.md) — conventions for how work gets
   done (branching, Definition of Done, documentation requirements).
 - [Architecture Overview](../handbook/architecture-overview.md) — the technology stack and why.
+- [Database Backup and Restore](./database-backup-and-restore.md) — how to back up the
+  development database and verify a restore without ever touching development or test.

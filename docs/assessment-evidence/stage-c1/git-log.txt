@@ -1,0 +1,10 @@
+23f2e59 Phase 2C: Customer Outlet Inventory Integration, Collection Point Cutover & D2C Accounting (partial)
+bcfb370 fix(inventory): close two ownership-compatibility gaps found in Phase 2B review
+ad02ca0 Phase 2B: Customer Outlet Stock Tracking & Transfers
+bdc5890 Phase 2A: Inventory Location & Ownership Foundation
+5ef7aab docs: close Phase 1 Customer Account documentation gaps
+1c18a1e Phase 1: Customer Account Management
+bf8fc5b Sprint 46: Executive & Management Dashboards
+ee88be4 docs: correct Sprint 45 reporting test-count breakdown
+99f8031 Sprint 45: Reporting & Business Intelligence Foundation
+c8b9735 Sprint 44: Tenant D2C Conversation Configuration

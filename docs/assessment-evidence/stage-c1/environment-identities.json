@@ -1,0 +1,34 @@
+{
+  "source": "read-only docker ps and docker inspect",
+  "image": "postgres:16-alpine",
+  "host_binding": "0.0.0.0",
+  "container_port": 5432,
+  "containers": [
+    {
+      "purpose": "development",
+      "container": "zentuva-dev-postgres-1",
+      "container_id": "1927971704f676a170f0dcc9045efb306b1facb66ee8c5de7bd54c5753a349b3",
+      "compose_project": "zentuva-dev",
+      "compose_file": "docker-compose.dev.yml",
+      "host_port": 5432,
+      "volume": "zentuva-dev_postgres_dev_data"
+    },
+    {
+      "purpose": "test",
+      "container": "zentuva-dev-test-postgres-test-1",
+      "container_id": "9960bae64c902300dc7a732155d2adcf5c0bd8e07d79b13d6f9961dd6b432a17",
+      "compose_project": "zentuva-dev-test",
+      "compose_file": "docker-compose.test.yml",
+      "host_port": 5433,
+      "volume": "zentuva-dev-test_postgres_test_data"
+    },
+    {
+      "purpose": "restore_verification_untouched",
+      "container": "zentuva-restore-verify",
+      "container_id": "3ca99a2e8bfd8cd855ad447139e029a49f9e431ca3ead1d0c262dc5306222628",
+      "compose_project": null,
+      "host_port": 5435,
+      "volume": "zentuva_restore_verify_data"
+    }
+  ]
+}

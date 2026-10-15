@@ -1,0 +1,53 @@
+ M .gitignore
+ M apps/api/jest.integration.config.js
+ M apps/api/package.json
+ M apps/api/prisma/schema.prisma
+ M apps/api/prisma/seed.ts
+ M apps/api/src/finance/accounting/chart-of-account-keys.ts
+ M apps/api/src/finance/finance.module.ts
+ M apps/api/src/finance/reports/inventory-valuation.service.ts
+ M apps/api/src/finance/reports/reconciliation.controller.spec.ts
+ M apps/api/src/finance/reports/reconciliation.controller.ts
+ M apps/api/src/finance/supplier-invoice-matching.ts
+ M apps/api/src/inventory/inventory-audit-actions.ts
+ M apps/api/src/inventory/inventory-stock.repository.spec.ts
+ M apps/api/src/inventory/inventory-stock.repository.ts
+ M apps/api/src/inventory/inventory.controller.spec.ts
+ M apps/api/src/inventory/inventory.controller.ts
+ M apps/api/src/inventory/inventory.service.spec.ts
+ M apps/api/src/inventory/inventory.service.ts
+ M apps/api/src/sales/sales-fulfilment-outlet-integration.integration.spec.ts
+ M docker-compose.dev.yml
+ M docs/development/local-development.md
+ M docs/domains/accounting.md
+ M package.json
+ M packages/validation/src/inventory.ts
+?? .claude/
+?? apps/api/.env.test.example
+?? apps/api/prisma/migrations/20261015070000_inventory_transaction_adjustment_idempotency/
+?? apps/api/scripts/
+?? apps/api/src/finance/reports/payables-reconciliation.service.spec.ts
+?? apps/api/src/finance/reports/payables-reconciliation.service.ts
+?? apps/api/src/inventory/inventory-adjustment-idempotency.integration.spec.ts
+?? apps/api/src/prisma/db-identity-guard.spec.ts
+?? apps/api/src/prisma/db-identity-guard.ts
+?? apps/api/src/prisma/seed-accounting-period.spec.ts
+?? apps/api/src/prisma/seed-accounting-period.ts
+?? apps/api/src/testing/
+?? apps/api/test/
+?? docker-compose.test.yml
+?? docs/assessment-evidence/
+?? docs/development/database-backup-and-restore.md
+?? docs/project-understanding-integration-uat-notes.md
+?? docs/sprint-phase-2c-financial-integrity-review.md
+?? docs/sprint-stage-4e1-financial-reconciliation-root-cause-investigation.md
+?? docs/sprint-stage-4e4b-inventory-adjustment-idempotency-completion-report.md
+?? docs/sprint-stage-4e4b1-idempotency-final-review-and-dev-migration-completion-report.md
+?? docs/sprint-stage-4e4c-inventory-adjustment-accounting-policy.md
+?? docs/sprint-stage-4e4c1-accounting-implementation-readiness-check.md
+?? docs/sprint-stage-4e4d-inventory-adjustment-accounting-implementation-completion-report.md
+?? docs/sprint-stage-4e4d1-inventory-adjustment-account-provisioning-completion-report.md
+?? docs/sprint-stage-5a-d2c-collection-point-mvp-readiness-assessment.md
+?? docs/sprint-stage-5b-d2c-launch-blocker-verification.md
+?? docs/sprint-test-database-isolation-completion-report.md
+?? scripts/

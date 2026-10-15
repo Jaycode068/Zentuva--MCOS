@@ -1,0 +1,55 @@
+name: zentuva-dev-test
+
+# Infra-only compose file for the DISPOSABLE, isolated test Postgres instance only. This is
+# a deliberately SEPARATE file from docker-compose.dev.yml, with a DIFFERENT Compose
+# project name (`zentuva-dev-test`, above, vs `zentuva-dev`) — not merely a different
+# profile within the same file.
+#
+# Why a separate file, not a profile: a Compose `profile` only filters which services `up`
+# starts by default. It does NOT scope `down`/`down -v` — those operate on the ENTIRE
+# named project regardless of which `--profile` flag (if any) was passed. Putting this
+# service in its own file with its own project name means `down -v` here can only ever
+# affect resources declared in THIS file (this one service, this one volume) — it has no
+# way to reach anything in the `zentuva-dev` project (docker-compose.dev.yml), by
+# Compose's own project-scoping guarantee, not by convention or discipline.
+#
+# This split is the corrective action for the 2026-10-14 data-loss incident, in which
+# `pnpm run infra:test:reset` (`docker compose -f docker-compose.dev.yml --profile test
+# down -v`) removed the operational `postgres` container and its volume because both
+# services previously shared the `zentuva-dev` project. See
+# docs/sprint-post-incident-infrastructure-safety-audit.md for the full incident account,
+# and docs/sprint-test-database-isolation-completion-report.md for why this disposable
+# instance and its unprivileged `zentuva_test`/`zentuva_test_app` roles exist at all.
+#
+# Use the root package scripts, never `docker compose -f docker-compose.test.yml` directly:
+#   pnpm infra:test:up      start the disposable test Postgres
+#   pnpm infra:test:down    stop it (cannot affect docker-compose.dev.yml's project)
+#   pnpm infra:test:reset   wipe ONLY this file's volume and start fresh
+services:
+  postgres-test:
+    image: postgres:16-alpine
+    restart: 'no'
+    environment:
+      # Bootstrap-only superuser, used exclusively by scripts/db/init-test-role.sql and
+      # scripts/db/init-test-app-role.sql the first time this volume is created. No test,
+      # script, or app code ever connects as this role — they use the deliberately
+      # unprivileged `zentuva_test`/`zentuva_test_app` roles those scripts create.
+      # Distinct env var names (TEST_POSTGRES_*) from docker-compose.dev.yml's operational
+      # service so the two can never be confused or share a default.
+      POSTGRES_USER: ${TEST_POSTGRES_ADMIN_USER:-zentuva_test_admin}
+      POSTGRES_PASSWORD: ${TEST_POSTGRES_ADMIN_PASSWORD:-local-dev-only-not-a-real-password}
+      POSTGRES_DB: ${TEST_POSTGRES_DB:-zentuva_test}
+    ports:
+      - '${TEST_POSTGRES_PORT:-5433}:5432'
+    volumes:
+      - postgres_test_data:/var/lib/postgresql/data
+      - ./scripts/db/init-test-role.sql:/docker-entrypoint-initdb.d/init-test-role.sql:ro
+      - ./scripts/db/init-test-app-role.sql:/docker-entrypoint-initdb.d/init-test-app-role.sql:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${TEST_POSTGRES_ADMIN_USER:-zentuva_test_admin}']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres_test_data:

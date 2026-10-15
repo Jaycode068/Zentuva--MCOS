@@ -1,0 +1,113 @@
+{
+  "leakedOrders": [
+    {
+      "id": "cmv9u5wv500d6dn3rirtk2axx",
+      "orderCode": "SO-TEST-1792086722464-1",
+      "createdAt": "2026-10-15T17:52:02.465",
+      "organisationId": "cmv8o3b2y004lvnustesbovsc",
+      "status": "FULFILLED"
+    },
+    {
+      "id": "cmv9u5wzo00drdn3rut2m093w",
+      "orderCode": "SO-TEST-1792086722628-2",
+      "createdAt": "2026-10-15T17:52:02.629",
+      "organisationId": "cmv8o3b2y004lvnustesbovsc",
+      "status": "FULFILLED"
+    },
+    {
+      "id": "cmv9u5x2o00eddn3r8djhwhns",
+      "orderCode": "SO-TEST-1792086722735-4",
+      "createdAt": "2026-10-15T17:52:02.736",
+      "organisationId": "cmv8o3b2y004lvnustesbovsc",
+      "status": "FULFILLED"
+    },
+    {
+      "id": "cmv9u5x5o00f2dn3rhkjm9muh",
+      "orderCode": "SO-TEST-1792086722843-5",
+      "createdAt": "2026-10-15T17:52:02.844",
+      "organisationId": "cmv8o3b2y004lvnustesbovsc",
+      "status": "CONFIRMED"
+    },
+    {
+      "id": "cmv9u5x7a00fcdn3ruzavx4dp",
+      "orderCode": "SO-TEST-1792086722901-6",
+      "createdAt": "2026-10-15T17:52:02.902",
+      "organisationId": "cmv8o3b2y004lvnustesbovsc",
+      "status": "CONFIRMED"
+    },
+    {
+      "id": "cmv9u5x7g00fgdn3rp378u9ah",
+      "orderCode": "SO-TEST-1792086722907-7",
+      "createdAt": "2026-10-15T17:52:02.908",
+      "organisationId": "cmv8o3b2y004lvnustesbovsc",
+      "status": "FULFILLED"
+    },
+    {
+      "id": "cmv9u8qtd00d6h4p816p51cwc",
+      "orderCode": "SO-TEST-1792086854592-1",
+      "createdAt": "2026-10-15T17:54:14.593",
+      "organisationId": "cmv8o3b2y004lvnustesbovsc",
+      "status": "FULFILLED"
+    },
+    {
+      "id": "cmv9u8qyg00drh4p84xj3qri2",
+      "orderCode": "SO-TEST-1792086854775-2",
+      "createdAt": "2026-10-15T17:54:14.776",
+      "organisationId": "cmv8o3b2y004lvnustesbovsc",
+      "status": "FULFILLED"
+    },
+    {
+      "id": "cmv9u8r1y00edh4p86op1he48",
+      "orderCode": "SO-TEST-1792086854902-4",
+      "createdAt": "2026-10-15T17:54:14.903",
+      "organisationId": "cmv8o3b2y004lvnustesbovsc",
+      "status": "FULFILLED"
+    },
+    {
+      "id": "cmv9u8r5x00f2h4p8rixhmmzh",
+      "orderCode": "SO-TEST-1792086855045-5",
+      "createdAt": "2026-10-15T17:54:15.046",
+      "organisationId": "cmv8o3b2y004lvnustesbovsc",
+      "status": "CONFIRMED"
+    },
+    {
+      "id": "cmv9u8r7x00fch4p8yjohwzsv",
+      "orderCode": "SO-TEST-1792086855116-6",
+      "createdAt": "2026-10-15T17:54:15.117",
+      "organisationId": "cmv8o3b2y004lvnustesbovsc",
+      "status": "CONFIRMED"
+    },
+    {
+      "id": "cmv9u8r8600fgh4p8xr8m36px",
+      "orderCode": "SO-TEST-1792086855125-7",
+      "createdAt": "2026-10-15T17:54:15.126",
+      "organisationId": "cmv8o3b2y004lvnustesbovsc",
+      "status": "FULFILLED"
+    }
+  ],
+  "baselineOrderCount": 40,
+  "remainingOrderCount": 40,
+  "baselineOrderHash": "da20efd248583a5f2e0778d0da5c67285e661b1ccada34e9080932e5f033e764",
+  "remainingOrderHash": "da20efd248583a5f2e0778d0da5c67285e661b1ccada34e9080932e5f033e764",
+  "roleMemberships": [
+    {
+      "member": "pg_monitor",
+      "granted_role": "pg_read_all_settings"
+    },
+    {
+      "member": "pg_monitor",
+      "granted_role": "pg_read_all_stats"
+    },
+    {
+      "member": "pg_monitor",
+      "granted_role": "pg_stat_scan_tables"
+    }
+  ],
+  "adjustmentIndex": [
+    {
+      "indexname": "inventory_transactions_organisationId_idempotencyKey_key",
+      "indexdef": "CREATE UNIQUE INDEX \"inventory_transactions_organisationId_idempotencyKey_key\" ON public.inventory_transactions USING btree (\"organisationId\", \"idempotencyKey\")"
+    }
+  ],
+  "testItemCounts": []
+}

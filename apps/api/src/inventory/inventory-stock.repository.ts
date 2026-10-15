@@ -12,6 +12,8 @@ import {
 } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service';
+import { SYSTEM_ACCOUNT_KEYS } from '../finance/accounting/chart-of-account-keys';
+import { postSystemJournalEntry } from '../finance/accounting/journal-posting';
 import { applyStockAdjustmentIfNonNegative } from './inventory-stock-concurrency.util';
 
 export interface ListInventoryStockParams {
@@ -52,12 +54,42 @@ export interface AdjustStockData {
   reason: AdjustmentReason;
   notes?: string;
   createdById: string;
+  /** Added Stage 4E.4B — optional, client-supplied double-submit protection, same
+   *  convention as `InventoryTransfer.idempotencyKey`/`SalesFulfilment.idempotencyKey`.
+   *  Persisted on the resulting `InventoryTransaction` row (see that model's own doc
+   *  comment for why adjustments carry it there rather than on a dedicated parent
+   *  record). A caller that never sends one is never blocked. */
+  idempotencyKey?: string;
 }
 
 export interface AdjustStockResult {
   stock: InventoryStockWithProduct;
   transaction: InventoryTransaction;
+  /** Added Stage 4E.4B — `false` when this call resolved to an already-committed
+   *  adjustment from a prior request with the same `idempotencyKey` (no stock was
+   *  touched this call), same convention as `InventoryTransfer`'s `wasCreated`. Always
+   *  `true` when no `idempotencyKey` was supplied. */
+  wasCreated: boolean;
+  /** Added Stage 4E.4D — the `JournalEntry.id` posted for this adjustment's value, or
+   *  `null` when nothing was posted (zero-cost, `CUSTOMER`-owned stock — the
+   *  organisation does not carry that stock as its own asset — or a conflicting-key
+   *  rejection never reaches this point at all). See `adjustStock`'s own doc comment
+   *  for the full posting rule. Always populated correctly on a retry too, read from
+   *  the already-committed `JournalEntry`, never re-derived. */
+  journalEntryId: string | null;
 }
+
+/** Added Stage 4E.4B — thrown when a request reuses an `idempotencyKey` that is already
+ *  attached to a committed `InventoryTransaction` for this organisation, but the
+ *  request's own `productId`/`locationId`/`quantity`/`reason` do not match that
+ *  transaction's recorded values. A reused key is only ever a safe no-op retry when the
+ *  two requests describe the SAME intended operation — a mismatch means the caller is
+ *  either reusing a key across unrelated adjustments (a client bug) or the key
+ *  collided, and either way silently returning the old result (or silently applying a
+ *  second, different change under the same key) would be wrong. Rejected outright,
+ *  mirroring `OpeningStockAlreadyRecordedError`'s "never merge, never overwrite"
+ *  posture. */
+export class AdjustmentIdempotencyKeyConflictError extends Error {}
 
 /** Thrown when an adjustment would leave `quantityOnHand` negative (brief §8: "For MVP,
  *  do not allow an adjustment that would result in negative available/on-hand stock...
@@ -172,53 +204,207 @@ export class InventoryStockRepository {
    *  transaction, rolled back together on any failure). Reads the current balance
    *  *inside* the transaction (not from a pre-check the caller already did) so the
    *  negative-stock guard is evaluated against a fresh, transaction-scoped value —
-   *  closing the race between two concurrent adjustments a pre-check alone couldn't. */
+   *  closing the race between two concurrent adjustments a pre-check alone couldn't.
+   *
+   *  Added Stage 4E.4B — idempotency when `data.idempotencyKey` is supplied. Two layers,
+   *  same reasoning as `recordOpeningStock`'s own doc comment:
+   *   1. A pre-check (`findUnique` on `(organisationId, idempotencyKey)` before opening
+   *      the transaction) short-circuits the common case — a sequential retry after the
+   *      first request already committed — without taking a row lock or touching stock
+   *      at all.
+   *   2. A `P2002` catch around the in-transaction `create()` is the actual safety net
+   *      for two genuinely concurrent requests that both pass the pre-check (neither can
+   *      see the other's not-yet-committed row): exactly one `create()` wins the unique
+   *      constraint, the other's transaction aborts — rolling back ITS stock mutation —
+   *      and that caller falls through to the same "resolve existing" path as a
+   *      sequential retry. Net effect: however many identical concurrent requests
+   *      arrive, stock moves exactly once.
+   *  Either path validates the reused key's request against the already-committed
+   *  transaction's own recorded values and throws `AdjustmentIdempotencyKeyConflictError`
+   *  on any mismatch, rather than silently returning stale results for a different
+   *  operation. */
   async adjustStock(data: AdjustStockData): Promise<AdjustStockResult> {
-    return this.prisma.$transaction(async (tx) => {
-      const stockRef = {
-        organisationId: data.organisationId,
-        productId: data.productId,
-        locationId: data.locationId,
-      };
-      // Sprint 37.1 — atomic conditional adjustment, the database's own row lock is the
-      // concurrency guard (see `inventory-stock-concurrency.util.ts`). Replaces a
-      // read-then-upsert-with-precomputed-value pattern that shared the exact defect
-      // class live-verified in `SalesFulfilmentRepository.create()`
-      // (docs/domains/d2c.md §78) — two concurrent negative adjustments against the
-      // same row could previously both read the same balance and lose one decrement.
-      const applied = await applyStockAdjustmentIfNonNegative(tx, stockRef, data.quantity);
-      if (!applied) {
-        const current = await tx.inventoryStock.findUnique({
-          where: { organisationId_productId_locationId: stockRef },
-          select: { quantityOnHand: true },
-        });
-        throw new NegativeStockError(
-          `Adjustment would result in negative stock (current: ${current?.quantityOnHand ?? 0}, adjustment: ${data.quantity})`,
-        );
-      }
+    const stockRef = {
+      organisationId: data.organisationId,
+      productId: data.productId,
+      locationId: data.locationId,
+    };
 
-      const stock = await tx.inventoryStock.findUniqueOrThrow({
-        where: { organisationId_productId_locationId: stockRef },
-        include: { product: { select: PRODUCT_SELECT }, location: { select: LOCATION_SELECT } },
+    if (data.idempotencyKey) {
+      const existing = await this.prisma.inventoryTransaction.findUnique({
+        where: {
+          organisationId_idempotencyKey: {
+            organisationId: data.organisationId,
+            idempotencyKey: data.idempotencyKey,
+          },
+        },
       });
+      if (existing) {
+        return this.resolveExistingAdjustment(existing, data);
+      }
+    }
 
-      const transaction = await tx.inventoryTransaction.create({
-        data: {
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        // Sprint 37.1 — atomic conditional adjustment, the database's own row lock is
+        // the concurrency guard (see `inventory-stock-concurrency.util.ts`). Replaces a
+        // read-then-upsert-with-precomputed-value pattern that shared the exact defect
+        // class live-verified in `SalesFulfilmentRepository.create()`
+        // (docs/domains/d2c.md §78) — two concurrent negative adjustments against the
+        // same row could previously both read the same balance and lose one decrement.
+        const applied = await applyStockAdjustmentIfNonNegative(tx, stockRef, data.quantity);
+        if (!applied) {
+          const current = await tx.inventoryStock.findUnique({
+            where: { organisationId_productId_locationId: stockRef },
+            select: { quantityOnHand: true },
+          });
+          throw new NegativeStockError(
+            `Adjustment would result in negative stock (current: ${current?.quantityOnHand ?? 0}, adjustment: ${data.quantity})`,
+          );
+        }
+
+        const stock = await tx.inventoryStock.findUniqueOrThrow({
+          where: { organisationId_productId_locationId: stockRef },
+          include: { product: { select: PRODUCT_SELECT }, location: { select: LOCATION_SELECT } },
+        });
+
+        const transaction = await tx.inventoryTransaction.create({
+          data: {
+            organisationId: data.organisationId,
+            productId: data.productId,
+            locationId: data.locationId,
+            transactionType: InventoryTransactionType.ADJUSTMENT,
+            quantity: data.quantity,
+            referenceType: 'ManualAdjustment',
+            referenceId: null,
+            adjustmentReason: data.reason,
+            notes: data.notes,
+            createdById: data.createdById,
+            idempotencyKey: data.idempotencyKey,
+          },
+        });
+
+        // Stage 4E.4D (docs/sprint-stage-4e4c-inventory-adjustment-accounting-policy.md)
+        // — every adjustment reason is value-bearing by default; the only exemptions
+        // are structural, never based on `data.reason`'s label: `CUSTOMER`-owned stock
+        // (ownership already transferred — not this organisation's own asset) and a
+        // zero cost (nothing to recognise, same "skip the journal entirely, never a
+        // ₦0 one" precedent Production/Sales Fulfilment already established). `stock`
+        // here is read AFTER `applyStockAdjustmentIfNonNegative` already locked this
+        // row — `averageUnitCost` is never written by this method, so that lock
+        // already serialises this read against any concurrent cost-changing writer;
+        // no separate pre-mutation read is needed or safer.
+        let journalEntryId: string | null = null;
+        const value = roundCurrency(Math.abs(data.quantity) * stock.averageUnitCost);
+        if (stock.ownership === StockOwnership.ORGANISATION && value > 0) {
+          const inventorySystemKey =
+            stock.product.type === ProductType.FINISHED_PRODUCT
+              ? SYSTEM_ACCOUNT_KEYS.FINISHED_GOODS_INVENTORY
+              : SYSTEM_ACCOUNT_KEYS.INVENTORY;
+          // Positive quantity = a gain: DR Inventory / CR Inventory Adjustment.
+          // Negative quantity = a loss: DR Inventory Adjustment / CR Inventory.
+          // Linked to the canonical, idempotency-deduplicated `transaction.id` as
+          // `sourceId` — `JournalEntry`'s own `@@unique([organisationId, sourceType,
+          // sourceId])` then guarantees at most one journal per adjustment for free,
+          // with no new idempotency mechanism of its own.
+          const posted = await postSystemJournalEntry(tx, {
+            organisationId: data.organisationId,
+            date: transaction.createdAt,
+            description: data.notes
+              ? `Inventory adjustment (${data.reason}): ${data.notes}`
+              : `Inventory adjustment (${data.reason})`,
+            sourceType: 'INVENTORY_ADJUSTMENT',
+            sourceId: transaction.id,
+            actorUserId: data.createdById,
+            lines:
+              data.quantity > 0
+                ? [
+                    { systemKey: inventorySystemKey, debit: value },
+                    { systemKey: SYSTEM_ACCOUNT_KEYS.INVENTORY_ADJUSTMENT, credit: value },
+                  ]
+                : [
+                    { systemKey: SYSTEM_ACCOUNT_KEYS.INVENTORY_ADJUSTMENT, debit: value },
+                    { systemKey: inventorySystemKey, credit: value },
+                  ],
+          });
+          journalEntryId = posted.journalEntry.id;
+        }
+
+        return { stock, transaction, wasCreated: true, journalEntryId };
+      });
+    } catch (error) {
+      if (
+        data.idempotencyKey &&
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        const winner = await this.prisma.inventoryTransaction.findUnique({
+          where: {
+            organisationId_idempotencyKey: {
+              organisationId: data.organisationId,
+              idempotencyKey: data.idempotencyKey,
+            },
+          },
+        });
+        if (winner) {
+          return this.resolveExistingAdjustment(winner, data);
+        }
+      }
+      throw error;
+    }
+  }
+
+  /** Shared by both idempotency paths in `adjustStock` above — validates that a reused
+   *  key's request describes the same intended operation as the already-committed
+   *  transaction it maps to, then returns that transaction's result without touching
+   *  stock again. */
+  private async resolveExistingAdjustment(
+    existing: InventoryTransaction,
+    data: AdjustStockData,
+  ): Promise<AdjustStockResult> {
+    if (
+      existing.productId !== data.productId ||
+      existing.locationId !== data.locationId ||
+      existing.quantity !== data.quantity ||
+      existing.adjustmentReason !== data.reason
+    ) {
+      throw new AdjustmentIdempotencyKeyConflictError(
+        'This idempotency key was already used for a different adjustment',
+      );
+    }
+
+    const stock = await this.prisma.inventoryStock.findUniqueOrThrow({
+      where: {
+        organisationId_productId_locationId: {
           organisationId: data.organisationId,
           productId: data.productId,
           locationId: data.locationId,
-          transactionType: InventoryTransactionType.ADJUSTMENT,
-          quantity: data.quantity,
-          referenceType: 'ManualAdjustment',
-          referenceId: null,
-          adjustmentReason: data.reason,
-          notes: data.notes,
-          createdById: data.createdById,
         },
-      });
-
-      return { stock, transaction };
+      },
+      include: { product: { select: PRODUCT_SELECT }, location: { select: LOCATION_SELECT } },
     });
+
+    // Stage 4E.4D — a retry never re-attempts journal posting (see `adjustStock`'s own
+    // doc comment); it reads back whatever the ORIGINAL creating call already posted
+    // (or correctly skipped), from the already-committed `JournalEntry`, keyed by the
+    // same `(organisationId, sourceType, sourceId)` that call used.
+    const journalEntry = await this.prisma.journalEntry.findUnique({
+      where: {
+        organisationId_sourceType_sourceId: {
+          organisationId: data.organisationId,
+          sourceType: 'INVENTORY_ADJUSTMENT',
+          sourceId: existing.id,
+        },
+      },
+      select: { id: true },
+    });
+
+    return {
+      stock,
+      transaction: existing,
+      wasCreated: false,
+      journalEntryId: journalEntry?.id ?? null,
+    };
   }
 
   /**
@@ -290,7 +476,16 @@ export class InventoryStockRepository {
         },
       });
 
-      return { stock: stockWithRelations, transaction };
+      // Stage 4E.4D — opening-stock establishment never posts a journal, categorically,
+      // regardless of cost: it is not a correction to an existing GL-relevant balance,
+      // it is the first-ever establishment of one, and `averageUnitCost` is always `0`
+      // here anyway (this method's own rule above), so this would never be value-
+      // bearing even under `adjustStock`'s general rule.
+      return { stock: stockWithRelations, transaction, wasCreated: true, journalEntryId: null };
     });
   }
+}
+
+function roundCurrency(value: number): number {
+  return Math.round(value * 100) / 100;
 }

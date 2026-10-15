@@ -880,6 +880,27 @@ recorded as a known limitation (§25) rather than solved with new classification
 metadata — directly matching the brief's own "do not create a large accounting
 redesign" instruction.
 
+### 16.7 Known gap: inventory adjustments are not posted to the General Ledger
+
+Confirmed (Stage 4E Financial Reconciliation Root-Cause Investigation,
+`docs/sprint-stage-4e1-financial-reconciliation-root-cause-investigation.md`):
+`InventoryService.adjustStock()` — the general-purpose stock-correction endpoint behind
+the "Adjust Stock" UI action — changes `InventoryStock.quantityOnHand` (and the
+resulting `InventoryTransaction` ledger row) but posts **no journal entry at all**. This
+is a real, general application characteristic (not limited to seed/test fixtures): any
+tenant using this endpoint for a physical count correction, wastage write-off, or
+found-stock entry creates a divergence between the Inventory subledger
+(`InventoryValuationService`, §16.3) and the General Ledger's `INVENTORY`/
+`FINISHED_GOODS_INVENTORY` balances, surfaced — correctly, and by design — by
+`ReconciliationService`'s own "never silently corrects" difference figure.
+
+Whether this should (a) post a value-bearing journal entry (e.g. to an "Inventory
+Adjustment/Shrinkage" account) on every adjustment, or (b) remain an intentional
+quantity-only correction mechanism with any GL catch-up left to a separate, periodic
+accounting entry, is an open accounting-policy decision — not resolved here, and
+deliberately not implemented in Stage 4E.2 pending explicit approval in its own,
+separately scoped stage. Do not infer either answer from this note alone.
+
 ## 17. Cash & Bank Management (Sprint 14)
 
 Sprint 14 connects the General Ledger to the organisation's real-world cash and bank

@@ -55,6 +55,36 @@ export function loadMetaWhatsAppConfig(config: ConfigService): MetaWhatsAppConfi
 }
 
 /**
+ * Stage 5C.1 — Webhook Signature Enforcement. A second, independent boot-time gate
+ * alongside {@link loadMetaWhatsAppConfig}, called from
+ * `WhatsAppWebhookController`'s own constructor rather than folded into
+ * `loadMetaWhatsAppConfig` itself: the APP SECRET authenticates INBOUND Meta webhook
+ * deliveries, a completely different credential and concern from the ACCESS TOKEN
+ * `loadMetaWhatsAppConfig` validates for OUTBOUND sends — conflating the two would
+ * make a future change to one silently affect the other's validation.
+ *
+ * Same "throw at construction time, never at request time" contract as
+ * `loadMetaWhatsAppConfig` — stops the whole app from starting rather than letting a
+ * misconfigured deployment silently accept unsigned webhook traffic once real
+ * requests start arriving. Gated on `WHATSAPP_PROVIDER_MODE=meta` (never `NODE_ENV`),
+ * the same existing signal `loadMetaWhatsAppConfig` already uses to distinguish "this
+ * deployment really talks to Meta" from "this is the safe local/dev provider" — a
+ * `local`-mode deployment can never receive genuine Meta traffic in the first place,
+ * so there is nothing to enforce there.
+ */
+export function assertWebhookSignatureConfigured(config: ConfigService): void {
+  const mode = config.get<'local' | 'meta'>('whatsapp.providerMode') ?? 'local';
+  const appSecret = config.get<string | undefined>('whatsapp.appSecret');
+  if (mode === 'meta' && !appSecret) {
+    throw new WhatsAppConfigurationError(
+      'WHATSAPP_PROVIDER_MODE=meta requires WHATSAPP_APP_SECRET to be set, so inbound ' +
+        'webhook deliveries can be cryptographically verified. Set WHATSAPP_APP_SECRET, ' +
+        'or set WHATSAPP_PROVIDER_MODE=local to use the safe development provider instead.',
+    );
+  }
+}
+
+/**
  * Sprint 29 §8 "Real WhatsApp Provider." A real WhatsApp Business Platform
  * (Meta Cloud API) provider, built on the platform's plain REST endpoint
  * (`POST /{phone-number-id}/messages`) using Node's built-in `fetch` — no new
@@ -227,6 +257,18 @@ export class MetaWhatsAppProvider implements WhatsAppProvider {
       // Template does not exist / parameter mismatch / not approved.
       outcome = 'TERMINAL_FAILURE';
       errorCode = 'WHATSAPP_INVALID_TEMPLATE';
+    } else if (code === 131047) {
+      // Stage 5C.1 — "Re-engagement message" / outside the 24-hour customer-service
+      // window: a free-form (non-template) message sent more than 24h after the
+      // recipient's last inbound message. Deliberately its own TERMINAL classification,
+      // never folded into the generic WHATSAPP_UNKNOWN/RETRYABLE default below — this
+      // failure is a messaging-window/template-eligibility problem, not a transient
+      // provider hiccup: the window only ever re-opens on a NEW inbound message from
+      // the consumer, so retrying the identical free-form send will fail identically
+      // forever. A caller seeing this code should switch to an approved template (or
+      // wait for the consumer to re-engage), never blindly retry.
+      outcome = 'TERMINAL_FAILURE';
+      errorCode = 'WHATSAPP_MESSAGING_WINDOW_EXPIRED';
     } else if (code === 80007 || httpStatus === 429) {
       // Rate limiting — always retryable.
       outcome = 'RETRYABLE_FAILURE';

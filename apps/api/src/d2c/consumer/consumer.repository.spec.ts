@@ -197,3 +197,69 @@ describe('ConsumerRepository — idempotency, concurrency, and tenant isolation'
     expect(store.find((r) => r.id === consumer.id)?.fullName).toBe('Blessing Okafor');
   });
 });
+
+describe('ConsumerRepository.findLastInboundMessageAt (Stage 5C.1)', () => {
+  function makeRepository(
+    conversations: { id: string; organisationId: string; consumerId: string; updatedAt: Date }[],
+  ) {
+    const prisma = {
+      consumerConversation: {
+        findFirst: jest.fn(
+          ({
+            where,
+            orderBy,
+          }: {
+            where: { organisationId: string; consumerId: string };
+            orderBy: { updatedAt: 'desc' };
+          }) => {
+            const matches = conversations.filter(
+              (c) => c.organisationId === where.organisationId && c.consumerId === where.consumerId,
+            );
+            if (matches.length === 0) return Promise.resolve(null);
+            const sorted = [...matches].sort((a, b) =>
+              orderBy.updatedAt === 'desc'
+                ? b.updatedAt.getTime() - a.updatedAt.getTime()
+                : a.updatedAt.getTime() - b.updatedAt.getTime(),
+            );
+            return Promise.resolve({ updatedAt: sorted[0]!.updatedAt });
+          },
+        ),
+      },
+    } as unknown as PrismaService;
+    return new ConsumerRepository(prisma);
+  }
+
+  it('returns the conversation updatedAt timestamp for this consumer in this organisation', async () => {
+    const recent = new Date('2026-10-15T10:00:00.000Z');
+    const repository = makeRepository([
+      { id: 'conv-1', organisationId: 'org-a', consumerId: 'consumer-1', updatedAt: recent },
+    ]);
+    const result = await repository.findLastInboundMessageAt('org-a', 'consumer-1');
+    expect(result).toEqual(recent);
+  });
+
+  it('returns the MOST RECENT conversation when a consumer has more than one', async () => {
+    const older = new Date('2026-10-10T10:00:00.000Z');
+    const newer = new Date('2026-10-15T10:00:00.000Z');
+    const repository = makeRepository([
+      { id: 'conv-1', organisationId: 'org-a', consumerId: 'consumer-1', updatedAt: older },
+      { id: 'conv-2', organisationId: 'org-a', consumerId: 'consumer-1', updatedAt: newer },
+    ]);
+    const result = await repository.findLastInboundMessageAt('org-a', 'consumer-1');
+    expect(result).toEqual(newer);
+  });
+
+  it('returns null when this consumer has no conversation at all', async () => {
+    const repository = makeRepository([]);
+    const result = await repository.findLastInboundMessageAt('org-a', 'consumer-1');
+    expect(result).toBeNull();
+  });
+
+  it('tenant isolation: never returns a conversation belonging to a different organisation', async () => {
+    const repository = makeRepository([
+      { id: 'conv-1', organisationId: 'org-b', consumerId: 'consumer-1', updatedAt: new Date() },
+    ]);
+    const result = await repository.findLastInboundMessageAt('org-a', 'consumer-1');
+    expect(result).toBeNull();
+  });
+});

@@ -326,25 +326,51 @@ export class InventoryController {
   ) {
     const result = await this.inventoryService.adjustStock(user.organisationId, body, user.sub);
 
-    await this.auditService.record({
-      action: INVENTORY_AUDIT_ACTIONS.ADJUSTED,
-      entityType: 'InventoryStock',
-      entityId: result.productId,
-      organisationId: user.organisationId,
-      actorUserId: user.sub,
-      metadata: {
-        productId: result.productId,
-        productName: result.product.name,
-        locationId: result.location.id,
-        locationName: result.location.name,
-        reason: result.reason,
-        quantityDelta: result.quantityDelta,
-        previousQuantity: result.previousQuantity,
-        newQuantity: result.newQuantity,
-      },
-      ipAddress: req.ip,
-      userAgent: req.headers['user-agent'],
-    });
+    // Added Stage 4E.4B — gated on `wasCreated` so a retried request (resolved to an
+    // already-committed adjustment, no stock touched) does not write a second,
+    // misleading audit entry for the same operation. Same convention as `createTransfer`
+    // above.
+    if (result.wasCreated) {
+      await this.auditService.record({
+        action: INVENTORY_AUDIT_ACTIONS.ADJUSTED,
+        entityType: 'InventoryStock',
+        entityId: result.productId,
+        organisationId: user.organisationId,
+        actorUserId: user.sub,
+        metadata: {
+          productId: result.productId,
+          productName: result.product.name,
+          locationId: result.location.id,
+          locationName: result.location.name,
+          reason: result.reason,
+          quantityDelta: result.quantityDelta,
+          previousQuantity: result.previousQuantity,
+          newQuantity: result.newQuantity,
+        },
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      });
+
+      // Stage 4E.4D — fired only when this (fresh) call actually posted a journal,
+      // same "fired only when a journal was actually posted" gating convention as
+      // `SUPPLIER_RETURN_JOURNAL_POSTED`.
+      if (result.journalEntryId) {
+        await this.auditService.record({
+          action: INVENTORY_AUDIT_ACTIONS.ADJUSTMENT_JOURNAL_POSTED,
+          entityType: 'InventoryStock',
+          entityId: result.productId,
+          organisationId: user.organisationId,
+          actorUserId: user.sub,
+          metadata: {
+            productId: result.productId,
+            locationId: result.location.id,
+            journalEntryId: result.journalEntryId,
+          },
+          ipAddress: req.ip,
+          userAgent: req.headers['user-agent'],
+        });
+      }
+    }
 
     return toAdjustmentResponse(result);
   }
@@ -718,6 +744,7 @@ function toAdjustmentResponse(result: StockAdjustmentResult) {
     previousQuantity: result.previousQuantity,
     newQuantity: result.newQuantity,
     transactionId: result.transactionId,
+    journalEntryId: result.journalEntryId,
   };
 }
 

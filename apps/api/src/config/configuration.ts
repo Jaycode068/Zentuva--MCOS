@@ -81,13 +81,13 @@ export default () => ({
     // (docs/domains/whatsapp.md). Never logged, never returned from any API
     // response as-is — same contract as `accessToken` above.
     webhookVerifyToken: process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN,
-    // Optional — Meta's `X-Hub-Signature-256` webhook signature is computed
-    // with the Meta APP secret, a DIFFERENT credential from the access
-    // token above, and one this deployment's `.env` does not currently set.
-    // `whatsapp-webhook.controller.ts` logs a loud warning and skips
-    // signature verification when this is unset, rather than silently
-    // pretending the webhook is authenticated — see its own doc comment and
-    // docs/sprint-40.5-completion-report.md "Limitations."
+    // Meta's `X-Hub-Signature-256` webhook signature is computed with the Meta
+    // APP secret, a DIFFERENT credential from the access token above. Unset
+    // today in this deployment's `.env` (this deployment runs
+    // `providerMode: 'local'`) — Stage 5C.1's `assertWebhookSignatureConfigured`
+    // fails the app at boot if `providerMode: 'meta'` and this is still unset,
+    // so `whatsapp-webhook.controller.ts`'s own local-only bypass can no
+    // longer be reached by any deployment that claims to talk to real Meta.
     appSecret: process.env.WHATSAPP_APP_SECRET,
     // Sprint 40.5 — resolves which tenant a BRAND-NEW WhatsApp contact (one
     // with no existing `Consumer` row in any organisation) belongs to, since
@@ -99,6 +99,18 @@ export default () => ({
     // default is only ever consulted for a conversation nobody has seen
     // before.
     defaultOrganisationId: process.env.WHATSAPP_DEFAULT_ORGANISATION_ID,
+    // Stage 5C.1 — WhatsApp Notification Reliability. No assumed default name
+    // (unlike approvalTemplateName/interviewScheduledTemplateName above) — no
+    // D2C template has been submitted for Meta approval yet; `undefined` is
+    // the correct, honest value until one is configured, and is exactly what
+    // `resolveD2CWhatsAppTemplate` (`d2c/messaging/d2c-whatsapp-template.ts`)
+    // treats as "not configured" to fail closed rather than guess a name.
+    d2cCollectionReadyTemplateName: process.env.WHATSAPP_D2C_COLLECTION_READY_TEMPLATE_NAME,
+    d2cCollectionReadyTemplateLanguage:
+      process.env.WHATSAPP_D2C_COLLECTION_READY_TEMPLATE_LANGUAGE ?? 'en_US',
+    d2cCollectionConfirmedTemplateName: process.env.WHATSAPP_D2C_COLLECTION_CONFIRMED_TEMPLATE_NAME,
+    d2cCollectionConfirmedTemplateLanguage:
+      process.env.WHATSAPP_D2C_COLLECTION_CONFIRMED_TEMPLATE_LANGUAGE ?? 'en_US',
   },
   webBaseUrl: process.env.WEB_BASE_URL ?? 'http://localhost:3000',
   opay: {

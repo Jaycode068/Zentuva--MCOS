@@ -12,5 +12,20 @@ module.exports = {
         project: null,
       },
     },
+    {
+      // Same reasoning as the prisma override above, for the plain-JS guarded
+      // DB scripts and Jest integration-test setup/teardown files — also
+      // outside ./src and never part of the type-aware tsconfig.json project.
+      // These are genuine CommonJS scripts (run directly via `node`, never
+      // compiled), so `no-require-imports` — a TypeScript-module-system rule
+      // — does not apply to them either.
+      files: ['scripts/**/*.js', 'test/**/*.js'],
+      parserOptions: {
+        project: null,
+      },
+      rules: {
+        '@typescript-eslint/no-require-imports': 'off',
+      },
+    },
   ],
 };

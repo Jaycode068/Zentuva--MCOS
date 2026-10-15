@@ -1,18 +1,26 @@
+import { ConfigService } from '@nestjs/config';
+
 import { ConsumerService } from '../consumer/consumer.service';
 import { ConsumerWhatsAppDeliveryRepository } from './consumer-whatsapp-delivery.repository';
 import { WhatsAppConsumerNotificationService } from './whatsapp-consumer-notification.service';
 import { WhatsAppProvider } from '../../notifications/ports/whatsapp-provider.port';
 
 describe('WhatsAppConsumerNotificationService', () => {
-  function makeService() {
+  function makeService(options: { configValues?: Record<string, unknown> } = {}) {
     const provider = {
       sendText: jest.fn().mockResolvedValue({ outcome: 'ACCEPTED', providerMessageId: 'wamid.1' }),
-      sendTemplate: jest.fn(),
+      sendTemplate: jest
+        .fn()
+        .mockResolvedValue({ outcome: 'ACCEPTED', providerMessageId: 'wamid.2' }),
       sendImage: jest.fn(),
       name: 'local',
     } as unknown as jest.Mocked<WhatsAppProvider>;
     const consumerService = {
       getById: jest.fn().mockResolvedValue({ id: 'consumer-1', normalizedPhone: '+2348012345678' }),
+      // Default: "the consumer messaged in just now" — preserves every pre-existing
+      // test's original intent (they are not about the messaging window) by keeping
+      // every COLLECTION_READY/COLLECTION_CONFIRMED send inside the window by default.
+      getLastInboundMessageAt: jest.fn().mockResolvedValue(new Date()),
     } as unknown as jest.Mocked<ConsumerService>;
     const repository = {
       create: jest
@@ -29,8 +37,16 @@ describe('WhatsAppConsumerNotificationService', () => {
           Promise.resolve({ id, status: 'FAILED', ...data }),
         ),
     } as unknown as jest.Mocked<ConsumerWhatsAppDeliveryRepository>;
-    const service = new WhatsAppConsumerNotificationService(provider, consumerService, repository);
-    return { service, provider, consumerService, repository };
+    const config = {
+      get: jest.fn((key: string) => options.configValues?.[key]),
+    } as unknown as jest.Mocked<ConfigService>;
+    const service = new WhatsAppConsumerNotificationService(
+      provider,
+      consumerService,
+      repository,
+      config,
+    );
+    return { service, provider, consumerService, repository, config };
   }
 
   const request = {
@@ -121,6 +137,114 @@ describe('WhatsAppConsumerNotificationService', () => {
         'org-1',
         'delivery-2',
         expect.objectContaining({ isFirstAttempt: false }),
+      );
+    });
+  });
+
+  describe('Stage 5C.1 — messaging window and template fallback', () => {
+    const windowDelivery = {
+      id: 'delivery-3',
+      kind: 'COLLECTION_READY',
+      consumerId: 'consumer-1',
+      attempts: 0,
+    } as never;
+
+    it('sends via sendText, unchanged, when the consumer messaged in within the last 24h', async () => {
+      const { service, consumerService, provider, repository } = makeService();
+      consumerService.getLastInboundMessageAt.mockResolvedValue(
+        new Date(Date.now() - 60 * 60 * 1000), // 1h ago
+      );
+      await service.attemptSend('org-1', windowDelivery, '+2348012345678', 'Ready!', true);
+      expect(provider.sendText).toHaveBeenCalledWith(expect.objectContaining({ text: 'Ready!' }));
+      expect(provider.sendTemplate).not.toHaveBeenCalled();
+      expect(repository.markSent).toHaveBeenCalled();
+    });
+
+    it('sends via the configured template, not sendText, when outside the 24h window', async () => {
+      const { service, consumerService, provider, repository } = makeService({
+        configValues: {
+          'whatsapp.d2cCollectionReadyTemplateName': 'zentuva_d2c_collection_ready',
+          'whatsapp.d2cCollectionReadyTemplateLanguage': 'en_US',
+        },
+      });
+      consumerService.getLastInboundMessageAt.mockResolvedValue(
+        new Date(Date.now() - 25 * 60 * 60 * 1000), // 25h ago — outside the window
+      );
+      await service.attemptSend('org-1', windowDelivery, '+2348012345678', 'Ready!', true);
+      expect(provider.sendTemplate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          templateName: 'zentuva_d2c_collection_ready',
+          templateLanguage: 'en_US',
+          bodyParameters: ['Ready!'],
+        }),
+      );
+      expect(provider.sendText).not.toHaveBeenCalled();
+      expect(repository.markSent).toHaveBeenCalled();
+    });
+
+    it('fails closed — never calls sendText or sendTemplate — when outside the window and no template is configured', async () => {
+      const { service, consumerService, provider, repository } = makeService();
+      consumerService.getLastInboundMessageAt.mockResolvedValue(
+        new Date(Date.now() - 25 * 60 * 60 * 1000),
+      );
+      await service.attemptSend('org-1', windowDelivery, '+2348012345678', 'Ready!', true);
+      expect(provider.sendText).not.toHaveBeenCalled();
+      expect(provider.sendTemplate).not.toHaveBeenCalled();
+      expect(repository.markFailed).toHaveBeenCalledWith(
+        'org-1',
+        'delivery-3',
+        expect.objectContaining({ errorCode: 'WHATSAPP_TEMPLATE_NOT_CONFIGURED' }),
+      );
+    });
+
+    it('never has had an inbound message recorded at all — treated as outside the window, fails closed without a template', async () => {
+      const { service, consumerService, provider, repository } = makeService();
+      consumerService.getLastInboundMessageAt.mockResolvedValue(null);
+      await service.attemptSend('org-1', windowDelivery, '+2348012345678', 'Ready!', true);
+      expect(provider.sendText).not.toHaveBeenCalled();
+      expect(repository.markFailed).toHaveBeenCalledWith(
+        'org-1',
+        'delivery-3',
+        expect.objectContaining({ errorCode: 'WHATSAPP_TEMPLATE_NOT_CONFIGURED' }),
+      );
+    });
+
+    it('CONVERSATION_REPLY is never window-checked — always sendText, regardless of last-inbound time', async () => {
+      const { service, consumerService, provider } = makeService();
+      consumerService.getLastInboundMessageAt.mockResolvedValue(
+        new Date(Date.now() - 999 * 60 * 60 * 1000), // long outside any window
+      );
+      const replyDelivery = {
+        id: 'delivery-4',
+        kind: 'CONVERSATION_REPLY',
+        consumerId: 'consumer-1',
+        attempts: 0,
+      } as never;
+      await service.attemptSend('org-1', replyDelivery, '+2348012345678', 'Hello!', true);
+      expect(provider.sendText).toHaveBeenCalled();
+      expect(consumerService.getLastInboundMessageAt).not.toHaveBeenCalled();
+    });
+
+    it('a retry re-evaluates the window fresh — a retry outside the window still fails closed even though the original attempt was within it', async () => {
+      const { service, consumerService, provider, repository } = makeService();
+      // First attempt: within the window, sends fine.
+      consumerService.getLastInboundMessageAt.mockResolvedValueOnce(new Date());
+      await service.attemptSend('org-1', windowDelivery, '+2348012345678', 'Ready!', true);
+      expect(provider.sendText).toHaveBeenCalledTimes(1);
+
+      // Retry, hours later: now outside the window, no template configured.
+      consumerService.getLastInboundMessageAt.mockResolvedValueOnce(
+        new Date(Date.now() - 30 * 60 * 60 * 1000),
+      );
+      await service.attemptSend('org-1', windowDelivery, '+2348012345678', 'Ready!', false);
+      expect(provider.sendText).toHaveBeenCalledTimes(1); // not called again
+      expect(repository.markFailed).toHaveBeenCalledWith(
+        'org-1',
+        'delivery-3',
+        expect.objectContaining({
+          errorCode: 'WHATSAPP_TEMPLATE_NOT_CONFIGURED',
+          isFirstAttempt: false,
+        }),
       );
     });
   });

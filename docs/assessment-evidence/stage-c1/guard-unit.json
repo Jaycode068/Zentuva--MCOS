@@ -1,0 +1,758 @@
+{
+  "numFailedTestSuites": 0,
+  "numFailedTests": 0,
+  "numPassedTestSuites": 2,
+  "numPassedTests": 44,
+  "numPendingTestSuites": 0,
+  "numPendingTests": 0,
+  "numRuntimeErrorTestSuites": 0,
+  "numTodoTests": 0,
+  "numTotalTestSuites": 2,
+  "numTotalTests": 44,
+  "openHandles": [],
+  "snapshot": {
+    "added": 0,
+    "didUpdate": false,
+    "failure": false,
+    "filesAdded": 0,
+    "filesRemoved": 0,
+    "filesRemovedList": [],
+    "filesUnmatched": 0,
+    "filesUpdated": 0,
+    "matched": 0,
+    "total": 0,
+    "unchecked": 0,
+    "uncheckedKeysByFile": [],
+    "unmatched": 0,
+    "updated": 0
+  },
+  "startTime": 1792086739293,
+  "success": true,
+  "testResults": [
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [
+            "db-identity-guard (pure decision logic — no database connection)",
+            "extractHost"
+          ],
+          "duration": 2,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "db-identity-guard (pure decision logic — no database connection) extractHost extracts the hostname from a well-formed postgres URL",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 1,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "extracts the hostname from a well-formed postgres URL"
+        },
+        {
+          "ancestorTitles": [
+            "db-identity-guard (pure decision logic — no database connection)",
+            "extractHost"
+          ],
+          "duration": 0,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "db-identity-guard (pure decision logic — no database connection) extractHost extracts a non-local hostname unchanged (classification happens later, not here)",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 1,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "extracts a non-local hostname unchanged (classification happens later, not here)"
+        },
+        {
+          "ancestorTitles": [
+            "db-identity-guard (pure decision logic — no database connection)",
+            "extractHost"
+          ],
+          "duration": 14,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "db-identity-guard (pure decision logic — no database connection) extractHost throws UnsafeDevelopmentDatabaseError for an unparsable URL",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 1,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "throws UnsafeDevelopmentDatabaseError for an unparsable URL"
+        },
+        {
+          "ancestorTitles": [
+            "db-identity-guard (pure decision logic — no database connection)",
+            "classifyDatabaseIdentity"
+          ],
+          "duration": 1,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "db-identity-guard (pure decision logic — no database connection) classifyDatabaseIdentity classifies the expected development identity as \"development\"",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 1,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "classifies the expected development identity as \"development\""
+        },
+        {
+          "ancestorTitles": [
+            "db-identity-guard (pure decision logic — no database connection)",
+            "classifyDatabaseIdentity"
+          ],
+          "duration": 0,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "db-identity-guard (pure decision logic — no database connection) classifyDatabaseIdentity classifies a zentuva_test database as \"test\", regardless of role name",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 1,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "classifies a zentuva_test database as \"test\", regardless of role name"
+        },
+        {
+          "ancestorTitles": [
+            "db-identity-guard (pure decision logic — no database connection)",
+            "classifyDatabaseIdentity"
+          ],
+          "duration": 0,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "db-identity-guard (pure decision logic — no database connection) classifyDatabaseIdentity classifies a zentuva_test_app role as \"test\", regardless of database name",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 1,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "classifies a zentuva_test_app role as \"test\", regardless of database name"
+        },
+        {
+          "ancestorTitles": [
+            "db-identity-guard (pure decision logic — no database connection)",
+            "classifyDatabaseIdentity"
+          ],
+          "duration": 0,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "db-identity-guard (pure decision logic — no database connection) classifyDatabaseIdentity classifies anything else as \"unknown\"",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 1,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "classifies anything else as \"unknown\""
+        },
+        {
+          "ancestorTitles": [
+            "db-identity-guard (pure decision logic — no database connection)",
+            "assertSafeDevelopmentTarget"
+          ],
+          "duration": 0,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "db-identity-guard (pure decision logic — no database connection) assertSafeDevelopmentTarget does not throw for the expected development identity",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 1,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "does not throw for the expected development identity"
+        },
+        {
+          "ancestorTitles": [
+            "db-identity-guard (pure decision logic — no database connection)",
+            "assertSafeDevelopmentTarget"
+          ],
+          "duration": 1,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "db-identity-guard (pure decision logic — no database connection) assertSafeDevelopmentTarget rejects a non-local host even if database/role names match exactly",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 1,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "rejects a non-local host even if database/role names match exactly"
+        },
+        {
+          "ancestorTitles": [
+            "db-identity-guard (pure decision logic — no database connection)",
+            "assertSafeDevelopmentTarget"
+          ],
+          "duration": 1,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "db-identity-guard (pure decision logic — no database connection) assertSafeDevelopmentTarget rejects when the connection is actually the isolated test database",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 1,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "rejects when the connection is actually the isolated test database"
+        },
+        {
+          "ancestorTitles": [
+            "db-identity-guard (pure decision logic — no database connection)",
+            "assertSafeDevelopmentTarget"
+          ],
+          "duration": 1,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "db-identity-guard (pure decision logic — no database connection) assertSafeDevelopmentTarget rejects when the connection is the test runtime-app role, even against a differently-named database",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 1,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "rejects when the connection is the test runtime-app role, even against a differently-named database"
+        },
+        {
+          "ancestorTitles": [
+            "db-identity-guard (pure decision logic — no database connection)",
+            "assertSafeDevelopmentTarget"
+          ],
+          "duration": 1,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "db-identity-guard (pure decision logic — no database connection) assertSafeDevelopmentTarget rejects an unrecognized database name",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 1,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "rejects an unrecognized database name"
+        },
+        {
+          "ancestorTitles": [
+            "db-identity-guard (pure decision logic — no database connection)",
+            "assertSafeDevelopmentTarget"
+          ],
+          "duration": 1,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "db-identity-guard (pure decision logic — no database connection) assertSafeDevelopmentTarget rejects an unrecognized role name",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 1,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "rejects an unrecognized role name"
+        },
+        {
+          "ancestorTitles": [
+            "db-identity-guard (pure decision logic — no database connection)",
+            "assertSafeDevelopmentTarget"
+          ],
+          "duration": 0,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "db-identity-guard (pure decision logic — no database connection) assertSafeDevelopmentTarget does not reject on the development role being a superuser (documented, known, pre-existing state)",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 1,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "does not reject on the development role being a superuser (documented, known, pre-existing state)"
+        },
+        {
+          "ancestorTitles": [
+            "db-identity-guard (pure decision logic — no database connection)",
+            "assertSafeDevelopmentTarget"
+          ],
+          "duration": 0,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "db-identity-guard (pure decision logic — no database connection) assertSafeDevelopmentTarget rejects when rolsuper does not match the expected development-role signature",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 1,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "rejects when rolsuper does not match the expected development-role signature"
+        },
+        {
+          "ancestorTitles": [
+            "db-identity-guard (pure decision logic — no database connection)",
+            "assertSafeDevelopmentTarget"
+          ],
+          "duration": 1,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "db-identity-guard (pure decision logic — no database connection) assertSafeDevelopmentTarget rejects when rolcreatedb does not match the expected development-role signature",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 1,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "rejects when rolcreatedb does not match the expected development-role signature"
+        },
+        {
+          "ancestorTitles": [
+            "db-identity-guard (pure decision logic — no database connection)",
+            "assertSafeDevelopmentTarget"
+          ],
+          "duration": 1,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "db-identity-guard (pure decision logic — no database connection) assertSafeDevelopmentTarget rejects when rolcreaterole does not match the expected development-role signature",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 1,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "rejects when rolcreaterole does not match the expected development-role signature"
+        },
+        {
+          "ancestorTitles": [
+            "db-identity-guard (pure decision logic — no database connection)",
+            "requireDevelopmentDatabaseUrl (environment precedence and contradictory-settings coverage)"
+          ],
+          "duration": 0,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "db-identity-guard (pure decision logic — no database connection) requireDevelopmentDatabaseUrl (environment precedence and contradictory-settings coverage) throws when DATABASE_URL is unset",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 1,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "throws when DATABASE_URL is unset"
+        },
+        {
+          "ancestorTitles": [
+            "db-identity-guard (pure decision logic — no database connection)",
+            "requireDevelopmentDatabaseUrl (environment precedence and contradictory-settings coverage)"
+          ],
+          "duration": 1,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "db-identity-guard (pure decision logic — no database connection) requireDevelopmentDatabaseUrl (environment precedence and contradictory-settings coverage) throws when DATABASE_URL is an empty string",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 1,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "throws when DATABASE_URL is an empty string"
+        },
+        {
+          "ancestorTitles": [
+            "db-identity-guard (pure decision logic — no database connection)",
+            "requireDevelopmentDatabaseUrl (environment precedence and contradictory-settings coverage)"
+          ],
+          "duration": 0,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "db-identity-guard (pure decision logic — no database connection) requireDevelopmentDatabaseUrl (environment precedence and contradictory-settings coverage) returns the configured value when present",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 1,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "returns the configured value when present"
+        },
+        {
+          "ancestorTitles": [
+            "db-identity-guard (pure decision logic — no database connection)",
+            "requireDevelopmentDatabaseUrl (environment precedence and contradictory-settings coverage)"
+          ],
+          "duration": 0,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "db-identity-guard (pure decision logic — no database connection) requireDevelopmentDatabaseUrl (environment precedence and contradictory-settings coverage) ignores TEST_DATABASE_URL entirely, even when it is also set",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 1,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "ignores TEST_DATABASE_URL entirely, even when it is also set"
+        },
+        {
+          "ancestorTitles": [
+            "db-identity-guard (pure decision logic — no database connection)",
+            "requireDevelopmentDatabaseUrl (environment precedence and contradictory-settings coverage)"
+          ],
+          "duration": 1,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "db-identity-guard (pure decision logic — no database connection) requireDevelopmentDatabaseUrl (environment precedence and contradictory-settings coverage) still throws when DATABASE_URL is unset, even though a contradictory TEST_DATABASE_URL is present — never falls back to it",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 1,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "still throws when DATABASE_URL is unset, even though a contradictory TEST_DATABASE_URL is present — never falls back to it"
+        },
+        {
+          "ancestorTitles": [
+            "db-identity-guard (pure decision logic — no database connection)",
+            "buildGuardedSubprocessEnv (guard-to-Prisma connection consistency)"
+          ],
+          "duration": 0,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "db-identity-guard (pure decision logic — no database connection) buildGuardedSubprocessEnv (guard-to-Prisma connection consistency) sets DATABASE_URL to exactly the validated value in the returned env",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 1,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "sets DATABASE_URL to exactly the validated value in the returned env"
+        },
+        {
+          "ancestorTitles": [
+            "db-identity-guard (pure decision logic — no database connection)",
+            "buildGuardedSubprocessEnv (guard-to-Prisma connection consistency)"
+          ],
+          "duration": 0,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "db-identity-guard (pure decision logic — no database connection) buildGuardedSubprocessEnv (guard-to-Prisma connection consistency) overrides a different DATABASE_URL already present in the base environment",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 1,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "overrides a different DATABASE_URL already present in the base environment"
+        },
+        {
+          "ancestorTitles": [
+            "db-identity-guard (pure decision logic — no database connection)",
+            "buildGuardedSubprocessEnv (guard-to-Prisma connection consistency)"
+          ],
+          "duration": 1,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "db-identity-guard (pure decision logic — no database connection) buildGuardedSubprocessEnv (guard-to-Prisma connection consistency) preserves every other variable from the base environment unchanged",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 2,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "preserves every other variable from the base environment unchanged"
+        },
+        {
+          "ancestorTitles": [
+            "db-identity-guard (pure decision logic — no database connection)",
+            "verifyConnectedToDevelopmentDatabase (mocked $queryRaw — decision logic only, no real connection)"
+          ],
+          "duration": 1,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "db-identity-guard (pure decision logic — no database connection) verifyConnectedToDevelopmentDatabase (mocked $queryRaw — decision logic only, no real connection) resolves for the expected development identity",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 1,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "resolves for the expected development identity"
+        },
+        {
+          "ancestorTitles": [
+            "db-identity-guard (pure decision logic — no database connection)",
+            "verifyConnectedToDevelopmentDatabase (mocked $queryRaw — decision logic only, no real connection)"
+          ],
+          "duration": 1,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "db-identity-guard (pure decision logic — no database connection) verifyConnectedToDevelopmentDatabase (mocked $queryRaw — decision logic only, no real connection) rejects when the live query reports the isolated test identity",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 1,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "rejects when the live query reports the isolated test identity"
+        },
+        {
+          "ancestorTitles": [
+            "db-identity-guard (pure decision logic — no database connection)",
+            "verifyConnectedToDevelopmentDatabase (mocked $queryRaw — decision logic only, no real connection)"
+          ],
+          "duration": 0,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "db-identity-guard (pure decision logic — no database connection) verifyConnectedToDevelopmentDatabase (mocked $queryRaw — decision logic only, no real connection) rejects when the URL host is not local, even if the server-reported identity looks right",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 1,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "rejects when the URL host is not local, even if the server-reported identity looks right"
+        },
+        {
+          "ancestorTitles": [
+            "db-identity-guard (pure decision logic — no database connection)",
+            "verifyConnectedToDevelopmentDatabase (mocked $queryRaw — decision logic only, no real connection)"
+          ],
+          "duration": 0,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "db-identity-guard (pure decision logic — no database connection) verifyConnectedToDevelopmentDatabase (mocked $queryRaw — decision logic only, no real connection) rejects when the role lookup returns no row at all",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 1,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "rejects when the role lookup returns no row at all"
+        }
+      ],
+      "endTime": 1792086739893,
+      "message": "",
+      "name": "/Users/user/Zentuva--MCOS/apps/api/src/prisma/db-identity-guard.spec.ts",
+      "startTime": 1792086739602,
+      "status": "passed",
+      "summary": ""
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [
+            "test-db-guard (pure decision logic — no database connection)",
+            "assertSafeTestIdentity"
+          ],
+          "duration": 1,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "test-db-guard (pure decision logic — no database connection) assertSafeTestIdentity does not throw for the genuinely isolated test identity",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 1,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "does not throw for the genuinely isolated test identity"
+        },
+        {
+          "ancestorTitles": [
+            "test-db-guard (pure decision logic — no database connection)",
+            "assertSafeTestIdentity"
+          ],
+          "duration": 10,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "test-db-guard (pure decision logic — no database connection) assertSafeTestIdentity rejects an operational-looking identity (superuser role, operational database name)",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 1,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "rejects an operational-looking identity (superuser role, operational database name)"
+        },
+        {
+          "ancestorTitles": [
+            "test-db-guard (pure decision logic — no database connection)",
+            "assertSafeTestIdentity"
+          ],
+          "duration": 1,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "test-db-guard (pure decision logic — no database connection) assertSafeTestIdentity rejects when the database name is not on the allowlist, even if the role name matches",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 1,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "rejects when the database name is not on the allowlist, even if the role name matches"
+        },
+        {
+          "ancestorTitles": [
+            "test-db-guard (pure decision logic — no database connection)",
+            "assertSafeTestIdentity"
+          ],
+          "duration": 1,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "test-db-guard (pure decision logic — no database connection) assertSafeTestIdentity rejects when the role name does not match, even if the database name is on the allowlist",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 1,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "rejects when the role name does not match, even if the database name is on the allowlist"
+        },
+        {
+          "ancestorTitles": [
+            "test-db-guard (pure decision logic — no database connection)",
+            "assertSafeTestIdentity"
+          ],
+          "duration": 0,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "test-db-guard (pure decision logic — no database connection) assertSafeTestIdentity rejects a role with rolsuper=true even if the database and role name both look correct",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 1,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "rejects a role with rolsuper=true even if the database and role name both look correct"
+        },
+        {
+          "ancestorTitles": [
+            "test-db-guard (pure decision logic — no database connection)",
+            "assertSafeTestIdentity"
+          ],
+          "duration": 1,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "test-db-guard (pure decision logic — no database connection) assertSafeTestIdentity rejects a role with rolcreatedb=true",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 1,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "rejects a role with rolcreatedb=true"
+        },
+        {
+          "ancestorTitles": [
+            "test-db-guard (pure decision logic — no database connection)",
+            "assertSafeTestIdentity"
+          ],
+          "duration": 0,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "test-db-guard (pure decision logic — no database connection) assertSafeTestIdentity rejects a role with rolcreaterole=true",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 1,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "rejects a role with rolcreaterole=true"
+        },
+        {
+          "ancestorTitles": [
+            "test-db-guard (pure decision logic — no database connection)",
+            "assertSafeTestIdentity"
+          ],
+          "duration": 1,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "test-db-guard (pure decision logic — no database connection) assertSafeTestIdentity rejects a role with rolbypassrls=true",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 1,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "rejects a role with rolbypassrls=true"
+        },
+        {
+          "ancestorTitles": [
+            "test-db-guard (pure decision logic — no database connection)",
+            "requireTestDatabaseUrl"
+          ],
+          "duration": 0,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "test-db-guard (pure decision logic — no database connection) requireTestDatabaseUrl throws when TEST_DATABASE_URL is unset",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 1,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "throws when TEST_DATABASE_URL is unset"
+        },
+        {
+          "ancestorTitles": [
+            "test-db-guard (pure decision logic — no database connection)",
+            "requireTestDatabaseUrl"
+          ],
+          "duration": 0,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "test-db-guard (pure decision logic — no database connection) requireTestDatabaseUrl throws when TEST_DATABASE_URL is an empty string",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 1,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "throws when TEST_DATABASE_URL is an empty string"
+        },
+        {
+          "ancestorTitles": [
+            "test-db-guard (pure decision logic — no database connection)",
+            "requireTestDatabaseUrl"
+          ],
+          "duration": 0,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "test-db-guard (pure decision logic — no database connection) requireTestDatabaseUrl returns the configured value when present",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 1,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "returns the configured value when present"
+        },
+        {
+          "ancestorTitles": [
+            "test-db-guard (pure decision logic — no database connection)",
+            "requireTestDatabaseUrl"
+          ],
+          "duration": 0,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "test-db-guard (pure decision logic — no database connection) requireTestDatabaseUrl ignores DATABASE_URL entirely, even when TEST_DATABASE_URL is unset",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 1,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "ignores DATABASE_URL entirely, even when TEST_DATABASE_URL is unset"
+        },
+        {
+          "ancestorTitles": [
+            "test-db-guard (pure decision logic — no database connection)",
+            "verifyConnectedToTestDatabase (mocked $queryRaw — decision logic only, no real connection)"
+          ],
+          "duration": 1,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "test-db-guard (pure decision logic — no database connection) verifyConnectedToTestDatabase (mocked $queryRaw — decision logic only, no real connection) rejects when the live query reports an operational-looking identity",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 1,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "rejects when the live query reports an operational-looking identity"
+        },
+        {
+          "ancestorTitles": [
+            "test-db-guard (pure decision logic — no database connection)",
+            "verifyConnectedToTestDatabase (mocked $queryRaw — decision logic only, no real connection)"
+          ],
+          "duration": 0,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "test-db-guard (pure decision logic — no database connection) verifyConnectedToTestDatabase (mocked $queryRaw — decision logic only, no real connection) resolves when the live query reports the genuinely isolated test identity",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 1,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "resolves when the live query reports the genuinely isolated test identity"
+        },
+        {
+          "ancestorTitles": [
+            "test-db-guard (pure decision logic — no database connection)",
+            "verifyConnectedToTestDatabase (mocked $queryRaw — decision logic only, no real connection)"
+          ],
+          "duration": 1,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "test-db-guard (pure decision logic — no database connection) verifyConnectedToTestDatabase (mocked $queryRaw — decision logic only, no real connection) rejects when the role lookup returns no row at all",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 1,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "rejects when the role lookup returns no row at all"
+        }
+      ],
+      "endTime": 1792086739965,
+      "message": "",
+      "name": "/Users/user/Zentuva--MCOS/apps/api/src/testing/test-db-guard.spec.ts",
+      "startTime": 1792086739901,
+      "status": "passed",
+      "summary": ""
+    }
+  ],
+  "wasInterrupted": false
+}

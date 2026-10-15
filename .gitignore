@@ -19,7 +19,9 @@ apps/api/uploads/
 .env
 .env.local
 .env.*.local
+.env.test
 !.env.example
+!.env.test.example
 
 # Prisma
 apps/api/prisma/migrations/dev/
@@ -41,6 +43,11 @@ coverage/
 .idea/
 *.swp
 *.swo
+
+# Claude Code local tooling state (session settings, scheduled-task locks, and
+# worktrees — each worktree is a full nested git checkout with its own .git
+# directory, never safe or intended to be committed into this repository).
+.claude/
 
 # OS
 .DS_Store

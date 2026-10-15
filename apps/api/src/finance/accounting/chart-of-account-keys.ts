@@ -41,6 +41,20 @@
  * `CashAccount`'s opening-balance posting (`DR <its own CoA row> / CR
  * OPENING_BALANCE_EQUITY`), reusing the existing Equity concept rather than
  * inventing a parallel "Capital Contribution" mechanism.
+ *
+ * `INVENTORY_ADJUSTMENT` (Stage 4E.4D, docs/domains/accounting.md §16.7/§16.8) — the
+ * offsetting leg for a manual Inventory Adjustment's value (`InventoryStockRepository.
+ * adjustStock`), one `EXPENSE`-type account that nets both directions: debited for a
+ * value-decreasing adjustment (loss), credited for a value-increasing one (gain), the
+ * same way a real "Inventory Shrinkage/Adjustment" expense line nets in ordinary
+ * small-business bookkeeping. Deliberately **not** `PRODUCTION_LOSS` — that key is
+ * scoped to a Production Run's own rejected-output cost (a manufacturing yield
+ * variance); folding unrelated manual-adjustment shrinkage/gain into it would pollute
+ * that metric. The other leg of the same posting reuses the existing `INVENTORY`/
+ * `FINISHED_GOODS_INVENTORY` keys, chosen dynamically by the adjusted product's own
+ * type — the first call site that needs that choice made dynamically, since Goods
+ * Receipt (`INVENTORY`, always) and Production Completion (`FINISHED_GOODS_INVENTORY`,
+ * always) each only ever need one side of that choice.
  */
 export const SYSTEM_ACCOUNT_KEYS = {
   AR: 'AR',
@@ -57,6 +71,7 @@ export const SYSTEM_ACCOUNT_KEYS = {
   PRODUCTION_LOSS: 'PRODUCTION_LOSS',
   CASH_BANK_PARENT: 'CASH_BANK_PARENT',
   OPENING_BALANCE_EQUITY: 'OPENING_BALANCE_EQUITY',
+  INVENTORY_ADJUSTMENT: 'INVENTORY_ADJUSTMENT',
 } as const;
 
 export type SystemAccountKey = (typeof SYSTEM_ACCOUNT_KEYS)[keyof typeof SYSTEM_ACCOUNT_KEYS];

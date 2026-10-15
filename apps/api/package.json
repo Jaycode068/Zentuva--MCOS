@@ -16,7 +16,14 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
-    "prisma:seed": "prisma db seed"
+    "prisma:seed": "prisma db seed",
+    "db:migrate:guarded": "node scripts/guarded-db-migrate.js",
+    "db:migrate:deploy:guarded": "node scripts/guarded-db-migrate-deploy.js",
+    "db:seed:guarded": "node scripts/guarded-db-seed.js",
+    "db:studio:guarded": "node scripts/guarded-db-studio.js",
+    "db:reset:guarded": "node scripts/guarded-db-reset.js",
+    "test:db:migrate": "node scripts/migrate-test-db.js",
+    "test:db:seed": "node scripts/seed-test-db.js"
   },
   "prisma": {
     "seed": "ts-node prisma/seed.ts"

@@ -148,6 +148,27 @@ describe('MetaWhatsAppProvider', () => {
       expect(result.errorCode).toBe('WHATSAPP_INVALID_TEMPLATE');
     });
 
+    // Stage 5C.1 — WhatsApp Notification Reliability. Error 131047 ("re-engagement
+    // message") means the send was made outside Meta's 24h customer-service window —
+    // this must NOT fall into the generic retryable default: retrying the identical
+    // free-form send will fail identically forever, since the window only re-opens on
+    // a new inbound message from the consumer, never on elapsed time alone.
+    it('maps the 24h messaging-window error (131047) to a distinct TERMINAL_FAILURE, never RETRYABLE', async () => {
+      fetchMock.mockResolvedValue({
+        ok: false,
+        status: 400,
+        json: () => Promise.resolve({ error: { code: 131047 } }),
+      });
+      const provider = new MetaWhatsAppProvider(makeConfig());
+      const result = await provider.sendText({
+        toPhoneNumber: '+2348012345678',
+        text: 'Your order is ready',
+        correlationId: 'test-window',
+      });
+      expect(result.outcome).toBe('TERMINAL_FAILURE');
+      expect(result.errorCode).toBe('WHATSAPP_MESSAGING_WINDOW_EXPIRED');
+    });
+
     it('maps a 429 rate-limit response to a RETRYABLE_FAILURE', async () => {
       fetchMock.mockResolvedValue({
         ok: false,

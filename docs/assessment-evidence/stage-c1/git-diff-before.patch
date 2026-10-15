@@ -1,0 +1,2210 @@
+diff --git a/.gitignore b/.gitignore
+index 98a4753..eb77c4a 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -19,7 +19,9 @@ apps/api/uploads/
+ .env
+ .env.local
+ .env.*.local
++.env.test
+ !.env.example
++!.env.test.example
+ 
+ # Prisma
+ apps/api/prisma/migrations/dev/
+diff --git a/apps/api/jest.integration.config.js b/apps/api/jest.integration.config.js
+index d895062..9bce173 100644
+--- a/apps/api/jest.integration.config.js
++++ b/apps/api/jest.integration.config.js
+@@ -11,4 +11,15 @@ module.exports = {
+   // milliseconds of actual Postgres round trips per `Promise.all` batch, not
+   // microseconds of in-memory Map access.
+   testTimeout: 30_000,
++  // Test Database Isolation & Destructive-Operation Safety sprint (see
++  // docs/sprint-test-database-isolation-completion-report.md): every integration test must
++  // run against the isolated, disposable test Postgres instance, never the operational
++  // database — both hooks below fail the whole run closed if that cannot be verified.
++  // globalSetup runs once, in a separate process, before any test file loads, and
++  // performs the real connection/role-privilege check. setupFiles runs in the SAME
++  // process as each test file (which is why DATABASE_URL is actually *set* there, not in
++  // globalSetup — see apps/api/test/integration-setup-files.js for why).
++  globalSetup: '<rootDir>/test/integration-global-setup.js',
++  globalTeardown: '<rootDir>/test/integration-global-teardown.js',
++  setupFiles: ['<rootDir>/test/integration-setup-files.js'],
+ };
+diff --git a/apps/api/package.json b/apps/api/package.json
+index 6369ff5..5a5a446 100644
+--- a/apps/api/package.json
++++ b/apps/api/package.json
+@@ -16,7 +16,14 @@
+     "prisma:generate": "prisma generate",
+     "prisma:migrate": "prisma migrate dev",
+     "prisma:studio": "prisma studio",
+-    "prisma:seed": "prisma db seed"
++    "prisma:seed": "prisma db seed",
++    "db:migrate:guarded": "node scripts/guarded-db-migrate.js",
++    "db:migrate:deploy:guarded": "node scripts/guarded-db-migrate-deploy.js",
++    "db:seed:guarded": "node scripts/guarded-db-seed.js",
++    "db:studio:guarded": "node scripts/guarded-db-studio.js",
++    "db:reset:guarded": "node scripts/guarded-db-reset.js",
++    "test:db:migrate": "node scripts/migrate-test-db.js",
++    "test:db:seed": "node scripts/seed-test-db.js"
+   },
+   "prisma": {
+     "seed": "ts-node prisma/seed.ts"
+diff --git a/apps/api/prisma/schema.prisma b/apps/api/prisma/schema.prisma
+index e96d960..73ccde9 100644
+--- a/apps/api/prisma/schema.prisma
++++ b/apps/api/prisma/schema.prisma
+@@ -1516,6 +1516,16 @@ model InventoryTransaction {
+   /// Added Sprint 4.5 — free-text context, primarily for adjustments ("Physical count
+   /// discrepancy during monthly stocktake").
+   notes            String?
++  /// Added Stage 4E.4B — same double-submit protection as `SalesFulfilment.
++  /// idempotencyKey`/`InventoryTransfer.idempotencyKey`, specialised to the general
++  /// manual Inventory Adjustment path (`InventoryStockRepository.adjustStock`), which
++  /// — unlike Goods Receipt/Sales Fulfilment/Transfer — has no dedicated parent
++  /// aggregate of its own to carry the key on; this shared, insert-only ledger row IS
++  /// the adjustment's own record. Client-supplied, optional — a caller that never
++  /// sends a key is never blocked, same convention as every sibling. `NULL` for every
++  /// other `transactionType` (goods receipt, production, sales fulfilment, transfer
++  /// already carry their own key on their own dedicated record).
++  idempotencyKey   String?
+   /// Added Sprint 4.5 — who initiated this movement. Plain id, no FK relation, same
+   /// convention as `AuditLog.actorUserId`/`GoodsReceipt.receivedById`. Always the
+   /// authenticated caller.
+@@ -1526,6 +1536,7 @@ model InventoryTransaction {
+   product      Product           @relation(fields: [productId], references: [id], onDelete: Cascade)
+   location     InventoryLocation @relation(fields: [locationId], references: [id], onDelete: Restrict)
+ 
++  @@unique([organisationId, idempotencyKey])
+   @@index([organisationId])
+   @@index([organisationId, productId])
+   @@index([locationId])
+diff --git a/apps/api/prisma/seed.ts b/apps/api/prisma/seed.ts
+index 1cf94fd..33abb34 100644
+--- a/apps/api/prisma/seed.ts
++++ b/apps/api/prisma/seed.ts
+@@ -30,6 +30,7 @@ import * as bcrypt from 'bcrypt';
+ import { AccessScope, PrismaClient } from '@prisma/client';
+ 
+ import { PERMISSION_CATALOGUE } from '../src/identity/authorization/permission-catalogue';
++import { decideAccountingPeriodAction } from '../src/prisma/seed-accounting-period';
+ 
+ const BCRYPT_SALT_ROUNDS = parseInt(process.env.BCRYPT_SALT_ROUNDS ?? '12', 10);
+ 
+@@ -2804,6 +2805,13 @@ const BOBY_BITES_CHART_OF_ACCOUNTS: {
+     parentCode: '6000',
+     systemKey: 'PRODUCTION_LOSS',
+   },
++  {
++    code: '6900',
++    name: 'Inventory Adjustment / Shrinkage',
++    type: 'EXPENSE',
++    parentCode: '6000',
++    systemKey: 'INVENTORY_ADJUSTMENT',
++  },
+ ];
+ 
+ /** Idempotency-gated on the `AR` system account already existing for this
+@@ -2945,6 +2953,43 @@ async function seedProductionAccountingAccounts(
+   }
+ }
+ 
++/** Stage 4E.4D — standalone, independently idempotency-gated backfill for the new
++ *  `INVENTORY_ADJUSTMENT` system account, so a dev database that already ran
++ *  `seedChartOfAccounts` before this stage still receives it on a re-seed (same
++ *  "create if missing" shape as `seedGrniPendingApprovalAccount`/
++ *  `seedProductionAccountingAccounts`). Deliberately its own account, not
++ *  `PRODUCTION_LOSS` — see `SYSTEM_ACCOUNT_KEYS`'s own doc comment for why reusing
++ *  Production's scrap account would conflate an unrelated metric. */
++async function seedInventoryAdjustmentAccount(
++  organisationId: string,
++  actorUserId: string,
++): Promise<void> {
++  const existing = await prisma.chartOfAccount.findFirst({
++    where: { organisationId, systemKey: 'INVENTORY_ADJUSTMENT' },
++  });
++  if (existing) {
++    return;
++  }
++
++  const expensesParent = await prisma.chartOfAccount.findFirst({
++    where: { organisationId, code: '6000' },
++  });
++  await prisma.chartOfAccount.create({
++    data: {
++      organisationId,
++      code: '6900',
++      name: 'Inventory Adjustment / Shrinkage',
++      type: 'EXPENSE',
++      description: null,
++      isSystemAccount: true,
++      systemKey: 'INVENTORY_ADJUSTMENT',
++      createdById: actorUserId,
++      updatedById: actorUserId,
++      parentId: expensesParent?.id,
++    },
++  });
++}
++
+ /** Two periods: "July 2026" (created, used to post `INV-000003`'s historical journal
+  *  inside `seedFinance`, then closed — demonstrating a real closed period with real
+  *  posted history) and "August 2026" (left `OPEN`, covering every other seeded
+@@ -2953,33 +2998,63 @@ async function seedProductionAccountingAccounts(
+ async function seedAccountingPeriods(organisationId: string, actorUserId: string): Promise<void> {
+   console.log('Seeding Accounting Periods...');
+ 
+-  const existing = await prisma.accountingPeriod.findFirst({
+-    where: { organisationId, name: 'August 2026' },
++  const existingJuly = await prisma.accountingPeriod.findFirst({
++    where: { organisationId, name: 'July 2026' },
+   });
+-  if (existing) {
+-    return;
++  if (!existingJuly) {
++    await prisma.accountingPeriod.create({
++      data: {
++        organisationId,
++        name: 'July 2026',
++        startDate: new Date('2026-07-01'),
++        endDate: new Date('2026-07-31'),
++        status: 'OPEN',
++        createdById: actorUserId,
++      },
++    });
+   }
+ 
+-  await prisma.accountingPeriod.create({
+-    data: {
+-      organisationId,
+-      name: 'July 2026',
+-      startDate: new Date('2026-07-01'),
+-      endDate: new Date('2026-07-31'),
+-      status: 'OPEN',
+-      createdById: actorUserId,
+-    },
++  const existingAugust = await prisma.accountingPeriod.findFirst({
++    where: { organisationId, name: 'August 2026' },
+   });
+-  await prisma.accountingPeriod.create({
+-    data: {
+-      organisationId,
+-      name: 'August 2026',
+-      startDate: new Date('2026-08-01'),
+-      endDate: new Date('2026-08-31'),
+-      status: 'OPEN',
+-      createdById: actorUserId,
+-    },
++  if (!existingAugust) {
++    await prisma.accountingPeriod.create({
++      data: {
++        organisationId,
++        name: 'August 2026',
++        startDate: new Date('2026-08-01'),
++        endDate: new Date('2026-08-31'),
++        status: 'OPEN',
++        createdById: actorUserId,
++      },
++    });
++  }
++
++  // Ensure a period also covers the actual seed-run date, so date-dependent postings
++  // (Sales Fulfilments, Cashflow fixtures — both use `new Date()`) succeed regardless of
++  // which calendar month the seed happens to run in. Never touches July/August 2026, and
++  // never reopens or modifies any existing period — see
++  // apps/api/src/prisma/seed-accounting-period.ts for the decision logic and its tests.
++  const allPeriods = await prisma.accountingPeriod.findMany({
++    where: { organisationId },
++    select: { name: true, startDate: true, endDate: true, status: true },
+   });
++  const decision = decideAccountingPeriodAction(new Date(), allPeriods);
++  if (decision.action === 'error') {
++    throw new Error(decision.message);
++  }
++  if (decision.action === 'create') {
++    await prisma.accountingPeriod.create({
++      data: {
++        organisationId,
++        name: decision.period.name,
++        startDate: decision.period.startDate,
++        endDate: decision.period.endDate,
++        status: decision.period.status,
++        createdById: actorUserId,
++      },
++    });
++  }
+ }
+ 
+ /**
+@@ -7722,6 +7797,7 @@ async function main(): Promise<void> {
+   await seedChartOfAccounts(organisation.id, ownerUser.id);
+   await seedGrniPendingApprovalAccount(organisation.id, ownerUser.id);
+   await seedProductionAccountingAccounts(organisation.id, ownerUser.id);
++  await seedInventoryAdjustmentAccount(organisation.id, ownerUser.id);
+   await seedAccountingPeriods(organisation.id, ownerUser.id);
+   const purchaseOrdersByNumber = await seedPurchaseOrders(
+     organisation.id,
+diff --git a/apps/api/src/finance/accounting/chart-of-account-keys.ts b/apps/api/src/finance/accounting/chart-of-account-keys.ts
+index c3f9c67..77a0eaf 100644
+--- a/apps/api/src/finance/accounting/chart-of-account-keys.ts
++++ b/apps/api/src/finance/accounting/chart-of-account-keys.ts
+@@ -41,6 +41,20 @@
+  * `CashAccount`'s opening-balance posting (`DR <its own CoA row> / CR
+  * OPENING_BALANCE_EQUITY`), reusing the existing Equity concept rather than
+  * inventing a parallel "Capital Contribution" mechanism.
++ *
++ * `INVENTORY_ADJUSTMENT` (Stage 4E.4D, docs/domains/accounting.md §16.7/§16.8) — the
++ * offsetting leg for a manual Inventory Adjustment's value (`InventoryStockRepository.
++ * adjustStock`), one `EXPENSE`-type account that nets both directions: debited for a
++ * value-decreasing adjustment (loss), credited for a value-increasing one (gain), the
++ * same way a real "Inventory Shrinkage/Adjustment" expense line nets in ordinary
++ * small-business bookkeeping. Deliberately **not** `PRODUCTION_LOSS` — that key is
++ * scoped to a Production Run's own rejected-output cost (a manufacturing yield
++ * variance); folding unrelated manual-adjustment shrinkage/gain into it would pollute
++ * that metric. The other leg of the same posting reuses the existing `INVENTORY`/
++ * `FINISHED_GOODS_INVENTORY` keys, chosen dynamically by the adjusted product's own
++ * type — the first call site that needs that choice made dynamically, since Goods
++ * Receipt (`INVENTORY`, always) and Production Completion (`FINISHED_GOODS_INVENTORY`,
++ * always) each only ever need one side of that choice.
+  */
+ export const SYSTEM_ACCOUNT_KEYS = {
+   AR: 'AR',
+@@ -57,6 +71,7 @@ export const SYSTEM_ACCOUNT_KEYS = {
+   PRODUCTION_LOSS: 'PRODUCTION_LOSS',
+   CASH_BANK_PARENT: 'CASH_BANK_PARENT',
+   OPENING_BALANCE_EQUITY: 'OPENING_BALANCE_EQUITY',
++  INVENTORY_ADJUSTMENT: 'INVENTORY_ADJUSTMENT',
+ } as const;
+ 
+ export type SystemAccountKey = (typeof SYSTEM_ACCOUNT_KEYS)[keyof typeof SYSTEM_ACCOUNT_KEYS];
+diff --git a/apps/api/src/finance/finance.module.ts b/apps/api/src/finance/finance.module.ts
+index 69516a8..c5ab477 100644
+--- a/apps/api/src/finance/finance.module.ts
++++ b/apps/api/src/finance/finance.module.ts
+@@ -48,6 +48,7 @@ import { InventoryValuationController } from './reports/inventory-valuation.cont
+ import { InventoryValuationService } from './reports/inventory-valuation.service';
+ import { ReconciliationController } from './reports/reconciliation.controller';
+ import { ReconciliationService } from './reports/reconciliation.service';
++import { PayablesReconciliationService } from './reports/payables-reconciliation.service';
+ import { RevenueCogsController } from './reports/revenue-cogs.controller';
+ import { RevenueCogsService } from './reports/revenue-cogs.service';
+ import { BankReconciliationController } from './cash/bank-reconciliation.controller';
+@@ -311,6 +312,7 @@ import { DecisionScenarioService } from './decision/decision-scenario.service';
+     FinancialStatementService,
+     InventoryValuationService,
+     ReconciliationService,
++    PayablesReconciliationService,
+     RevenueCogsService,
+     DashboardService,
+     CashAccountRepository,
+diff --git a/apps/api/src/finance/reports/inventory-valuation.service.ts b/apps/api/src/finance/reports/inventory-valuation.service.ts
+index 92ec311..9372c83 100644
+--- a/apps/api/src/finance/reports/inventory-valuation.service.ts
++++ b/apps/api/src/finance/reports/inventory-valuation.service.ts
+@@ -1,5 +1,5 @@
+ import { Injectable } from '@nestjs/common';
+-import { ProductType } from '@prisma/client';
++import { ProductType, StockOwnership } from '@prisma/client';
+ 
+ import { PrismaService } from '../../prisma/prisma.service';
+ 
+@@ -47,6 +47,19 @@ export interface GetInventoryValuationParams {
+  * shape Sprint 11/12 already established for reaching into another domain's own
+  * table from inside a self-owned transaction, applied here to a plain read with no
+  * transaction at all. `FinanceModule` still never imports `InventoryModule`.
++ *
++ * **Stage 4E.4D correction**: scoped to `ownership: ORGANISATION` only —
++ * `StockOwnership.CUSTOMER` stock has already transferred ownership and is not this
++ * organisation's own balance-sheet asset (`StockOwnership`'s own schema doc comment
++ * already documented this intent; this method previously didn't enforce it). This is
++ * a *financial valuation* figure, not an operational quantity one — every existing
++ * caller (`DashboardService`, `ReconciliationService`, `ExecutiveDashboardService`,
++ * `InventoryPositionReportService`) uses it for a dollar total, never a stock-on-hand
++ * count. Operational/outlet/distribution views that show raw quantity (including
++ * customer-owned) read `InventoryStock` directly through
++ * `InventoryStockRepository.findManyByOrganisation`/`findManyByProduct` — a completely
++ * separate code path this change does not touch, so customer-owned stock remains
++ * fully visible there, unchanged.
+  */
+ @Injectable()
+ export class InventoryValuationService {
+@@ -59,6 +72,7 @@ export class InventoryValuationService {
+     const stocks = await this.prisma.inventoryStock.findMany({
+       where: {
+         organisationId,
++        ownership: StockOwnership.ORGANISATION,
+         ...(params.locationId ? { locationId: params.locationId } : {}),
+         ...(params.productType ? { product: { type: params.productType } } : {}),
+       },
+diff --git a/apps/api/src/finance/reports/reconciliation.controller.spec.ts b/apps/api/src/finance/reports/reconciliation.controller.spec.ts
+index 9d14dda..1e9d633 100644
+--- a/apps/api/src/finance/reports/reconciliation.controller.spec.ts
++++ b/apps/api/src/finance/reports/reconciliation.controller.spec.ts
+@@ -1,6 +1,7 @@
+ import { TokenPayload } from '../../identity/auth/ports/token.port';
+ import { ReconciliationController } from './reconciliation.controller';
+ import { ReconciliationService } from './reconciliation.service';
++import { PayablesReconciliationService } from './payables-reconciliation.service';
+ 
+ function makeUser(organisationId: string): TokenPayload {
+   return { sub: 'user-1', organisationId, sessionId: 'session-1' };
+@@ -11,9 +12,13 @@ describe('ReconciliationController', () => {
+     const reconciliationService = {
+       getInventoryReconciliation: jest.fn().mockResolvedValue({ reconciled: true }),
+     } as unknown as jest.Mocked<ReconciliationService>;
++    const payablesReconciliationService = {
++      getPayablesReconciliation: jest.fn().mockResolvedValue({ reconciled: true }),
++    } as unknown as jest.Mocked<PayablesReconciliationService>;
+     return {
+-      controller: new ReconciliationController(reconciliationService),
++      controller: new ReconciliationController(reconciliationService, payablesReconciliationService),
+       reconciliationService,
++      payablesReconciliationService,
+     };
+   }
+ 
+@@ -26,4 +31,30 @@ describe('ReconciliationController', () => {
+     expect(reconciliationService.getInventoryReconciliation).toHaveBeenNthCalledWith(1, 'org-1');
+     expect(reconciliationService.getInventoryReconciliation).toHaveBeenNthCalledWith(2, 'org-2');
+   });
++
++  it('payables reconciliation: tenant isolation, each caller organisation is scoped independently', async () => {
++    const { controller, payablesReconciliationService } = makeController();
++
++    await controller.getPayablesReconciliation(makeUser('org-1'));
++    await controller.getPayablesReconciliation(makeUser('org-2'));
++
++    expect(payablesReconciliationService.getPayablesReconciliation).toHaveBeenNthCalledWith(1, 'org-1');
++    expect(payablesReconciliationService.getPayablesReconciliation).toHaveBeenNthCalledWith(2, 'org-2');
++  });
++
++  it('payables reconciliation: returns exactly what the service resolves, unmodified', async () => {
++    const { controller, payablesReconciliationService } = makeController();
++    const result = {
++      asOf: new Date('2026-10-15'),
++      glAccountsPayableBalance: 6_430_000,
++      supplierInvoiceOutstandingBalance: 5_000_000,
++      difference: 1_430_000,
++      unmatchedGoodsReceiptLiability: 1_430_000,
++      unexplainedResidual: 0,
++      reconciled: false,
++    };
++    payablesReconciliationService.getPayablesReconciliation.mockResolvedValue(result);
++
++    await expect(controller.getPayablesReconciliation(makeUser('org-1'))).resolves.toBe(result);
++  });
+ });
+diff --git a/apps/api/src/finance/reports/reconciliation.controller.ts b/apps/api/src/finance/reports/reconciliation.controller.ts
+index dbd4247..e84faba 100644
+--- a/apps/api/src/finance/reports/reconciliation.controller.ts
++++ b/apps/api/src/finance/reports/reconciliation.controller.ts
+@@ -4,21 +4,34 @@ import { CurrentUser } from '../../identity/auth/decorators/current-user.decorat
+ import { JwtAuthGuard } from '../../identity/auth/guards/jwt-auth.guard';
+ import { TokenPayload } from '../../identity/auth/ports/token.port';
+ import { ReconciliationService } from './reconciliation.service';
++import { PayablesReconciliationService } from './payables-reconciliation.service';
+ import { RequirePermission } from '../../identity/auth/decorators/require-permission.decorator';
+ import { PermissionsGuard } from '../../identity/auth/guards/permissions.guard';
+ 
+ /**
+- * Inventory-to-Ledger Reconciliation HTTP surface (Sprint 13, docs/domains/
+- * accounting.md §16.3). Entirely read-only — auth-only, no `RolesGuard`.
++ * Finance Reconciliation HTTP surface — entirely read-only, auth-only, no `RolesGuard`.
++ * `reconciliation` is the existing Inventory-to-Ledger report (Sprint 13, docs/domains/
++ * accounting.md §16.3). `payables-reconciliation` is the equivalent, additive
++ * Payables-to-Ledger report added in Stage 4E.2 — same permission, same org-scoping
++ * convention, never touching the existing Inventory route or its behaviour.
+  */
+ @Controller('finance/reports')
+ @UseGuards(JwtAuthGuard, PermissionsGuard)
+ export class ReconciliationController {
+-  constructor(private readonly reconciliationService: ReconciliationService) {}
++  constructor(
++    private readonly reconciliationService: ReconciliationService,
++    private readonly payablesReconciliationService: PayablesReconciliationService,
++  ) {}
+ 
+   @Get('reconciliation')
+   @RequirePermission('finance.reports.view')
+   async getReconciliation(@CurrentUser() user: TokenPayload) {
+     return this.reconciliationService.getInventoryReconciliation(user.organisationId);
+   }
++
++  @Get('payables-reconciliation')
++  @RequirePermission('finance.reports.view')
++  async getPayablesReconciliation(@CurrentUser() user: TokenPayload) {
++    return this.payablesReconciliationService.getPayablesReconciliation(user.organisationId);
++  }
+ }
+diff --git a/apps/api/src/finance/supplier-invoice-matching.ts b/apps/api/src/finance/supplier-invoice-matching.ts
+index b5d3ba4..34e29ca 100644
+--- a/apps/api/src/finance/supplier-invoice-matching.ts
++++ b/apps/api/src/finance/supplier-invoice-matching.ts
+@@ -48,17 +48,20 @@ export interface LineMatchResult {
+   invoicedQuantityDelta: number;
+ }
+ 
+-/** Decision #2 — the Path A cap. `remainingPayable` is the payable pool minus
+- *  whatever Sprint 11 Returns already pulled out of the *payable* bucket specifically
+- *  (`returnedQuantity - returnedExcessQuantity`), minus what prior invoices already
+- *  claimed (`invoicedQuantity`) — never negative by construction, clamped defensively
+- *  regardless. */
+-export function computeLineMatch(
+-  goodsReceiptItem: GoodsReceiptItemPayableSnapshot,
+-  purchaseOrderItemUnitPrice: number,
+-  item: { quantity: number; lineTotal: number },
+-): LineMatchResult {
+-  const remainingPayable = Math.max(
++/**
++ * The payable pool minus whatever Sprint 11 Returns already pulled out of the
++ * *payable* bucket specifically (`returnedQuantity - returnedExcessQuantity`), minus
++ * what prior invoices already claimed (`invoicedQuantity`) — never negative by
++ * construction, clamped defensively regardless. This is the single source of truth
++ * for "how much of this Goods Receipt line is still un-invoiced" — used by
++ * `computeLineMatch` below (an invoice line attempting to match against it) and by
++ * `PayablesReconciliationService` (Stage 4E.4A — summing this across every Goods
++ * Receipt line, with no invoice involved at all, to report the genuinely unmatched
++ * accrual). Extracted as its own function so both call sites share exactly one
++ * formula rather than risk two copies silently drifting apart.
++ */
++export function computeRemainingPayableQuantity(goodsReceiptItem: GoodsReceiptItemPayableSnapshot): number {
++  return Math.max(
+     0,
+     roundQuantity(
+       goodsReceiptItem.payableQuantity -
+@@ -66,6 +69,15 @@ export function computeLineMatch(
+         goodsReceiptItem.invoicedQuantity,
+     ),
+   );
++}
++
++/** Decision #2 — the Path A cap. */
++export function computeLineMatch(
++  goodsReceiptItem: GoodsReceiptItemPayableSnapshot,
++  purchaseOrderItemUnitPrice: number,
++  item: { quantity: number; lineTotal: number },
++): LineMatchResult {
++  const remainingPayable = computeRemainingPayableQuantity(goodsReceiptItem);
+   const remainingPayableValue = roundCurrency(remainingPayable * purchaseOrderItemUnitPrice);
+   const recognizedAmount = roundCurrency(Math.min(item.lineTotal, remainingPayableValue));
+   const varianceAmount = roundCurrency(item.lineTotal - recognizedAmount);
+diff --git a/apps/api/src/inventory/inventory-audit-actions.ts b/apps/api/src/inventory/inventory-audit-actions.ts
+index dd233e3..fd6b831 100644
+--- a/apps/api/src/inventory/inventory-audit-actions.ts
++++ b/apps/api/src/inventory/inventory-audit-actions.ts
+@@ -45,4 +45,10 @@ export const INVENTORY_AUDIT_ACTIONS = {
+   TRANSFER_REVERSED: 'inventory.transfer.reversed',
+   /** Recorded on every `POST /locations/:id/opening-stock`. */
+   OPENING_STOCK_RECORDED: 'inventory.opening-stock.recorded',
++  /** Added Stage 4E.4D — fired alongside `ADJUSTED` only when `adjustStock` actually
++   *  posted a value-bearing Journal Entry (organisation-owned stock, non-zero cost,
++   *  not an idempotent replay) — same "fired only when a journal was actually
++   *  posted" convention as `SUPPLIER_RETURN_JOURNAL_POSTED`/
++   *  `goods-receipt.journal-entry-posted`. */
++  ADJUSTMENT_JOURNAL_POSTED: 'inventory.adjustment.journal-entry-posted',
+ } as const;
+diff --git a/apps/api/src/inventory/inventory-stock.repository.spec.ts b/apps/api/src/inventory/inventory-stock.repository.spec.ts
+index 3439e09..5e821d4 100644
+--- a/apps/api/src/inventory/inventory-stock.repository.spec.ts
++++ b/apps/api/src/inventory/inventory-stock.repository.spec.ts
+@@ -1,4 +1,11 @@
+-import { InventoryStockRepository, NegativeStockError } from './inventory-stock.repository';
++import { Prisma } from '@prisma/client';
++
++import {
++  AdjustmentIdempotencyKeyConflictError,
++  InventoryStockRepository,
++  NegativeStockError,
++} from './inventory-stock.repository';
++import { MissingSystemAccountError, NoOpenPeriodError } from '../finance/accounting/journal-posting';
+ import { PrismaService } from '../prisma/prisma.service';
+ 
+ /**
+@@ -9,7 +16,13 @@ import { PrismaService } from '../prisma/prisma.service';
+  * `inventory-stock-concurrency.util.ts`, and deserves the same focused, real-transaction-
+  * callback-level coverage the other four (Sales Fulfilment, Supplier Return, Production
+  * Material Issue, Maintenance Part Usage) already have — not just the service-level
+- * mock `inventory.service.spec.ts` already exercises.
++ * mock `inventory.service.spec.ts` already exercises. Stage 4E.4D extends this same
++ * fake with the `chartOfAccount`/`accountingPeriod`/`journalEntry` fakes
++ * `goods-receipt.repository.spec.ts`/`payment.repository.spec.ts` already use, so
++ * `postSystemJournalEntry` (a real, unmocked import) succeeds deterministically here
++ * too — the new journal-posting decision logic (which account, which side, when to
++ * skip) is worth verifying against the real transaction callback, not a
++ * re-implementation of it.
+  */
+ interface StockKey {
+   organisationId: string;
+@@ -21,18 +34,76 @@ function stockKey(k: StockKey): string {
+   return `${k.organisationId}:${k.productId}:${k.locationId}`;
+ }
+ 
+-const PRODUCT = { id: 'product-1', code: 'PRD-000001', name: 'Plantain Chips', unit: 'Pack' };
++const PRODUCT = {
++  id: 'product-1',
++  code: 'PRD-000001',
++  name: 'Plantain Chips',
++  unit: 'Pack',
++  type: 'FINISHED_PRODUCT',
++};
++const FINISHED_PRODUCT = PRODUCT;
++const RAW_MATERIAL_PRODUCT = { id: 'product-2', code: 'PRD-000002', name: 'Flour', unit: 'Kg', type: 'RAW_MATERIAL' };
+ const LOCATION = { id: 'loc-1', name: 'Main Warehouse' };
+ 
+-function makeRepository(initialStock?: { key: StockKey; quantityOnHand: number }) {
+-  const stock = new Map<string, { quantityOnHand: number; averageUnitCost: number }>();
++function idempotencyKeyMapKey(organisationId: string, idempotencyKey: string): string {
++  return `${organisationId}:${idempotencyKey}`;
++}
++
++function makeRepository(
++  initialStock?: {
++    key: StockKey;
++    quantityOnHand: number;
++    averageUnitCost?: number;
++    ownership?: string;
++    product?: { type: string };
++  },
++  accountingOptions: {
++    accounts?: Record<string, string>;
++    openPeriod?: { startDate: Date; endDate: Date } | null;
++  } = {},
++) {
++  const stock = new Map<
++    string,
++    { quantityOnHand: number; averageUnitCost: number; ownership: string; product: { type: string } }
++  >();
+   const transactions: Record<string, unknown>[] = [];
++  // Mirrors the real `@@unique([organisationId, idempotencyKey])` constraint — only
++  // ever populated for a non-null key (Postgres treats every NULL as distinct, so a
++  // request with no key never collides with anything here, matching `tx.inventoryTransaction.create`'s own skip-the-map-when-no-key behaviour below).
++  const transactionsByIdempotencyKey = new Map<string, Record<string, unknown>>();
+   let seq = 0;
++  // Lets a test force the NEXT N calls to the top-level `inventoryTransaction.findUnique`
++  // to miss (return null) regardless of what is actually committed — simulating two
++  // requests whose pre-checks both run before either has committed. Counted, not a
++  // blanket switch: the recovery lookup `adjustStock` makes AFTER catching a P2002 must
++  // still see the real winner, or the P2002-catch-and-recover path itself could never
++  // resolve. See the "two genuinely concurrent requests" test.
++  let forcedPreCheckMissesRemaining = 0;
++
++  // Stage 4E.4D — same `chartOfAccount`/`accountingPeriod`/`journalEntry` fake shape as
++  // `goods-receipt.repository.spec.ts`'s `makeFakeTx`. Defaults provision every account
++  // the new posting logic can ever need, and an open period covering every date these
++  // tests use, so existing tests (which never pass `accountingOptions`) are unaffected.
++  const accounts =
++    accountingOptions.accounts ??
++    {
++      INVENTORY: 'account-inventory',
++      FINISHED_GOODS_INVENTORY: 'account-fg-inventory',
++      INVENTORY_ADJUSTMENT: 'account-inv-adjustment',
++    };
++  const openPeriod =
++    'openPeriod' in accountingOptions
++      ? accountingOptions.openPeriod
++      : { startDate: new Date('2026-08-01'), endDate: new Date('2026-08-31') };
++  const journalEntries = new Map<string, Record<string, unknown>>();
++  let journalSequence = 0;
+ 
+   if (initialStock) {
+     stock.set(stockKey(initialStock.key), {
+       quantityOnHand: initialStock.quantityOnHand,
+-      averageUnitCost: 0,
++      averageUnitCost: initialStock.averageUnitCost ?? 0,
++      ownership: initialStock.ownership ?? 'ORGANISATION',
++      product: initialStock.product ?? PRODUCT,
+     });
+   }
+ 
+@@ -47,7 +118,7 @@ function makeRepository(initialStock?: { key: StockKey; quantityOnHand: number }
+         async ({ where }: { where: { organisationId_productId_locationId: StockKey } }) => {
+           const row = stock.get(stockKey(where.organisationId_productId_locationId));
+           if (!row) throw new Error('not found');
+-          return { ...row, product: PRODUCT, location: LOCATION };
++          return { ...row, product: { ...PRODUCT, ...row.product }, location: LOCATION };
+         },
+       ),
+       upsert: jest.fn(
+@@ -66,7 +137,12 @@ function makeRepository(initialStock?: { key: StockKey; quantityOnHand: number }
+             existing.quantityOnHand += update.quantityOnHand.increment;
+             return existing;
+           }
+-          const created = { quantityOnHand: create.quantityOnHand, averageUnitCost: 0 };
++          const created = {
++            quantityOnHand: create.quantityOnHand,
++            averageUnitCost: 0,
++            ownership: 'ORGANISATION',
++            product: PRODUCT,
++          };
+           stock.set(key, created);
+           return created;
+         },
+@@ -95,20 +171,156 @@ function makeRepository(initialStock?: { key: StockKey; quantityOnHand: number }
+     },
+     inventoryTransaction: {
+       create: jest.fn(async ({ data }: { data: Record<string, unknown> }) => {
++        const idempotencyKey = data.idempotencyKey as string | undefined;
++        if (idempotencyKey) {
++          const mapKey = idempotencyKeyMapKey(data.organisationId as string, idempotencyKey);
++          if (transactionsByIdempotencyKey.has(mapKey)) {
++            // Mirrors the real `@@unique([organisationId, idempotencyKey])` index —
++            // a second committed row for the same key is a constraint violation, not
++            // a value the fake should silently accept.
++            throw new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
++              code: 'P2002',
++              clientVersion: '5.22.0',
++            });
++          }
++        }
+         seq += 1;
+-        const row = { id: `txn-${seq}`, ...data };
++        const row = { id: `txn-${seq}`, createdAt: new Date('2026-08-15'), ...data };
+         transactions.push(row);
++        if (idempotencyKey) {
++          transactionsByIdempotencyKey.set(
++            idempotencyKeyMapKey(data.organisationId as string, idempotencyKey),
++            row,
++          );
++        }
+         return row;
+       }),
+     },
++    // Stage 4E.4D — same fake shape as `goods-receipt.repository.spec.ts`'s
++    // `makeFakeTx`, so the real, unmocked `postSystemJournalEntry` succeeds (or fails)
++    // deterministically against these in-memory accounts/period/journal maps.
++    chartOfAccount: {
++      findFirst: jest.fn(async ({ where }: { where: { systemKey: string } }) => {
++        const id = accounts[where.systemKey];
++        return id ? { id, systemKey: where.systemKey } : null;
++      }),
++    },
++    accountingPeriod: {
++      findFirst: jest.fn(
++        async ({ where }: { where: { startDate: { lte: Date }; endDate: { gte: Date } } }) => {
++          if (!openPeriod) return null;
++          if (where.startDate.lte < openPeriod.startDate) return null;
++          if (where.endDate.gte > openPeriod.endDate) return null;
++          return { id: 'period-1' };
++        },
++      ),
++    },
++    journalEntry: {
++      findUnique: jest.fn(
++        async ({
++          where,
++        }: {
++          where: {
++            organisationId_sourceType_sourceId?: {
++              organisationId: string;
++              sourceType: string;
++              sourceId: string;
++            };
++          };
++        }) => {
++          const key = where.organisationId_sourceType_sourceId;
++          if (!key) return null;
++          for (const entry of journalEntries.values()) {
++            if (
++              entry.organisationId === key.organisationId &&
++              entry.sourceType === key.sourceType &&
++              entry.sourceId === key.sourceId
++            ) {
++              return entry;
++            }
++          }
++          return null;
++        },
++      ),
++      count: jest.fn(async () => journalEntries.size),
++      create: jest.fn(async ({ data }: { data: Record<string, unknown> }) => {
++        journalSequence += 1;
++        const id = `journal-${journalSequence}`;
++        const entry = { id, status: 'POSTED', postedAt: new Date(), ...data };
++        journalEntries.set(id, entry);
++        return entry;
++      }),
++    },
+   };
+ 
+   const prisma = {
+-    $transaction: jest.fn(async (cb: (tx: unknown) => unknown) => cb(tx)),
++    // Real Postgres rolls every mutation inside `$transaction` back together on any
++    // throw — this fake has no real transaction to rely on, so it snapshots `stock`/
++    // `transactions`/`journalEntries` beforehand and restores all three on a throw,
++    // closing the gap that would otherwise let a test observe a stock mutation, an
++    // `InventoryTransaction`, or a `JournalEntry` whose own transaction never actually
++    // committed (e.g. a missing-account or closed-period failure reached only after
++    // the stock mutation and ledger row already applied in this fake).
++    $transaction: jest.fn(async (cb: (tx: unknown) => unknown) => {
++      const stockSnapshot = new Map(
++        Array.from(stock.entries(), ([key, value]) => [key, { ...value }] as const),
++      );
++      const transactionsSnapshot = [...transactions];
++      const transactionsByKeySnapshot = new Map(transactionsByIdempotencyKey);
++      const journalEntriesSnapshot = new Map(journalEntries);
++      try {
++        return await cb(tx);
++      } catch (error) {
++        stock.clear();
++        for (const [key, value] of stockSnapshot) stock.set(key, value);
++        transactions.length = 0;
++        transactions.push(...transactionsSnapshot);
++        transactionsByIdempotencyKey.clear();
++        for (const [key, value] of transactionsByKeySnapshot) transactionsByIdempotencyKey.set(key, value);
++        journalEntries.clear();
++        for (const [key, value] of journalEntriesSnapshot) journalEntries.set(key, value);
++        throw error;
++      }
++    }),
++    inventoryTransaction: {
++      findUnique: jest.fn(
++        async ({
++          where,
++        }: {
++          where: { organisationId_idempotencyKey: { organisationId: string; idempotencyKey: string } };
++        }) => {
++          if (forcedPreCheckMissesRemaining > 0) {
++            forcedPreCheckMissesRemaining -= 1;
++            return null;
++          }
++          const { organisationId, idempotencyKey } = where.organisationId_idempotencyKey;
++          return transactionsByIdempotencyKey.get(idempotencyKeyMapKey(organisationId, idempotencyKey)) ?? null;
++        },
++      ),
++    },
++    // Used only by `resolveExistingAdjustment`'s re-fetch after an idempotent
++    // retry/race is resolved — reads the same `stock` map `tx.inventoryStock` mutates.
++    inventoryStock: {
++      findUniqueOrThrow: tx.inventoryStock.findUniqueOrThrow,
++    },
++    // Used only by `resolveExistingAdjustment`'s "what did the original call post?"
++    // lookup on a retry — reads the same `journalEntries` map `tx.journalEntry` writes.
++    journalEntry: {
++      findUnique: tx.journalEntry.findUnique,
++    },
+   } as unknown as PrismaService;
+ 
+   const repository = new InventoryStockRepository(prisma);
+-  return { repository, stock, transactions };
++  return {
++    repository,
++    stock,
++    transactions,
++    journalEntries,
++    accounts,
++    forcePreCheckMisses: (count: number) => {
++      forcedPreCheckMissesRemaining = count;
++    },
++  };
+ }
+ 
+ describe('InventoryStockRepository.adjustStock (deliberate exception — real transaction logic under test)', () => {
+@@ -177,4 +389,422 @@ describe('InventoryStockRepository.adjustStock (deliberate exception — real tr
+     expect(stock.get(stockKey(baseData))!.quantityOnHand).toBe(10);
+     expect(stock.get(stockKey(baseData))!.quantityOnHand).toBeGreaterThanOrEqual(0);
+   });
++
++  // Added Stage 4E.4B — Inventory Adjustment Idempotency.
++  describe('idempotencyKey', () => {
++    it('first call with a key applies the adjustment and reports wasCreated: true', async () => {
++      const { repository, stock } = makeRepository({ key: baseData, quantityOnHand: 100 });
++
++      const result = await repository.adjustStock({
++        ...baseData,
++        quantity: 10,
++        idempotencyKey: 'key-1',
++      });
++
++      expect(result.wasCreated).toBe(true);
++      expect(result.stock.quantityOnHand).toBe(110);
++      expect(stock.get(stockKey(baseData))!.quantityOnHand).toBe(110);
++    });
++
++    it('a sequential retry with the same key and identical payload does not reapply the stock change', async () => {
++      const { repository, stock } = makeRepository({ key: baseData, quantityOnHand: 100 });
++
++      const first = await repository.adjustStock({
++        ...baseData,
++        quantity: 10,
++        idempotencyKey: 'key-1',
++      });
++      const retry = await repository.adjustStock({
++        ...baseData,
++        quantity: 10,
++        idempotencyKey: 'key-1',
++      });
++
++      expect(retry.wasCreated).toBe(false);
++      expect(retry.transaction.id).toBe(first.transaction.id);
++      expect(retry.stock.quantityOnHand).toBe(110);
++      // Applied exactly once — a second identical request never moves stock again.
++      expect(stock.get(stockKey(baseData))!.quantityOnHand).toBe(110);
++    });
++
++    it('reusing the same key with a conflicting quantity is rejected, not silently treated as a retry', async () => {
++      const { repository, stock } = makeRepository({ key: baseData, quantityOnHand: 100 });
++
++      await repository.adjustStock({ ...baseData, quantity: 10, idempotencyKey: 'key-1' });
++
++      await expect(
++        repository.adjustStock({ ...baseData, quantity: 20, idempotencyKey: 'key-1' }),
++      ).rejects.toThrow(AdjustmentIdempotencyKeyConflictError);
++      // The rejected conflicting request must not have touched stock beyond the
++      // original, successfully-applied adjustment.
++      expect(stock.get(stockKey(baseData))!.quantityOnHand).toBe(110);
++    });
++
++    it('reusing the same key with a conflicting reason is rejected', async () => {
++      const { repository } = makeRepository({ key: baseData, quantityOnHand: 100 });
++
++      await repository.adjustStock({ ...baseData, quantity: 10, idempotencyKey: 'key-1' });
++
++      await expect(
++        repository.adjustStock({
++          ...baseData,
++          quantity: 10,
++          reason: 'DAMAGE',
++          idempotencyKey: 'key-1',
++        }),
++      ).rejects.toThrow(AdjustmentIdempotencyKeyConflictError);
++    });
++
++    it('the same key is independent across different organisations', async () => {
++      const { repository, stock } = makeRepository({ key: baseData, quantityOnHand: 100 });
++      stock.set(stockKey({ ...baseData, organisationId: 'org-2' }), {
++        quantityOnHand: 100,
++        averageUnitCost: 0,
++        ownership: 'ORGANISATION',
++        product: PRODUCT,
++      });
++
++      const org1Result = await repository.adjustStock({
++        ...baseData,
++        quantity: 10,
++        idempotencyKey: 'shared-key',
++      });
++      const org2Result = await repository.adjustStock({
++        ...baseData,
++        organisationId: 'org-2',
++        quantity: 10,
++        idempotencyKey: 'shared-key',
++      });
++
++      expect(org1Result.wasCreated).toBe(true);
++      expect(org2Result.wasCreated).toBe(true);
++      expect(org1Result.transaction.id).not.toBe(org2Result.transaction.id);
++      expect(stock.get(stockKey(baseData))!.quantityOnHand).toBe(110);
++      expect(stock.get(stockKey({ ...baseData, organisationId: 'org-2' }))!.quantityOnHand).toBe(
++        110,
++      );
++    });
++
++    it('a failed (negative-stock) adjustment never consumes the key — a later valid retry with the same key succeeds', async () => {
++      const { repository, stock } = makeRepository({ key: baseData, quantityOnHand: 5 });
++
++      await expect(
++        repository.adjustStock({ ...baseData, quantity: -15, idempotencyKey: 'key-1' }),
++      ).rejects.toThrow(NegativeStockError);
++      expect(stock.get(stockKey(baseData))!.quantityOnHand).toBe(5);
++
++      // Same key, now a valid (smaller) adjustment — must be treated as a brand-new
++      // request, not blocked by the previous failed attempt.
++      const retry = await repository.adjustStock({
++        ...baseData,
++        quantity: -3,
++        idempotencyKey: 'key-1',
++      });
++
++      expect(retry.wasCreated).toBe(true);
++      expect(retry.stock.quantityOnHand).toBe(2);
++    });
++
++    it('no idempotencyKey supplied: every call is independent, same as before this stage', async () => {
++      const { repository, stock } = makeRepository({ key: baseData, quantityOnHand: 100 });
++
++      const first = await repository.adjustStock({ ...baseData, quantity: 10 });
++      const second = await repository.adjustStock({ ...baseData, quantity: 10 });
++
++      expect(first.wasCreated).toBe(true);
++      expect(second.wasCreated).toBe(true);
++      expect(first.transaction.id).not.toBe(second.transaction.id);
++      expect(stock.get(stockKey(baseData))!.quantityOnHand).toBe(120);
++    });
++
++    it('two genuinely concurrent requests with the same key (both miss the pre-check) still apply the stock change exactly once', async () => {
++      const { repository, stock, forcePreCheckMisses } = makeRepository({
++        key: baseData,
++        quantityOnHand: 100,
++      });
++
++      // Simulates the true race the pre-check alone cannot close: both requests'
++      // pre-checks run before either has committed, so both see "no existing
++      // transaction" and both proceed to attempt the mutation + create. The fake's
++      // `tx.inventoryTransaction.create` still enforces the real unique-index
++      // semantics (see `makeRepository`), so exactly one `create()` can win; the
++      // loser must hit the P2002-catch-and-recover path, not a duplicate stock
++      // mutation. Exactly 2 forced misses — one per request's own pre-check; the
++      // loser's post-P2002 recovery lookup (a 3rd call) must see the real winner, or
++      // the recovery path itself could never resolve.
++      forcePreCheckMisses(2);
++      const first = await repository.adjustStock({
++        ...baseData,
++        quantity: 10,
++        idempotencyKey: 'race-key',
++      });
++      const second = await repository.adjustStock({
++        ...baseData,
++        quantity: 10,
++        idempotencyKey: 'race-key',
++      });
++
++      const outcomes = [first, second];
++      expect(outcomes.filter((r) => r.wasCreated)).toHaveLength(1);
++      expect(outcomes.filter((r) => !r.wasCreated)).toHaveLength(1);
++      expect(first.transaction.id).toBe(second.transaction.id);
++      // The delta of +10 was applied exactly once, not twice.
++      expect(stock.get(stockKey(baseData))!.quantityOnHand).toBe(110);
++    });
++  });
++
++  describe('Stage 4E.4D — journal posting', () => {
++    it('a positive, value-bearing adjustment debits Inventory and credits Inventory Adjustment', async () => {
++      const { repository, journalEntries, accounts } = makeRepository({
++        key: baseData,
++        quantityOnHand: 100,
++        averageUnitCost: 25,
++        product: RAW_MATERIAL_PRODUCT,
++      });
++
++      const result = await repository.adjustStock({
++        ...baseData,
++        reason: 'FOUND_STOCK',
++        quantity: 10,
++      });
++
++      expect(result.journalEntryId).not.toBeNull();
++      const entry = journalEntries.get(result.journalEntryId!) as { lines: { create: unknown[] } };
++      const lines = entry.lines.create as { accountId: string; debit: number; credit: number }[];
++      expect(lines).toEqual([
++        { accountId: accounts.INVENTORY, description: undefined, debit: 250, credit: 0 },
++        { accountId: accounts.INVENTORY_ADJUSTMENT, description: undefined, debit: 0, credit: 250 },
++      ]);
++    });
++
++    it('a negative, value-bearing adjustment debits Inventory Adjustment and credits Inventory', async () => {
++      const { repository, journalEntries, accounts } = makeRepository({
++        key: baseData,
++        quantityOnHand: 100,
++        averageUnitCost: 25,
++        product: RAW_MATERIAL_PRODUCT,
++      });
++
++      const result = await repository.adjustStock({
++        ...baseData,
++        reason: 'DAMAGE',
++        quantity: -10,
++      });
++
++      expect(result.journalEntryId).not.toBeNull();
++      const entry = journalEntries.get(result.journalEntryId!) as { lines: { create: unknown[] } };
++      const lines = entry.lines.create as { accountId: string; debit: number; credit: number }[];
++      expect(lines).toEqual([
++        { accountId: accounts.INVENTORY_ADJUSTMENT, description: undefined, debit: 250, credit: 0 },
++        { accountId: accounts.INVENTORY, description: undefined, debit: 0, credit: 250 },
++      ]);
++    });
++
++    it('a finished-product adjustment posts against Finished Goods Inventory, not the raw-material Inventory account', async () => {
++      const { repository, journalEntries, accounts } = makeRepository({
++        key: baseData,
++        quantityOnHand: 100,
++        averageUnitCost: 25,
++        product: FINISHED_PRODUCT,
++      });
++
++      const result = await repository.adjustStock({
++        ...baseData,
++        reason: 'FOUND_STOCK',
++        quantity: 10,
++      });
++
++      const entry = journalEntries.get(result.journalEntryId!) as { lines: { create: unknown[] } };
++      const lines = entry.lines.create as { accountId: string }[];
++      expect(lines.map((l) => l.accountId)).toContain(accounts.FINISHED_GOODS_INVENTORY);
++      expect(lines.map((l) => l.accountId)).not.toContain(accounts.INVENTORY);
++    });
++
++    it('a raw-material adjustment posts against the general Inventory account, not Finished Goods Inventory', async () => {
++      const { repository, journalEntries, accounts } = makeRepository({
++        key: baseData,
++        quantityOnHand: 100,
++        averageUnitCost: 25,
++        product: RAW_MATERIAL_PRODUCT,
++      });
++
++      const result = await repository.adjustStock({
++        ...baseData,
++        reason: 'FOUND_STOCK',
++        quantity: 10,
++      });
++
++      const entry = journalEntries.get(result.journalEntryId!) as { lines: { create: unknown[] } };
++      const lines = entry.lines.create as { accountId: string }[];
++      expect(lines.map((l) => l.accountId)).toContain(accounts.INVENTORY);
++      expect(lines.map((l) => l.accountId)).not.toContain(accounts.FINISHED_GOODS_INVENTORY);
++    });
++
++    it('a zero-cost adjustment creates the InventoryTransaction but posts no journal', async () => {
++      const { repository, transactions } = makeRepository({
++        key: baseData,
++        quantityOnHand: 100,
++        averageUnitCost: 0,
++      });
++
++      const result = await repository.adjustStock({
++        ...baseData,
++        reason: 'FOUND_STOCK',
++        quantity: 10,
++      });
++
++      expect(result.journalEntryId).toBeNull();
++      expect(result.stock.quantityOnHand).toBe(110);
++      expect(transactions).toHaveLength(1);
++    });
++
++    it('a CUSTOMER-owned adjustment moves stock but never posts to the company inventory accounts, even at a real cost', async () => {
++      const { repository, transactions } = makeRepository({
++        key: baseData,
++        quantityOnHand: 100,
++        averageUnitCost: 25,
++        ownership: 'CUSTOMER',
++      });
++
++      const result = await repository.adjustStock({
++        ...baseData,
++        reason: 'PHYSICAL_COUNT',
++        quantity: -10,
++      });
++
++      expect(result.journalEntryId).toBeNull();
++      expect(result.stock.quantityOnHand).toBe(90);
++      expect(transactions).toHaveLength(1);
++    });
++
++    it('DATA_CORRECTION is value-bearing like any other reason — not exempt by its label', async () => {
++      const { repository } = makeRepository({
++        key: baseData,
++        quantityOnHand: 100,
++        averageUnitCost: 25,
++      });
++
++      const result = await repository.adjustStock({
++        ...baseData,
++        reason: 'DATA_CORRECTION',
++        quantity: 10,
++      });
++
++      expect(result.journalEntryId).not.toBeNull();
++    });
++
++    it('OTHER is value-bearing like any other reason — not exempt by its label', async () => {
++      const { repository } = makeRepository({
++        key: baseData,
++        quantityOnHand: 100,
++        averageUnitCost: 25,
++      });
++
++      const result = await repository.adjustStock({
++        ...baseData,
++        reason: 'OTHER',
++        quantity: 10,
++      });
++
++      expect(result.journalEntryId).not.toBeNull();
++    });
++
++    it('rounds the posted amount to 2 decimal places and keeps both lines exactly equal', async () => {
++      const { repository, journalEntries } = makeRepository({
++        key: baseData,
++        quantityOnHand: 100,
++        // 7 x 3.333 = 23.331 -> rounds to 23.33.
++        averageUnitCost: 3.333,
++      });
++
++      const result = await repository.adjustStock({
++        ...baseData,
++        reason: 'FOUND_STOCK',
++        quantity: 7,
++      });
++
++      const entry = journalEntries.get(result.journalEntryId!) as { lines: { create: unknown[] } };
++      const lines = entry.lines.create as { debit: number; credit: number }[];
++      expect(lines[0]!.debit).toBe(23.33);
++      expect(lines[1]!.credit).toBe(23.33);
++    });
++
++    it('a missing system account rolls back the stock mutation and the InventoryTransaction together', async () => {
++      const { repository, stock, transactions } = makeRepository(
++        { key: baseData, quantityOnHand: 100, averageUnitCost: 25 },
++        { accounts: { INVENTORY: 'account-inventory' } }, // INVENTORY_ADJUSTMENT deliberately missing.
++      );
++
++      await expect(
++        repository.adjustStock({ ...baseData, reason: 'FOUND_STOCK', quantity: 10 }),
++      ).rejects.toThrow(MissingSystemAccountError);
++
++      expect(stock.get(stockKey(baseData))!.quantityOnHand).toBe(100);
++      expect(transactions).toHaveLength(0);
++    });
++
++    it('a closed/missing accounting period rolls back the stock mutation and the InventoryTransaction together', async () => {
++      const { repository, stock, transactions } = makeRepository(
++        { key: baseData, quantityOnHand: 100, averageUnitCost: 25 },
++        { openPeriod: null },
++      );
++
++      await expect(
++        repository.adjustStock({ ...baseData, reason: 'FOUND_STOCK', quantity: 10 }),
++      ).rejects.toThrow(NoOpenPeriodError);
++
++      expect(stock.get(stockKey(baseData))!.quantityOnHand).toBe(100);
++      expect(transactions).toHaveLength(0);
++    });
++
++    it('a sequential retry returns the same journalEntryId without posting a second journal', async () => {
++      const { repository, journalEntries } = makeRepository({
++        key: baseData,
++        quantityOnHand: 100,
++        averageUnitCost: 25,
++      });
++      const idempotencyKey = 'journal-retry-key';
++
++      const first = await repository.adjustStock({
++        ...baseData,
++        reason: 'FOUND_STOCK',
++        quantity: 10,
++        idempotencyKey,
++      });
++      const retry = await repository.adjustStock({
++        ...baseData,
++        reason: 'FOUND_STOCK',
++        quantity: 10,
++        idempotencyKey,
++      });
++
++      expect(retry.journalEntryId).toBe(first.journalEntryId);
++      expect(journalEntries.size).toBe(1);
++    });
++
++    it('a retry of a zero-cost (no-journal) adjustment also returns journalEntryId: null, not a fabricated one', async () => {
++      const { repository } = makeRepository({
++        key: baseData,
++        quantityOnHand: 100,
++        averageUnitCost: 0,
++      });
++      const idempotencyKey = 'journal-retry-zero-cost';
++
++      const first = await repository.adjustStock({
++        ...baseData,
++        reason: 'FOUND_STOCK',
++        quantity: 10,
++        idempotencyKey,
++      });
++      const retry = await repository.adjustStock({
++        ...baseData,
++        reason: 'FOUND_STOCK',
++        quantity: 10,
++        idempotencyKey,
++      });
++
++      expect(first.journalEntryId).toBeNull();
++      expect(retry.journalEntryId).toBeNull();
++    });
++  });
+ });
+diff --git a/apps/api/src/inventory/inventory-stock.repository.ts b/apps/api/src/inventory/inventory-stock.repository.ts
+index 1769487..197e0e6 100644
+--- a/apps/api/src/inventory/inventory-stock.repository.ts
++++ b/apps/api/src/inventory/inventory-stock.repository.ts
+@@ -12,6 +12,8 @@ import {
+ } from '@prisma/client';
+ 
+ import { PrismaService } from '../prisma/prisma.service';
++import { SYSTEM_ACCOUNT_KEYS } from '../finance/accounting/chart-of-account-keys';
++import { postSystemJournalEntry } from '../finance/accounting/journal-posting';
+ import { applyStockAdjustmentIfNonNegative } from './inventory-stock-concurrency.util';
+ 
+ export interface ListInventoryStockParams {
+@@ -52,13 +54,43 @@ export interface AdjustStockData {
+   reason: AdjustmentReason;
+   notes?: string;
+   createdById: string;
++  /** Added Stage 4E.4B — optional, client-supplied double-submit protection, same
++   *  convention as `InventoryTransfer.idempotencyKey`/`SalesFulfilment.idempotencyKey`.
++   *  Persisted on the resulting `InventoryTransaction` row (see that model's own doc
++   *  comment for why adjustments carry it there rather than on a dedicated parent
++   *  record). A caller that never sends one is never blocked. */
++  idempotencyKey?: string;
+ }
+ 
+ export interface AdjustStockResult {
+   stock: InventoryStockWithProduct;
+   transaction: InventoryTransaction;
++  /** Added Stage 4E.4B — `false` when this call resolved to an already-committed
++   *  adjustment from a prior request with the same `idempotencyKey` (no stock was
++   *  touched this call), same convention as `InventoryTransfer`'s `wasCreated`. Always
++   *  `true` when no `idempotencyKey` was supplied. */
++  wasCreated: boolean;
++  /** Added Stage 4E.4D — the `JournalEntry.id` posted for this adjustment's value, or
++   *  `null` when nothing was posted (zero-cost, `CUSTOMER`-owned stock — the
++   *  organisation does not carry that stock as its own asset — or a conflicting-key
++   *  rejection never reaches this point at all). See `adjustStock`'s own doc comment
++   *  for the full posting rule. Always populated correctly on a retry too, read from
++   *  the already-committed `JournalEntry`, never re-derived. */
++  journalEntryId: string | null;
+ }
+ 
++/** Added Stage 4E.4B — thrown when a request reuses an `idempotencyKey` that is already
++ *  attached to a committed `InventoryTransaction` for this organisation, but the
++ *  request's own `productId`/`locationId`/`quantity`/`reason` do not match that
++ *  transaction's recorded values. A reused key is only ever a safe no-op retry when the
++ *  two requests describe the SAME intended operation — a mismatch means the caller is
++ *  either reusing a key across unrelated adjustments (a client bug) or the key
++ *  collided, and either way silently returning the old result (or silently applying a
++ *  second, different change under the same key) would be wrong. Rejected outright,
++ *  mirroring `OpeningStockAlreadyRecordedError`'s "never merge, never overwrite"
++ *  posture. */
++export class AdjustmentIdempotencyKeyConflictError extends Error {}
++
+ /** Thrown when an adjustment would leave `quantityOnHand` negative (brief §8: "For MVP,
+  *  do not allow an adjustment that would result in negative available/on-hand stock...
+  *  Do not silently clamp it to zero"). Its own `Error` subclass (not
+@@ -172,53 +204,202 @@ export class InventoryStockRepository {
+    *  transaction, rolled back together on any failure). Reads the current balance
+    *  *inside* the transaction (not from a pre-check the caller already did) so the
+    *  negative-stock guard is evaluated against a fresh, transaction-scoped value —
+-   *  closing the race between two concurrent adjustments a pre-check alone couldn't. */
++   *  closing the race between two concurrent adjustments a pre-check alone couldn't.
++   *
++   *  Added Stage 4E.4B — idempotency when `data.idempotencyKey` is supplied. Two layers,
++   *  same reasoning as `recordOpeningStock`'s own doc comment:
++   *   1. A pre-check (`findUnique` on `(organisationId, idempotencyKey)` before opening
++   *      the transaction) short-circuits the common case — a sequential retry after the
++   *      first request already committed — without taking a row lock or touching stock
++   *      at all.
++   *   2. A `P2002` catch around the in-transaction `create()` is the actual safety net
++   *      for two genuinely concurrent requests that both pass the pre-check (neither can
++   *      see the other's not-yet-committed row): exactly one `create()` wins the unique
++   *      constraint, the other's transaction aborts — rolling back ITS stock mutation —
++   *      and that caller falls through to the same "resolve existing" path as a
++   *      sequential retry. Net effect: however many identical concurrent requests
++   *      arrive, stock moves exactly once.
++   *  Either path validates the reused key's request against the already-committed
++   *  transaction's own recorded values and throws `AdjustmentIdempotencyKeyConflictError`
++   *  on any mismatch, rather than silently returning stale results for a different
++   *  operation. */
+   async adjustStock(data: AdjustStockData): Promise<AdjustStockResult> {
+-    return this.prisma.$transaction(async (tx) => {
+-      const stockRef = {
+-        organisationId: data.organisationId,
+-        productId: data.productId,
+-        locationId: data.locationId,
+-      };
+-      // Sprint 37.1 — atomic conditional adjustment, the database's own row lock is the
+-      // concurrency guard (see `inventory-stock-concurrency.util.ts`). Replaces a
+-      // read-then-upsert-with-precomputed-value pattern that shared the exact defect
+-      // class live-verified in `SalesFulfilmentRepository.create()`
+-      // (docs/domains/d2c.md §78) — two concurrent negative adjustments against the
+-      // same row could previously both read the same balance and lose one decrement.
+-      const applied = await applyStockAdjustmentIfNonNegative(tx, stockRef, data.quantity);
+-      if (!applied) {
+-        const current = await tx.inventoryStock.findUnique({
++    const stockRef = {
++      organisationId: data.organisationId,
++      productId: data.productId,
++      locationId: data.locationId,
++    };
++
++    if (data.idempotencyKey) {
++      const existing = await this.prisma.inventoryTransaction.findUnique({
++        where: {
++          organisationId_idempotencyKey: {
++            organisationId: data.organisationId,
++            idempotencyKey: data.idempotencyKey,
++          },
++        },
++      });
++      if (existing) {
++        return this.resolveExistingAdjustment(existing, data);
++      }
++    }
++
++    try {
++      return await this.prisma.$transaction(async (tx) => {
++        // Sprint 37.1 — atomic conditional adjustment, the database's own row lock is
++        // the concurrency guard (see `inventory-stock-concurrency.util.ts`). Replaces a
++        // read-then-upsert-with-precomputed-value pattern that shared the exact defect
++        // class live-verified in `SalesFulfilmentRepository.create()`
++        // (docs/domains/d2c.md §78) — two concurrent negative adjustments against the
++        // same row could previously both read the same balance and lose one decrement.
++        const applied = await applyStockAdjustmentIfNonNegative(tx, stockRef, data.quantity);
++        if (!applied) {
++          const current = await tx.inventoryStock.findUnique({
++            where: { organisationId_productId_locationId: stockRef },
++            select: { quantityOnHand: true },
++          });
++          throw new NegativeStockError(
++            `Adjustment would result in negative stock (current: ${current?.quantityOnHand ?? 0}, adjustment: ${data.quantity})`,
++          );
++        }
++
++        const stock = await tx.inventoryStock.findUniqueOrThrow({
+           where: { organisationId_productId_locationId: stockRef },
+-          select: { quantityOnHand: true },
++          include: { product: { select: PRODUCT_SELECT }, location: { select: LOCATION_SELECT } },
+         });
+-        throw new NegativeStockError(
+-          `Adjustment would result in negative stock (current: ${current?.quantityOnHand ?? 0}, adjustment: ${data.quantity})`,
+-        );
+-      }
+ 
+-      const stock = await tx.inventoryStock.findUniqueOrThrow({
+-        where: { organisationId_productId_locationId: stockRef },
+-        include: { product: { select: PRODUCT_SELECT }, location: { select: LOCATION_SELECT } },
++        const transaction = await tx.inventoryTransaction.create({
++          data: {
++            organisationId: data.organisationId,
++            productId: data.productId,
++            locationId: data.locationId,
++            transactionType: InventoryTransactionType.ADJUSTMENT,
++            quantity: data.quantity,
++            referenceType: 'ManualAdjustment',
++            referenceId: null,
++            adjustmentReason: data.reason,
++            notes: data.notes,
++            createdById: data.createdById,
++            idempotencyKey: data.idempotencyKey,
++          },
++        });
++
++        // Stage 4E.4D (docs/sprint-stage-4e4c-inventory-adjustment-accounting-policy.md)
++        // — every adjustment reason is value-bearing by default; the only exemptions
++        // are structural, never based on `data.reason`'s label: `CUSTOMER`-owned stock
++        // (ownership already transferred — not this organisation's own asset) and a
++        // zero cost (nothing to recognise, same "skip the journal entirely, never a
++        // ₦0 one" precedent Production/Sales Fulfilment already established). `stock`
++        // here is read AFTER `applyStockAdjustmentIfNonNegative` already locked this
++        // row — `averageUnitCost` is never written by this method, so that lock
++        // already serialises this read against any concurrent cost-changing writer;
++        // no separate pre-mutation read is needed or safer.
++        let journalEntryId: string | null = null;
++        const value = roundCurrency(Math.abs(data.quantity) * stock.averageUnitCost);
++        if (stock.ownership === StockOwnership.ORGANISATION && value > 0) {
++          const inventorySystemKey =
++            stock.product.type === ProductType.FINISHED_PRODUCT
++              ? SYSTEM_ACCOUNT_KEYS.FINISHED_GOODS_INVENTORY
++              : SYSTEM_ACCOUNT_KEYS.INVENTORY;
++          // Positive quantity = a gain: DR Inventory / CR Inventory Adjustment.
++          // Negative quantity = a loss: DR Inventory Adjustment / CR Inventory.
++          // Linked to the canonical, idempotency-deduplicated `transaction.id` as
++          // `sourceId` — `JournalEntry`'s own `@@unique([organisationId, sourceType,
++          // sourceId])` then guarantees at most one journal per adjustment for free,
++          // with no new idempotency mechanism of its own.
++          const posted = await postSystemJournalEntry(tx, {
++            organisationId: data.organisationId,
++            date: transaction.createdAt,
++            description: data.notes
++              ? `Inventory adjustment (${data.reason}): ${data.notes}`
++              : `Inventory adjustment (${data.reason})`,
++            sourceType: 'INVENTORY_ADJUSTMENT',
++            sourceId: transaction.id,
++            actorUserId: data.createdById,
++            lines:
++              data.quantity > 0
++                ? [
++                    { systemKey: inventorySystemKey, debit: value },
++                    { systemKey: SYSTEM_ACCOUNT_KEYS.INVENTORY_ADJUSTMENT, credit: value },
++                  ]
++                : [
++                    { systemKey: SYSTEM_ACCOUNT_KEYS.INVENTORY_ADJUSTMENT, debit: value },
++                    { systemKey: inventorySystemKey, credit: value },
++                  ],
++          });
++          journalEntryId = posted.journalEntry.id;
++        }
++
++        return { stock, transaction, wasCreated: true, journalEntryId };
+       });
++    } catch (error) {
++      if (
++        data.idempotencyKey &&
++        error instanceof Prisma.PrismaClientKnownRequestError &&
++        error.code === 'P2002'
++      ) {
++        const winner = await this.prisma.inventoryTransaction.findUnique({
++          where: {
++            organisationId_idempotencyKey: {
++              organisationId: data.organisationId,
++              idempotencyKey: data.idempotencyKey,
++            },
++          },
++        });
++        if (winner) {
++          return this.resolveExistingAdjustment(winner, data);
++        }
++      }
++      throw error;
++    }
++  }
+ 
+-      const transaction = await tx.inventoryTransaction.create({
+-        data: {
++  /** Shared by both idempotency paths in `adjustStock` above — validates that a reused
++   *  key's request describes the same intended operation as the already-committed
++   *  transaction it maps to, then returns that transaction's result without touching
++   *  stock again. */
++  private async resolveExistingAdjustment(
++    existing: InventoryTransaction,
++    data: AdjustStockData,
++  ): Promise<AdjustStockResult> {
++    if (
++      existing.productId !== data.productId ||
++      existing.locationId !== data.locationId ||
++      existing.quantity !== data.quantity ||
++      existing.adjustmentReason !== data.reason
++    ) {
++      throw new AdjustmentIdempotencyKeyConflictError(
++        'This idempotency key was already used for a different adjustment',
++      );
++    }
++
++    const stock = await this.prisma.inventoryStock.findUniqueOrThrow({
++      where: {
++        organisationId_productId_locationId: {
+           organisationId: data.organisationId,
+           productId: data.productId,
+           locationId: data.locationId,
+-          transactionType: InventoryTransactionType.ADJUSTMENT,
+-          quantity: data.quantity,
+-          referenceType: 'ManualAdjustment',
+-          referenceId: null,
+-          adjustmentReason: data.reason,
+-          notes: data.notes,
+-          createdById: data.createdById,
+         },
+-      });
++      },
++      include: { product: { select: PRODUCT_SELECT }, location: { select: LOCATION_SELECT } },
++    });
+ 
+-      return { stock, transaction };
++    // Stage 4E.4D — a retry never re-attempts journal posting (see `adjustStock`'s own
++    // doc comment); it reads back whatever the ORIGINAL creating call already posted
++    // (or correctly skipped), from the already-committed `JournalEntry`, keyed by the
++    // same `(organisationId, sourceType, sourceId)` that call used.
++    const journalEntry = await this.prisma.journalEntry.findUnique({
++      where: {
++        organisationId_sourceType_sourceId: {
++          organisationId: data.organisationId,
++          sourceType: 'INVENTORY_ADJUSTMENT',
++          sourceId: existing.id,
++        },
++      },
++      select: { id: true },
+     });
++
++    return { stock, transaction: existing, wasCreated: false, journalEntryId: journalEntry?.id ?? null };
+   }
+ 
+   /**
+@@ -290,7 +471,16 @@ export class InventoryStockRepository {
+         },
+       });
+ 
+-      return { stock: stockWithRelations, transaction };
++      // Stage 4E.4D — opening-stock establishment never posts a journal, categorically,
++      // regardless of cost: it is not a correction to an existing GL-relevant balance,
++      // it is the first-ever establishment of one, and `averageUnitCost` is always `0`
++      // here anyway (this method's own rule above), so this would never be value-
++      // bearing even under `adjustStock`'s general rule.
++      return { stock: stockWithRelations, transaction, wasCreated: true, journalEntryId: null };
+     });
+   }
+ }
++
++function roundCurrency(value: number): number {
++  return Math.round(value * 100) / 100;
++}
+diff --git a/apps/api/src/inventory/inventory.controller.spec.ts b/apps/api/src/inventory/inventory.controller.spec.ts
+index a98158a..b0640b8 100644
+--- a/apps/api/src/inventory/inventory.controller.spec.ts
++++ b/apps/api/src/inventory/inventory.controller.spec.ts
+@@ -378,6 +378,7 @@ describe('InventoryController', () => {
+         previousQuantity: 100,
+         newQuantity: 110,
+         transactionId: 'txn-1',
++        wasCreated: true,
+       } as never);
+ 
+       const result = await controller.createAdjustment(
+@@ -399,6 +400,93 @@ describe('InventoryController', () => {
+       );
+       expect(result.newQuantity).toBe(110);
+     });
++
++    it('records inventory.adjustment.journal-entry-posted and surfaces journalEntryId when a journal was actually posted', async () => {
++      const { controller, inventoryService, auditService } = makeController();
++      inventoryService.adjustStock.mockResolvedValue({
++        productId: 'product-1',
++        product: { id: 'product-1', code: 'PRD-000009', name: 'Salt', unit: 'Kilogram' },
++        location: { id: 'loc-1', name: 'Main Warehouse' },
++        reason: 'FOUND_STOCK',
++        quantityDelta: 10,
++        previousQuantity: 100,
++        newQuantity: 110,
++        transactionId: 'txn-1',
++        wasCreated: true,
++        journalEntryId: 'journal-1',
++      } as never);
++
++      const result = await controller.createAdjustment(
++        { productId: 'product-1', quantity: 10, reason: 'FOUND_STOCK' },
++        tokenUser,
++        req,
++      );
++
++      expect(auditService.record).toHaveBeenCalledWith(
++        expect.objectContaining({
++          action: INVENTORY_AUDIT_ACTIONS.ADJUSTMENT_JOURNAL_POSTED,
++          entityId: 'product-1',
++          metadata: expect.objectContaining({ journalEntryId: 'journal-1' }),
++        }),
++      );
++      expect(result.journalEntryId).toBe('journal-1');
++    });
++
++    it('does not record inventory.adjustment.journal-entry-posted when no journal was posted (zero-cost/customer-owned)', async () => {
++      const { controller, inventoryService, auditService } = makeController();
++      inventoryService.adjustStock.mockResolvedValue({
++        productId: 'product-1',
++        product: { id: 'product-1', code: 'PRD-000009', name: 'Salt', unit: 'Kilogram' },
++        location: { id: 'loc-1', name: 'Main Warehouse' },
++        reason: 'PHYSICAL_COUNT',
++        quantityDelta: 10,
++        previousQuantity: 100,
++        newQuantity: 110,
++        transactionId: 'txn-1',
++        wasCreated: true,
++        journalEntryId: null,
++      } as never);
++
++      const result = await controller.createAdjustment(
++        { productId: 'product-1', quantity: 10, reason: 'PHYSICAL_COUNT' },
++        tokenUser,
++        req,
++      );
++
++      expect(auditService.record).not.toHaveBeenCalledWith(
++        expect.objectContaining({ action: INVENTORY_AUDIT_ACTIONS.ADJUSTMENT_JOURNAL_POSTED }),
++      );
++      expect(result.journalEntryId).toBeNull();
++    });
++
++    it('does not record an audit entry for an idempotent retry (wasCreated: false)', async () => {
++      const { controller, inventoryService, auditService } = makeController();
++      inventoryService.adjustStock.mockResolvedValue({
++        productId: 'product-1',
++        product: { id: 'product-1', code: 'PRD-000009', name: 'Salt', unit: 'Kilogram' },
++        location: { id: 'loc-1', name: 'Main Warehouse' },
++        reason: 'PHYSICAL_COUNT',
++        quantityDelta: 10,
++        previousQuantity: 100,
++        newQuantity: 110,
++        transactionId: 'txn-1',
++        wasCreated: false,
++      } as never);
++
++      const result = await controller.createAdjustment(
++        {
++          productId: 'product-1',
++          quantity: 10,
++          reason: 'PHYSICAL_COUNT',
++          idempotencyKey: 'key-1',
++        },
++        tokenUser,
++        req,
++      );
++
++      expect(auditService.record).not.toHaveBeenCalled();
++      expect(result.newQuantity).toBe(110);
++    });
+   });
+ 
+   describe('createLocation', () => {
+diff --git a/apps/api/src/inventory/inventory.controller.ts b/apps/api/src/inventory/inventory.controller.ts
+index cdaa4d7..d58b14c 100644
+--- a/apps/api/src/inventory/inventory.controller.ts
++++ b/apps/api/src/inventory/inventory.controller.ts
+@@ -326,25 +326,51 @@ export class InventoryController {
+   ) {
+     const result = await this.inventoryService.adjustStock(user.organisationId, body, user.sub);
+ 
+-    await this.auditService.record({
+-      action: INVENTORY_AUDIT_ACTIONS.ADJUSTED,
+-      entityType: 'InventoryStock',
+-      entityId: result.productId,
+-      organisationId: user.organisationId,
+-      actorUserId: user.sub,
+-      metadata: {
+-        productId: result.productId,
+-        productName: result.product.name,
+-        locationId: result.location.id,
+-        locationName: result.location.name,
+-        reason: result.reason,
+-        quantityDelta: result.quantityDelta,
+-        previousQuantity: result.previousQuantity,
+-        newQuantity: result.newQuantity,
+-      },
+-      ipAddress: req.ip,
+-      userAgent: req.headers['user-agent'],
+-    });
++    // Added Stage 4E.4B — gated on `wasCreated` so a retried request (resolved to an
++    // already-committed adjustment, no stock touched) does not write a second,
++    // misleading audit entry for the same operation. Same convention as `createTransfer`
++    // above.
++    if (result.wasCreated) {
++      await this.auditService.record({
++        action: INVENTORY_AUDIT_ACTIONS.ADJUSTED,
++        entityType: 'InventoryStock',
++        entityId: result.productId,
++        organisationId: user.organisationId,
++        actorUserId: user.sub,
++        metadata: {
++          productId: result.productId,
++          productName: result.product.name,
++          locationId: result.location.id,
++          locationName: result.location.name,
++          reason: result.reason,
++          quantityDelta: result.quantityDelta,
++          previousQuantity: result.previousQuantity,
++          newQuantity: result.newQuantity,
++        },
++        ipAddress: req.ip,
++        userAgent: req.headers['user-agent'],
++      });
++
++      // Stage 4E.4D — fired only when this (fresh) call actually posted a journal,
++      // same "fired only when a journal was actually posted" gating convention as
++      // `SUPPLIER_RETURN_JOURNAL_POSTED`.
++      if (result.journalEntryId) {
++        await this.auditService.record({
++          action: INVENTORY_AUDIT_ACTIONS.ADJUSTMENT_JOURNAL_POSTED,
++          entityType: 'InventoryStock',
++          entityId: result.productId,
++          organisationId: user.organisationId,
++          actorUserId: user.sub,
++          metadata: {
++            productId: result.productId,
++            locationId: result.location.id,
++            journalEntryId: result.journalEntryId,
++          },
++          ipAddress: req.ip,
++          userAgent: req.headers['user-agent'],
++        });
++      }
++    }
+ 
+     return toAdjustmentResponse(result);
+   }
+@@ -718,6 +744,7 @@ function toAdjustmentResponse(result: StockAdjustmentResult) {
+     previousQuantity: result.previousQuantity,
+     newQuantity: result.newQuantity,
+     transactionId: result.transactionId,
++    journalEntryId: result.journalEntryId,
+   };
+ }
+ 
+diff --git a/apps/api/src/inventory/inventory.service.spec.ts b/apps/api/src/inventory/inventory.service.spec.ts
+index 909893e..a47a1d2 100644
+--- a/apps/api/src/inventory/inventory.service.spec.ts
++++ b/apps/api/src/inventory/inventory.service.spec.ts
+@@ -712,7 +712,9 @@ describe('InventoryService', () => {
+       } as never);
+       inventoryStockRepository.adjustStock.mockResolvedValue({
+         stock: { quantityOnHand: 110 } as never,
+-        transaction: { id: 'txn-1' } as never,
++        transaction: { id: 'txn-1', quantity: 10, adjustmentReason: 'PHYSICAL_COUNT' } as never,
++        wasCreated: true,
++        journalEntryId: null,
+       });
+ 
+       const result = await service.adjustStock(
+@@ -728,6 +730,64 @@ describe('InventoryService', () => {
+       );
+     });
+ 
++    it('propagates the repository-level journalEntryId through to the result', async () => {
++      const { service, inventoryStockRepository, productRepository } = makeService();
++      productRepository.findById.mockResolvedValue(product);
++      inventoryStockRepository.findByProductAndLocation.mockResolvedValue(null);
++      inventoryStockRepository.adjustStock.mockResolvedValue({
++        stock: { quantityOnHand: 110 } as never,
++        transaction: { id: 'txn-1', quantity: 10, adjustmentReason: 'FOUND_STOCK' } as never,
++        wasCreated: true,
++        journalEntryId: 'journal-1',
++      });
++
++      const result = await service.adjustStock(
++        'org-1',
++        { productId: 'product-1', quantity: 10, reason: 'FOUND_STOCK' },
++        'user-2',
++      );
++
++      expect(result.journalEntryId).toBe('journal-1');
++    });
++
++    it('translates a repository-level missing-system-account failure into a BadRequestException', async () => {
++      const { service, inventoryStockRepository, productRepository } = makeService();
++      productRepository.findById.mockResolvedValue(product);
++      inventoryStockRepository.findByProductAndLocation.mockResolvedValue(null);
++      inventoryStockRepository.adjustStock.mockRejectedValue(
++        new (jest.requireActual('../finance/accounting/journal-posting').MissingSystemAccountError)(
++          'No "INVENTORY_ADJUSTMENT" system account is configured for this organisation',
++        ),
++      );
++
++      await expect(
++        service.adjustStock(
++          'org-1',
++          { productId: 'product-1', quantity: 10, reason: 'FOUND_STOCK' },
++          'user-2',
++        ),
++      ).rejects.toThrow(BadRequestException);
++    });
++
++    it('translates a repository-level closed/missing-period failure into a BadRequestException', async () => {
++      const { service, inventoryStockRepository, productRepository } = makeService();
++      productRepository.findById.mockResolvedValue(product);
++      inventoryStockRepository.findByProductAndLocation.mockResolvedValue(null);
++      inventoryStockRepository.adjustStock.mockRejectedValue(
++        new (jest.requireActual('../finance/accounting/journal-posting').NoOpenPeriodError)(
++          'No open accounting period covers 2026-10-15',
++        ),
++      );
++
++      await expect(
++        service.adjustStock(
++          'org-1',
++          { productId: 'product-1', quantity: 10, reason: 'FOUND_STOCK' },
++          'user-2',
++        ),
++      ).rejects.toThrow(BadRequestException);
++    });
++
+     it('translates a repository-level negative-stock guard into a BadRequestException', async () => {
+       const { service, inventoryStockRepository, productRepository } = makeService();
+       productRepository.findById.mockResolvedValue(product);
+@@ -747,6 +807,72 @@ describe('InventoryService', () => {
+       ).rejects.toThrow(BadRequestException);
+     });
+ 
++    it('translates a repository-level idempotency-key conflict into a BadRequestException', async () => {
++      const { service, inventoryStockRepository, productRepository } = makeService();
++      productRepository.findById.mockResolvedValue(product);
++      inventoryStockRepository.findByProductAndLocation.mockResolvedValue(null);
++      inventoryStockRepository.adjustStock.mockRejectedValue(
++        new (
++          jest.requireActual('./inventory-stock.repository').AdjustmentIdempotencyKeyConflictError
++        )('This idempotency key was already used for a different adjustment'),
++      );
++
++      await expect(
++        service.adjustStock(
++          'org-1',
++          { productId: 'product-1', quantity: -10, reason: 'DAMAGE', idempotencyKey: 'key-1' },
++          'user-2',
++        ),
++      ).rejects.toThrow(BadRequestException);
++    });
++
++    it('passes input.idempotencyKey through to the repository call', async () => {
++      const { service, inventoryStockRepository, productRepository } = makeService();
++      productRepository.findById.mockResolvedValue(product);
++      inventoryStockRepository.findByProductAndLocation.mockResolvedValue(null);
++      inventoryStockRepository.adjustStock.mockResolvedValue({
++        stock: { quantityOnHand: 10 } as never,
++        transaction: { id: 'txn-1', quantity: 10, adjustmentReason: 'PHYSICAL_COUNT' } as never,
++        wasCreated: true,
++        journalEntryId: null,
++      });
++
++      await service.adjustStock(
++        'org-1',
++        { productId: 'product-1', quantity: 10, reason: 'PHYSICAL_COUNT', idempotencyKey: 'key-1' },
++        'user-2',
++      );
++
++      expect(inventoryStockRepository.adjustStock).toHaveBeenCalledWith(
++        expect.objectContaining({ idempotencyKey: 'key-1' }),
++      );
++    });
++
++    it('reports wasCreated: false from the service when the repository resolved a retry', async () => {
++      const { service, inventoryStockRepository, productRepository } = makeService();
++      productRepository.findById.mockResolvedValue(product);
++      inventoryStockRepository.findByProductAndLocation.mockResolvedValue({
++        quantityOnHand: 110,
++        location: { id: 'loc-1', name: 'Main Warehouse' },
++      } as never);
++      inventoryStockRepository.adjustStock.mockResolvedValue({
++        stock: { quantityOnHand: 110 } as never,
++        transaction: { id: 'txn-1', quantity: 10, adjustmentReason: 'PHYSICAL_COUNT' } as never,
++        wasCreated: false,
++        journalEntryId: null,
++      });
++
++      const result = await service.adjustStock(
++        'org-1',
++        { productId: 'product-1', quantity: 10, reason: 'PHYSICAL_COUNT', idempotencyKey: 'key-1' },
++        'user-2',
++      );
++
++      expect(result.wasCreated).toBe(false);
++      expect(result.quantityDelta).toBe(10);
++      expect(result.newQuantity).toBe(110);
++    });
++
+     it('throws NotFoundException when the product does not exist in this organisation', async () => {
+       const { service, productRepository } = makeService();
+       productRepository.findById.mockResolvedValue(null);
+@@ -798,7 +924,9 @@ describe('InventoryService', () => {
+       } as never);
+       inventoryStockRepository.adjustStock.mockResolvedValue({
+         stock: { quantityOnHand: 20 } as never,
+-        transaction: { id: 'txn-3' } as never,
++        transaction: { id: 'txn-3', quantity: -5, adjustmentReason: 'DAMAGE' } as never,
++        wasCreated: true,
++        journalEntryId: null,
+       });
+ 
+       const result = await service.adjustStock(
+@@ -1247,6 +1375,8 @@ describe('InventoryService', () => {
+           arrangement: 'WHOLESALE',
+         } as never,
+         transaction: { id: 'txn-1' } as never,
++        wasCreated: true,
++        journalEntryId: null,
+       });
+ 
+       const result = await service.recordOpeningStock(
+@@ -1268,6 +1398,8 @@ describe('InventoryService', () => {
+       inventoryStockRepository.recordOpeningStock.mockResolvedValue({
+         stock: { quantityOnHand: 25, ownership: 'CUSTOMER', arrangement: 'WHOLESALE' } as never,
+         transaction: { id: 'txn-2' } as never,
++        wasCreated: true,
++        journalEntryId: null,
+       });
+ 
+       const result = await service.recordOpeningStock(
+diff --git a/apps/api/src/inventory/inventory.service.ts b/apps/api/src/inventory/inventory.service.ts
+index 3037338..c47e1d6 100644
+--- a/apps/api/src/inventory/inventory.service.ts
++++ b/apps/api/src/inventory/inventory.service.ts
+@@ -37,6 +37,7 @@ import {
+ } from './goods-receipt.repository';
+ import { InventoryLocationRepository } from './inventory-location.repository';
+ import {
++  AdjustmentIdempotencyKeyConflictError,
+   InventoryStockRepository,
+   ListInventoryStockParams,
+   NegativeStockError,
+@@ -173,6 +174,16 @@ export interface StockAdjustmentResult {
+   previousQuantity: number;
+   newQuantity: number;
+   transactionId: string;
++  /** Added Stage 4E.4B — `false` when `input.idempotencyKey` matched an already-
++   *  committed adjustment and this call resolved to that prior result instead of
++   *  applying a new stock change; same convention as `CreateTransferResult.wasCreated`.
++   *  Always `true` when no `idempotencyKey` was supplied. */
++  wasCreated: boolean;
++  /** Added Stage 4E.4D — the posted `JournalEntry.id`, or `null` when this adjustment
++   *  was not value-bearing (zero cost, or `CUSTOMER`-owned stock — see
++   *  `InventoryStockRepository.adjustStock`'s own doc comment for the full rule). A
++   *  retry returns the same id the original request got, never a second entry. */
++  journalEntryId: string | null;
+ }
+ 
+ /** Added Phase 2B — Customer Outlet Stock Tracking & Transfers. */
+@@ -594,7 +605,6 @@ export class InventoryService {
+       input.productId,
+       location.id,
+     );
+-    const previousQuantity = existing?.quantityOnHand ?? 0;
+ 
+     // Added during the Phase 2B post-implementation review (found alongside
+     // `WarehouseOwnershipViolationError`): without this check, this generic
+@@ -624,21 +634,45 @@ export class InventoryService {
+         reason: input.reason,
+         notes: input.notes,
+         createdById: actorUserId,
++        idempotencyKey: input.idempotencyKey,
+       });
++      // Reported from `result` (the actual committed row), not from `input` — on a
++      // retry (`wasCreated: false`) this is the ORIGINAL request's own recorded
++      // quantity/reason, same "report what actually happened, not what this call
++      // asked for" convention `createTransfer` already follows for its own retries.
++      // `previousQuantity` is derived rather than reused from the pre-read above
++      // because that pre-read reflects the balance BEFORE *this call* only — on a
++      // retry it already includes the original adjustment, which would make
++      // `previousQuantity === newQuantity` and hide that a change ever happened.
+       return {
+         productId: product.id,
+         product: { id: product.id, code: product.code, name: product.name, unit: product.unit },
+         location: { id: location.id, name: location.name },
+-        reason: input.reason,
+-        quantityDelta: input.quantity,
+-        previousQuantity,
++        reason: result.transaction.adjustmentReason ?? input.reason,
++        quantityDelta: result.transaction.quantity,
++        previousQuantity: result.stock.quantityOnHand - result.transaction.quantity,
+         newQuantity: result.stock.quantityOnHand,
+         transactionId: result.transaction.id,
++        wasCreated: result.wasCreated,
++        journalEntryId: result.journalEntryId,
+       };
+     } catch (error) {
+       if (error instanceof NegativeStockError) {
+         throw new BadRequestException(error.message);
+       }
++      if (error instanceof AdjustmentIdempotencyKeyConflictError) {
++        throw new BadRequestException(error.message);
++      }
++      // Stage 4E.4D — the accounting posting's own guards, propagated from inside the
++      // same transaction (see `InventoryStockRepository.adjustStock`) — the whole
++      // adjustment rolls back with it, same convention `receiveGoods` already uses for
++      // these same two errors.
++      if (error instanceof NoOpenPeriodError) {
++        throw new BadRequestException(error.message);
++      }
++      if (error instanceof MissingSystemAccountError) {
++        throw new BadRequestException(error.message);
++      }
+       throw error;
+     }
+   }
+diff --git a/apps/api/src/sales/sales-fulfilment-outlet-integration.integration.spec.ts b/apps/api/src/sales/sales-fulfilment-outlet-integration.integration.spec.ts
+index 6c48206..d4f4bee 100644
+--- a/apps/api/src/sales/sales-fulfilment-outlet-integration.integration.spec.ts
++++ b/apps/api/src/sales/sales-fulfilment-outlet-integration.integration.spec.ts
+@@ -2,6 +2,7 @@ import { PrismaClient } from '@prisma/client';
+ 
+ import { PrismaService } from '../prisma/prisma.service';
+ import { InventoryStockRepository } from '../inventory/inventory-stock.repository';
++import { verifyConnectedToTestDatabase } from '../testing/test-db-guard';
+ import {
+   OutletOwnershipTransitionError,
+   SalesFulfilmentRepository,
+@@ -105,14 +106,22 @@ describe('Phase 2C — B2B fulfilment to outlet stock (real PostgreSQL)', () =>
+   // CAUTION — found the hard way during this phase's own development: a journal-entry
+   // cleanup query scoped only by `sourceType: 'SALES_FULFILMENT'` (without ALSO
+   // restricting `sourceId` to this test's own disposable fulfilment ids) deleted every
+-  // REAL, pre-existing Sales Fulfilment journal entry for the organisation — 18 of
+-  // them, since they share the same `sourceType`. They were reconstructed afterward
+-  // (same amounts/dates/references, replayed through the real `postSystemJournalEntry`
+-  // into the still-OPEN accounting periods — verified byte-identical to the original
+-  // reconciliation baseline, GL re-confirmed balanced). `cleanupTestData` below always
+-  // resolves the EXACT disposable fulfilment ids first and scopes every deletion to
+-  // them specifically — never a bare `sourceType` filter — so this cannot recur.
++  // REAL, pre-existing Sales Fulfilment journal entry for the organisation — 18 of them,
++  // since they share the same `sourceType`. They were reconstructed afterward (same
++  // amounts/dates/references, replayed through the real `postSystemJournalEntry`). The
++  // Phase 2C Financial Integrity Review (docs/sprint-phase-2c-financial-integrity-review.md)
++  // found this recovery independently verified for only 3 of the 18 entries and explicitly
++  // did NOT certify it as byte-identical — do not restate that claim here.
++  // `cleanupTestData` below always resolves the EXACT disposable fulfilment ids first and
++  // scopes every deletion to them specifically — never a bare `sourceType` filter — so
++  // this specific query pattern cannot recur. As a second, independent layer, this
++  // function also refuses to run at all unless `verifyConnectedToTestDatabase` confirms
++  // the connection is the isolated, unprivileged test database (see
++  // docs/sprint-test-database-isolation-completion-report.md) — it throws before any
++  // `deleteMany` below if that cannot be established, even if this file is ever invoked
++  // outside its normal jest.integration.config.js bootstrap.
+   async function cleanupTestData() {
++    await verifyConnectedToTestDatabase(prisma);
+     const locationIds = [warehouseLocationId, outletLocationId];
+     const testFulfilments = await prisma.salesFulfilment.findMany({
+       where: { organisationId, locationId: { in: locationIds } },
+diff --git a/docker-compose.dev.yml b/docker-compose.dev.yml
+index 09d470f..033f829 100644
+--- a/docker-compose.dev.yml
++++ b/docker-compose.dev.yml
+@@ -14,6 +14,17 @@ name: zentuva-dev
+ #
+ # For the full containerized stack (including apps/web and apps/api as Docker images),
+ # see docker-compose.production.yml — that is NOT the daily development workflow.
++#
++# The disposable test Postgres instance lives in its OWN file, docker-compose.test.yml,
++# under its OWN Compose project name — NOT as a profile within this file. This file's
++# project name (`zentuva-dev`, above) previously also hosted a `postgres-test` service on
++# the `test` Compose profile; that was the root cause of the 2026-10-14 data-loss incident:
++# `docker compose --profile test down -v` does not scope `down`/`-v` to the named profile —
++# `down` tears down the ENTIRE project regardless of `--profile`, so it removed this file's
++# `postgres` container and its `postgres_dev_data`/`redis_dev_data` volumes along with the
++# test service. A
++# Compose profile is an `up`-time filter, not a project-level isolation boundary — it must
++# never be relied on as one. See docker-compose.test.yml for the corrected design.
+ services:
+   postgres:
+     image: postgres:16-alpine
+diff --git a/docs/development/local-development.md b/docs/development/local-development.md
+index 9e4d2e1..3bddc92 100644
+--- a/docs/development/local-development.md
++++ b/docs/development/local-development.md
+@@ -181,12 +181,51 @@ pnpm test
+ ```
+ 
+ Runs every app/package's test suite via Turborepo. `apps/api` uses Jest; `apps/web` has no test
+-suite yet. Run a single app's tests directly when iterating:
++suite yet. These are fully mocked, DB-less tests — no Postgres connection required. Run a single
++app's tests directly when iterating:
+ 
+ ```bash
+ pnpm --filter @zentuva/api test
+ ```
+ 
++### Running integration tests safely
++
++`*.integration.spec.ts` files need a real Postgres database and are **not** part of `pnpm test`.
++They run against a separate, disposable Postgres instance — never the operational database you
++just set up above — see
++[Test Database Isolation & Destructive-Operation Safety](../sprint-test-database-isolation-completion-report.md)
++for why.
++
++```bash
++pnpm infra:test:up       # start the disposable test Postgres (separate container, port 5433)
++pnpm test:db:migrate     # apply migrations to it (fails closed if misconfigured)
++pnpm test:integration    # run the integration suite against it
++```
++
++The first time, also copy the test env template and (optionally) seed reference data some
++integration tests expect:
++
++```bash
++cp apps/api/.env.test.example apps/api/.env.test
++pnpm test:db:seed
++```
++
++Every entry point above verifies it's actually connected to the isolated `zentuva_test`
++database — using an unprivileged, non-superuser role that cannot authenticate against the
++operational Postgres container at all — before running anything that writes data. If that
++can't be verified, the command fails loudly instead of silently touching the operational
++database.
++
++**`pnpm infra:test:down` / `pnpm infra:test:reset` run against `docker-compose.test.yml`, a
++separate file with its own Compose project (`zentuva-dev-test`) from `docker-compose.dev.yml`'s
++`zentuva-dev`.** This is a real project-level boundary, not a `--profile` flag — a Compose
++profile only filters what `up` starts by default, it does not scope `down`/`down -v`, which
++tears down the entire named project regardless of profile. An earlier version of this setup put
++the test Postgres service in `docker-compose.dev.yml` on a `test` profile and relied on that
++profile to protect the operational `postgres`/`redis` services from `infra:test:reset`'s
++`down -v` — it did not, and `infra:test:reset` deleted the operational database on
++2026-10-14 as a result. Never assume a Compose profile is a teardown isolation boundary.
++
+ ## Linting
+ 
+ ```bash
+@@ -259,11 +298,13 @@ Zentuva intentionally uses a small number of environment files, each with one cl
+ | `apps/web/.env.local`                           | Next.js                                                   | Next.js auto-loads `.env.local` for local overrides, and it's gitignored by default — this is the standard Next.js convention, and the only file you need for local web dev.                                                                                    |
+ | `.env` (repo root)                              | `docker-compose.dev.yml`, `docker-compose.production.yml` | Optional. Only needed if you want to override the default Postgres/Redis credentials or ports — both compose files have working defaults baked in via `${VAR:-default}`, so `pnpm infra:up` works with zero setup.                                              |
+ | `apps/api/.env` / `apps/web/.env` (no `.local`) | `docker-compose.production.yml` only                      | The full-stack compose file uses Docker's `env_file` directive, which doesn't understand Next's `.env.local` convention — it just needs a plain `.env`. You only need this if you're running the full containerized stack, which is not the daily dev workflow. |
++| `apps/api/.env.test`                            | Integration tests only (`jest.integration.config.js`)     | Deliberately separate from `apps/api/.env` — holds `TEST_DATABASE_URL`, never `DATABASE_URL`, so the running API and the operational `pnpm db:*` commands never read it, and integration tests never read the operational `DATABASE_URL`. Only needed if you run `pnpm test:integration`; see "Running integration tests safely" above. |
+ 
+ **In short:** for daily development you need exactly two files —
+ `apps/api/.env` and `apps/web/.env.local` — copied once from their `.example` counterparts. The
+ root `.env` and the non-`.local` app `.env` files only come into play if you run
+-`docker-compose.production.yml`.
++`docker-compose.production.yml`; `apps/api/.env.test` only comes into play if you run the
++integration suite.
+ 
+ ## Common troubleshooting
+ 
+@@ -340,3 +381,5 @@ existing migrations without prompting.
+ - [Development Workflow](../handbook/development-workflow.md) — conventions for how work gets
+   done (branching, Definition of Done, documentation requirements).
+ - [Architecture Overview](../handbook/architecture-overview.md) — the technology stack and why.
++- [Database Backup and Restore](./database-backup-and-restore.md) — how to back up the
++  development database and verify a restore without ever touching development or test.
+diff --git a/docs/domains/accounting.md b/docs/domains/accounting.md
+index 38d37b0..1358234 100644
+--- a/docs/domains/accounting.md
++++ b/docs/domains/accounting.md
+@@ -880,6 +880,27 @@ recorded as a known limitation (§25) rather than solved with new classification
+ metadata — directly matching the brief's own "do not create a large accounting
+ redesign" instruction.
+ 
++### 16.7 Known gap: inventory adjustments are not posted to the General Ledger
++
++Confirmed (Stage 4E Financial Reconciliation Root-Cause Investigation,
++`docs/sprint-stage-4e1-financial-reconciliation-root-cause-investigation.md`):
++`InventoryService.adjustStock()` — the general-purpose stock-correction endpoint behind
++the "Adjust Stock" UI action — changes `InventoryStock.quantityOnHand` (and the
++resulting `InventoryTransaction` ledger row) but posts **no journal entry at all**. This
++is a real, general application characteristic (not limited to seed/test fixtures): any
++tenant using this endpoint for a physical count correction, wastage write-off, or
++found-stock entry creates a divergence between the Inventory subledger
++(`InventoryValuationService`, §16.3) and the General Ledger's `INVENTORY`/
++`FINISHED_GOODS_INVENTORY` balances, surfaced — correctly, and by design — by
++`ReconciliationService`'s own "never silently corrects" difference figure.
++
++Whether this should (a) post a value-bearing journal entry (e.g. to an "Inventory
++Adjustment/Shrinkage" account) on every adjustment, or (b) remain an intentional
++quantity-only correction mechanism with any GL catch-up left to a separate, periodic
++accounting entry, is an open accounting-policy decision — not resolved here, and
++deliberately not implemented in Stage 4E.2 pending explicit approval in its own,
++separately scoped stage. Do not infer either answer from this note alone.
++
+ ## 17. Cash & Bank Management (Sprint 14)
+ 
+ Sprint 14 connects the General Ledger to the organisation's real-world cash and bank
+diff --git a/package.json b/package.json
+index 5f0663f..6e81b58 100644
+--- a/package.json
++++ b/package.json
+@@ -25,10 +25,16 @@
+     "infra:logs": "docker compose -f docker-compose.dev.yml logs -f",
+     "infra:reset": "docker compose -f docker-compose.dev.yml down -v && docker compose -f docker-compose.dev.yml up -d",
+     "db:generate": "pnpm --filter @zentuva/api run prisma:generate",
+-    "db:migrate": "pnpm --filter @zentuva/api run prisma:migrate",
+-    "db:studio": "pnpm --filter @zentuva/api run prisma:studio",
+-    "db:seed": "pnpm --filter @zentuva/api run prisma:seed",
+-    "db:reset": "pnpm --filter @zentuva/api exec prisma migrate reset"
++    "db:migrate": "pnpm --filter @zentuva/api run db:migrate:guarded",
++    "db:studio": "pnpm --filter @zentuva/api run db:studio:guarded",
++    "db:seed": "pnpm --filter @zentuva/api run db:seed:guarded",
++    "db:reset": "pnpm --filter @zentuva/api run db:reset:guarded",
++    "infra:test:up": "docker compose -f docker-compose.test.yml up -d",
++    "infra:test:down": "docker compose -f docker-compose.test.yml down",
++    "infra:test:reset": "docker compose -f docker-compose.test.yml down -v && docker compose -f docker-compose.test.yml up -d",
++    "test:db:migrate": "pnpm --filter @zentuva/api run test:db:migrate",
++    "test:db:seed": "pnpm --filter @zentuva/api run test:db:seed",
++    "test:integration": "pnpm --filter @zentuva/api run test:integration"
+   },
+   "devDependencies": {
+     "@typescript-eslint/eslint-plugin": "^8.15.0",
+diff --git a/packages/validation/src/inventory.ts b/packages/validation/src/inventory.ts
+index a8d5a83..4cda1c9 100644
+--- a/packages/validation/src/inventory.ts
++++ b/packages/validation/src/inventory.ts
+@@ -197,6 +197,11 @@ export const createInventoryAdjustmentSchema = z.object({
+   quantity: z.number().refine((value) => value !== 0, 'Adjustment quantity cannot be zero'),
+   reason: adjustmentReasonSchema,
+   notes: z.string().trim().max(2000).optional(),
++  /** Added Stage 4E.4B — same optional, client-supplied double-submit protection every
++   *  sibling mutation already has (`idempotencyKey` above). A caller that never sends
++   *  one is never blocked; a retried request with the same key returns the original
++   *  result instead of applying the delta again. */
++  idempotencyKey: z.string().trim().min(1).optional(),
+ });
+ export type CreateInventoryAdjustmentInput = z.infer<typeof createInventoryAdjustmentSchema>;
+ 

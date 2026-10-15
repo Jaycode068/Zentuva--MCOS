@@ -712,7 +712,9 @@ describe('InventoryService', () => {
       } as never);
       inventoryStockRepository.adjustStock.mockResolvedValue({
         stock: { quantityOnHand: 110 } as never,
-        transaction: { id: 'txn-1' } as never,
+        transaction: { id: 'txn-1', quantity: 10, adjustmentReason: 'PHYSICAL_COUNT' } as never,
+        wasCreated: true,
+        journalEntryId: null,
       });
 
       const result = await service.adjustStock(
@@ -726,6 +728,64 @@ describe('InventoryService', () => {
       expect(inventoryStockRepository.adjustStock).toHaveBeenCalledWith(
         expect.objectContaining({ productId: 'product-1', locationId: 'loc-1', quantity: 10 }),
       );
+    });
+
+    it('propagates the repository-level journalEntryId through to the result', async () => {
+      const { service, inventoryStockRepository, productRepository } = makeService();
+      productRepository.findById.mockResolvedValue(product);
+      inventoryStockRepository.findByProductAndLocation.mockResolvedValue(null);
+      inventoryStockRepository.adjustStock.mockResolvedValue({
+        stock: { quantityOnHand: 110 } as never,
+        transaction: { id: 'txn-1', quantity: 10, adjustmentReason: 'FOUND_STOCK' } as never,
+        wasCreated: true,
+        journalEntryId: 'journal-1',
+      });
+
+      const result = await service.adjustStock(
+        'org-1',
+        { productId: 'product-1', quantity: 10, reason: 'FOUND_STOCK' },
+        'user-2',
+      );
+
+      expect(result.journalEntryId).toBe('journal-1');
+    });
+
+    it('translates a repository-level missing-system-account failure into a BadRequestException', async () => {
+      const { service, inventoryStockRepository, productRepository } = makeService();
+      productRepository.findById.mockResolvedValue(product);
+      inventoryStockRepository.findByProductAndLocation.mockResolvedValue(null);
+      inventoryStockRepository.adjustStock.mockRejectedValue(
+        new (jest.requireActual('../finance/accounting/journal-posting').MissingSystemAccountError)(
+          'No "INVENTORY_ADJUSTMENT" system account is configured for this organisation',
+        ),
+      );
+
+      await expect(
+        service.adjustStock(
+          'org-1',
+          { productId: 'product-1', quantity: 10, reason: 'FOUND_STOCK' },
+          'user-2',
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('translates a repository-level closed/missing-period failure into a BadRequestException', async () => {
+      const { service, inventoryStockRepository, productRepository } = makeService();
+      productRepository.findById.mockResolvedValue(product);
+      inventoryStockRepository.findByProductAndLocation.mockResolvedValue(null);
+      inventoryStockRepository.adjustStock.mockRejectedValue(
+        new (jest.requireActual('../finance/accounting/journal-posting').NoOpenPeriodError)(
+          'No open accounting period covers 2026-10-15',
+        ),
+      );
+
+      await expect(
+        service.adjustStock(
+          'org-1',
+          { productId: 'product-1', quantity: 10, reason: 'FOUND_STOCK' },
+          'user-2',
+        ),
+      ).rejects.toThrow(BadRequestException);
     });
 
     it('translates a repository-level negative-stock guard into a BadRequestException', async () => {
@@ -745,6 +805,74 @@ describe('InventoryService', () => {
           'user-2',
         ),
       ).rejects.toThrow(BadRequestException);
+    });
+
+    it('translates a repository-level idempotency-key conflict into a BadRequestException', async () => {
+      const { service, inventoryStockRepository, productRepository } = makeService();
+      productRepository.findById.mockResolvedValue(product);
+      inventoryStockRepository.findByProductAndLocation.mockResolvedValue(null);
+      inventoryStockRepository.adjustStock.mockRejectedValue(
+        new (jest.requireActual(
+          './inventory-stock.repository',
+        ).AdjustmentIdempotencyKeyConflictError)(
+          'This idempotency key was already used for a different adjustment',
+        ),
+      );
+
+      await expect(
+        service.adjustStock(
+          'org-1',
+          { productId: 'product-1', quantity: -10, reason: 'DAMAGE', idempotencyKey: 'key-1' },
+          'user-2',
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('passes input.idempotencyKey through to the repository call', async () => {
+      const { service, inventoryStockRepository, productRepository } = makeService();
+      productRepository.findById.mockResolvedValue(product);
+      inventoryStockRepository.findByProductAndLocation.mockResolvedValue(null);
+      inventoryStockRepository.adjustStock.mockResolvedValue({
+        stock: { quantityOnHand: 10 } as never,
+        transaction: { id: 'txn-1', quantity: 10, adjustmentReason: 'PHYSICAL_COUNT' } as never,
+        wasCreated: true,
+        journalEntryId: null,
+      });
+
+      await service.adjustStock(
+        'org-1',
+        { productId: 'product-1', quantity: 10, reason: 'PHYSICAL_COUNT', idempotencyKey: 'key-1' },
+        'user-2',
+      );
+
+      expect(inventoryStockRepository.adjustStock).toHaveBeenCalledWith(
+        expect.objectContaining({ idempotencyKey: 'key-1' }),
+      );
+    });
+
+    it('reports wasCreated: false from the service when the repository resolved a retry', async () => {
+      const { service, inventoryStockRepository, productRepository } = makeService();
+      productRepository.findById.mockResolvedValue(product);
+      inventoryStockRepository.findByProductAndLocation.mockResolvedValue({
+        quantityOnHand: 110,
+        location: { id: 'loc-1', name: 'Main Warehouse' },
+      } as never);
+      inventoryStockRepository.adjustStock.mockResolvedValue({
+        stock: { quantityOnHand: 110 } as never,
+        transaction: { id: 'txn-1', quantity: 10, adjustmentReason: 'PHYSICAL_COUNT' } as never,
+        wasCreated: false,
+        journalEntryId: null,
+      });
+
+      const result = await service.adjustStock(
+        'org-1',
+        { productId: 'product-1', quantity: 10, reason: 'PHYSICAL_COUNT', idempotencyKey: 'key-1' },
+        'user-2',
+      );
+
+      expect(result.wasCreated).toBe(false);
+      expect(result.quantityDelta).toBe(10);
+      expect(result.newQuantity).toBe(110);
     });
 
     it('throws NotFoundException when the product does not exist in this organisation', async () => {
@@ -798,7 +926,9 @@ describe('InventoryService', () => {
       } as never);
       inventoryStockRepository.adjustStock.mockResolvedValue({
         stock: { quantityOnHand: 20 } as never,
-        transaction: { id: 'txn-3' } as never,
+        transaction: { id: 'txn-3', quantity: -5, adjustmentReason: 'DAMAGE' } as never,
+        wasCreated: true,
+        journalEntryId: null,
       });
 
       const result = await service.adjustStock(
@@ -1247,6 +1377,8 @@ describe('InventoryService', () => {
           arrangement: 'WHOLESALE',
         } as never,
         transaction: { id: 'txn-1' } as never,
+        wasCreated: true,
+        journalEntryId: null,
       });
 
       const result = await service.recordOpeningStock(
@@ -1268,6 +1400,8 @@ describe('InventoryService', () => {
       inventoryStockRepository.recordOpeningStock.mockResolvedValue({
         stock: { quantityOnHand: 25, ownership: 'CUSTOMER', arrangement: 'WHOLESALE' } as never,
         transaction: { id: 'txn-2' } as never,
+        wasCreated: true,
+        journalEntryId: null,
       });
 
       const result = await service.recordOpeningStock(

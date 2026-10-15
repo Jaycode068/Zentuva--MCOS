@@ -25,10 +25,16 @@
     "infra:logs": "docker compose -f docker-compose.dev.yml logs -f",
     "infra:reset": "docker compose -f docker-compose.dev.yml down -v && docker compose -f docker-compose.dev.yml up -d",
     "db:generate": "pnpm --filter @zentuva/api run prisma:generate",
-    "db:migrate": "pnpm --filter @zentuva/api run prisma:migrate",
-    "db:studio": "pnpm --filter @zentuva/api run prisma:studio",
-    "db:seed": "pnpm --filter @zentuva/api run prisma:seed",
-    "db:reset": "pnpm --filter @zentuva/api exec prisma migrate reset"
+    "db:migrate": "pnpm --filter @zentuva/api run db:migrate:guarded",
+    "db:studio": "pnpm --filter @zentuva/api run db:studio:guarded",
+    "db:seed": "pnpm --filter @zentuva/api run db:seed:guarded",
+    "db:reset": "pnpm --filter @zentuva/api run db:reset:guarded",
+    "infra:test:up": "docker compose -f docker-compose.test.yml up -d",
+    "infra:test:down": "docker compose -f docker-compose.test.yml down",
+    "infra:test:reset": "docker compose -f docker-compose.test.yml down -v && docker compose -f docker-compose.test.yml up -d",
+    "test:db:migrate": "pnpm --filter @zentuva/api run test:db:migrate",
+    "test:db:seed": "pnpm --filter @zentuva/api run test:db:seed",
+    "test:integration": "pnpm --filter @zentuva/api run test:integration"
   },
   "devDependencies": {
     "@typescript-eslint/eslint-plugin": "^8.15.0",

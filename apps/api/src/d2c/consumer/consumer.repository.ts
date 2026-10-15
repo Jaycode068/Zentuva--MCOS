@@ -194,4 +194,28 @@ export class ConsumerRepository {
     }
     return this.prisma.consumer.findUniqueOrThrow({ where: { id } });
   }
+
+  /**
+   * Stage 5C.1 — WhatsApp Notification Reliability. There is no dedicated
+   * "last inbound message" column anywhere — rather than add one (a schema
+   * change out of this stage's narrow scope), this reads the one existing
+   * signal that is already a faithful proxy for it: `ConsumerConversation.
+   * updatedAt`. Every write to that row happens exclusively inside
+   * `ConversationService`'s own `dispatch()` tree, which itself is only ever
+   * reached from `handleInboundMessage` (confirmed: `ConversationRepository.
+   * update`/`findOrCreate`/`reset` have no other caller anywhere in this
+   * codebase) — so `updatedAt` only ever advances in response to a genuine
+   * inbound message, never an outbound-only action. A consumer can have more
+   * than one conversation row (one per channel); this takes the most
+   * recently updated one, since any one of them being recently active means
+   * the consumer is reachable right now.
+   */
+  async findLastInboundMessageAt(organisationId: string, consumerId: string): Promise<Date | null> {
+    const conversation = await this.prisma.consumerConversation.findFirst({
+      where: { organisationId, consumerId },
+      orderBy: { updatedAt: 'desc' },
+      select: { updatedAt: true },
+    });
+    return conversation?.updatedAt ?? null;
+  }
 }

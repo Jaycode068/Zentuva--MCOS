@@ -1,0 +1,1155 @@
+{
+  "target": "development",
+  "endpoint": {
+    "host": "localhost",
+    "port": "5432",
+    "database": "zentuva",
+    "role": "zentuva"
+  },
+  "identity": [
+    {
+      "database": "zentuva",
+      "role": "zentuva",
+      "server_address": "172.19.0.2/32",
+      "internal_port": 5432,
+      "version": "PostgreSQL 16.14 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit"
+    }
+  ],
+  "roles": [
+    {
+      "rolname": "zentuva",
+      "rolsuper": true,
+      "rolcreatedb": true,
+      "rolcreaterole": true,
+      "rolbypassrls": true
+    }
+  ],
+  "migrations": [
+    {
+      "migration_name": "20260728195709_init",
+      "checksum": "9bfe95089320d81f0b30e8383b9e7592e21aa80395fd6c1e01935d9b9d2b6e65",
+      "finished_at": "2026-10-14T21:33:51.173Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20260729182400_init_identity_domain",
+      "checksum": "26c6eae1c93b5b096b0ea011cfcb0b8af1b33092ae7fefe81b4d9ff420f42c6a",
+      "finished_at": "2026-10-14T21:33:51.374Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20260730173455_add_user_failed_login_attempts",
+      "checksum": "dde2117afe388ff021183abdcf21a9cb32288d1d02ff2e29185a5051d173addc",
+      "finished_at": "2026-10-14T21:33:51.384Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20260730180000_add_organisation_display_name",
+      "checksum": "3af6727a6569238d733d18bf6333da325ef712d79998c87ec96505cd1ed6a9b0",
+      "finished_at": "2026-10-14T21:33:51.390Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20260731000000_add_user_account_management_fields",
+      "checksum": "de5159192292d3ca7d6f63eed014c97316c0b516a07df4ce91747a3da8715597",
+      "finished_at": "2026-10-14T21:33:51.397Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20260801000000_add_workspace_branding_fields",
+      "checksum": "a4becc1a1d1a24535e0aa8d9fedd4216f03cc07262d86948bf9f3c780e7e6f38",
+      "finished_at": "2026-10-14T21:33:51.405Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20260801010000_add_user_avatar_fields",
+      "checksum": "a9980be45859d93d1d7e9d5a531374038ea6bff67f0d079435c465b3fa020d38",
+      "finished_at": "2026-10-14T21:33:51.411Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20260801184041_add_product_catalogue",
+      "checksum": "5238b7d6ed5e838054152d059e2d8482814227d5b14380acb9a84e28ed26ce1a",
+      "finished_at": "2026-10-14T21:33:51.444Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20260802163405_add_supplier_management",
+      "checksum": "03f6eafc5058c530e18ff6d94a0c42231b676a8f349468e1512ca4de720eb337",
+      "finished_at": "2026-10-14T21:33:51.483Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20260802171910_add_procurement_purchase_orders",
+      "checksum": "4540a53d63bef2f56d64b678aea129c8ff0da28a87b29f123ed23d5fad0b12d0",
+      "finished_at": "2026-10-14T21:33:51.536Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20260813153410_add_inventory_goods_receiving",
+      "checksum": "0c210a060686ad5f0af315f3e8dcd7e69cfbb0988c2abdd98d04b705e56c0bfa",
+      "finished_at": "2026-10-14T21:33:51.629Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20260813175301_refine_goods_receiving_discrepancy",
+      "checksum": "ccfcf17c556879495bf173f63e74dc75e03491a7f2dea834fb01891a67bd0994",
+      "finished_at": "2026-10-14T21:33:51.647Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20260815100007_add_inventory_locations_and_stock_adjustments",
+      "checksum": "7c498c188258ccfa7301fc3d32b0bf936e24b761104f16415aef3afcf38151d1",
+      "finished_at": "2026-10-14T21:33:51.697Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20260815143917_add_production_and_bom",
+      "checksum": "b76fba544af2c53cc1db43e180963bfeaf5ead215848a3d780c7055a6178093b",
+      "finished_at": "2026-10-14T21:33:51.882Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20260815201303_add_product_family_variant_hierarchy",
+      "checksum": "2cd6bb31644147ea8490eab38a49bafae6196e7755bb87cd910421b8ee21a692",
+      "finished_at": "2026-10-14T21:33:51.956Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20260821131419_add_retail_network_and_sales",
+      "checksum": "2c88628912f5d00905fc1092588740bc4920b5542b0bcb9ca2287b0cd8adfb39",
+      "finished_at": "2026-10-14T21:33:52.161Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20260822120840_add_sales_fulfilment",
+      "checksum": "263c617bb27e1e6fbd2e747d0d0f01d31845e01ffaab8ebb3dee18bd6bf93b15",
+      "finished_at": "2026-10-14T21:33:52.218Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20260822211903_add_distribution_dispatch_delivery",
+      "checksum": "f6c0819353c48f4a427a04eb205d89b0e7e478a80739afdff34f9a4d033984f1",
+      "finished_at": "2026-10-14T21:33:52.324Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20260823224540_add_finance_foundation",
+      "checksum": "02e92fdee81560882f1992ecc2ef99f5591c59366a2a58ce2d5c934c9d6a160f",
+      "finished_at": "2026-10-14T21:33:52.444Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20260824143344_add_accounting_foundation",
+      "checksum": "187d4717f9e97ec60ce26744191c3e3eaee00a68c22fd8eb6e830c41d3c6f16d",
+      "finished_at": "2026-10-14T21:33:52.533Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20260824225247_add_goods_receipt_accounting",
+      "checksum": "b7f6f34a89208cb4e7563c251c9be28a9d902f0aea1ec408d14c2ff14bb482f8",
+      "finished_at": "2026-10-14T21:33:52.547Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20260825142739_add_production_accounting",
+      "checksum": "7808f1a32629d1a40fb37b4d9078fcf98b183d2ae016bc6aa2c3787f456ea3ca",
+      "finished_at": "2026-10-14T21:33:52.558Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20260825205950_add_sales_fulfilment_cogs",
+      "checksum": "23c44d0bdc175e30e5487b8c8ea822a270a46e16eb7fd9409a9170867e50db20",
+      "finished_at": "2026-10-14T21:33:52.567Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20260826070212_sprint11_returns_claims_reversals",
+      "checksum": "8ead12535a986fe18f25fb0eb5a1aadecfbfe92d8f30ed4f75b447ec8f7f7910",
+      "finished_at": "2026-10-14T21:33:52.707Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20260828215302_sprint12_accounts_payable_supplier_invoices",
+      "checksum": "e2b9b8278d79703c83da49d1082f72c18d7c310a409e4fad49fdef89d6a4b023",
+      "finished_at": "2026-10-14T21:33:52.847Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20260830082636_sprint14_cash_bank_management",
+      "checksum": "418e939d701ea342f75de2218d47dca6bc54d566fd545b4e99246ba294112dfa",
+      "finished_at": "2026-10-14T21:33:53.007Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20260830105452_sprint15_cashflow_management",
+      "checksum": "5b4b7fd597b4cbfdc81fb392c8cbe9701f7685dcdbdfb7d46d1dad2e1cb551bb",
+      "finished_at": "2026-10-14T21:33:53.086Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20260830191705_sprint16_budgeting_financial_planning",
+      "checksum": "d80a8188f0dd42861f187f87d3394c39f3b1bdca4a9e16cb93f714c8382f05f6",
+      "finished_at": "2026-10-14T21:33:53.159Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20260830221444_sprint17_capital_debt_management",
+      "checksum": "6e6695455e0f35777920e63ae282a2e02c655109c909620eeb3484b1a23feee2",
+      "finished_at": "2026-10-14T21:33:53.335Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20260831230338_sprint18_investment_capital_projects",
+      "checksum": "7236501f051e497cccee805628441acbef3f694a5eba451ab4a0316401d95d4d",
+      "finished_at": "2026-10-14T21:33:53.420Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20260901085909_sprint19_decision_analysis",
+      "checksum": "20a0a4c96add4540b6845c3929208a2dfa9256b2e1289a305eb84a7181b2304d",
+      "finished_at": "2026-10-14T21:33:53.468Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20260906202411_sprint20_asset_register",
+      "checksum": "801d775545ce3c37ad50e974937b50bc5e3978be42263bbed4f6f515acaa5c1e",
+      "finished_at": "2026-10-14T21:33:53.635Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20260907102014_sprint21_maintenance_management",
+      "checksum": "8265df4fb08c1d533f488165656c71ccea21e40d1cb14409706c174488c4cb7f",
+      "finished_at": "2026-10-14T21:33:53.842Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20260908193910_sprint22_maintenance_ecosystem_integration",
+      "checksum": "67cca12762a1a47506ffe1ab2c537c68ba3b9ca5874cca32fe769a7802fe902f",
+      "finished_at": "2026-10-14T21:33:53.889Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20260911112941_sprint23_hr_employee_lifecycle_foundation",
+      "checksum": "2eb6623a1feb97698402de6447b8991cc39418f295ad496ec270ba0aa7028f9b",
+      "finished_at": "2026-10-14T21:33:54.043Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20260912185438_sprint24_hr_attendance_training_people_ops",
+      "checksum": "b90cc6e9b807b9f7a4b1c109976aba860e8b05aef8fc480b8439cfacc9200c38",
+      "finished_at": "2026-10-14T21:33:54.193Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20260913074524_sprint25_access_control_scope_permission_extensions",
+      "checksum": "86f1b170325acef3c8b1a997919ceb86e90f43abfa7278b7fd981073ded61707",
+      "finished_at": "2026-10-14T21:33:54.202Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20260915085005_sprint26_workflow_approval_foundation",
+      "checksum": "21e9546182165dae75fddc07eb68a6061fa64da57e4ea73e622612bc83b10184",
+      "finished_at": "2026-10-14T21:33:54.286Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20260915191026_sprint26_1_workflow_hardening",
+      "checksum": "46545a9979c5cdb9b7223d11de1bb5ee005c0b4ee7fb7289aeec893e93d689de",
+      "finished_at": "2026-10-14T21:33:54.316Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20260916073751_sprint27_notifications_foundation",
+      "checksum": "acf7229ff827d85a3f5e6e315941beb16547021f246537ccc946228833a0e296",
+      "finished_at": "2026-10-14T21:33:54.346Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20260916104048_sprint27_1_notification_reliability_preferences",
+      "checksum": "17b4b0e83361df9d9102f3d964939f97285db30f0da222268c71d635c0d6447f",
+      "finished_at": "2026-10-14T21:33:54.371Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20260916211732_sprint27_1_first_attempt_timestamp",
+      "checksum": "1460158dc736dee0927337f33d1ae1193543ff3ae4f7d29371be7b4ae1665025",
+      "finished_at": "2026-10-14T21:33:54.376Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20260918060247_sprint28_notification_channel_email",
+      "checksum": "b55d3bb8239da97d67b170e6633c457feee5ae3d099eaed4fb0693ad1742679e",
+      "finished_at": "2026-10-14T21:33:54.382Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20260918060248_sprint28_email_notification_delivery_foundation",
+      "checksum": "c505b43474bdb9df39b86f510ab3c90a1e498a8dde48f57153523a7fcda7ab49",
+      "finished_at": "2026-10-14T21:33:54.406Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20260918063200_sprint28_email_delivery_sender_snapshot",
+      "checksum": "2a739c21fe5b6c70bb1974ae499e19672760c5a1f58af0227cac6cf3b716c180",
+      "finished_at": "2026-10-14T21:33:54.412Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20260919221404_sprint29_notification_channel_whatsapp_enum",
+      "checksum": "4a27b3e546341df948bf705ec98d5673a08764750c624be99c854986a5529520",
+      "finished_at": "2026-10-14T21:33:54.417Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20260919221405_sprint29_notification_channel_whatsapp",
+      "checksum": "1ec68b44d2db9ed7f8730645e6c4d98f07a7cd988141840f9ecd7165f41e528a",
+      "finished_at": "2026-10-14T21:33:54.447Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20260919223324_sprint29_whatsapp_delivery_field_simplification",
+      "checksum": "a6fbe3454bf090c7fd2bb2b96714b98fe94ac4ffa6323dddda0371f42355f9df",
+      "finished_at": "2026-10-14T21:33:54.452Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20260922090000_sprint30_recruitment_foundation",
+      "checksum": "6cf59a6c73ff106ca0a06e9643b50b27d558662e84bff7d52f63938a2fae5343",
+      "finished_at": "2026-10-14T21:33:54.725Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20260928063642_sprint32_consumer_foundation",
+      "checksum": "a527c686932cbd70ab8c1a801b19fccb7cd9c7b47b8b703c7235290cb4318a88",
+      "finished_at": "2026-10-14T21:33:54.776Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20260928111641_sprint33_consumer_conversation_foundation",
+      "checksum": "5f0d420aaced2b5297fec75cbc1180b84b0a5054a5a58742ccb68ae207d257b0",
+      "finished_at": "2026-10-14T21:33:54.828Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20260928140000_sprint34_d2c_consumer_ordering",
+      "checksum": "752ebff63d1ef6f63a86298c76cc3ebb5f879e2b564b2bd0a1bd88f3eec8b5c6",
+      "finished_at": "2026-10-14T21:33:54.845Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20260929090000_sprint35_opay_payment_integration",
+      "checksum": "de35c42c342f46a8940c3e2f086640b78d410b3341017fc27d3dd52c9562cb1e",
+      "finished_at": "2026-10-14T21:33:54.866Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20260930090000_sprint36_collection_point_enablement",
+      "checksum": "52a7b06d0e5125004a4f6abc2679b76de419fa912b9e592b52af784274cf360e",
+      "finished_at": "2026-10-14T21:33:54.877Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20261001090000_sprint37_collection_point_fulfillment",
+      "checksum": "1c83644fef50187693fb3ff9da18ab3879aaf5d3d849e37c7bbeeb6e1b66c320",
+      "finished_at": "2026-10-14T21:33:54.906Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20261002090000_sprint38_employee_territory",
+      "checksum": "fae8d04ff916a84c3a0528a1f00e8b43179271e773ae7842175dcf7380dd8ced",
+      "finished_at": "2026-10-14T21:33:54.914Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20261006090000_sprint40_promotions_loyalty_rewards",
+      "checksum": "62b9e79300ea3ab637774c19c0f7f44be17ac537474c7c7f89b69d13fd2ad4b7",
+      "finished_at": "2026-10-14T21:33:55.112Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20261006120000_sprint40_5_whatsapp_webhook_events",
+      "checksum": "a04bde1d9ca1ab728a002b9bfbb614001181aca3717792784bd35d1b0e9d611b",
+      "finished_at": "2026-10-14T21:33:55.145Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20261007150000_sprint43_consumer_whatsapp_delivery",
+      "checksum": "9fbf1824dc938d4682cd569104d7c4f8fdc19f49327c131b8f228ea9ee47233f",
+      "finished_at": "2026-10-14T21:33:55.226Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20261008090000_sprint43_5_conversation_traceability",
+      "checksum": "5b617f11a61f4fcf52a02859f984f2a595f2203814a008a41d576bcbc3b7390d",
+      "finished_at": "2026-10-14T21:33:55.241Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20261009090000_sprint44_tenant_conversation_config",
+      "checksum": "7c95e503a6d14887058308bd9a7f3eab7975bee4970ccc1b14ac8d3baa356ac8",
+      "finished_at": "2026-10-14T21:33:55.289Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20261011120000_phase1_customer_credit_limit",
+      "checksum": "c55f93dc11998ee5b7d4644327926f5546ae2504985512b8c5182c7af1782db0",
+      "finished_at": "2026-10-14T21:33:55.297Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20261012090000_phase2a_inventory_location_ownership_foundation",
+      "checksum": "460b4a4174e7bfdf3ed1a4b06a9df2476786a202277c1ce9d2832a4da51d0700",
+      "finished_at": "2026-10-14T21:33:55.309Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20261012120000_phase2b_customer_outlet_stock_tracking_and_transfers",
+      "checksum": "483ad388259335eaef196df593f8c41fefb3f7b8414f58efe8dc52c7b0bf861f",
+      "finished_at": "2026-10-14T21:33:55.351Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20261012180000_phase2c_outlet_stock_integration_and_cp_cancellation",
+      "checksum": "a4c1eb46e448f0928f293d803331da2bafc99690f1acf04790667c8e0194d7d8",
+      "finished_at": "2026-10-14T21:33:55.365Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    },
+    {
+      "migration_name": "20261015070000_inventory_transaction_adjustment_idempotency",
+      "checksum": "09fd88fe816e08c182824ea821f39e212fa8509e7831b7abaef71fcb37caa6aa",
+      "finished_at": "2026-10-15T08:00:04.929Z",
+      "rolled_back_at": null,
+      "applied_steps_count": 1
+    }
+  ],
+  "organisations": [
+    {
+      "id": "cmv8n6404004l7li7vkt8q3py",
+      "name": "Boby Bites",
+      "slug": "boby-bites"
+    }
+  ],
+  "tables": {
+    "_prisma_migrations": {
+      "count": 66,
+      "sha256": "849cbc5eb0a07c4a4603c13a9c1c59a32e8f93f4e402d12fb14e944539161af0"
+    },
+    "accounting_periods": {
+      "count": 3,
+      "sha256": "acbdea1b0b01e5fa6e7dabfa5e9ba8d99229082254eb45ba985f45c4be8a082a"
+    },
+    "asset_categories": {
+      "count": 11,
+      "sha256": "447f05f34067e86689c54b3a82bf112096ca6e9993036e592c1cb5ecc79bc252"
+    },
+    "asset_documents": {
+      "count": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "asset_downtimes": {
+      "count": 2,
+      "sha256": "50d66ba5b62e2a9b7333e14fadcbddd909c6722027a1fbeef56707a1161e02fe"
+    },
+    "asset_locations": {
+      "count": 7,
+      "sha256": "d44a02d7fd9f58796e43292ec9f70c0dda5f6dc5b549ba534c077964dda1303d"
+    },
+    "asset_meter_readings": {
+      "count": 3,
+      "sha256": "072a6eed6a6780f19e5c5a3d7a517bf3a387444d3b06fa5103c31f42240f5414"
+    },
+    "asset_meters": {
+      "count": 2,
+      "sha256": "24664460524a10f5335dfda46b2a4382d36b1742f5fc8be53f55d2ac0932a49c"
+    },
+    "asset_movements": {
+      "count": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "assets": {
+      "count": 17,
+      "sha256": "86656addb7299c4ed1722aa6126d2f31f39af4e9df7d5e624815958871852640"
+    },
+    "audit_logs": {
+      "count": 9,
+      "sha256": "260b0562105313643c031fbeda0eb541722516a5a75a9a7b95e3d6319a2511ff"
+    },
+    "bank_reconciliations": {
+      "count": 2,
+      "sha256": "0fc3057a7ae64c4ecff1b440bae7f00d907e5141a6a627743692d3b4a84e64c1"
+    },
+    "bank_statement_imports": {
+      "count": 1,
+      "sha256": "2647df7aece401de2d2f0c179590e2d7044c5efa823f638f7d46855ad0bd00f7"
+    },
+    "bank_statement_transactions": {
+      "count": 4,
+      "sha256": "94f84f56b7761cca9cd4fecfd098a94b05a30a7f0f1f852ec1cc6c007fc34180"
+    },
+    "bill_of_material_items": {
+      "count": 12,
+      "sha256": "6cc7b5bac44ea60d0c1d020e6cd7209414d3ec089c777d72f92b6fff96b23856"
+    },
+    "bill_of_materials": {
+      "count": 3,
+      "sha256": "188c2853e2555505e1c35aece44942486a8d646d6671cb488bbe924c770eb1ca"
+    },
+    "budget_lines": {
+      "count": 122,
+      "sha256": "4056eb84ee3e59dc5ab90037fdb8da95cc21d03fc705738ff7dd730ac04bd282"
+    },
+    "budgets": {
+      "count": 2,
+      "sha256": "03a78e16c094c5d4bb9c959d929b0bd827ac162e1080dc6010895aae6ae869da"
+    },
+    "capital_project_cost_lines": {
+      "count": 5,
+      "sha256": "9018343b5f55fbbd46168aae454bb72228abb4c6cefa6a9de9c7e5e2726089a8"
+    },
+    "capital_project_fundings": {
+      "count": 2,
+      "sha256": "d9ad040bf840e41854bb8040e8812bdc6870e1bca1e92846e979d907d5d3036a"
+    },
+    "capital_projects": {
+      "count": 1,
+      "sha256": "0a3011045fe91a1cf37fb64781e341592ccea7bc3115d7eee85ba5e210ceda21"
+    },
+    "capital_requirements": {
+      "count": 1,
+      "sha256": "951af06de5e64f001d8e8216183727b97a080cd8bcf3632fe057a96e98d5ad42"
+    },
+    "cash_accounts": {
+      "count": 3,
+      "sha256": "98ea3904af0b0a51a17a1add4e87dcdf4a8940725f369897158f482e947f1e18"
+    },
+    "cash_transactions": {
+      "count": 4,
+      "sha256": "199ab45bce45b31b013c8f075e76379a5db7e2188cddc38596f7adab3191e534"
+    },
+    "cashflow_forecast_adjustments": {
+      "count": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "cashflow_forecast_items": {
+      "count": 3,
+      "sha256": "4589cdbeb8dbc647c63deca4e1827fb1d742059633f674fb2f414339ff5df2e6"
+    },
+    "cashflow_scenarios": {
+      "count": 3,
+      "sha256": "9390b9e1da92751b9a561bf9e59ee675fcb4906270aea86f047cf78006970a13"
+    },
+    "cashflow_settings": {
+      "count": 1,
+      "sha256": "e2c5406dae78ddab6a7038821e3b8ad7b14f49061a0b050d3c192cfc170fa791"
+    },
+    "chart_of_accounts": {
+      "count": 35,
+      "sha256": "ad5040d05684a00c29edc2496b7f7eb3c1f22d59807c0ff1c51c896cc428843e"
+    },
+    "collection_point_fulfillments": {
+      "count": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "consumer_reward_grants": {
+      "count": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "consumer_whatsapp_deliveries": {
+      "count": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "cost_centres": {
+      "count": 7,
+      "sha256": "3d7651123d0acf341b13ebc048d7d3afc22c2955588a7e3233f165eeaf7598c9"
+    },
+    "credit_notes": {
+      "count": 1,
+      "sha256": "5e74afb646720e4c3d5cb14cf854db0ee46f09dc0af4585bb831016f4b5dd55d"
+    },
+    "customer_return_items": {
+      "count": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "customer_returns": {
+      "count": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "customers": {
+      "count": 11,
+      "sha256": "5d58e95c8790e8e264c013b53fac018bb549dceb3ed8c1a3dfb365ed83760334"
+    },
+    "d2c_consumer_conversations": {
+      "count": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "d2c_consumer_location_requests": {
+      "count": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "d2c_consumers": {
+      "count": 2,
+      "sha256": "5b1c5c0cad3af15e9860a7ed5d01f5e3fbcfdefae36ba63583d176ea647caadf"
+    },
+    "d2c_conversation_capability_configs": {
+      "count": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "d2c_conversation_message_configs": {
+      "count": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "d2c_conversation_messages": {
+      "count": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "d2c_conversation_profiles": {
+      "count": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "debt_drawdowns": {
+      "count": 1,
+      "sha256": "4286ced07add43663281834c126c0332ab572439511242ed6b4907abc50e427f"
+    },
+    "debt_facilities": {
+      "count": 1,
+      "sha256": "0e9a062d3cfaa93a209d5fec56026e757ef9194ece0045a6bc2f927e8593a3af"
+    },
+    "debt_repayment_schedules": {
+      "count": 24,
+      "sha256": "bccb5b4d845d0a78d00b459cfd8adc8b5d76d02edb7e0778e5dfc1bad8853a59"
+    },
+    "debt_repayments": {
+      "count": 1,
+      "sha256": "804f7517e36c3e1142c86f8a45668f6ce4a2768e4a6682cf99773ce7ec7de7a7"
+    },
+    "decision_analyses": {
+      "count": 1,
+      "sha256": "e187c5e7f1fa50fef1c4a2b8c69788f868873ae647e7e022410c0e4683f3de0f"
+    },
+    "decision_scenarios": {
+      "count": 3,
+      "sha256": "40c4d6ecc31b39334217771bc9b07427896df3fa1063f62e3392ab3a3a2790ed"
+    },
+    "deliveries": {
+      "count": 1,
+      "sha256": "c1f232643ac905846e3251d86b0de5fcaab33f01e37bd595dbf9bb6b83c2bf69"
+    },
+    "delivery_items": {
+      "count": 1,
+      "sha256": "997b62c95a9b44d801a934ab9240718cea75a5926b61fe3fec674afdf29b1bcd"
+    },
+    "dispatch_items": {
+      "count": 1,
+      "sha256": "2d1ccfc893cb9b349649e6f8738c6f85386e5bae218a5fc82b45e1aa41bff600"
+    },
+    "dispatches": {
+      "count": 1,
+      "sha256": "3ab7e1901b017f18ab5066d272eadb90f18f76dbd1214ff362e3e45ace181e75"
+    },
+    "distribution_network_relationships": {
+      "count": 3,
+      "sha256": "200e8cc6d4e367b98cc9984d7fea0b6339d406165e040e405cebd3c472295370"
+    },
+    "email_deliveries": {
+      "count": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "goods_receipt_items": {
+      "count": 6,
+      "sha256": "e00b69b7e8ad5e3c9f7aa69d1e810b09c1801be15f96eca6abb9d930ce442054"
+    },
+    "goods_receipts": {
+      "count": 6,
+      "sha256": "f76d4795b1e1389dbbd3a9e2788bda4258c7c747715786ff3e2b67033c807335"
+    },
+    "hr_attendance_correction_requests": {
+      "count": 1,
+      "sha256": "c15c1760157e34da2c952fe563294282975382fbaa1de7820193be292eeb5570"
+    },
+    "hr_attendance_records": {
+      "count": 5,
+      "sha256": "ccb46ebe4f660ba14d861a4854c1b07efda4874d9ee5f31420fbabba94acf5c8"
+    },
+    "hr_departments": {
+      "count": 8,
+      "sha256": "972c2bae0b7a26c02824e70cdbdc91908f16fcb261d4f0e991372c963be7122c"
+    },
+    "hr_employee_documents": {
+      "count": 3,
+      "sha256": "aa3e638eff64f11575032a186fc79cb90499b4ccdbaafa282742631084f6c4a2"
+    },
+    "hr_employee_onboarding": {
+      "count": 1,
+      "sha256": "47a2bb229d3a2efa221a0129e4cad317ed7ba6002cb4218942c8621da70b311b"
+    },
+    "hr_employee_onboarding_tasks": {
+      "count": 7,
+      "sha256": "0b51a2461b669e9b0b3dd6e54702db38b0867a1bbe3eb5d26f7fe75964e96090"
+    },
+    "hr_employee_trainings": {
+      "count": 3,
+      "sha256": "7c7368d3a8a0d27074ba586377d838da7d844b92d9c38b368ffa10f1ea9fce35"
+    },
+    "hr_employees": {
+      "count": 12,
+      "sha256": "f504c0537bc8d2606121a6750d0931fb7a728b2a180a0f23e8b7280de97b268d"
+    },
+    "hr_policies": {
+      "count": 4,
+      "sha256": "8aba51b0664b3ab34cce48f58f08fa6be863e5cd1624911e8a80fae44f394a98"
+    },
+    "hr_policy_acknowledgements": {
+      "count": 6,
+      "sha256": "89a6398e1b43f828c0b28bb484c6b4857a15c7941768b07decce4400dd09cefa"
+    },
+    "hr_policy_versions": {
+      "count": 5,
+      "sha256": "65af87fe4116c55f0553ba3144970a87eb5771a3e92bae89de24445eaf4c7a89"
+    },
+    "hr_positions": {
+      "count": 11,
+      "sha256": "c7d8a85619fd6103702652ea9e4edeaf842513b5c636569ae11ad912e148b7d2"
+    },
+    "hr_recruitment_application_answers": {
+      "count": 6,
+      "sha256": "d4e0273487a32c3535993a61aa78d1c6a69ff5d5c2b045c2416dd59ad24343cd"
+    },
+    "hr_recruitment_applications": {
+      "count": 3,
+      "sha256": "fcb2e667deb4555940892ff2b617c8e0ac412fc886916c37538e5a208160b22e"
+    },
+    "hr_recruitment_candidates": {
+      "count": 3,
+      "sha256": "08d1145536e730771455149c2b82e65523370da846690a3d8ee984521d47bce0"
+    },
+    "hr_recruitment_hiring_requests": {
+      "count": 1,
+      "sha256": "f562b48766ef5f3902a73632ad05ee9682c1cbf05fb9af658379348c95f345db"
+    },
+    "hr_recruitment_interview_evaluations": {
+      "count": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "hr_recruitment_interview_participants": {
+      "count": 3,
+      "sha256": "4ee3d711d70c8e4b853d8bf64cd51b67e4de45aa13ea7547fe30bfe520bda5b3"
+    },
+    "hr_recruitment_interview_stage_decisions": {
+      "count": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "hr_recruitment_interview_stage_participants": {
+      "count": 5,
+      "sha256": "0ec0788f33b039986e529c242f4255776b74b0e2e56bf78fc6438fd7a0dc82ad"
+    },
+    "hr_recruitment_interview_stages": {
+      "count": 2,
+      "sha256": "fc94698ccfca698651ab7e95e78f7b84dc3770de952d57d4c2c76359e731b478"
+    },
+    "hr_recruitment_interviews": {
+      "count": 1,
+      "sha256": "00987a6486b3922c86378bb1a4ed8866d7b4c86f4b94efbb8d6b06da4868e2be"
+    },
+    "hr_recruitment_offers": {
+      "count": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "hr_recruitment_vacancies": {
+      "count": 1,
+      "sha256": "009702e8978f4b11464360e78b8230b23cf593e6113dfbd37c54ccf3198a72a3"
+    },
+    "hr_recruitment_vacancy_questions": {
+      "count": 2,
+      "sha256": "bb044e6e7dc0538ace792104affde3b37f4b23880a1a4bfabc4b552f782ce7aa"
+    },
+    "hr_training_courses": {
+      "count": 4,
+      "sha256": "7d4d4610c7e75b79ba46f5fc32d932e0e2e2b1f5c0d1bda5a1687a0e869b5156"
+    },
+    "hr_work_schedules": {
+      "count": 2,
+      "sha256": "ba964e276b5b911ca94df801fc9c8c833adf2c23128a6b6f8a38d6923eba90b3"
+    },
+    "inventory_locations": {
+      "count": 2,
+      "sha256": "3f33dd6a8a9a2df86749b802faf3d2d262543f66b9550a7c1d193eaadbb1b5b8"
+    },
+    "inventory_stock": {
+      "count": 8,
+      "sha256": "74343af1f696b74b87fab03d79e8d68eff725983bdcf2e97647ab6a80479cf05"
+    },
+    "inventory_transactions": {
+      "count": 35,
+      "sha256": "0011018b7643ff3419925e127ee9b9b6369f5aa7d99b699c6c4b63acf1ed2cda"
+    },
+    "inventory_transfers": {
+      "count": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "invitations": {
+      "count": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "invoice_items": {
+      "count": 5,
+      "sha256": "40951049be3a92700e28380f31a31b8a739124843709700b8cb9d80999c5ea2e"
+    },
+    "invoices": {
+      "count": 5,
+      "sha256": "2578cb4201fd9f154f804ea3ab6f74cf3625a10834694f98e8ca93802e027471"
+    },
+    "journal_entries": {
+      "count": 35,
+      "sha256": "eb5ddb7232a1e605f5656f598a747eb4b2a0d174c5a23497058cb6a3c363531c"
+    },
+    "journal_entry_lines": {
+      "count": 73,
+      "sha256": "1cfb368dd77d9defac6624dd52ebc5ea5ec7c53e9936588ace927cfa50bc226b"
+    },
+    "lenders": {
+      "count": 1,
+      "sha256": "cc00aeea9ee8e311ac49478b90b0c0d21c133fecb14a4b0da23afcd3ebc28e47"
+    },
+    "loyalty_accounts": {
+      "count": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "loyalty_ledger_entries": {
+      "count": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "maintenance_costs": {
+      "count": 3,
+      "sha256": "341fcaa0daf5eaa9ce158404a9ac6a57682be19ced15679819139ad9a5ff8b4c"
+    },
+    "maintenance_documents": {
+      "count": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "maintenance_part_usages": {
+      "count": 1,
+      "sha256": "00e381b9e7fec962036cbae0f4930369e34c1619d02ada76c4c4d945b56ec06a"
+    },
+    "maintenance_plan_tasks": {
+      "count": 15,
+      "sha256": "8663b6278987fe0c83878cf075b095ab87c62b4be65f8fda9426078bc0900b92"
+    },
+    "maintenance_plans": {
+      "count": 4,
+      "sha256": "7045f3d374d2ecbdc0e49eb03a9df9a9e2c9572595d879403bc4ba701f9bba56"
+    },
+    "maintenance_procurement_requirements": {
+      "count": 1,
+      "sha256": "d2dd4903068fb7075693da2d8746f94d901dbed73a5996eb9b1e306f67e3d9db"
+    },
+    "maintenance_requests": {
+      "count": 1,
+      "sha256": "1f3ad9075486e95010a04fb277e58171d7db54997241bb9b874e55d36d2fef2a"
+    },
+    "maintenance_schedules": {
+      "count": 2,
+      "sha256": "8222278df30f57dd9119ba416b3e2cdb428e232410b3ffbe89a08e6aed3897b8"
+    },
+    "maintenance_types": {
+      "count": 5,
+      "sha256": "c38216d5a6d7a580963373f5dac6e9aee07e67b80e707ca0b889e359dbf26f1c"
+    },
+    "notification_preferences": {
+      "count": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "notifications": {
+      "count": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "organisations": {
+      "count": 1,
+      "sha256": "1b462ef9a2ed5246e83ebd9034ec71a65adadd9540caae5641a33f91845db8dc"
+    },
+    "outlet_photos": {
+      "count": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "outlets": {
+      "count": 9,
+      "sha256": "f09d8fbf4d8e3ec703ee8fc5346f4ab271c933931dd3f036b26844beb4f25462"
+    },
+    "password_reset_tokens": {
+      "count": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "payment_allocations": {
+      "count": 3,
+      "sha256": "bf2075ba3cbeee55626221a1276f8183fb04730701533033c731f695c125c455"
+    },
+    "payments": {
+      "count": 3,
+      "sha256": "c15df744e2541654d606bc9eb52642f761162a4776a38e134f74727dd5c3b367"
+    },
+    "permissions": {
+      "count": 165,
+      "sha256": "52022f740416180390793442c22bcc4b56f7b95862d9d7e2383463bc1a362cdc"
+    },
+    "product_families": {
+      "count": 1,
+      "sha256": "eed8fe837ec0746ff59df8a5693b41d3a94c50b4969ee4bca1e79783a784459e"
+    },
+    "product_variants": {
+      "count": 3,
+      "sha256": "19c2c19d4450c8c56da8773901630144fec98088554d91848865cadf490d50f4"
+    },
+    "production_material_issue_items": {
+      "count": 12,
+      "sha256": "4095157890a598b2c78cd40c8a4b1e7b4cb4a92602b5ddb188b4f774f7f8687f"
+    },
+    "production_material_issues": {
+      "count": 3,
+      "sha256": "c9d73987d2dc2b856a64827c19c4a6121c7045a21c108f48584d4d234117a096"
+    },
+    "production_order_items": {
+      "count": 12,
+      "sha256": "04d897aa95b78f196b818cacdcfc01d9b68c38418cbd9a48921a283dee5d74f9"
+    },
+    "production_orders": {
+      "count": 3,
+      "sha256": "f85a4e0c5d100b15a23ba4f309c67343048d79db22e425e3faf6ada90fd5460e"
+    },
+    "production_runs": {
+      "count": 2,
+      "sha256": "4ea7e6e7c5ad6c1ff93d779b74f164bcb2b6a832fbdc78955c05814a4fe6e790"
+    },
+    "products": {
+      "count": 19,
+      "sha256": "6b5eeeeadc7a74e0c16b9ae5c81cdae1df8e46bc7758c2c4ee106c487112a964"
+    },
+    "promotion_benefits": {
+      "count": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "promotion_conditions": {
+      "count": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "promotions": {
+      "count": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "purchase_order_items": {
+      "count": 7,
+      "sha256": "0d66dedb0a1a2974e442bec2658728ff6a56fe55956b47a0a1cd1be301bfa8e8"
+    },
+    "purchase_orders": {
+      "count": 7,
+      "sha256": "aed000e8a8be8bf181356c7d5638fb761b8a2663f8478d84b21667366d1b99ea"
+    },
+    "reconciliation_matches": {
+      "count": 3,
+      "sha256": "d467a3f827a8413efdb8cd33c7685d05afa15bce712a23d8c429276f21245ff2"
+    },
+    "refresh_tokens": {
+      "count": 6,
+      "sha256": "547a4d6d1e01d9cd7d5fed283068fc35fe7805d16237f6e56140f8215f39965e"
+    },
+    "role_permissions": {
+      "count": 284,
+      "sha256": "af0c98f61832ed45e9d73197dc7548e3aecb0ff6598012c2dc8f778dfbc998a1"
+    },
+    "roles": {
+      "count": 16,
+      "sha256": "f74331704c2c641069f4572ebc32736e77db062df9e86ff7b04b68a503951494"
+    },
+    "sales_fulfilment_items": {
+      "count": 6,
+      "sha256": "f89ffbd76c1d617a1d9acfffc4285d23c6cd968e968e0a46a6291c6e63666772"
+    },
+    "sales_fulfilments": {
+      "count": 5,
+      "sha256": "658596fae114dff4dcd7ec48487e99c0d753ac8fcb447555823ae666d94a823f"
+    },
+    "sales_order_items": {
+      "count": 11,
+      "sha256": "7be6c06ceeb4977ccf879e3f1e210023f5dd95a12a745af7aa614b9d5f8cae55"
+    },
+    "sales_orders": {
+      "count": 10,
+      "sha256": "abbae41a658fb19a82142cfb542a4c70e92c7e47273696e8bbd29ca2b3cd4497"
+    },
+    "sessions": {
+      "count": 6,
+      "sha256": "8a1a1e977a6666db6dd7286d6e8c99c3e00461f055105179b0b9ea69e6b92bad"
+    },
+    "supplier_credit_notes": {
+      "count": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "supplier_invoice_items": {
+      "count": 1,
+      "sha256": "db39408e8edef6bf60fb4313f9ca7bda8fcd984e1a46a918d3c20a35d4d49bab"
+    },
+    "supplier_invoices": {
+      "count": 1,
+      "sha256": "cf6002c92d521c2abb7a9cf48bc5e70a643cb2e87476de174468109be7316f9a"
+    },
+    "supplier_payment_allocations": {
+      "count": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "supplier_payments": {
+      "count": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "supplier_return_items": {
+      "count": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "supplier_returns": {
+      "count": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "suppliers": {
+      "count": 5,
+      "sha256": "221af330e59d1445da1e0c7d8ce71b008b5e3b8453697a37e5d742aa7f00c226"
+    },
+    "territories": {
+      "count": 7,
+      "sha256": "3f37220797649ad67db7030f633f1e2ced5d461c63e17c88df55afa30aeaebfe"
+    },
+    "user_roles": {
+      "count": 17,
+      "sha256": "fa81d5832ddb40f05f600f626d84a58a7d1603a4c12d2ebc8afbc16b27ae1dd3"
+    },
+    "users": {
+      "count": 8,
+      "sha256": "15d3eb5c9ec6b98453e553a0d077ddb98f4f10d82bce3af66fcf94f45669e686"
+    },
+    "whatsapp_deliveries": {
+      "count": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "whatsapp_webhook_events": {
+      "count": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "work_order_tasks": {
+      "count": 9,
+      "sha256": "701e5522b5c20bb8e4d4038fe42e45a83a42f9ade9da98b135209920959f88f8"
+    },
+    "work_orders": {
+      "count": 3,
+      "sha256": "0565570bb17af35de4a978427df29e9ff26b4ec362c5522bdb642c100d643c8d"
+    },
+    "workflow_decisions": {
+      "count": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "workflow_definitions": {
+      "count": 2,
+      "sha256": "659bc876cc89d977fed78fccccf68c91ceb8be82159c749a84173e3b88872b61"
+    },
+    "workflow_events": {
+      "count": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "workflow_instances": {
+      "count": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "workflow_step_instances": {
+      "count": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "workflow_steps": {
+      "count": 3,
+      "sha256": "a4807a57932933bbd16db9be65a4694237e65e4a2e996dc7640b90ca047cdaba"
+    }
+  },
+  "periods": [
+    {
+      "organisationId": "cmv8n6404004l7li7vkt8q3py",
+      "name": "August 2026",
+      "status": "OPEN",
+      "startDate": "2026-08-01T00:00:00.000Z",
+      "endDate": "2026-08-31T00:00:00.000Z"
+    },
+    {
+      "organisationId": "cmv8n6404004l7li7vkt8q3py",
+      "name": "October 2026",
+      "status": "OPEN",
+      "startDate": "2026-09-30T23:00:00.000Z",
+      "endDate": "2026-10-30T23:00:00.000Z"
+    },
+    {
+      "organisationId": "cmv8n6404004l7li7vkt8q3py",
+      "name": "July 2026",
+      "status": "CLOSED",
+      "startDate": "2026-07-01T00:00:00.000Z",
+      "endDate": "2026-07-31T00:00:00.000Z"
+    }
+  ]
+}

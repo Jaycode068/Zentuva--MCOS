@@ -1,0 +1,4 @@
+Refusing to proceed: this connection does not look like the isolated test database.
+- connected database "zentuva" is not in the allowed test-database list (zentuva_test)
+- connected role "zentuva" is not the expected restricted test role "zentuva_test"
+- connected role "zentuva" has elevated privileges (rolsuper=true, rolcreatedb=true, rolcreaterole=true, rolbypassrls=true) — a test role must have none of these

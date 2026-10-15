@@ -1,0 +1,18 @@
+{
+  "development": {
+    "local_count": 66,
+    "applied_count": 66,
+    "missing": [],
+    "extra": [],
+    "checksum_mismatches": [],
+    "incomplete_or_rolled_back": []
+  },
+  "test": {
+    "local_count": 66,
+    "applied_count": 66,
+    "missing": [],
+    "extra": [],
+    "checksum_mismatches": [],
+    "incomplete_or_rolled_back": []
+  }
+}

@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { ProductType } from '@prisma/client';
+import { ProductType, StockOwnership } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
 
@@ -47,6 +47,19 @@ export interface GetInventoryValuationParams {
  * shape Sprint 11/12 already established for reaching into another domain's own
  * table from inside a self-owned transaction, applied here to a plain read with no
  * transaction at all. `FinanceModule` still never imports `InventoryModule`.
+ *
+ * **Stage 4E.4D correction**: scoped to `ownership: ORGANISATION` only —
+ * `StockOwnership.CUSTOMER` stock has already transferred ownership and is not this
+ * organisation's own balance-sheet asset (`StockOwnership`'s own schema doc comment
+ * already documented this intent; this method previously didn't enforce it). This is
+ * a *financial valuation* figure, not an operational quantity one — every existing
+ * caller (`DashboardService`, `ReconciliationService`, `ExecutiveDashboardService`,
+ * `InventoryPositionReportService`) uses it for a dollar total, never a stock-on-hand
+ * count. Operational/outlet/distribution views that show raw quantity (including
+ * customer-owned) read `InventoryStock` directly through
+ * `InventoryStockRepository.findManyByOrganisation`/`findManyByProduct` — a completely
+ * separate code path this change does not touch, so customer-owned stock remains
+ * fully visible there, unchanged.
  */
 @Injectable()
 export class InventoryValuationService {
@@ -59,6 +72,7 @@ export class InventoryValuationService {
     const stocks = await this.prisma.inventoryStock.findMany({
       where: {
         organisationId,
+        ownership: StockOwnership.ORGANISATION,
         ...(params.locationId ? { locationId: params.locationId } : {}),
         ...(params.productType ? { product: { type: params.productType } } : {}),
       },

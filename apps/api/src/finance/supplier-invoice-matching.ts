@@ -48,17 +48,22 @@ export interface LineMatchResult {
   invoicedQuantityDelta: number;
 }
 
-/** Decision #2 — the Path A cap. `remainingPayable` is the payable pool minus
- *  whatever Sprint 11 Returns already pulled out of the *payable* bucket specifically
- *  (`returnedQuantity - returnedExcessQuantity`), minus what prior invoices already
- *  claimed (`invoicedQuantity`) — never negative by construction, clamped defensively
- *  regardless. */
-export function computeLineMatch(
+/**
+ * The payable pool minus whatever Sprint 11 Returns already pulled out of the
+ * *payable* bucket specifically (`returnedQuantity - returnedExcessQuantity`), minus
+ * what prior invoices already claimed (`invoicedQuantity`) — never negative by
+ * construction, clamped defensively regardless. This is the single source of truth
+ * for "how much of this Goods Receipt line is still un-invoiced" — used by
+ * `computeLineMatch` below (an invoice line attempting to match against it) and by
+ * `PayablesReconciliationService` (Stage 4E.4A — summing this across every Goods
+ * Receipt line, with no invoice involved at all, to report the genuinely unmatched
+ * accrual). Extracted as its own function so both call sites share exactly one
+ * formula rather than risk two copies silently drifting apart.
+ */
+export function computeRemainingPayableQuantity(
   goodsReceiptItem: GoodsReceiptItemPayableSnapshot,
-  purchaseOrderItemUnitPrice: number,
-  item: { quantity: number; lineTotal: number },
-): LineMatchResult {
-  const remainingPayable = Math.max(
+): number {
+  return Math.max(
     0,
     roundQuantity(
       goodsReceiptItem.payableQuantity -
@@ -66,6 +71,15 @@ export function computeLineMatch(
         goodsReceiptItem.invoicedQuantity,
     ),
   );
+}
+
+/** Decision #2 — the Path A cap. */
+export function computeLineMatch(
+  goodsReceiptItem: GoodsReceiptItemPayableSnapshot,
+  purchaseOrderItemUnitPrice: number,
+  item: { quantity: number; lineTotal: number },
+): LineMatchResult {
+  const remainingPayable = computeRemainingPayableQuantity(goodsReceiptItem);
   const remainingPayableValue = roundCurrency(remainingPayable * purchaseOrderItemUnitPrice);
   const recognizedAmount = roundCurrency(Math.min(item.lineTotal, remainingPayableValue));
   const varianceAmount = roundCurrency(item.lineTotal - recognizedAmount);

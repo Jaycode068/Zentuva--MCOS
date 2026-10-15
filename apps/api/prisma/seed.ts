@@ -30,6 +30,7 @@ import * as bcrypt from 'bcrypt';
 import { AccessScope, PrismaClient } from '@prisma/client';
 
 import { PERMISSION_CATALOGUE } from '../src/identity/authorization/permission-catalogue';
+import { decideAccountingPeriodAction } from '../src/prisma/seed-accounting-period';
 
 const BCRYPT_SALT_ROUNDS = parseInt(process.env.BCRYPT_SALT_ROUNDS ?? '12', 10);
 
@@ -2804,6 +2805,13 @@ const BOBY_BITES_CHART_OF_ACCOUNTS: {
     parentCode: '6000',
     systemKey: 'PRODUCTION_LOSS',
   },
+  {
+    code: '6900',
+    name: 'Inventory Adjustment / Shrinkage',
+    type: 'EXPENSE',
+    parentCode: '6000',
+    systemKey: 'INVENTORY_ADJUSTMENT',
+  },
 ];
 
 /** Idempotency-gated on the `AR` system account already existing for this
@@ -2945,6 +2953,43 @@ async function seedProductionAccountingAccounts(
   }
 }
 
+/** Stage 4E.4D — standalone, independently idempotency-gated backfill for the new
+ *  `INVENTORY_ADJUSTMENT` system account, so a dev database that already ran
+ *  `seedChartOfAccounts` before this stage still receives it on a re-seed (same
+ *  "create if missing" shape as `seedGrniPendingApprovalAccount`/
+ *  `seedProductionAccountingAccounts`). Deliberately its own account, not
+ *  `PRODUCTION_LOSS` — see `SYSTEM_ACCOUNT_KEYS`'s own doc comment for why reusing
+ *  Production's scrap account would conflate an unrelated metric. */
+async function seedInventoryAdjustmentAccount(
+  organisationId: string,
+  actorUserId: string,
+): Promise<void> {
+  const existing = await prisma.chartOfAccount.findFirst({
+    where: { organisationId, systemKey: 'INVENTORY_ADJUSTMENT' },
+  });
+  if (existing) {
+    return;
+  }
+
+  const expensesParent = await prisma.chartOfAccount.findFirst({
+    where: { organisationId, code: '6000' },
+  });
+  await prisma.chartOfAccount.create({
+    data: {
+      organisationId,
+      code: '6900',
+      name: 'Inventory Adjustment / Shrinkage',
+      type: 'EXPENSE',
+      description: null,
+      isSystemAccount: true,
+      systemKey: 'INVENTORY_ADJUSTMENT',
+      createdById: actorUserId,
+      updatedById: actorUserId,
+      parentId: expensesParent?.id,
+    },
+  });
+}
+
 /** Two periods: "July 2026" (created, used to post `INV-000003`'s historical journal
  *  inside `seedFinance`, then closed — demonstrating a real closed period with real
  *  posted history) and "August 2026" (left `OPEN`, covering every other seeded
@@ -2953,33 +2998,63 @@ async function seedProductionAccountingAccounts(
 async function seedAccountingPeriods(organisationId: string, actorUserId: string): Promise<void> {
   console.log('Seeding Accounting Periods...');
 
-  const existing = await prisma.accountingPeriod.findFirst({
-    where: { organisationId, name: 'August 2026' },
+  const existingJuly = await prisma.accountingPeriod.findFirst({
+    where: { organisationId, name: 'July 2026' },
   });
-  if (existing) {
-    return;
+  if (!existingJuly) {
+    await prisma.accountingPeriod.create({
+      data: {
+        organisationId,
+        name: 'July 2026',
+        startDate: new Date('2026-07-01'),
+        endDate: new Date('2026-07-31'),
+        status: 'OPEN',
+        createdById: actorUserId,
+      },
+    });
   }
 
-  await prisma.accountingPeriod.create({
-    data: {
-      organisationId,
-      name: 'July 2026',
-      startDate: new Date('2026-07-01'),
-      endDate: new Date('2026-07-31'),
-      status: 'OPEN',
-      createdById: actorUserId,
-    },
+  const existingAugust = await prisma.accountingPeriod.findFirst({
+    where: { organisationId, name: 'August 2026' },
   });
-  await prisma.accountingPeriod.create({
-    data: {
-      organisationId,
-      name: 'August 2026',
-      startDate: new Date('2026-08-01'),
-      endDate: new Date('2026-08-31'),
-      status: 'OPEN',
-      createdById: actorUserId,
-    },
+  if (!existingAugust) {
+    await prisma.accountingPeriod.create({
+      data: {
+        organisationId,
+        name: 'August 2026',
+        startDate: new Date('2026-08-01'),
+        endDate: new Date('2026-08-31'),
+        status: 'OPEN',
+        createdById: actorUserId,
+      },
+    });
+  }
+
+  // Ensure a period also covers the actual seed-run date, so date-dependent postings
+  // (Sales Fulfilments, Cashflow fixtures — both use `new Date()`) succeed regardless of
+  // which calendar month the seed happens to run in. Never touches July/August 2026, and
+  // never reopens or modifies any existing period — see
+  // apps/api/src/prisma/seed-accounting-period.ts for the decision logic and its tests.
+  const allPeriods = await prisma.accountingPeriod.findMany({
+    where: { organisationId },
+    select: { name: true, startDate: true, endDate: true, status: true },
   });
+  const decision = decideAccountingPeriodAction(new Date(), allPeriods);
+  if (decision.action === 'error') {
+    throw new Error(decision.message);
+  }
+  if (decision.action === 'create') {
+    await prisma.accountingPeriod.create({
+      data: {
+        organisationId,
+        name: decision.period.name,
+        startDate: decision.period.startDate,
+        endDate: decision.period.endDate,
+        status: decision.period.status,
+        createdById: actorUserId,
+      },
+    });
+  }
 }
 
 /**
@@ -7722,6 +7797,7 @@ async function main(): Promise<void> {
   await seedChartOfAccounts(organisation.id, ownerUser.id);
   await seedGrniPendingApprovalAccount(organisation.id, ownerUser.id);
   await seedProductionAccountingAccounts(organisation.id, ownerUser.id);
+  await seedInventoryAdjustmentAccount(organisation.id, ownerUser.id);
   await seedAccountingPeriods(organisation.id, ownerUser.id);
   const purchaseOrdersByNumber = await seedPurchaseOrders(
     organisation.id,

@@ -2,6 +2,7 @@ import { PrismaClient } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service';
 import { InventoryStockRepository } from '../inventory/inventory-stock.repository';
+import { verifyConnectedToTestDatabase } from '../testing/test-db-guard';
 import {
   OutletOwnershipTransitionError,
   SalesFulfilmentRepository,
@@ -105,14 +106,22 @@ describe('Phase 2C — B2B fulfilment to outlet stock (real PostgreSQL)', () => 
   // CAUTION — found the hard way during this phase's own development: a journal-entry
   // cleanup query scoped only by `sourceType: 'SALES_FULFILMENT'` (without ALSO
   // restricting `sourceId` to this test's own disposable fulfilment ids) deleted every
-  // REAL, pre-existing Sales Fulfilment journal entry for the organisation — 18 of
-  // them, since they share the same `sourceType`. They were reconstructed afterward
-  // (same amounts/dates/references, replayed through the real `postSystemJournalEntry`
-  // into the still-OPEN accounting periods — verified byte-identical to the original
-  // reconciliation baseline, GL re-confirmed balanced). `cleanupTestData` below always
-  // resolves the EXACT disposable fulfilment ids first and scopes every deletion to
-  // them specifically — never a bare `sourceType` filter — so this cannot recur.
+  // REAL, pre-existing Sales Fulfilment journal entry for the organisation — 18 of them,
+  // since they share the same `sourceType`. They were reconstructed afterward (same
+  // amounts/dates/references, replayed through the real `postSystemJournalEntry`). The
+  // Phase 2C Financial Integrity Review (docs/sprint-phase-2c-financial-integrity-review.md)
+  // found this recovery independently verified for only 3 of the 18 entries and explicitly
+  // did NOT certify it as byte-identical — do not restate that claim here.
+  // `cleanupTestData` below always resolves the EXACT disposable fulfilment ids first and
+  // scopes every deletion to them specifically — never a bare `sourceType` filter — so
+  // this specific query pattern cannot recur. As a second, independent layer, this
+  // function also refuses to run at all unless `verifyConnectedToTestDatabase` confirms
+  // the connection is the isolated, unprivileged test database (see
+  // docs/sprint-test-database-isolation-completion-report.md) — it throws before any
+  // `deleteMany` below if that cannot be established, even if this file is ever invoked
+  // outside its normal jest.integration.config.js bootstrap.
   async function cleanupTestData() {
+    await verifyConnectedToTestDatabase(prisma);
     const locationIds = [warehouseLocationId, outletLocationId];
     const testFulfilments = await prisma.salesFulfilment.findMany({
       where: { organisationId, locationId: { in: locationIds } },

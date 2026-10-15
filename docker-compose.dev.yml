@@ -14,6 +14,17 @@ name: zentuva-dev
 #
 # For the full containerized stack (including apps/web and apps/api as Docker images),
 # see docker-compose.production.yml — that is NOT the daily development workflow.
+#
+# The disposable test Postgres instance lives in its OWN file, docker-compose.test.yml,
+# under its OWN Compose project name — NOT as a profile within this file. This file's
+# project name (`zentuva-dev`, above) previously also hosted a `postgres-test` service on
+# the `test` Compose profile; that was the root cause of the 2026-10-14 data-loss incident:
+# `docker compose --profile test down -v` does not scope `down`/`-v` to the named profile —
+# `down` tears down the ENTIRE project regardless of `--profile`, so it removed this file's
+# `postgres` container and its `postgres_dev_data`/`redis_dev_data` volumes along with the
+# test service. A
+# Compose profile is an `up`-time filter, not a project-level isolation boundary — it must
+# never be relied on as one. See docker-compose.test.yml for the corrected design.
 services:
   postgres:
     image: postgres:16-alpine

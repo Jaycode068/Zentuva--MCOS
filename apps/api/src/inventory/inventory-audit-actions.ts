@@ -45,4 +45,10 @@ export const INVENTORY_AUDIT_ACTIONS = {
   TRANSFER_REVERSED: 'inventory.transfer.reversed',
   /** Recorded on every `POST /locations/:id/opening-stock`. */
   OPENING_STOCK_RECORDED: 'inventory.opening-stock.recorded',
+  /** Added Stage 4E.4D — fired alongside `ADJUSTED` only when `adjustStock` actually
+   *  posted a value-bearing Journal Entry (organisation-owned stock, non-zero cost,
+   *  not an idempotent replay) — same "fired only when a journal was actually
+   *  posted" convention as `SUPPLIER_RETURN_JOURNAL_POSTED`/
+   *  `goods-receipt.journal-entry-posted`. */
+  ADJUSTMENT_JOURNAL_POSTED: 'inventory.adjustment.journal-entry-posted',
 } as const;

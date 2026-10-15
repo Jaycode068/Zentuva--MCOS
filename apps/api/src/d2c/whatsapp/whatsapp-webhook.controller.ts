@@ -16,6 +16,7 @@ import { ConfigService } from '@nestjs/config';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { Request, Response } from 'express';
 
+import { assertWebhookSignatureConfigured } from '../../notifications/infrastructure/meta-whatsapp-provider';
 import { WhatsAppInboundAdapterService } from './whatsapp-inbound-adapter.service';
 import { MetaWebhookPayload } from './whatsapp.types';
 
@@ -31,9 +32,12 @@ import { MetaWebhookPayload } from './whatsapp.types';
  * precedent (Sprint 35): Meta's servers have no Zentuva session. Authenticity for the
  * `GET` handshake is `hub.verify_token`; for `POST` deliveries it is Meta's own
  * `X-Hub-Signature-256` HMAC (computed with the Meta APP SECRET — a different
- * credential from `WHATSAPP_TOKEN`, and one this deployment's `.env` does not
- * currently set — see `verifySignature`'s own doc comment for the resulting,
- * explicitly-documented limitation).
+ * credential from `WHATSAPP_TOKEN`). Stage 5C.1 — this is now fail-closed for any
+ * deployment that claims to talk to real Meta (`WHATSAPP_PROVIDER_MODE=meta`): the
+ * constructor's `assertWebhookSignatureConfigured` call refuses to let the app even
+ * start without `WHATSAPP_APP_SECRET` configured in that mode. The local/development
+ * provider mode keeps a safe, explicitly-logged bypass — see `verifySignature`'s own
+ * doc comment.
  *
  * `POST` always returns `200` once past signature verification, even when business
  * logic inside `WhatsAppInboundAdapterService` fails for an individual message — the
@@ -49,7 +53,13 @@ export class WhatsAppWebhookController {
   constructor(
     private readonly config: ConfigService,
     private readonly inboundAdapter: WhatsAppInboundAdapterService,
-  ) {}
+  ) {
+    // Stage 5C.1 — fail the whole app at boot, never a request, if this deployment
+    // claims to talk to real Meta (`WHATSAPP_PROVIDER_MODE=meta`) without the one
+    // credential that makes inbound webhook verification possible. See
+    // `assertWebhookSignatureConfigured`'s own doc comment for the full rationale.
+    assertWebhookSignatureConfigured(config);
+  }
 
   /** Meta's one-time (and re-verifiable any time the Callback URL is re-saved in the
    *  dashboard) subscription handshake. Must echo back `hub.challenge` as the EXACT,
@@ -105,19 +115,31 @@ export class WhatsAppWebhookController {
   }
 
   /** Verifies Meta's `X-Hub-Signature-256` (`sha256=<hex hmac>` over the raw body,
-   *  keyed by the Meta APP SECRET). **Known limitation**: `WHATSAPP_APP_SECRET` is not
-   *  currently set in this deployment's `.env` (only `WHATSAPP_TOKEN`, the ACCESS
-   *  token, is — a different credential Meta does not sign webhooks with) — when
-   *  unset, this method logs a loud warning and returns `true` unconditionally, since
-   *  blocking all webhook delivery is strictly worse than proceeding without
-   *  cryptographic verification for this sprint's real-traffic testing. Configuring
-   *  `WHATSAPP_APP_SECRET` closes this gap with no code change — see
-   *  docs/sprint-40.5-completion-report.md "Limitations." */
+   *  keyed by the Meta APP SECRET).
+   *
+   *  Stage 5C.1 — fail-closed when no secret is configured: the constructor's
+   *  `assertWebhookSignatureConfigured` call already guarantees a secret exists
+   *  whenever `WHATSAPP_PROVIDER_MODE=meta` (the app would have failed to start
+   *  otherwise), so reaching this branch with mode `meta` should be unreachable in
+   *  practice — but this method never trusts that invariant blindly; it re-checks the
+   *  mode itself and REJECTS rather than accepts if it is ever somehow still true.
+   *  The bypass below is reachable ONLY when `WHATSAPP_PROVIDER_MODE=local` (the safe
+   *  development provider, which can never receive genuine Meta traffic in the first
+   *  place) — explicitly logged as such every time, never silent. */
   private verifySignature(rawBody: string, signatureHeader: string | undefined): boolean {
     const appSecret = this.config.get<string | undefined>('whatsapp.appSecret');
     if (!appSecret) {
+      const mode = this.config.get<'local' | 'meta'>('whatsapp.providerMode') ?? 'local';
+      if (mode === 'meta') {
+        // Defensive — should be unreachable; the constructor already fails the app at
+        // boot in this exact configuration. Fail closed anyway, never accept.
+        this.logger.error(
+          'WHATSAPP_APP_SECRET is missing while WHATSAPP_PROVIDER_MODE=meta — rejecting this webhook delivery. This should be impossible; the app should have failed to start.',
+        );
+        return false;
+      }
       this.logger.warn(
-        'WHATSAPP_APP_SECRET is not configured — webhook signature verification is DISABLED for this delivery. Set WHATSAPP_APP_SECRET to enable it.',
+        'WHATSAPP_APP_SECRET is not configured — webhook signature verification is DISABLED for this delivery. This is safe only because WHATSAPP_PROVIDER_MODE=local (the development provider, never reachable by real Meta traffic). Set WHATSAPP_APP_SECRET before switching WHATSAPP_PROVIDER_MODE=meta.',
       );
       return true;
     }

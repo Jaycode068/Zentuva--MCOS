@@ -79,6 +79,13 @@ export class ConsumerService {
     return this.consumerRepository.findManyByOrganisation(organisationId, params);
   }
 
+  /** Stage 5C.1 — thin pass-through to `ConsumerRepository.findLastInboundMessageAt`
+   *  (see that method's own doc comment for why this is a safe, zero-schema-change
+   *  proxy for "when did this consumer last message in"). */
+  getLastInboundMessageAt(organisationId: string, consumerId: string): Promise<Date | null> {
+    return this.consumerRepository.findLastInboundMessageAt(organisationId, consumerId);
+  }
+
   /** Added Sprint 39 — the D2C Admin Consumer list's paginated read. */
   listPaginated(
     organisationId: string,

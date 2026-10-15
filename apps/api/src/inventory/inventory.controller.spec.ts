@@ -378,6 +378,7 @@ describe('InventoryController', () => {
         previousQuantity: 100,
         newQuantity: 110,
         transactionId: 'txn-1',
+        wasCreated: true,
       } as never);
 
       const result = await controller.createAdjustment(
@@ -397,6 +398,93 @@ describe('InventoryController', () => {
           entityId: 'product-1',
         }),
       );
+      expect(result.newQuantity).toBe(110);
+    });
+
+    it('records inventory.adjustment.journal-entry-posted and surfaces journalEntryId when a journal was actually posted', async () => {
+      const { controller, inventoryService, auditService } = makeController();
+      inventoryService.adjustStock.mockResolvedValue({
+        productId: 'product-1',
+        product: { id: 'product-1', code: 'PRD-000009', name: 'Salt', unit: 'Kilogram' },
+        location: { id: 'loc-1', name: 'Main Warehouse' },
+        reason: 'FOUND_STOCK',
+        quantityDelta: 10,
+        previousQuantity: 100,
+        newQuantity: 110,
+        transactionId: 'txn-1',
+        wasCreated: true,
+        journalEntryId: 'journal-1',
+      } as never);
+
+      const result = await controller.createAdjustment(
+        { productId: 'product-1', quantity: 10, reason: 'FOUND_STOCK' },
+        tokenUser,
+        req,
+      );
+
+      expect(auditService.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: INVENTORY_AUDIT_ACTIONS.ADJUSTMENT_JOURNAL_POSTED,
+          entityId: 'product-1',
+          metadata: expect.objectContaining({ journalEntryId: 'journal-1' }),
+        }),
+      );
+      expect(result.journalEntryId).toBe('journal-1');
+    });
+
+    it('does not record inventory.adjustment.journal-entry-posted when no journal was posted (zero-cost/customer-owned)', async () => {
+      const { controller, inventoryService, auditService } = makeController();
+      inventoryService.adjustStock.mockResolvedValue({
+        productId: 'product-1',
+        product: { id: 'product-1', code: 'PRD-000009', name: 'Salt', unit: 'Kilogram' },
+        location: { id: 'loc-1', name: 'Main Warehouse' },
+        reason: 'PHYSICAL_COUNT',
+        quantityDelta: 10,
+        previousQuantity: 100,
+        newQuantity: 110,
+        transactionId: 'txn-1',
+        wasCreated: true,
+        journalEntryId: null,
+      } as never);
+
+      const result = await controller.createAdjustment(
+        { productId: 'product-1', quantity: 10, reason: 'PHYSICAL_COUNT' },
+        tokenUser,
+        req,
+      );
+
+      expect(auditService.record).not.toHaveBeenCalledWith(
+        expect.objectContaining({ action: INVENTORY_AUDIT_ACTIONS.ADJUSTMENT_JOURNAL_POSTED }),
+      );
+      expect(result.journalEntryId).toBeNull();
+    });
+
+    it('does not record an audit entry for an idempotent retry (wasCreated: false)', async () => {
+      const { controller, inventoryService, auditService } = makeController();
+      inventoryService.adjustStock.mockResolvedValue({
+        productId: 'product-1',
+        product: { id: 'product-1', code: 'PRD-000009', name: 'Salt', unit: 'Kilogram' },
+        location: { id: 'loc-1', name: 'Main Warehouse' },
+        reason: 'PHYSICAL_COUNT',
+        quantityDelta: 10,
+        previousQuantity: 100,
+        newQuantity: 110,
+        transactionId: 'txn-1',
+        wasCreated: false,
+      } as never);
+
+      const result = await controller.createAdjustment(
+        {
+          productId: 'product-1',
+          quantity: 10,
+          reason: 'PHYSICAL_COUNT',
+          idempotencyKey: 'key-1',
+        },
+        tokenUser,
+        req,
+      );
+
+      expect(auditService.record).not.toHaveBeenCalled();
       expect(result.newQuantity).toBe(110);
     });
   });

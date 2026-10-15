@@ -1516,6 +1516,16 @@ model InventoryTransaction {
   /// Added Sprint 4.5 — free-text context, primarily for adjustments ("Physical count
   /// discrepancy during monthly stocktake").
   notes            String?
+  /// Added Stage 4E.4B — same double-submit protection as `SalesFulfilment.
+  /// idempotencyKey`/`InventoryTransfer.idempotencyKey`, specialised to the general
+  /// manual Inventory Adjustment path (`InventoryStockRepository.adjustStock`), which
+  /// — unlike Goods Receipt/Sales Fulfilment/Transfer — has no dedicated parent
+  /// aggregate of its own to carry the key on; this shared, insert-only ledger row IS
+  /// the adjustment's own record. Client-supplied, optional — a caller that never
+  /// sends a key is never blocked, same convention as every sibling. `NULL` for every
+  /// other `transactionType` (goods receipt, production, sales fulfilment, transfer
+  /// already carry their own key on their own dedicated record).
+  idempotencyKey   String?
   /// Added Sprint 4.5 — who initiated this movement. Plain id, no FK relation, same
   /// convention as `AuditLog.actorUserId`/`GoodsReceipt.receivedById`. Always the
   /// authenticated caller.
@@ -1526,6 +1536,7 @@ model InventoryTransaction {
   product      Product           @relation(fields: [productId], references: [id], onDelete: Cascade)
   location     InventoryLocation @relation(fields: [locationId], references: [id], onDelete: Restrict)
 
+  @@unique([organisationId, idempotencyKey])
   @@index([organisationId])
   @@index([organisationId, productId])
   @@index([locationId])

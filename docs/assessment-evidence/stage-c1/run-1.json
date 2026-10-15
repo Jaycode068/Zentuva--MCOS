@@ -1,0 +1,1854 @@
+{
+  "numFailedTestSuites": 3,
+  "numFailedTests": 16,
+  "numPassedTestSuites": 13,
+  "numPassedTests": 91,
+  "numPendingTestSuites": 0,
+  "numPendingTests": 0,
+  "numRuntimeErrorTestSuites": 2,
+  "numTodoTests": 0,
+  "numTotalTestSuites": 16,
+  "numTotalTests": 107,
+  "openHandles": [],
+  "snapshot": {
+    "added": 0,
+    "didUpdate": false,
+    "failure": false,
+    "filesAdded": 0,
+    "filesRemoved": 0,
+    "filesRemovedList": [],
+    "filesUnmatched": 0,
+    "filesUpdated": 0,
+    "matched": 0,
+    "total": 0,
+    "unchecked": 0,
+    "uncheckedKeysByFile": [],
+    "unmatched": 0,
+    "updated": 0
+  },
+  "startTime": 1792086715858,
+  "success": false,
+  "testResults": [
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [
+            "Reporting — tenant isolation across two real organisations (real PostgreSQL)"
+          ],
+          "duration": 1,
+          "failureDetails": [{}],
+          "failureMessages": [
+            "Error: This test requires at least one other seeded organisation.\n    at Object.<anonymous> (/Users/user/Zentuva--MCOS/apps/api/src/reporting/reporting-tenant-isolation.integration.spec.ts:168:13)"
+          ],
+          "fullName": "Reporting — tenant isolation across two real organisations (real PostgreSQL) Receivables: Org A and Org B never see each other's outstanding balance or customers",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 0,
+          "retryReasons": [],
+          "status": "failed",
+          "title": "Receivables: Org A and Org B never see each other's outstanding balance or customers"
+        },
+        {
+          "ancestorTitles": [
+            "Reporting — tenant isolation across two real organisations (real PostgreSQL)"
+          ],
+          "duration": 0,
+          "failureDetails": [{}],
+          "failureMessages": [
+            "Error: This test requires at least one other seeded organisation.\n    at Object.<anonymous> (/Users/user/Zentuva--MCOS/apps/api/src/reporting/reporting-tenant-isolation.integration.spec.ts:168:13)"
+          ],
+          "fullName": "Reporting — tenant isolation across two real organisations (real PostgreSQL) Payables: Org A and Org B never see each other's supplier obligations",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 0,
+          "retryReasons": [],
+          "status": "failed",
+          "title": "Payables: Org A and Org B never see each other's supplier obligations"
+        },
+        {
+          "ancestorTitles": [
+            "Reporting — tenant isolation across two real organisations (real PostgreSQL)"
+          ],
+          "duration": 0,
+          "failureDetails": [{}],
+          "failureMessages": [
+            "Error: This test requires at least one other seeded organisation.\n    at Object.<anonymous> (/Users/user/Zentuva--MCOS/apps/api/src/reporting/reporting-tenant-isolation.integration.spec.ts:168:13)"
+          ],
+          "fullName": "Reporting — tenant isolation across two real organisations (real PostgreSQL) Inventory valuation: Org A and Org B never see each other's stock lines",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 0,
+          "retryReasons": [],
+          "status": "failed",
+          "title": "Inventory valuation: Org A and Org B never see each other's stock lines"
+        },
+        {
+          "ancestorTitles": [
+            "Reporting — tenant isolation across two real organisations (real PostgreSQL)"
+          ],
+          "duration": 0,
+          "failureDetails": [{}],
+          "failureMessages": [
+            "Error: This test requires at least one other seeded organisation.\n    at Object.<anonymous> (/Users/user/Zentuva--MCOS/apps/api/src/reporting/reporting-tenant-isolation.integration.spec.ts:168:13)"
+          ],
+          "fullName": "Reporting — tenant isolation across two real organisations (real PostgreSQL) Sales performance: Org A's order table and revenue breakdown never include Org B's orders/customers",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 0,
+          "retryReasons": [],
+          "status": "failed",
+          "title": "Sales performance: Org A's order table and revenue breakdown never include Org B's orders/customers"
+        },
+        {
+          "ancestorTitles": [
+            "Reporting — tenant isolation across two real organisations (real PostgreSQL)"
+          ],
+          "duration": 0,
+          "failureDetails": [{}],
+          "failureMessages": [
+            "Error: This test requires at least one other seeded organisation.\n    at Object.<anonymous> (/Users/user/Zentuva--MCOS/apps/api/src/reporting/reporting-tenant-isolation.integration.spec.ts:168:13)"
+          ],
+          "fullName": "Reporting — tenant isolation across two real organisations (real PostgreSQL) Workforce summary: Org A's headcount/department breakdown never includes Org B's employees or departments",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 0,
+          "retryReasons": [],
+          "status": "failed",
+          "title": "Workforce summary: Org A's headcount/department breakdown never includes Org B's employees or departments"
+        },
+        {
+          "ancestorTitles": [
+            "Reporting — tenant isolation across two real organisations (real PostgreSQL)"
+          ],
+          "duration": 1,
+          "failureDetails": [{}],
+          "failureMessages": [
+            "Error: This test requires at least one other seeded organisation.\n    at Object.<anonymous> (/Users/user/Zentuva--MCOS/apps/api/src/reporting/reporting-tenant-isolation.integration.spec.ts:168:13)"
+          ],
+          "fullName": "Reporting — tenant isolation across two real organisations (real PostgreSQL) Production performance: Org A's production orders never appear in Org B's report, and vice versa",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 0,
+          "retryReasons": [],
+          "status": "failed",
+          "title": "Production performance: Org A's production orders never appear in Org B's report, and vice versa"
+        },
+        {
+          "ancestorTitles": [
+            "Reporting — tenant isolation across two real organisations (real PostgreSQL)"
+          ],
+          "duration": 0,
+          "failureDetails": [{}],
+          "failureMessages": [
+            "Error: This test requires at least one other seeded organisation.\n    at Object.<anonymous> (/Users/user/Zentuva--MCOS/apps/api/src/reporting/reporting-tenant-isolation.integration.spec.ts:168:13)"
+          ],
+          "fullName": "Reporting — tenant isolation across two real organisations (real PostgreSQL) Procurement summary: Org A's open purchase orders and supplier ids never appear in Org B's report, and vice versa",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 0,
+          "retryReasons": [],
+          "status": "failed",
+          "title": "Procurement summary: Org A's open purchase orders and supplier ids never appear in Org B's report, and vice versa"
+        },
+        {
+          "ancestorTitles": [
+            "Reporting — tenant isolation across two real organisations (real PostgreSQL)"
+          ],
+          "duration": 0,
+          "failureDetails": [{}],
+          "failureMessages": [
+            "Error: This test requires at least one other seeded organisation.\n    at Object.<anonymous> (/Users/user/Zentuva--MCOS/apps/api/src/reporting/reporting-tenant-isolation.integration.spec.ts:168:13)"
+          ],
+          "fullName": "Reporting — tenant isolation across two real organisations (real PostgreSQL) Executive dashboard: composing every section for Org A never surfaces any of Org B's sales orders, production orders, or employees — Sprint 46's Final Architectural proof",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 0,
+          "retryReasons": [],
+          "status": "failed",
+          "title": "Executive dashboard: composing every section for Org A never surfaces any of Org B's sales orders, production orders, or employees — Sprint 46's Final Architectural proof"
+        }
+      ],
+      "endTime": 1792086717712,
+      "message": "  ● Reporting — tenant isolation across two real organisations (real PostgreSQL) › Receivables: Org A and Org B never see each other's outstanding balance or customers\n\n    This test requires at least one other seeded organisation.\n\n      166 |     });\n      167 |     if (otherOrgs.length === 0) {\n    > 168 |       throw new Error('This test requires at least one other seeded organisation.');\n          |             ^\n      169 |     }\n      170 |     let best = otherOrgs[0]!.id;\n      171 |     let bestScore = -1;\n\n      at Object.<anonymous> (src/reporting/reporting-tenant-isolation.integration.spec.ts:168:13)\n\n  ● Reporting — tenant isolation across two real organisations (real PostgreSQL) › Payables: Org A and Org B never see each other's supplier obligations\n\n    This test requires at least one other seeded organisation.\n\n      166 |     });\n      167 |     if (otherOrgs.length === 0) {\n    > 168 |       throw new Error('This test requires at least one other seeded organisation.');\n          |             ^\n      169 |     }\n      170 |     let best = otherOrgs[0]!.id;\n      171 |     let bestScore = -1;\n\n      at Object.<anonymous> (src/reporting/reporting-tenant-isolation.integration.spec.ts:168:13)\n\n  ● Reporting — tenant isolation across two real organisations (real PostgreSQL) › Inventory valuation: Org A and Org B never see each other's stock lines\n\n    This test requires at least one other seeded organisation.\n\n      166 |     });\n      167 |     if (otherOrgs.length === 0) {\n    > 168 |       throw new Error('This test requires at least one other seeded organisation.');\n          |             ^\n      169 |     }\n      170 |     let best = otherOrgs[0]!.id;\n      171 |     let bestScore = -1;\n\n      at Object.<anonymous> (src/reporting/reporting-tenant-isolation.integration.spec.ts:168:13)\n\n  ● Reporting — tenant isolation across two real organisations (real PostgreSQL) › Sales performance: Org A's order table and revenue breakdown never include Org B's orders/customers\n\n    This test requires at least one other seeded organisation.\n\n      166 |     });\n      167 |     if (otherOrgs.length === 0) {\n    > 168 |       throw new Error('This test requires at least one other seeded organisation.');\n          |             ^\n      169 |     }\n      170 |     let best = otherOrgs[0]!.id;\n      171 |     let bestScore = -1;\n\n      at Object.<anonymous> (src/reporting/reporting-tenant-isolation.integration.spec.ts:168:13)\n\n  ● Reporting — tenant isolation across two real organisations (real PostgreSQL) › Workforce summary: Org A's headcount/department breakdown never includes Org B's employees or departments\n\n    This test requires at least one other seeded organisation.\n\n      166 |     });\n      167 |     if (otherOrgs.length === 0) {\n    > 168 |       throw new Error('This test requires at least one other seeded organisation.');\n          |             ^\n      169 |     }\n      170 |     let best = otherOrgs[0]!.id;\n      171 |     let bestScore = -1;\n\n      at Object.<anonymous> (src/reporting/reporting-tenant-isolation.integration.spec.ts:168:13)\n\n  ● Reporting — tenant isolation across two real organisations (real PostgreSQL) › Production performance: Org A's production orders never appear in Org B's report, and vice versa\n\n    This test requires at least one other seeded organisation.\n\n      166 |     });\n      167 |     if (otherOrgs.length === 0) {\n    > 168 |       throw new Error('This test requires at least one other seeded organisation.');\n          |             ^\n      169 |     }\n      170 |     let best = otherOrgs[0]!.id;\n      171 |     let bestScore = -1;\n\n      at Object.<anonymous> (src/reporting/reporting-tenant-isolation.integration.spec.ts:168:13)\n\n  ● Reporting — tenant isolation across two real organisations (real PostgreSQL) › Procurement summary: Org A's open purchase orders and supplier ids never appear in Org B's report, and vice versa\n\n    This test requires at least one other seeded organisation.\n\n      166 |     });\n      167 |     if (otherOrgs.length === 0) {\n    > 168 |       throw new Error('This test requires at least one other seeded organisation.');\n          |             ^\n      169 |     }\n      170 |     let best = otherOrgs[0]!.id;\n      171 |     let bestScore = -1;\n\n      at Object.<anonymous> (src/reporting/reporting-tenant-isolation.integration.spec.ts:168:13)\n\n  ● Reporting — tenant isolation across two real organisations (real PostgreSQL) › Executive dashboard: composing every section for Org A never surfaces any of Org B's sales orders, production orders, or employees — Sprint 46's Final Architectural proof\n\n    This test requires at least one other seeded organisation.\n\n      166 |     });\n      167 |     if (otherOrgs.length === 0) {\n    > 168 |       throw new Error('This test requires at least one other seeded organisation.');\n          |             ^\n      169 |     }\n      170 |     let best = otherOrgs[0]!.id;\n      171 |     let bestScore = -1;\n\n      at Object.<anonymous> (src/reporting/reporting-tenant-isolation.integration.spec.ts:168:13)\n",
+      "name": "/Users/user/Zentuva--MCOS/apps/api/src/reporting/reporting-tenant-isolation.integration.spec.ts",
+      "startTime": 1792086715939,
+      "status": "failed",
+      "summary": ""
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [
+            "D2C conversation configuration — active-conversation safety (real PostgreSQL)"
+          ],
+          "duration": 1,
+          "failureDetails": [{}],
+          "failureMessages": [
+            "Error: This test requires at least 2 seeded organisations.\n    at Object.<anonymous> (/Users/user/Zentuva--MCOS/apps/api/src/d2c/conversation-config/d2c-conversation-config-active-safety.integration.spec.ts:56:32)"
+          ],
+          "fullName": "D2C conversation configuration — active-conversation safety (real PostgreSQL) an admin config save mid-flight never touches an active conversation's persisted state (separate tables, no cascade)",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 0,
+          "retryReasons": [],
+          "status": "failed",
+          "title": "an admin config save mid-flight never touches an active conversation's persisted state (separate tables, no cascade)"
+        },
+        {
+          "ancestorTitles": [
+            "D2C conversation configuration — active-conversation safety (real PostgreSQL)"
+          ],
+          "duration": 0,
+          "failureDetails": [{}],
+          "failureMessages": [
+            "Error: This test requires at least 2 seeded organisations.\n    at Object.<anonymous> (/Users/user/Zentuva--MCOS/apps/api/src/d2c/conversation-config/d2c-conversation-config-active-safety.integration.spec.ts:56:32)"
+          ],
+          "fullName": "D2C conversation configuration — active-conversation safety (real PostgreSQL) the very next config resolution DOES reflect the admin's change — no stale caching, takes effect starting the next turn",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 0,
+          "retryReasons": [],
+          "status": "failed",
+          "title": "the very next config resolution DOES reflect the admin's change — no stale caching, takes effect starting the next turn"
+        },
+        {
+          "ancestorTitles": [
+            "D2C conversation configuration — active-conversation safety (real PostgreSQL)"
+          ],
+          "duration": 0,
+          "failureDetails": [{}],
+          "failureMessages": [
+            "Error: This test requires at least 2 seeded organisations.\n    at Object.<anonymous> (/Users/user/Zentuva--MCOS/apps/api/src/d2c/conversation-config/d2c-conversation-config-active-safety.integration.spec.ts:56:32)"
+          ],
+          "fullName": "D2C conversation configuration — active-conversation safety (real PostgreSQL) Final Architectural Test (brief) — getAdminView/getPreview for two real tenants, through the real admin service methods, never cross-contaminate",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 0,
+          "retryReasons": [],
+          "status": "failed",
+          "title": "Final Architectural Test (brief) — getAdminView/getPreview for two real tenants, through the real admin service methods, never cross-contaminate"
+        }
+      ],
+      "coverage": {},
+      "endTime": 1792086727573,
+      "message": "  ● D2C conversation configuration — active-conversation safety (real PostgreSQL) › an admin config save mid-flight never touches an active conversation's persisted state (separate tables, no cascade)\n\n    This test requires at least 2 seeded organisations.\n\n      54 |   beforeAll(async () => {\n      55 |     const orgs = await prisma.organisation.findMany({ take: 2, select: { id: true } });\n    > 56 |     if (orgs.length < 2) throw new Error('This test requires at least 2 seeded organisations.');\n         |                                ^\n      57 |     orgId = orgs[0]!.id;\n      58 |     orgBId = orgs[1]!.id;\n      59 |\n\n      at Object.<anonymous> (src/d2c/conversation-config/d2c-conversation-config-active-safety.integration.spec.ts:56:32)\n\n  ● D2C conversation configuration — active-conversation safety (real PostgreSQL) › the very next config resolution DOES reflect the admin's change — no stale caching, takes effect starting the next turn\n\n    This test requires at least 2 seeded organisations.\n\n      54 |   beforeAll(async () => {\n      55 |     const orgs = await prisma.organisation.findMany({ take: 2, select: { id: true } });\n    > 56 |     if (orgs.length < 2) throw new Error('This test requires at least 2 seeded organisations.');\n         |                                ^\n      57 |     orgId = orgs[0]!.id;\n      58 |     orgBId = orgs[1]!.id;\n      59 |\n\n      at Object.<anonymous> (src/d2c/conversation-config/d2c-conversation-config-active-safety.integration.spec.ts:56:32)\n\n  ● D2C conversation configuration — active-conversation safety (real PostgreSQL) › Final Architectural Test (brief) — getAdminView/getPreview for two real tenants, through the real admin service methods, never cross-contaminate\n\n    This test requires at least 2 seeded organisations.\n\n      54 |   beforeAll(async () => {\n      55 |     const orgs = await prisma.organisation.findMany({ take: 2, select: { id: true } });\n    > 56 |     if (orgs.length < 2) throw new Error('This test requires at least 2 seeded organisations.');\n         |                                ^\n      57 |     orgId = orgs[0]!.id;\n      58 |     orgBId = orgs[1]!.id;\n      59 |\n\n      at Object.<anonymous> (src/d2c/conversation-config/d2c-conversation-config-active-safety.integration.spec.ts:56:32)\n\n\n  ● Test suite failed to run\n\n    PrismaClientValidationError: \n    Invalid `prisma.d2CConversationMessageConfig.deleteMany()` invocation in\n    /Users/user/Zentuva--MCOS/apps/api/src/d2c/conversation-config/d2c-conversation-config-active-safety.integration.spec.ts:78:47\n\n      75 \n      76 afterAll(async () => {\n      77   await prisma.consumerConversation.deleteMany({ where: { id: conversationId } });\n    → 78   await prisma.d2CConversationMessageConfig.deleteMany({\n             where: {\n               organisationId: {\n                 in: [\n                   undefined,\n                   ~~~~~~~~~\n                   undefined\n                 ]\n               },\n               messageKey: \"WELCOME\"\n             }\n           })\n\n    Invalid value for argument `in[0]`: Can not use `undefined` value within array. Use `null` or filter out `undefined` values.\n\n      at wn (../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client/runtime/library.js:29:1363)\n      at e.throwValidationError (../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client/runtime/library.js:29:10206)\n      at od (../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client/runtime/library.js:29:9323)\n      at sa (../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client/runtime/library.js:29:8075)\n      at aa (../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client/runtime/library.js:29:8908)\n      at sa (../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client/runtime/library.js:29:8439)\n      at aa (../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client/runtime/library.js:29:8908)\n      at sa (../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client/runtime/library.js:29:8439)\n      at aa (../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client/runtime/library.js:29:8908)\n      at mr (../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client/runtime/library.js:29:6037)\n      at vn (../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client/runtime/library.js:29:5902)\n      at ../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client/runtime/library.js:130:10186\n      at Object.runInChildSpan (../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client/runtime/library.js:121:1509)\n      at t._executeRequest (../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client/runtime/library.js:130:10165)\n      at Na (../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client/runtime/library.js:31:9955)\n      at l (../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client/runtime/library.js:130:9639)\n      at ../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client/runtime/library.js:130:9933\n      at ../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client/runtime/library.js:130:9913\n      at Object.runInChildSpan (../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client/runtime/library.js:121:1509)\n      at t._request (../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client/runtime/library.js:130:9836)\n      at s (../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client/runtime/library.js:31:5636)\n      at ../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client/runtime/library.js:31:5864\n      at i (../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client/runtime/library.js:121:1016)\n      at PrismaPromise.then (../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client/runtime/library.js:121:1091)\n",
+      "name": "/Users/user/Zentuva--MCOS/apps/api/src/d2c/conversation-config/d2c-conversation-config-active-safety.integration.spec.ts",
+      "startTime": 1792086727573,
+      "status": "failed",
+      "summary": ""
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [
+            "D2C conversation configuration concurrency (real PostgreSQL, genuine concurrent transactions)"
+          ],
+          "duration": 1,
+          "failureDetails": [{}],
+          "failureMessages": [
+            "Error: This test requires at least 2 seeded organisations.\n    at Object.<anonymous> (/Users/user/Zentuva--MCOS/apps/api/src/d2c/conversation-config/d2c-conversation-config-concurrency.integration.spec.ts:29:13)"
+          ],
+          "fullName": "D2C conversation configuration concurrency (real PostgreSQL, genuine concurrent transactions) two genuinely concurrent updates to the SAME message key on the SAME tenant resolve to exactly one final, uncorrupted value (never a torn write)",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 0,
+          "retryReasons": [],
+          "status": "failed",
+          "title": "two genuinely concurrent updates to the SAME message key on the SAME tenant resolve to exactly one final, uncorrupted value (never a torn write)"
+        },
+        {
+          "ancestorTitles": [
+            "D2C conversation configuration concurrency (real PostgreSQL, genuine concurrent transactions)"
+          ],
+          "duration": 1,
+          "failureDetails": [{}],
+          "failureMessages": [
+            "Error: This test requires at least 2 seeded organisations.\n    at Object.<anonymous> (/Users/user/Zentuva--MCOS/apps/api/src/d2c/conversation-config/d2c-conversation-config-concurrency.integration.spec.ts:29:13)"
+          ],
+          "fullName": "D2C conversation configuration concurrency (real PostgreSQL, genuine concurrent transactions) two concurrent updates to DIFFERENT message keys on the same tenant never interfere with each other",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 0,
+          "retryReasons": [],
+          "status": "failed",
+          "title": "two concurrent updates to DIFFERENT message keys on the same tenant never interfere with each other"
+        },
+        {
+          "ancestorTitles": [
+            "D2C conversation configuration concurrency (real PostgreSQL, genuine concurrent transactions)"
+          ],
+          "duration": 0,
+          "failureDetails": [{}],
+          "failureMessages": [
+            "Error: This test requires at least 2 seeded organisations.\n    at Object.<anonymous> (/Users/user/Zentuva--MCOS/apps/api/src/d2c/conversation-config/d2c-conversation-config-concurrency.integration.spec.ts:29:13)"
+          ],
+          "fullName": "D2C conversation configuration concurrency (real PostgreSQL, genuine concurrent transactions) a concurrent update and reset-to-default on the same message key resolve to exactly one consistent final state — either the update survives, or the row is genuinely gone (never a half-written row)",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 0,
+          "retryReasons": [],
+          "status": "failed",
+          "title": "a concurrent update and reset-to-default on the same message key resolve to exactly one consistent final state — either the update survives, or the row is genuinely gone (never a half-written row)"
+        },
+        {
+          "ancestorTitles": [
+            "D2C conversation configuration concurrency (real PostgreSQL, genuine concurrent transactions)"
+          ],
+          "duration": 0,
+          "failureDetails": [{}],
+          "failureMessages": [
+            "Error: This test requires at least 2 seeded organisations.\n    at Object.<anonymous> (/Users/user/Zentuva--MCOS/apps/api/src/d2c/conversation-config/d2c-conversation-config-concurrency.integration.spec.ts:29:13)"
+          ],
+          "fullName": "D2C conversation configuration concurrency (real PostgreSQL, genuine concurrent transactions) concurrent capability saves for Tenant A and Tenant B never cross-contaminate — each tenant reads back ONLY its own write",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 0,
+          "retryReasons": [],
+          "status": "failed",
+          "title": "concurrent capability saves for Tenant A and Tenant B never cross-contaminate — each tenant reads back ONLY its own write"
+        },
+        {
+          "ancestorTitles": [
+            "D2C conversation configuration concurrency (real PostgreSQL, genuine concurrent transactions)"
+          ],
+          "duration": 0,
+          "failureDetails": [{}],
+          "failureMessages": [
+            "Error: This test requires at least 2 seeded organisations.\n    at Object.<anonymous> (/Users/user/Zentuva--MCOS/apps/api/src/d2c/conversation-config/d2c-conversation-config-concurrency.integration.spec.ts:29:13)"
+          ],
+          "fullName": "D2C conversation configuration concurrency (real PostgreSQL, genuine concurrent transactions) a read for Tenant A during a concurrent write storm for Tenant B never observes Tenant B data",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 0,
+          "retryReasons": [],
+          "status": "failed",
+          "title": "a read for Tenant A during a concurrent write storm for Tenant B never observes Tenant B data"
+        }
+      ],
+      "coverage": {},
+      "endTime": 1792086727573,
+      "message": "  ● D2C conversation configuration concurrency (real PostgreSQL, genuine concurrent transactions) › two genuinely concurrent updates to the SAME message key on the SAME tenant resolve to exactly one final, uncorrupted value (never a torn write)\n\n    This test requires at least 2 seeded organisations.\n\n      27 |     const orgs = await prisma.organisation.findMany({ take: 2, select: { id: true } });\n      28 |     if (orgs.length < 2) {\n    > 29 |       throw new Error('This test requires at least 2 seeded organisations.');\n         |             ^\n      30 |     }\n      31 |     [orgA, orgB] = [orgs[0]!.id, orgs[1]!.id];\n      32 |   });\n\n      at Object.<anonymous> (src/d2c/conversation-config/d2c-conversation-config-concurrency.integration.spec.ts:29:13)\n\n  ● D2C conversation configuration concurrency (real PostgreSQL, genuine concurrent transactions) › two concurrent updates to DIFFERENT message keys on the same tenant never interfere with each other\n\n    This test requires at least 2 seeded organisations.\n\n      27 |     const orgs = await prisma.organisation.findMany({ take: 2, select: { id: true } });\n      28 |     if (orgs.length < 2) {\n    > 29 |       throw new Error('This test requires at least 2 seeded organisations.');\n         |             ^\n      30 |     }\n      31 |     [orgA, orgB] = [orgs[0]!.id, orgs[1]!.id];\n      32 |   });\n\n      at Object.<anonymous> (src/d2c/conversation-config/d2c-conversation-config-concurrency.integration.spec.ts:29:13)\n\n  ● D2C conversation configuration concurrency (real PostgreSQL, genuine concurrent transactions) › a concurrent update and reset-to-default on the same message key resolve to exactly one consistent final state — either the update survives, or the row is genuinely gone (never a half-written row)\n\n    This test requires at least 2 seeded organisations.\n\n      27 |     const orgs = await prisma.organisation.findMany({ take: 2, select: { id: true } });\n      28 |     if (orgs.length < 2) {\n    > 29 |       throw new Error('This test requires at least 2 seeded organisations.');\n         |             ^\n      30 |     }\n      31 |     [orgA, orgB] = [orgs[0]!.id, orgs[1]!.id];\n      32 |   });\n\n      at Object.<anonymous> (src/d2c/conversation-config/d2c-conversation-config-concurrency.integration.spec.ts:29:13)\n\n  ● D2C conversation configuration concurrency (real PostgreSQL, genuine concurrent transactions) › concurrent capability saves for Tenant A and Tenant B never cross-contaminate — each tenant reads back ONLY its own write\n\n    This test requires at least 2 seeded organisations.\n\n      27 |     const orgs = await prisma.organisation.findMany({ take: 2, select: { id: true } });\n      28 |     if (orgs.length < 2) {\n    > 29 |       throw new Error('This test requires at least 2 seeded organisations.');\n         |             ^\n      30 |     }\n      31 |     [orgA, orgB] = [orgs[0]!.id, orgs[1]!.id];\n      32 |   });\n\n      at Object.<anonymous> (src/d2c/conversation-config/d2c-conversation-config-concurrency.integration.spec.ts:29:13)\n\n  ● D2C conversation configuration concurrency (real PostgreSQL, genuine concurrent transactions) › a read for Tenant A during a concurrent write storm for Tenant B never observes Tenant B data\n\n    This test requires at least 2 seeded organisations.\n\n      27 |     const orgs = await prisma.organisation.findMany({ take: 2, select: { id: true } });\n      28 |     if (orgs.length < 2) {\n    > 29 |       throw new Error('This test requires at least 2 seeded organisations.');\n         |             ^\n      30 |     }\n      31 |     [orgA, orgB] = [orgs[0]!.id, orgs[1]!.id];\n      32 |   });\n\n      at Object.<anonymous> (src/d2c/conversation-config/d2c-conversation-config-concurrency.integration.spec.ts:29:13)\n\n\n  ● Test suite failed to run\n\n    PrismaClientValidationError: \n    Invalid `prisma.d2CConversationMessageConfig.deleteMany()` invocation in\n    /Users/user/Zentuva--MCOS/apps/api/src/d2c/conversation-config/d2c-conversation-config-concurrency.integration.spec.ts:35:47\n\n      32 });\n      33 \n      34 afterAll(async () => {\n    → 35   await prisma.d2CConversationMessageConfig.deleteMany({\n             where: {\n               organisationId: {\n                 in: [\n                   undefined,\n                   ~~~~~~~~~\n                   undefined\n                 ]\n               }\n             }\n           })\n\n    Invalid value for argument `in[0]`: Can not use `undefined` value within array. Use `null` or filter out `undefined` values.\n\n      at wn (../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client/runtime/library.js:29:1363)\n      at e.throwValidationError (../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client/runtime/library.js:29:10206)\n      at od (../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client/runtime/library.js:29:9323)\n      at sa (../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client/runtime/library.js:29:8075)\n      at aa (../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client/runtime/library.js:29:8908)\n      at sa (../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client/runtime/library.js:29:8439)\n      at aa (../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client/runtime/library.js:29:8908)\n      at sa (../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client/runtime/library.js:29:8439)\n      at aa (../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client/runtime/library.js:29:8908)\n      at mr (../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client/runtime/library.js:29:6037)\n      at vn (../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client/runtime/library.js:29:5902)\n      at ../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client/runtime/library.js:130:10186\n      at Object.runInChildSpan (../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client/runtime/library.js:121:1509)\n      at t._executeRequest (../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client/runtime/library.js:130:10165)\n      at Na (../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client/runtime/library.js:31:9955)\n      at l (../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client/runtime/library.js:130:9639)\n      at ../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client/runtime/library.js:130:9933\n      at ../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client/runtime/library.js:130:9913\n      at Object.runInChildSpan (../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client/runtime/library.js:121:1509)\n      at t._request (../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client/runtime/library.js:130:9836)\n      at s (../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client/runtime/library.js:31:5636)\n      at ../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client/runtime/library.js:31:5864\n      at i (../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client/runtime/library.js:121:1016)\n      at PrismaPromise.then (../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client/runtime/library.js:121:1091)\n",
+      "name": "/Users/user/Zentuva--MCOS/apps/api/src/d2c/conversation-config/d2c-conversation-config-concurrency.integration.spec.ts",
+      "startTime": 1792086727573,
+      "status": "failed",
+      "summary": ""
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [
+            "Stage 4E.4B — Inventory Adjustment Idempotency (real PostgreSQL)",
+            "First adjustment and sequential retry"
+          ],
+          "duration": 30,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Stage 4E.4B — Inventory Adjustment Idempotency (real PostgreSQL) First adjustment and sequential retry a first positive adjustment creates stock and an InventoryTransaction, reporting wasCreated: true",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 4,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "a first positive adjustment creates stock and an InventoryTransaction, reporting wasCreated: true"
+        },
+        {
+          "ancestorTitles": [
+            "Stage 4E.4B — Inventory Adjustment Idempotency (real PostgreSQL)",
+            "First adjustment and sequential retry"
+          ],
+          "duration": 22,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Stage 4E.4B — Inventory Adjustment Idempotency (real PostgreSQL) First adjustment and sequential retry a sequential retry with the same key and identical payload returns the original result without reapplying the delta",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 5,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "a sequential retry with the same key and identical payload returns the original result without reapplying the delta"
+        },
+        {
+          "ancestorTitles": [
+            "Stage 4E.4B — Inventory Adjustment Idempotency (real PostgreSQL)",
+            "First adjustment and sequential retry"
+          ],
+          "duration": 37,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Stage 4E.4B — Inventory Adjustment Idempotency (real PostgreSQL) First adjustment and sequential retry a negative adjustment retried sequentially also applies exactly once",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 3,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "a negative adjustment retried sequentially also applies exactly once"
+        },
+        {
+          "ancestorTitles": [
+            "Stage 4E.4B — Inventory Adjustment Idempotency (real PostgreSQL)",
+            "Conflicting payload"
+          ],
+          "duration": 31,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Stage 4E.4B — Inventory Adjustment Idempotency (real PostgreSQL) Conflicting payload reusing the same key with a different quantity is rejected, not silently treated as a retry",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 3,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "reusing the same key with a different quantity is rejected, not silently treated as a retry"
+        },
+        {
+          "ancestorTitles": [
+            "Stage 4E.4B — Inventory Adjustment Idempotency (real PostgreSQL)",
+            "Conflicting payload"
+          ],
+          "duration": 17,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Stage 4E.4B — Inventory Adjustment Idempotency (real PostgreSQL) Conflicting payload reusing the same key with a different reason is rejected",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 1,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "reusing the same key with a different reason is rejected"
+        },
+        {
+          "ancestorTitles": [
+            "Stage 4E.4B — Inventory Adjustment Idempotency (real PostgreSQL)",
+            "Organisation scoping"
+          ],
+          "duration": 32,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Stage 4E.4B — Inventory Adjustment Idempotency (real PostgreSQL) Organisation scoping the same idempotencyKey is independent across different organisations",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 4,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "the same idempotencyKey is independent across different organisations"
+        },
+        {
+          "ancestorTitles": [
+            "Stage 4E.4B — Inventory Adjustment Idempotency (real PostgreSQL)",
+            "Failed adjustments never consume the key"
+          ],
+          "duration": 89,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Stage 4E.4B — Inventory Adjustment Idempotency (real PostgreSQL) Failed adjustments never consume the key an insufficient-stock failure leaves the key free for a later, valid retry",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 5,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "an insufficient-stock failure leaves the key free for a later, valid retry"
+        },
+        {
+          "ancestorTitles": [
+            "Stage 4E.4B — Inventory Adjustment Idempotency (real PostgreSQL)",
+            "Customer-owned stock"
+          ],
+          "duration": 113,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Stage 4E.4B — Inventory Adjustment Idempotency (real PostgreSQL) Customer-owned stock an idempotent adjustment against an existing CUSTOMER-owned balance preserves ownership/arrangement and applies exactly once",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 6,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "an idempotent adjustment against an existing CUSTOMER-owned balance preserves ownership/arrangement and applies exactly once"
+        },
+        {
+          "ancestorTitles": [
+            "Stage 4E.4B — Inventory Adjustment Idempotency (real PostgreSQL)",
+            "Genuine PostgreSQL concurrency"
+          ],
+          "duration": 143,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Stage 4E.4B — Inventory Adjustment Idempotency (real PostgreSQL) Genuine PostgreSQL concurrency two truly concurrent requests with the same idempotency key apply the stock change exactly once",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 6,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "two truly concurrent requests with the same idempotency key apply the stock change exactly once"
+        },
+        {
+          "ancestorTitles": [
+            "Stage 4E.4B — Inventory Adjustment Idempotency (real PostgreSQL)",
+            "Genuine PostgreSQL concurrency"
+          ],
+          "duration": 241,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Stage 4E.4B — Inventory Adjustment Idempotency (real PostgreSQL) Genuine PostgreSQL concurrency 10 truly concurrent requests with the same idempotency key still apply the stock change exactly once",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 5,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "10 truly concurrent requests with the same idempotency key still apply the stock change exactly once"
+        },
+        {
+          "ancestorTitles": [
+            "Stage 4E.4B — Inventory Adjustment Idempotency (real PostgreSQL)",
+            "Genuine PostgreSQL concurrency"
+          ],
+          "duration": 52,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Stage 4E.4B — Inventory Adjustment Idempotency (real PostgreSQL) Genuine PostgreSQL concurrency concurrent requests with DIFFERENT idempotency keys for the same intended operation are NOT deduplicated (same conventions as a caller never sending a key)",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 3,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "concurrent requests with DIFFERENT idempotency keys for the same intended operation are NOT deduplicated (same conventions as a caller never sending a key)"
+        },
+        {
+          "ancestorTitles": [
+            "Stage 4E.4B — Inventory Adjustment Idempotency (real PostgreSQL)",
+            "Valuation is preserved (moving-average cost untouched by adjustments)"
+          ],
+          "duration": 316,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Stage 4E.4B — Inventory Adjustment Idempotency (real PostgreSQL) Valuation is preserved (moving-average cost untouched by adjustments) averageUnitCost is unaffected by an idempotent adjustment, including on the deduplicated retry",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 4,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "averageUnitCost is unaffected by an idempotent adjustment, including on the deduplicated retry"
+        },
+        {
+          "ancestorTitles": [
+            "Stage 4E.4B — Inventory Adjustment Idempotency (real PostgreSQL)",
+            "Stage 4E.4D — journal posting (real PostgreSQL)"
+          ],
+          "duration": 103,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Stage 4E.4B — Inventory Adjustment Idempotency (real PostgreSQL) Stage 4E.4D — journal posting (real PostgreSQL) commits the stock mutation, the InventoryTransaction, and the JournalEntry atomically",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 9,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "commits the stock mutation, the InventoryTransaction, and the JournalEntry atomically"
+        },
+        {
+          "ancestorTitles": [
+            "Stage 4E.4B — Inventory Adjustment Idempotency (real PostgreSQL)",
+            "Stage 4E.4D — journal posting (real PostgreSQL)"
+          ],
+          "duration": 58,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Stage 4E.4B — Inventory Adjustment Idempotency (real PostgreSQL) Stage 4E.4D — journal posting (real PostgreSQL) rolls back the stock mutation and the InventoryTransaction when the journal cannot be posted (missing system account)",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 4,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "rolls back the stock mutation and the InventoryTransaction when the journal cannot be posted (missing system account)"
+        },
+        {
+          "ancestorTitles": [
+            "Stage 4E.4B — Inventory Adjustment Idempotency (real PostgreSQL)",
+            "Stage 4E.4D — journal posting (real PostgreSQL)"
+          ],
+          "duration": 166,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Stage 4E.4B — Inventory Adjustment Idempotency (real PostgreSQL) Stage 4E.4D — journal posting (real PostgreSQL) two genuinely concurrent identical requests produce exactly one InventoryTransaction and exactly one JournalEntry",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 5,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "two genuinely concurrent identical requests produce exactly one InventoryTransaction and exactly one JournalEntry"
+        },
+        {
+          "ancestorTitles": [
+            "Stage 4E.4B — Inventory Adjustment Idempotency (real PostgreSQL)",
+            "Stage 4E.4D — journal posting (real PostgreSQL)"
+          ],
+          "duration": 105,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Stage 4E.4B — Inventory Adjustment Idempotency (real PostgreSQL) Stage 4E.4D — journal posting (real PostgreSQL) the GL (Finished Goods Inventory) and the inventory valuation move by the same amount for organisation-owned stock",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 2,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "the GL (Finished Goods Inventory) and the inventory valuation move by the same amount for organisation-owned stock"
+        },
+        {
+          "ancestorTitles": [
+            "Stage 4E.4B — Inventory Adjustment Idempotency (real PostgreSQL)",
+            "Stage 4E.4D — journal posting (real PostgreSQL)"
+          ],
+          "duration": 43,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Stage 4E.4B — Inventory Adjustment Idempotency (real PostgreSQL) Stage 4E.4D — journal posting (real PostgreSQL) customer-owned stock stays visible operationally but is excluded from the company-owned valuation",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 3,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "customer-owned stock stays visible operationally but is excluded from the company-owned valuation"
+        },
+        {
+          "ancestorTitles": [
+            "Stage 4E.4B — Inventory Adjustment Idempotency (real PostgreSQL)",
+            "Stage 4E.4D — journal posting (real PostgreSQL)"
+          ],
+          "duration": 47,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Stage 4E.4B — Inventory Adjustment Idempotency (real PostgreSQL) Stage 4E.4D — journal posting (real PostgreSQL) a customer-owned adjustment moves stock but never changes the organisation inventory GL",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 4,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "a customer-owned adjustment moves stock but never changes the organisation inventory GL"
+        },
+        {
+          "ancestorTitles": [
+            "Stage 4E.4B — Inventory Adjustment Idempotency (real PostgreSQL)",
+            "Stage 4E.4D — journal posting (real PostgreSQL)"
+          ],
+          "duration": 163,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Stage 4E.4B — Inventory Adjustment Idempotency (real PostgreSQL) Stage 4E.4D — journal posting (real PostgreSQL) tenant isolation: a value-bearing adjustment posts only to its own organisation's GL, never another tenant's",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 6,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "tenant isolation: a value-bearing adjustment posts only to its own organisation's GL, never another tenant's"
+        }
+      ],
+      "endTime": 1792086721012,
+      "message": "",
+      "name": "/Users/user/Zentuva--MCOS/apps/api/src/inventory/inventory-adjustment-idempotency.integration.spec.ts",
+      "startTime": 1792086718378,
+      "status": "passed",
+      "summary": ""
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [
+            "Phase 2B — Inventory Transfer & Opening Stock (real PostgreSQL)",
+            "Opening stock"
+          ],
+          "duration": 29,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Phase 2B — Inventory Transfer & Opening Stock (real PostgreSQL) Opening stock records a fresh opening balance with ownership/arrangement",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 4,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "records a fresh opening balance with ownership/arrangement"
+        },
+        {
+          "ancestorTitles": [
+            "Phase 2B — Inventory Transfer & Opening Stock (real PostgreSQL)",
+            "Opening stock"
+          ],
+          "duration": 34,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Phase 2B — Inventory Transfer & Opening Stock (real PostgreSQL) Opening stock rejects a second opening-balance attempt for the same (location, product) rather than merging",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 3,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "rejects a second opening-balance attempt for the same (location, product) rather than merging"
+        },
+        {
+          "ancestorTitles": [
+            "Phase 2B — Inventory Transfer & Opening Stock (real PostgreSQL)",
+            "Opening stock"
+          ],
+          "duration": 18,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Phase 2B — Inventory Transfer & Opening Stock (real PostgreSQL) Opening stock a confirmed opening balance of ZERO is distinct from no balance at all",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 2,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "a confirmed opening balance of ZERO is distinct from no balance at all"
+        },
+        {
+          "ancestorTitles": [
+            "Phase 2B — Inventory Transfer & Opening Stock (real PostgreSQL)",
+            "Opening stock"
+          ],
+          "duration": 23,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Phase 2B — Inventory Transfer & Opening Stock (real PostgreSQL) Opening stock concurrent opening-stock submissions for the same location/product: exactly one succeeds, no double count",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 3,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "concurrent opening-stock submissions for the same location/product: exactly one succeeds, no double count"
+        },
+        {
+          "ancestorTitles": [
+            "Phase 2B — Inventory Transfer & Opening Stock (real PostgreSQL)",
+            "Transfers"
+          ],
+          "duration": 46,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Phase 2B — Inventory Transfer & Opening Stock (real PostgreSQL) Transfers moves stock between two valid same-organisation locations, decrementing source and incrementing destination",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 9,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "moves stock between two valid same-organisation locations, decrementing source and incrementing destination"
+        },
+        {
+          "ancestorTitles": [
+            "Phase 2B — Inventory Transfer & Opening Stock (real PostgreSQL)",
+            "Transfers"
+          ],
+          "duration": 37,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Phase 2B — Inventory Transfer & Opening Stock (real PostgreSQL) Transfers retrying the same idempotencyKey does not duplicate the movement",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 5,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "retrying the same idempotencyKey does not duplicate the movement"
+        },
+        {
+          "ancestorTitles": [
+            "Phase 2B — Inventory Transfer & Opening Stock (real PostgreSQL)",
+            "Transfers"
+          ],
+          "duration": 20,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Phase 2B — Inventory Transfer & Opening Stock (real PostgreSQL) Transfers a transfer exceeding available source stock fails and leaves both balances untouched (no partial movement)",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 3,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "a transfer exceeding available source stock fails and leaves both balances untouched (no partial movement)"
+        },
+        {
+          "ancestorTitles": [
+            "Phase 2B — Inventory Transfer & Opening Stock (real PostgreSQL)",
+            "Transfers"
+          ],
+          "duration": 35,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Phase 2B — Inventory Transfer & Opening Stock (real PostgreSQL) Transfers a cross-tenant destination succeeds at the repository layer but never touches the other organisation's stock — proving the SERVICE layer location lookup, not the repository, is the real tenant-isolation boundary",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 4,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "a cross-tenant destination succeeds at the repository layer but never touches the other organisation's stock — proving the SERVICE layer location lookup, not the repository, is the real tenant-isolation boundary"
+        },
+        {
+          "ancestorTitles": [
+            "Phase 2B — Inventory Transfer & Opening Stock (real PostgreSQL)",
+            "Transfers"
+          ],
+          "duration": 28,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Phase 2B — Inventory Transfer & Opening Stock (real PostgreSQL) Transfers rejects a transfer into a destination already holding this product under a different ownership/arrangement, and rolls back the source decrement",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 4,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "rejects a transfer into a destination already holding this product under a different ownership/arrangement, and rolls back the source decrement"
+        },
+        {
+          "ancestorTitles": [
+            "Phase 2B — Inventory Transfer & Opening Stock (real PostgreSQL)",
+            "Transfers"
+          ],
+          "duration": 20,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Phase 2B — Inventory Transfer & Opening Stock (real PostgreSQL) Transfers rejects a transfer that would bring CUSTOMER-owned stock into a WAREHOUSE location that has never held the product before (post-implementation review finding)",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 3,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "rejects a transfer that would bring CUSTOMER-owned stock into a WAREHOUSE location that has never held the product before (post-implementation review finding)"
+        },
+        {
+          "ancestorTitles": [
+            "Phase 2B — Inventory Transfer & Opening Stock (real PostgreSQL)",
+            "Transfers"
+          ],
+          "duration": 33,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Phase 2B — Inventory Transfer & Opening Stock (real PostgreSQL) Transfers concurrent transfers competing for the same limited source stock: the database never oversells",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 3,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "concurrent transfers competing for the same limited source stock: the database never oversells"
+        },
+        {
+          "ancestorTitles": [
+            "Phase 2B — Inventory Transfer & Opening Stock (real PostgreSQL)",
+            "Transfers"
+          ],
+          "duration": 74,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Phase 2B — Inventory Transfer & Opening Stock (real PostgreSQL) Transfers concurrent transfers into the SAME destination from independent sources: no lost update on the destination increment",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 2,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "concurrent transfers into the SAME destination from independent sources: no lost update on the destination increment"
+        },
+        {
+          "ancestorTitles": [
+            "Phase 2B — Inventory Transfer & Opening Stock (real PostgreSQL)",
+            "Reversal"
+          ],
+          "duration": 81,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Phase 2B — Inventory Transfer & Opening Stock (real PostgreSQL) Reversal reverses a COMPLETED transfer: restores source, drains destination, marks the original REVERSED",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 6,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "reverses a COMPLETED transfer: restores source, drains destination, marks the original REVERSED"
+        },
+        {
+          "ancestorTitles": [
+            "Phase 2B — Inventory Transfer & Opening Stock (real PostgreSQL)",
+            "Reversal"
+          ],
+          "duration": 63,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Phase 2B — Inventory Transfer & Opening Stock (real PostgreSQL) Reversal rejects a second reversal attempt (sequential)",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 1,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "rejects a second reversal attempt (sequential)"
+        },
+        {
+          "ancestorTitles": [
+            "Phase 2B — Inventory Transfer & Opening Stock (real PostgreSQL)",
+            "Reversal"
+          ],
+          "duration": 47,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Phase 2B — Inventory Transfer & Opening Stock (real PostgreSQL) Reversal concurrent duplicate reversal attempts: exactly one succeeds",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 2,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "concurrent duplicate reversal attempts: exactly one succeeds"
+        },
+        {
+          "ancestorTitles": [
+            "Phase 2B — Inventory Transfer & Opening Stock (real PostgreSQL)",
+            "Reversal"
+          ],
+          "duration": 32,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Phase 2B — Inventory Transfer & Opening Stock (real PostgreSQL) Reversal a reversal attempt that would oversell the destination (some stock already moved on) fails cleanly, leaving the original COMPLETED",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 2,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "a reversal attempt that would oversell the destination (some stock already moved on) fails cleanly, leaving the original COMPLETED"
+        },
+        {
+          "ancestorTitles": [
+            "Phase 2B — Inventory Transfer & Opening Stock (real PostgreSQL)",
+            "Regression: existing warehouse/B2B operations are unaffected"
+          ],
+          "duration": 6,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Phase 2B — Inventory Transfer & Opening Stock (real PostgreSQL) Regression: existing warehouse/B2B operations are unaffected the seeded Collection Point outlets still share the same Main Warehouse location",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 1,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "the seeded Collection Point outlets still share the same Main Warehouse location"
+        },
+        {
+          "ancestorTitles": [
+            "Phase 2B — Inventory Transfer & Opening Stock (real PostgreSQL)",
+            "Regression: existing warehouse/B2B operations are unaffected"
+          ],
+          "duration": 8,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Phase 2B — Inventory Transfer & Opening Stock (real PostgreSQL) Regression: existing warehouse/B2B operations are unaffected creating a duplicate CUSTOMER_LOCATION for the same outlet is rejected at the database level",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 1,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "creating a duplicate CUSTOMER_LOCATION for the same outlet is rejected at the database level"
+        },
+        {
+          "ancestorTitles": [
+            "Phase 2B — Inventory Transfer & Opening Stock (real PostgreSQL)",
+            "Regression: existing warehouse/B2B operations are unaffected"
+          ],
+          "duration": 13,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Phase 2B — Inventory Transfer & Opening Stock (real PostgreSQL) Regression: existing warehouse/B2B operations are unaffected InventoryValuationService-style aggregation (quantityOnHand * averageUnitCost) still computes structurally across every location, including the new CUSTOMER_LOCATION",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 2,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "InventoryValuationService-style aggregation (quantityOnHand * averageUnitCost) still computes structurally across every location, including the new CUSTOMER_LOCATION"
+        },
+        {
+          "ancestorTitles": [
+            "Phase 2B — Inventory Transfer & Opening Stock (real PostgreSQL)",
+            "Regression: existing warehouse/B2B operations are unaffected"
+          ],
+          "duration": 10,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Phase 2B — Inventory Transfer & Opening Stock (real PostgreSQL) Regression: existing warehouse/B2B operations are unaffected customer-owned opening stock always carries zero averageUnitCost — excluded from company valuation by construction",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 2,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "customer-owned opening stock always carries zero averageUnitCost — excluded from company valuation by construction"
+        },
+        {
+          "ancestorTitles": [
+            "Phase 2B — Inventory Transfer & Opening Stock (real PostgreSQL)",
+            "Location repository: outlet-location lookup (used for duplicate prevention)"
+          ],
+          "duration": 5,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Phase 2B — Inventory Transfer & Opening Stock (real PostgreSQL) Location repository: outlet-location lookup (used for duplicate prevention) findByOutletId finds the disposable location for this outlet",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 1,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "findByOutletId finds the disposable location for this outlet"
+        },
+        {
+          "ancestorTitles": [
+            "Phase 2B — Inventory Transfer & Opening Stock (real PostgreSQL)",
+            "Location repository: outlet-location lookup (used for duplicate prevention)"
+          ],
+          "duration": 5,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Phase 2B — Inventory Transfer & Opening Stock (real PostgreSQL) Location repository: outlet-location lookup (used for duplicate prevention) findByOutletId returns null for an outlet with no dedicated location",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 1,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "findByOutletId returns null for an outlet with no dedicated location"
+        }
+      ],
+      "endTime": 1792086722177,
+      "message": "",
+      "name": "/Users/user/Zentuva--MCOS/apps/api/src/inventory/inventory-transfer.integration.spec.ts",
+      "startTime": 1792086721019,
+      "status": "passed",
+      "summary": ""
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": ["Phase 2C — B2B fulfilment to outlet stock (real PostgreSQL)"],
+          "duration": 176,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Phase 2C — B2B fulfilment to outlet stock (real PostgreSQL) fulfils a B2B order: decrements the warehouse once, posts COGS once, and recognises the SAME quantity as CUSTOMER-owned stock at the outlet — no value created or destroyed",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 13,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "fulfils a B2B order: decrements the warehouse once, posts COGS once, and recognises the SAME quantity as CUSTOMER-owned stock at the outlet — no value created or destroyed"
+        },
+        {
+          "ancestorTitles": ["Phase 2C — B2B fulfilment to outlet stock (real PostgreSQL)"],
+          "duration": 108,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Phase 2C — B2B fulfilment to outlet stock (real PostgreSQL) retrying with the same idempotencyKey does not duplicate the warehouse decrement, outlet delivery, or COGS posting",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 4,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "retrying with the same idempotencyKey does not duplicate the warehouse decrement, outlet delivery, or COGS posting"
+        },
+        {
+          "ancestorTitles": ["Phase 2C — B2B fulfilment to outlet stock (real PostgreSQL)"],
+          "duration": 97,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Phase 2C — B2B fulfilment to outlet stock (real PostgreSQL) a fulfilment with NO reliable destination (no outletId) behaves exactly as pre-Phase-2C: no outlet stock, no DELIVERY row",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 3,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "a fulfilment with NO reliable destination (no outletId) behaves exactly as pre-Phase-2C: no outlet stock, no DELIVERY row"
+        },
+        {
+          "ancestorTitles": ["Phase 2C — B2B fulfilment to outlet stock (real PostgreSQL)"],
+          "duration": 67,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Phase 2C — B2B fulfilment to outlet stock (real PostgreSQL) rejects (and rolls back the warehouse decrement + COGS) when the outlet already holds this product under a different ownership/arrangement",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 3,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "rejects (and rolls back the warehouse decrement + COGS) when the outlet already holds this product under a different ownership/arrangement"
+        },
+        {
+          "ancestorTitles": ["Phase 2C — B2B fulfilment to outlet stock (real PostgreSQL)"],
+          "duration": 134,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Phase 2C — B2B fulfilment to outlet stock (real PostgreSQL) concurrent fulfilment attempts against the same limited warehouse stock: the database never oversells, and the outlet never receives more than what actually left the warehouse",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 3,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "concurrent fulfilment attempts against the same limited warehouse stock: the database never oversells, and the outlet never receives more than what actually left the warehouse"
+        }
+      ],
+      "endTime": 1792086723069,
+      "message": "",
+      "name": "/Users/user/Zentuva--MCOS/apps/api/src/sales/sales-fulfilment-outlet-integration.integration.spec.ts",
+      "startTime": 1792086722181,
+      "status": "passed",
+      "summary": ""
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [
+            "Collection Point Fulfillment Concurrency (real PostgreSQL, genuine concurrent transactions)"
+          ],
+          "duration": 123,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Collection Point Fulfillment Concurrency (real PostgreSQL, genuine concurrent transactions) Scenario A — two concurrent startPreparing-equivalent updateStatus calls (ASSIGNED -> PREPARING): exactly one valid transition",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 2,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "Scenario A — two concurrent startPreparing-equivalent updateStatus calls (ASSIGNED -> PREPARING): exactly one valid transition"
+        },
+        {
+          "ancestorTitles": [
+            "Collection Point Fulfillment Concurrency (real PostgreSQL, genuine concurrent transactions)"
+          ],
+          "duration": 129,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Collection Point Fulfillment Concurrency (real PostgreSQL, genuine concurrent transactions) Scenario B/C — two concurrent markReadyForCollection-equivalent updateStatus calls (PREPARING -> READY_FOR_COLLECTION): exactly one authoritative READY state",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 2,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "Scenario B/C — two concurrent markReadyForCollection-equivalent updateStatus calls (PREPARING -> READY_FOR_COLLECTION): exactly one authoritative READY state"
+        },
+        {
+          "ancestorTitles": [
+            "Collection Point Fulfillment Concurrency (real PostgreSQL, genuine concurrent transactions)"
+          ],
+          "duration": 70,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Collection Point Fulfillment Concurrency (real PostgreSQL, genuine concurrent transactions) Scenario C — five concurrent confirmCollection-equivalent updateStatus calls (READY_FOR_COLLECTION -> COLLECTED): exactly one collection event",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 3,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "Scenario C — five concurrent confirmCollection-equivalent updateStatus calls (READY_FOR_COLLECTION -> COLLECTED): exactly one collection event"
+        },
+        {
+          "ancestorTitles": [
+            "Collection Point Fulfillment Concurrency (real PostgreSQL, genuine concurrent transactions)"
+          ],
+          "duration": 78,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Collection Point Fulfillment Concurrency (real PostgreSQL, genuine concurrent transactions) Scenario D — two concurrent reassignment attempts to DIFFERENT outlets: no corrupted assignment, exactly one wins",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 3,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "Scenario D — two concurrent reassignment attempts to DIFFERENT outlets: no corrupted assignment, exactly one wins"
+        }
+      ],
+      "endTime": 1792086723755,
+      "message": "",
+      "name": "/Users/user/Zentuva--MCOS/apps/api/src/d2c/fulfillment/collection-point-fulfillment-concurrency.integration.spec.ts",
+      "startTime": 1792086723073,
+      "status": "passed",
+      "summary": ""
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [
+            "Promotions & Loyalty Concurrency (real PostgreSQL, genuine concurrent transactions)"
+          ],
+          "duration": 79,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Promotions & Loyalty Concurrency (real PostgreSQL, genuine concurrent transactions) First-order reward race: two concurrent qualifying events for the SAME consumer+promotion produce exactly one grant and exactly one points award",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 6,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "First-order reward race: two concurrent qualifying events for the SAME consumer+promotion produce exactly one grant and exactly one points award"
+        },
+        {
+          "ancestorTitles": [
+            "Promotions & Loyalty Concurrency (real PostgreSQL, genuine concurrent transactions)"
+          ],
+          "duration": 81,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Promotions & Loyalty Concurrency (real PostgreSQL, genuine concurrent transactions) Promotion grant limit race: five concurrent qualifying attempts for the same consumer+promotion never exceed the once-per-consumer limit",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 3,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "Promotion grant limit race: five concurrent qualifying attempts for the same consumer+promotion never exceed the once-per-consumer limit"
+        },
+        {
+          "ancestorTitles": [
+            "Promotions & Loyalty Concurrency (real PostgreSQL, genuine concurrent transactions)"
+          ],
+          "duration": 35,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Promotions & Loyalty Concurrency (real PostgreSQL, genuine concurrent transactions) Adjustment race (credits): five concurrent +50 adjustments against a fresh account all apply — final balance is 250",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 3,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "Adjustment race (credits): five concurrent +50 adjustments against a fresh account all apply — final balance is 250"
+        },
+        {
+          "ancestorTitles": [
+            "Promotions & Loyalty Concurrency (real PostgreSQL, genuine concurrent transactions)"
+          ],
+          "duration": 30,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Promotions & Loyalty Concurrency (real PostgreSQL, genuine concurrent transactions) Adjustment race (debits): five concurrent -30 adjustments against a balance of 100 never go negative",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 4,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "Adjustment race (debits): five concurrent -30 adjustments against a balance of 100 never go negative"
+        },
+        {
+          "ancestorTitles": [
+            "Promotions & Loyalty Concurrency (real PostgreSQL, genuine concurrent transactions)"
+          ],
+          "duration": 8,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Promotions & Loyalty Concurrency (real PostgreSQL, genuine concurrent transactions) a debit against a non-existent loyalty account is rejected cleanly, never creating a negative-balance account",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 2,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "a debit against a non-existent loyalty account is rejected cleanly, never creating a negative-balance account"
+        }
+      ],
+      "endTime": 1792086724301,
+      "message": "",
+      "name": "/Users/user/Zentuva--MCOS/apps/api/src/promotions/promotions-concurrency.integration.spec.ts",
+      "startTime": 1792086723760,
+      "status": "passed",
+      "summary": ""
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [
+            "ConsumerWhatsAppDelivery retry concurrency (real PostgreSQL, genuine concurrent transactions)"
+          ],
+          "duration": 64,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "ConsumerWhatsAppDelivery retry concurrency (real PostgreSQL, genuine concurrent transactions) Scenario — five concurrent retry claims for the SAME failed delivery: exactly one winner",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 2,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "Scenario — five concurrent retry claims for the SAME failed delivery: exactly one winner"
+        },
+        {
+          "ancestorTitles": [
+            "ConsumerWhatsAppDelivery retry concurrency (real PostgreSQL, genuine concurrent transactions)"
+          ],
+          "duration": 26,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "ConsumerWhatsAppDelivery retry concurrency (real PostgreSQL, genuine concurrent transactions) a second claim attempt after the first already won sees zero rows matched (no double-claim)",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 2,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "a second claim attempt after the first already won sees zero rows matched (no double-claim)"
+        },
+        {
+          "ancestorTitles": [
+            "ConsumerWhatsAppDelivery retry concurrency (real PostgreSQL, genuine concurrent transactions)"
+          ],
+          "duration": 20,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "ConsumerWhatsAppDelivery retry concurrency (real PostgreSQL, genuine concurrent transactions) markSent/markFailed never create a second row — the SAME delivery id is updated in place regardless of how many attempts occurred",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 1,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "markSent/markFailed never create a second row — the SAME delivery id is updated in place regardless of how many attempts occurred"
+        },
+        {
+          "ancestorTitles": [
+            "ConsumerWhatsAppDelivery retry concurrency (real PostgreSQL, genuine concurrent transactions)"
+          ],
+          "duration": 21,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "ConsumerWhatsAppDelivery retry concurrency (real PostgreSQL, genuine concurrent transactions) a delivery is invisible and unclaimable from a different organisation, even with the correct id",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 3,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "a delivery is invisible and unclaimable from a different organisation, even with the correct id"
+        }
+      ],
+      "endTime": 1792086724848,
+      "message": "",
+      "name": "/Users/user/Zentuva--MCOS/apps/api/src/d2c/messaging/consumer-whatsapp-delivery-concurrency.integration.spec.ts",
+      "startTime": 1792086724305,
+      "status": "passed",
+      "summary": ""
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": ["Test database isolation — safety regression scenarios"],
+          "duration": 21,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Test database isolation — safety regression scenarios Scenario 1 — connects to, and can read/write, the verified isolated test database",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 3,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "Scenario 1 — connects to, and can read/write, the verified isolated test database"
+        },
+        {
+          "ancestorTitles": ["Test database isolation — safety regression scenarios"],
+          "duration": 10,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Test database isolation — safety regression scenarios Scenario 5 — the connected test role has no elevated privileges, and Postgres itself rejects a privileged operation",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 6,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "Scenario 5 — the connected test role has no elevated privileges, and Postgres itself rejects a privileged operation"
+        },
+        {
+          "ancestorTitles": ["Test database isolation — safety regression scenarios"],
+          "duration": 27,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Test database isolation — safety regression scenarios Scenario 6 — scoped cleanup removes only test-owned records and leaves an unrelated fixture untouched",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 3,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "Scenario 6 — scoped cleanup removes only test-owned records and leaves an unrelated fixture untouched"
+        },
+        {
+          "ancestorTitles": ["Test database isolation — safety regression scenarios"],
+          "duration": 22,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Test database isolation — safety regression scenarios Scenario 7 — a financial record outside the intended cleanup scope is completely unchanged afterward",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 1,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "Scenario 7 — a financial record outside the intended cleanup scope is completely unchanged afterward"
+        },
+        {
+          "ancestorTitles": ["Test database isolation — safety regression scenarios"],
+          "duration": 16,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Test database isolation — safety regression scenarios Scenario 8 — the original bare sourceType-only filter would have deleted an unrelated entry; the repaired scoped filter does not",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 2,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "Scenario 8 — the original bare sourceType-only filter would have deleted an unrelated entry; the repaired scoped filter does not"
+        }
+      ],
+      "endTime": 1792086725332,
+      "message": "",
+      "name": "/Users/user/Zentuva--MCOS/apps/api/src/testing/db-isolation-safety.integration.spec.ts",
+      "startTime": 1792086724852,
+      "status": "passed",
+      "summary": ""
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [
+            "Inventory Stock Concurrency (real PostgreSQL, genuine concurrent transactions)"
+          ],
+          "duration": 15,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Inventory Stock Concurrency (real PostgreSQL, genuine concurrent transactions) Test A: two concurrent 15-unit decrements against 23 in stock — exactly 1 succeeds, exactly 1 fails, no lost update",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 4,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "Test A: two concurrent 15-unit decrements against 23 in stock — exactly 1 succeeds, exactly 1 fails, no lost update"
+        },
+        {
+          "ancestorTitles": [
+            "Inventory Stock Concurrency (real PostgreSQL, genuine concurrent transactions)"
+          ],
+          "duration": 12,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Inventory Stock Concurrency (real PostgreSQL, genuine concurrent transactions) Test B: two concurrent 15-unit decrements against exactly 30 in stock — both succeed, final quantity is 0",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 2,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "Test B: two concurrent 15-unit decrements against exactly 30 in stock — both succeed, final quantity is 0"
+        },
+        {
+          "ancestorTitles": [
+            "Inventory Stock Concurrency (real PostgreSQL, genuine concurrent transactions)"
+          ],
+          "duration": 27,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Inventory Stock Concurrency (real PostgreSQL, genuine concurrent transactions) Test C: three concurrent 15-unit decrements against 30 in stock — exactly 2 succeed, exactly 1 fails, final quantity is 0",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 3,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "Test C: three concurrent 15-unit decrements against 30 in stock — exactly 2 succeed, exactly 1 fails, final quantity is 0"
+        },
+        {
+          "ancestorTitles": [
+            "Inventory Stock Concurrency (real PostgreSQL, genuine concurrent transactions)"
+          ],
+          "duration": 9,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Inventory Stock Concurrency (real PostgreSQL, genuine concurrent transactions) Test D: a single 15-unit decrement against only 10 in stock fails cleanly, stock unchanged",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 2,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "Test D: a single 15-unit decrement against only 10 in stock fails cleanly, stock unchanged"
+        },
+        {
+          "ancestorTitles": [
+            "Inventory Stock Concurrency (real PostgreSQL, genuine concurrent transactions)"
+          ],
+          "duration": 53,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Inventory Stock Concurrency (real PostgreSQL, genuine concurrent transactions) Stress: 10 concurrent 15-unit decrements against 100 in stock — successes exhaust stock exactly, never negative",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 5,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "Stress: 10 concurrent 15-unit decrements against 100 in stock — successes exhaust stock exactly, never negative"
+        },
+        {
+          "ancestorTitles": [
+            "Inventory Stock Concurrency (real PostgreSQL, genuine concurrent transactions)"
+          ],
+          "duration": 21,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Inventory Stock Concurrency (real PostgreSQL, genuine concurrent transactions) applyStockAdjustmentIfNonNegative: 5 concurrent -30 adjustments against 100 in stock never go negative",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 3,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "applyStockAdjustmentIfNonNegative: 5 concurrent -30 adjustments against 100 in stock never go negative"
+        },
+        {
+          "ancestorTitles": [
+            "Inventory Stock Concurrency (real PostgreSQL, genuine concurrent transactions)"
+          ],
+          "duration": 21,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Inventory Stock Concurrency (real PostgreSQL, genuine concurrent transactions) Test F: a mid-transaction failure rolls back an earlier, already-applied decrement in the same transaction",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 3,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "Test F: a mid-transaction failure rolls back an earlier, already-applied decrement in the same transaction"
+        }
+      ],
+      "endTime": 1792086725777,
+      "message": "",
+      "name": "/Users/user/Zentuva--MCOS/apps/api/src/inventory/inventory-stock-concurrency.integration.spec.ts",
+      "startTime": 1792086725339,
+      "status": "passed",
+      "summary": ""
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [
+            "Customer Account & Statement — reconciliation + tenant isolation (real PostgreSQL)"
+          ],
+          "duration": 58,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Customer Account & Statement — reconciliation + tenant isolation (real PostgreSQL) Customer Statement closing balance reconciles exactly with AccountsReceivableService.getCustomerBalance()",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 3,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "Customer Statement closing balance reconciles exactly with AccountsReceivableService.getCustomerBalance()"
+        },
+        {
+          "ancestorTitles": [
+            "Customer Account & Statement — reconciliation + tenant isolation (real PostgreSQL)"
+          ],
+          "duration": 18,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Customer Account & Statement — reconciliation + tenant isolation (real PostgreSQL) Customer Statement opening balance (asOf 2000-01-01, before any real seed data) is zero",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 1,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "Customer Statement opening balance (asOf 2000-01-01, before any real seed data) is zero"
+        },
+        {
+          "ancestorTitles": [
+            "Customer Account & Statement — reconciliation + tenant isolation (real PostgreSQL)"
+          ],
+          "duration": 47,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Customer Account & Statement — reconciliation + tenant isolation (real PostgreSQL) Customer Account Overview receivable figure matches the same authoritative AR balance",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 2,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "Customer Account Overview receivable figure matches the same authoritative AR balance"
+        },
+        {
+          "ancestorTitles": [
+            "Customer Account & Statement — reconciliation + tenant isolation (real PostgreSQL)"
+          ],
+          "duration": 30,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Customer Account & Statement — reconciliation + tenant isolation (real PostgreSQL) Outstanding invoices list total matches the authoritative outstanding balance",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 1,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "Outstanding invoices list total matches the authoritative outstanding balance"
+        },
+        {
+          "ancestorTitles": [
+            "Customer Account & Statement — reconciliation + tenant isolation (real PostgreSQL)"
+          ],
+          "duration": 6,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Customer Account & Statement — reconciliation + tenant isolation (real PostgreSQL) a cross-tenant customerId never leaks data — getOverview returns null",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 0,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "a cross-tenant customerId never leaks data — getOverview returns null"
+        },
+        {
+          "ancestorTitles": [
+            "Customer Account & Statement — reconciliation + tenant isolation (real PostgreSQL)"
+          ],
+          "duration": 0,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Customer Account & Statement — reconciliation + tenant isolation (real PostgreSQL) a cross-tenant customerId never leaks data — getStatement returns null",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 0,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "a cross-tenant customerId never leaks data — getStatement returns null"
+        }
+      ],
+      "endTime": 1792086726190,
+      "message": "",
+      "name": "/Users/user/Zentuva--MCOS/apps/api/src/reporting/reports/customer-account-reconciliation.integration.spec.ts",
+      "startTime": 1792086725784,
+      "status": "passed",
+      "summary": ""
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [
+            "Payment allocation concurrency (real PostgreSQL, genuine concurrent transactions)"
+          ],
+          "duration": 132,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Payment allocation concurrency (real PostgreSQL, genuine concurrent transactions) two concurrent payments that together exceed the outstanding balance never both succeed",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 4,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "two concurrent payments that together exceed the outstanding balance never both succeed"
+        }
+      ],
+      "endTime": 1792086726605,
+      "message": "",
+      "name": "/Users/user/Zentuva--MCOS/apps/api/src/finance/payment-allocation-concurrency.integration.spec.ts",
+      "startTime": 1792086726207,
+      "status": "passed",
+      "summary": ""
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [
+            "D2C Order Confirmation Concurrency (real PostgreSQL, genuine concurrent transactions)"
+          ],
+          "duration": 93,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "D2C Order Confirmation Concurrency (real PostgreSQL, genuine concurrent transactions) 5 genuinely concurrent confirmOrder calls with the SAME idempotencyKey create exactly ONE SalesOrder",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 6,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "5 genuinely concurrent confirmOrder calls with the SAME idempotencyKey create exactly ONE SalesOrder"
+        },
+        {
+          "ancestorTitles": [
+            "D2C Order Confirmation Concurrency (real PostgreSQL, genuine concurrent transactions)"
+          ],
+          "duration": 54,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "D2C Order Confirmation Concurrency (real PostgreSQL, genuine concurrent transactions) a DIFFERENT idempotencyKey for the same consumer/cart creates a genuinely separate order — the guarantee is per-checkout, never per-consumer",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 3,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "a DIFFERENT idempotencyKey for the same consumer/cart creates a genuinely separate order — the guarantee is per-checkout, never per-consumer"
+        }
+      ],
+      "endTime": 1792086727047,
+      "message": "",
+      "name": "/Users/user/Zentuva--MCOS/apps/api/src/d2c/ordering/d2c-ordering-concurrency.integration.spec.ts",
+      "startTime": 1792086726609,
+      "status": "passed",
+      "summary": ""
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [
+            "WhatsApp webhook event dedup concurrency (real PostgreSQL, genuine concurrent transactions)"
+          ],
+          "duration": 65,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "WhatsApp webhook event dedup concurrency (real PostgreSQL, genuine concurrent transactions) 10 genuinely concurrent tryClaim calls for the SAME externalMessageId (a replayed/redelivered webhook) resolve to exactly one winner",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 3,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "10 genuinely concurrent tryClaim calls for the SAME externalMessageId (a replayed/redelivered webhook) resolve to exactly one winner"
+        },
+        {
+          "ancestorTitles": [
+            "WhatsApp webhook event dedup concurrency (real PostgreSQL, genuine concurrent transactions)"
+          ],
+          "duration": 5,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "WhatsApp webhook event dedup concurrency (real PostgreSQL, genuine concurrent transactions) two concurrent STATUS_UPDATE claims for the SAME composite id+status key also resolve to exactly one winner",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 3,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "two concurrent STATUS_UPDATE claims for the SAME composite id+status key also resolve to exactly one winner"
+        },
+        {
+          "ancestorTitles": [
+            "WhatsApp webhook event dedup concurrency (real PostgreSQL, genuine concurrent transactions)"
+          ],
+          "duration": 5,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "WhatsApp webhook event dedup concurrency (real PostgreSQL, genuine concurrent transactions) two DIFFERENT externalMessageIds claimed concurrently never collide with each other",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 3,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "two DIFFERENT externalMessageIds claimed concurrently never collide with each other"
+        }
+      ],
+      "endTime": 1792086727324,
+      "message": "",
+      "name": "/Users/user/Zentuva--MCOS/apps/api/src/d2c/whatsapp/whatsapp-webhook-event-concurrency.integration.spec.ts",
+      "startTime": 1792086727050,
+      "status": "passed",
+      "summary": ""
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [
+            "Phase 2A — Inventory Location & Ownership Foundation migration (real PostgreSQL)"
+          ],
+          "duration": 4,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Phase 2A — Inventory Location & Ownership Foundation migration (real PostgreSQL) every existing InventoryLocation defaulted to WAREHOUSE with no outlet association",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 5,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "every existing InventoryLocation defaulted to WAREHOUSE with no outlet association"
+        },
+        {
+          "ancestorTitles": [
+            "Phase 2A — Inventory Location & Ownership Foundation migration (real PostgreSQL)"
+          ],
+          "duration": 4,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Phase 2A — Inventory Location & Ownership Foundation migration (real PostgreSQL) every existing InventoryStock row defaulted to ORGANISATION ownership / WHOLESALE arrangement",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 17,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "every existing InventoryStock row defaulted to ORGANISATION ownership / WHOLESALE arrangement"
+        },
+        {
+          "ancestorTitles": [
+            "Phase 2A — Inventory Location & Ownership Foundation migration (real PostgreSQL)"
+          ],
+          "duration": 6,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Phase 2A — Inventory Location & Ownership Foundation migration (real PostgreSQL) the seeded Collection Point outlets’ inventoryLocationId assignments are unchanged",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 2,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "the seeded Collection Point outlets’ inventoryLocationId assignments are unchanged"
+        },
+        {
+          "ancestorTitles": [
+            "Phase 2A — Inventory Location & Ownership Foundation migration (real PostgreSQL)"
+          ],
+          "duration": 2,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Phase 2A — Inventory Location & Ownership Foundation migration (real PostgreSQL) InventoryValuationService’s total (quantityOnHand * averageUnitCost) is unaffected by the new columns",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 2,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "InventoryValuationService’s total (quantityOnHand * averageUnitCost) is unaffected by the new columns"
+        },
+        {
+          "ancestorTitles": [
+            "Phase 2A — Inventory Location & Ownership Foundation migration (real PostgreSQL)"
+          ],
+          "duration": 9,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Phase 2A — Inventory Location & Ownership Foundation migration (real PostgreSQL) the database CHECK constraint rejects a WAREHOUSE location with an outletId — the true authority behind the Zod-layer rule",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 1,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "the database CHECK constraint rejects a WAREHOUSE location with an outletId — the true authority behind the Zod-layer rule"
+        },
+        {
+          "ancestorTitles": [
+            "Phase 2A — Inventory Location & Ownership Foundation migration (real PostgreSQL)"
+          ],
+          "duration": 4,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Phase 2A — Inventory Location & Ownership Foundation migration (real PostgreSQL) the database CHECK constraint rejects a CUSTOMER_LOCATION with no outletId",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 1,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "the database CHECK constraint rejects a CUSTOMER_LOCATION with no outletId"
+        },
+        {
+          "ancestorTitles": [
+            "Phase 2A — Inventory Location & Ownership Foundation migration (real PostgreSQL)"
+          ],
+          "duration": 25,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Phase 2A — Inventory Location & Ownership Foundation migration (real PostgreSQL) a valid CUSTOMER_LOCATION + outletId combination succeeds and is cleanly reversible, with zero GL/stock side effects",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 4,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "a valid CUSTOMER_LOCATION + outletId combination succeeds and is cleanly reversible, with zero GL/stock side effects"
+        },
+        {
+          "ancestorTitles": [
+            "Phase 2A — Inventory Location & Ownership Foundation migration (real PostgreSQL)"
+          ],
+          "duration": 4,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "Phase 2A — Inventory Location & Ownership Foundation migration (real PostgreSQL) documents that the raw FK constraint alone does NOT enforce tenant isolation — the service-layer outletExists() check is the real guard",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 0,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "documents that the raw FK constraint alone does NOT enforce tenant isolation — the service-layer outletExists() check is the real guard"
+        }
+      ],
+      "endTime": 1792086727565,
+      "message": "",
+      "name": "/Users/user/Zentuva--MCOS/apps/api/src/inventory/inventory-location-ownership-foundation.integration.spec.ts",
+      "startTime": 1792086727327,
+      "status": "passed",
+      "summary": ""
+    }
+  ],
+  "wasInterrupted": false
+}

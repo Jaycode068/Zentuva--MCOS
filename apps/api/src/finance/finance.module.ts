@@ -48,6 +48,7 @@ import { InventoryValuationController } from './reports/inventory-valuation.cont
 import { InventoryValuationService } from './reports/inventory-valuation.service';
 import { ReconciliationController } from './reports/reconciliation.controller';
 import { ReconciliationService } from './reports/reconciliation.service';
+import { PayablesReconciliationService } from './reports/payables-reconciliation.service';
 import { RevenueCogsController } from './reports/revenue-cogs.controller';
 import { RevenueCogsService } from './reports/revenue-cogs.service';
 import { BankReconciliationController } from './cash/bank-reconciliation.controller';
@@ -311,6 +312,7 @@ import { DecisionScenarioService } from './decision/decision-scenario.service';
     FinancialStatementService,
     InventoryValuationService,
     ReconciliationService,
+    PayablesReconciliationService,
     RevenueCogsService,
     DashboardService,
     CashAccountRepository,

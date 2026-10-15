@@ -197,6 +197,11 @@ export const createInventoryAdjustmentSchema = z.object({
   quantity: z.number().refine((value) => value !== 0, 'Adjustment quantity cannot be zero'),
   reason: adjustmentReasonSchema,
   notes: z.string().trim().max(2000).optional(),
+  /** Added Stage 4E.4B — same optional, client-supplied double-submit protection every
+   *  sibling mutation already has (`idempotencyKey` above). A caller that never sends
+   *  one is never blocked; a retried request with the same key returns the original
+   *  result instead of applying the delta again. */
+  idempotencyKey: z.string().trim().min(1).optional(),
 });
 export type CreateInventoryAdjustmentInput = z.infer<typeof createInventoryAdjustmentSchema>;
 

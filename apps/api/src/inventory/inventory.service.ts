@@ -37,6 +37,7 @@ import {
 } from './goods-receipt.repository';
 import { InventoryLocationRepository } from './inventory-location.repository';
 import {
+  AdjustmentIdempotencyKeyConflictError,
   InventoryStockRepository,
   ListInventoryStockParams,
   NegativeStockError,
@@ -173,6 +174,16 @@ export interface StockAdjustmentResult {
   previousQuantity: number;
   newQuantity: number;
   transactionId: string;
+  /** Added Stage 4E.4B — `false` when `input.idempotencyKey` matched an already-
+   *  committed adjustment and this call resolved to that prior result instead of
+   *  applying a new stock change; same convention as `CreateTransferResult.wasCreated`.
+   *  Always `true` when no `idempotencyKey` was supplied. */
+  wasCreated: boolean;
+  /** Added Stage 4E.4D — the posted `JournalEntry.id`, or `null` when this adjustment
+   *  was not value-bearing (zero cost, or `CUSTOMER`-owned stock — see
+   *  `InventoryStockRepository.adjustStock`'s own doc comment for the full rule). A
+   *  retry returns the same id the original request got, never a second entry. */
+  journalEntryId: string | null;
 }
 
 /** Added Phase 2B — Customer Outlet Stock Tracking & Transfers. */
@@ -594,7 +605,6 @@ export class InventoryService {
       input.productId,
       location.id,
     );
-    const previousQuantity = existing?.quantityOnHand ?? 0;
 
     // Added during the Phase 2B post-implementation review (found alongside
     // `WarehouseOwnershipViolationError`): without this check, this generic
@@ -624,19 +634,43 @@ export class InventoryService {
         reason: input.reason,
         notes: input.notes,
         createdById: actorUserId,
+        idempotencyKey: input.idempotencyKey,
       });
+      // Reported from `result` (the actual committed row), not from `input` — on a
+      // retry (`wasCreated: false`) this is the ORIGINAL request's own recorded
+      // quantity/reason, same "report what actually happened, not what this call
+      // asked for" convention `createTransfer` already follows for its own retries.
+      // `previousQuantity` is derived rather than reused from the pre-read above
+      // because that pre-read reflects the balance BEFORE *this call* only — on a
+      // retry it already includes the original adjustment, which would make
+      // `previousQuantity === newQuantity` and hide that a change ever happened.
       return {
         productId: product.id,
         product: { id: product.id, code: product.code, name: product.name, unit: product.unit },
         location: { id: location.id, name: location.name },
-        reason: input.reason,
-        quantityDelta: input.quantity,
-        previousQuantity,
+        reason: result.transaction.adjustmentReason ?? input.reason,
+        quantityDelta: result.transaction.quantity,
+        previousQuantity: result.stock.quantityOnHand - result.transaction.quantity,
         newQuantity: result.stock.quantityOnHand,
         transactionId: result.transaction.id,
+        wasCreated: result.wasCreated,
+        journalEntryId: result.journalEntryId,
       };
     } catch (error) {
       if (error instanceof NegativeStockError) {
+        throw new BadRequestException(error.message);
+      }
+      if (error instanceof AdjustmentIdempotencyKeyConflictError) {
+        throw new BadRequestException(error.message);
+      }
+      // Stage 4E.4D — the accounting posting's own guards, propagated from inside the
+      // same transaction (see `InventoryStockRepository.adjustStock`) — the whole
+      // adjustment rolls back with it, same convention `receiveGoods` already uses for
+      // these same two errors.
+      if (error instanceof NoOpenPeriodError) {
+        throw new BadRequestException(error.message);
+      }
+      if (error instanceof MissingSystemAccountError) {
         throw new BadRequestException(error.message);
       }
       throw error;
